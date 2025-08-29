@@ -1,0 +1,208 @@
+// api-services/src/services/UserService.ts
+import { DatabaseService } from './DatabaseService';
+import bcrypt from 'bcryptjs';
+import { logger } from '../utils/logger';
+
+export interface CreateUserRequest {
+  username: string;
+  email: string;
+  password: string;
+  first_name: string;
+  last_name: string;
+  role_ids?: string[];
+}
+
+export class UserService {
+  private db: DatabaseService;
+
+  constructor() {
+    this.db = new DatabaseService();
+  }
+
+  async getUsers(workspaceId: string, options: { page: number; limit: number; search?: string }) {
+    try {
+      const offset = (options.page - 1) * options.limit;
+      let whereClause = 'WHERE ura.workspace_id = $1 AND u.is_active = true';
+      const params: any[] = [workspaceId];
+      let paramIndex = 2;
+
+      if (options.search) {
+        whereClause += ` AND (u.username ILIKE $${paramIndex} OR u.email ILIKE $${paramIndex} OR u.first_name ILIKE $${paramIndex} OR u.last_name ILIKE $${paramIndex})`;
+        params.push(`%${options.search}%`);
+        paramIndex++;
+      }
+
+      const query = `
+        SELECT DISTINCT u.id, u.username, u.email, u.first_name, u.last_name, u.avatar_url, u.last_login, u.created_at,
+               array_agg(DISTINCT cr.name) as roles
+        FROM users u
+        JOIN user_role_assignments ura ON u.id = ura.user_id
+        JOIN custom_roles cr ON ura.role_id = cr.id
+        ${whereClause}
+        GROUP BY u.id, u.username, u.email, u.first_name, u.last_name, u.avatar_url, u.last_login, u.created_at
+        ORDER BY u.created_at DESC
+        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+      `;
+
+      params.push(options.limit, offset);
+
+      const result = await this.db.query(query, params);
+
+      // Get total count
+      const countQuery = `
+        SELECT COUNT(DISTINCT u.id) as total
+        FROM users u
+        JOIN user_role_assignments ura ON u.id = ura.user_id
+        ${whereClause}
+      `;
+
+      const countResult = await this.db.query(countQuery, params.slice(0, -2));
+      const total = parseInt(countResult.rows[0].total);
+
+      return {
+        users: result.rows,
+        page: options.page,
+        limit: options.limit,
+        total,
+        pages: Math.ceil(total / options.limit)
+      };
+    } catch (error) {
+      logger.error('Get users service error:', error);
+      throw error;
+    }
+  }
+
+  async createUser(userData: CreateUserRequest, workspaceId: string, createdBy: string): Promise<any> {
+    try {
+      return await this.db.transaction(async (client) => {
+        // Check if username or email already exists
+        const existingUser = await client.query(
+          'SELECT id FROM users WHERE username = $1 OR email = $2',
+          [userData.username, userData.email]
+        );
+
+        if (existingUser.rows.length > 0) {
+          throw new Error('Username or email already exists');
+        }
+
+        // Hash password
+        const passwordHash = await bcrypt.hash(userData.password, 10);
+
+        // Create user
+        const userResult = await client.query(`
+          INSERT INTO users (username, email, password_hash, first_name, last_name)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id, username, email, first_name, last_name, created_at
+        `, [
+          userData.username,
+          userData.email,
+          passwordHash,
+          userData.first_name,
+          userData.last_name
+        ]);
+
+        const user = userResult.rows[0];
+
+        // Assign roles if provided, otherwise assign default Reader role
+        const roleIds = userData.role_ids && userData.role_ids.length > 0 
+          ? userData.role_ids 
+          : await this.getDefaultReaderRoleId(workspaceId, client);
+
+        for (const roleId of roleIds) {
+          await client.query(`
+            INSERT INTO user_role_assignments (user_id, workspace_id, role_id, assigned_by)
+            VALUES ($1, $2, $3, $4)
+          `, [user.id, workspaceId, roleId, createdBy]);
+        }
+
+        return user;
+      });
+    } catch (error) {
+      logger.error('Create user service error:', error);
+      throw error;
+    }
+  }
+
+  async updateUser(userId: string, updates: any, updatedBy: string): Promise<any> {
+    try {
+      const setClause: string[] = [];
+      const values: any[] = [userId];
+      let paramIndex = 2;
+
+      const updatableFields = ['email', 'first_name', 'last_name', 'avatar_url', 'preferences'];
+      
+      updatableFields.forEach(field => {
+        if (updates[field] !== undefined) {
+          setClause.push(`${field} = $${paramIndex++}`);
+          const value = typeof updates[field] === 'object' ? 
+            JSON.stringify(updates[field]) : updates[field];
+          values.push(value);
+        }
+      });
+
+      // Handle password update separately
+      if (updates.password) {
+        const passwordHash = await bcrypt.hash(updates.password, 10);
+        setClause.push(`password_hash = $${paramIndex++}`);
+        values.push(passwordHash);
+      }
+
+      if (setClause.length === 0) {
+        throw new Error('No valid fields to update');
+      }
+
+      setClause.push('updated_at = CURRENT_TIMESTAMP');
+
+      const result = await this.db.query(`
+        UPDATE users
+        SET ${setClause.join(', ')}
+        WHERE id = $1 AND is_active = true
+        RETURNING id, username, email, first_name, last_name, avatar_url, preferences, updated_at
+      `, values);
+
+      if (result.rows.length === 0) {
+        throw new Error('User not found');
+      }
+
+      return result.rows[0];
+    } catch (error) {
+      logger.error('Update user service error:', error);
+      throw error;
+    }
+  }
+
+  async deleteUser(userId: string, deletedBy: string): Promise<void> {
+    try {
+      // Soft delete user
+      const result = await this.db.query(`
+        UPDATE users
+        SET is_active = false, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND is_active = true
+      `, [userId]);
+
+      if (result.rowCount === 0) {
+        throw new Error('User not found');
+      }
+
+      // Deactivate role assignments
+      await this.db.query(`
+        UPDATE user_role_assignments
+        SET is_active = false
+        WHERE user_id = $1
+      `, [userId]);
+    } catch (error) {
+      logger.error('Delete user service error:', error);
+      throw error;
+    }
+  }
+
+  private async getDefaultReaderRoleId(workspaceId: string, client?: any): Promise<string[]> {
+    const dbClient = client || this.db;
+    const result = await dbClient.query(
+      'SELECT id FROM custom_roles WHERE workspace_id = $1 AND name = $2 AND is_system_role = true',
+      [workspaceId, 'Reader']
+    );
+    
+    return result.rows.length > 0 ? [result.rows[0].id] : [];
+  }
+}
