@@ -1,39 +1,38 @@
 // File: web-application/src/components/charts/factory/ChartFactory.tsx
+import React from 'react';
+import { ChartRegistry } from '../registry/ChartRegistry';
+import { ChartProps } from '../interfaces';
 
-import React, { useMemo } from 'react';
-import { ChartPluginConfig, ChartProps } from '../interfaces/ChartPlugin';
-import { getChartPlugin } from '../registry/ChartRegistry';
-
-export interface ChartFactoryProps extends ChartProps {
-  pluginName: string;
-  fallback?: React.ReactNode;
+interface ChartFactoryProps extends ChartProps {
+  chartType: string;
 }
 
 export const ChartFactory: React.FC<ChartFactoryProps> = ({
-  pluginName,
-  fallback,
-  ...chartProps
+  chartType,
+  ...props
 }) => {
-  const plugin = useMemo(() => getChartPlugin(pluginName), [pluginName]);
-
+  const plugin = ChartRegistry.getPlugin(chartType);
+  
   if (!plugin) {
-    if (fallback) {
-      return <>{fallback}</>;
-    }
-    
     return (
-      <div className="flex items-center justify-center h-full bg-gray-50 border border-gray-200 rounded">
-        <div className="text-gray-600 text-center">
-          <p className="font-medium">Chart Plugin Not Found</p>
-          <p className="text-sm">Plugin "{pluginName}" is not available</p>
-        </div>
+      <div style={{ 
+        width: props.width || 400, 
+        height: props.height || 300,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#f5f5f5',
+        border: '1px solid #ddd',
+        borderRadius: 4
+      }}>
+        <span>Chart type "{chartType}" not found</span>
       </div>
     );
   }
-
+  
   const ChartComponent = plugin.component;
-
-  return <ChartComponent {...chartProps} />;
+  
+  return <ChartComponent {...props} />;
 };
 
 export default ChartFactory;

@@ -1,46 +1,50 @@
 // File: web-application/src/components/charts/registry/ChartRegistry.ts
+import { ChartPluginConfig } from '../interfaces';
+import { EChartsBarChartConfig } from '../echarts/BarChart';
 
-import { ChartPluginConfig } from '../interfaces/ChartPlugin';
-import { echartsBarChartConfig } from '../echarts/chartConfig';
-
-// Chart Plugin Registry
-export const ChartPlugins: Record<string, ChartPluginConfig> = {
-  'echarts-bar': echartsBarChartConfig
-  // Additional chart plugins will be registered here
-};
-
-export const getChartPlugin = (name: string): ChartPluginConfig | null => {
-  return ChartPlugins[name] || null;
-};
-
-export const getAvailableChartPlugins = (library?: string, category?: string) => {
-  const plugins = Object.values(ChartPlugins);
+export class ChartRegistry {
+  private static plugins = new Map<string, ChartPluginConfig>();
   
-  return plugins.filter(plugin => {
-    if (library && plugin.library !== library) return false;
-    if (category && plugin.category !== category) return false;
-    return true;
-  });
-};
-
-export const getChartCategories = (): string[] => {
-  const categories = new Set(Object.values(ChartPlugins).map(p => p.category));
-  return Array.from(categories).sort();
-};
-
-export const getChartLibraries = (): string[] => {
-  const libraries = new Set(Object.values(ChartPlugins).map(p => p.library));
-  return Array.from(libraries).sort();
-};
-
-export const registerChartPlugin = (plugin: ChartPluginConfig): void => {
-  ChartPlugins[plugin.name] = plugin;
-};
-
-export const unregisterChartPlugin = (name: string): boolean => {
-  if (ChartPlugins[name]) {
-    delete ChartPlugins[name];
-    return true;
+  static {
+    // Register all chart plugins
+    this.registerPlugin(EChartsBarChartConfig);
+    
+    // Add more chart plugins here as they are implemented
+    // this.registerPlugin(EChartsPieChartConfig);
+    // this.registerPlugin(EChartsLineChartConfig);
+    // this.registerPlugin(D3NetworkChartConfig);
+    // etc.
   }
-  return false;
-};
+  
+  static registerPlugin(plugin: ChartPluginConfig): void {
+    this.plugins.set(plugin.name, plugin);
+  }
+  
+  static getPlugin(name: string): ChartPluginConfig | undefined {
+    return this.plugins.get(name);
+  }
+  
+  static getAllPlugins(): ChartPluginConfig[] {
+    return Array.from(this.plugins.values());
+  }
+  
+  static getPluginsByCategory(category: string): ChartPluginConfig[] {
+    return Array.from(this.plugins.values()).filter(plugin => plugin.category === category);
+  }
+  
+  static getPluginsByLibrary(library: string): ChartPluginConfig[] {
+    return Array.from(this.plugins.values()).filter(plugin => plugin.library === library);
+  }
+  
+  static getCategories(): string[] {
+    const categories = new Set<string>();
+    this.plugins.forEach(plugin => categories.add(plugin.category));
+    return Array.from(categories);
+  }
+  
+  static getLibraries(): string[] {
+    const libraries = new Set<string>();
+    this.plugins.forEach(plugin => libraries.add(plugin.library));
+    return Array.from(libraries);
+  }
+}
