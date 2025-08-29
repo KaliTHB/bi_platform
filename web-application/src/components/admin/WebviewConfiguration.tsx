@@ -1,298 +1,90 @@
 // File: web-application/src/components/admin/WebviewConfiguration.tsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Box,
-  Typography,
+  Button,
   Card,
   CardContent,
-  CardActions,
-  Button,
+  Typography,
+  TextField,
+  Switch,
+  FormControlLabel,
+  Grid,
+  Divider,
+  Alert,
+  Chip,
   IconButton,
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions,
-  TextField,
-  Switch,
-  FormControlLabel,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  Alert,
-  Chip,
-  Grid,
-  Tabs,
-  Tab,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  CircularProgress
+  DialogActions
 } from '@mui/material';
 import {
   Add,
   Edit,
   Delete,
   Visibility,
-  ExpandMore,
+  Settings,
   Palette,
-  Navigation,
-  Branding
+  Web
 } from '@mui/icons-material';
-import { useWebviewConfiguration } from '../../hooks/useWebviewConfiguration';
+import { PermissionGate } from '../shared/PermissionGate';
+import { WebviewConfig } from '../../types';
+import { useGetWebviewConfigsQuery, useCreateWebviewConfigMutation, useUpdateWebviewConfigMutation } from '../../store/api/webviewApi';
+import { useSelector } from 'react-redux';
+import { RootState } from '../../store';
 
-interface WebviewConfig {
-  id: string;
+interface WebviewFormData {
   webview_name: string;
   display_name: string;
-  description?: string;
-  theme_config: any;
-  navigation_config: any;
-  branding_config: any;
-  default_category_id?: string;
+  description: string;
+  theme_config: {
+    primary_color: string;
+    secondary_color: string;
+    background_color: string;
+    sidebar_style: 'light' | 'dark';
+    navbar_style: 'light' | 'dark';
+    font_family: string;
+  };
+  navigation_config: {
+    show_dashboard_thumbnails: boolean;
+    show_view_counts: boolean;
+    show_last_accessed: boolean;
+    enable_search: boolean;
+    enable_favorites: boolean;
+    sidebar_width: number;
+  };
+  branding_config: {
+    company_name: string;
+    company_logo: string;
+    favicon_url: string;
+  };
   is_active: boolean;
 }
 
-interface WebviewConfigurationProps {
-  workspaceId: string;
-}
-
-export const WebviewConfiguration: React.FC<WebviewConfigurationProps> = ({ workspaceId }) => {
-  const {
-    webviews,
-    categories,
-    loading,
-    error,
-    loadWebviews,
-    createWebview,
-    updateWebview,
-    deleteWebview
-  } = useWebviewConfiguration(workspaceId);
-
-  const [editDialog, setEditDialog] = useState<{
-    open: boolean;
-    webview?: WebviewConfig;
-  }>({ open: false });
-
-  const [deleteDialog, setDeleteDialog] = useState<{
-    open: boolean;
-    webview?: WebviewConfig;
-  }>({ open: false });
-
-  useEffect(() => {
-    loadWebviews();
-  }, [workspaceId]);
-
-  const handleCreateNew = () => {
-    setEditDialog({ open: true });
-  };
-
-  const handleEdit = (webview: WebviewConfig) => {
-    setEditDialog({ open: true, webview });
-  };
-
-  const handleDelete = (webview: WebviewConfig) => {
-    setDeleteDialog({ open: true, webview });
-  };
-
-  const confirmDelete = async () => {
-    if (deleteDialog.webview) {
-      await deleteWebview(deleteDialog.webview.id);
-      setDeleteDialog({ open: false });
-      loadWebviews();
-    }
-  };
-
-  if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight={400}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  if (error) {
-    return <Alert severity="error">{error}</Alert>;
-  }
-
-  return (
-    <Box>
-      {/* Header */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h5">Webview Configuration</Typography>
-        <Button
-          variant="contained"
-          startIcon={<Add />}
-          onClick={handleCreateNew}
-        >
-          Create Webview
-        </Button>
-      </Box>
-
-      {/* Webview Cards */}
-      <Grid container spacing={3}>
-        {webviews.map((webview) => (
-          <Grid item xs={12} sm={6} md={4} key={webview.id}>
-            <Card variant="outlined">
-              <CardContent>
-                <Box display="flex" justifyContent="space-between" alignItems="start" mb={2}>
-                  <Typography variant="h6" component="h3">
-                    {webview.display_name}
-                  </Typography>
-                  <Chip 
-                    label={webview.is_active ? 'Active' : 'Inactive'} 
-                    color={webview.is_active ? 'success' : 'default'}
-                    size="small" 
-                  />
-                </Box>
-
-                <Typography variant="body2" color="textSecondary" gutterBottom>
-                  URL: /{webview.webview_name}
-                </Typography>
-
-                {webview.description && (
-                  <Typography variant="body2" color="textSecondary" gutterBottom>
-                    {webview.description}
-                  </Typography>
-                )}
-
-                <Box mt={2}>
-                  <Typography variant="caption" color="textSecondary">
-                    Theme: {webview.theme_config?.navbar_style || 'Default'}
-                  </Typography>
-                </Box>
-              </CardContent>
-
-              <CardActions>
-                <Button
-                  size="small"
-                  startIcon={<Visibility />}
-                  href={`/${webview.webview_name}`}
-                  target="_blank"
-                  disabled={!webview.is_active}
-                >
-                  Preview
-                </Button>
-                <Button
-                  size="small"
-                  startIcon={<Edit />}
-                  onClick={() => handleEdit(webview)}
-                >
-                  Edit
-                </Button>
-                <IconButton
-                  size="small"
-                  color="error"
-                  onClick={() => handleDelete(webview)}
-                >
-                  <Delete />
-                </IconButton>
-              </CardActions>
-            </Card>
-          </Grid>
-        ))}
-
-        {webviews.length === 0 && (
-          <Grid item xs={12}>
-            <Box 
-              display="flex" 
-              flexDirection="column" 
-              alignItems="center" 
-              justifyContent="center"
-              minHeight={200}
-              bgcolor="grey.50"
-              borderRadius={2}
-              p={3}
-            >
-              <Typography variant="h6" color="textSecondary" gutterBottom>
-                No webviews configured
-              </Typography>
-              <Typography variant="body2" color="textSecondary" align="center" mb={2}>
-                Create a webview panel to provide dashboard access for end users
-              </Typography>
-              <Button
-                variant="contained"
-                startIcon={<Add />}
-                onClick={handleCreateNew}
-              >
-                Create Webview
-              </Button>
-            </Box>
-          </Grid>
-        )}
-      </Grid>
-
-      {/* Edit Dialog */}
-      <WebviewEditDialog
-        open={editDialog.open}
-        webview={editDialog.webview}
-        categories={categories}
-        onClose={() => setEditDialog({ open: false })}
-        onSave={async (webviewData) => {
-          if (editDialog.webview) {
-            await updateWebview(editDialog.webview.id, webviewData);
-          } else {
-            await createWebview(webviewData);
-          }
-          setEditDialog({ open: false });
-          loadWebviews();
-        }}
-      />
-
-      {/* Delete Dialog */}
-      <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false })}>
-        <DialogTitle>Delete Webview</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to delete "{deleteDialog.webview?.display_name}"?
-            This will make the webview URL inaccessible.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialog({ open: false })}>Cancel</Button>
-          <Button onClick={confirmDelete} color="error" variant="contained">
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
-  );
-};
-
-// Webview Edit Dialog Component
-interface WebviewEditDialogProps {
-  open: boolean;
-  webview?: WebviewConfig;
-  categories: any[];
-  onClose: () => void;
-  onSave: (webviewData: any) => Promise<void>;
-}
-
-const WebviewEditDialog: React.FC<WebviewEditDialogProps> = ({
-  open,
-  webview,
-  categories,
-  onClose,
-  onSave
-}) => {
-  const [tabValue, setTabValue] = useState(0);
-  const [formData, setFormData] = useState({
+export const WebviewConfiguration: React.FC = () => {
+  const workspace = useSelector((state: RootState) => state.auth.workspace);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingWebview, setEditingWebview] = useState<WebviewConfig | null>(null);
+  const [formData, setFormData] = useState<WebviewFormData>({
     webview_name: '',
     display_name: '',
     description: '',
     theme_config: {
       primary_color: '#1976d2',
       secondary_color: '#dc004e',
-      background_color: '#ffffff',
+      background_color: '#f5f5f5',
+      sidebar_style: 'light',
       navbar_style: 'light',
-      sidebar_style: 'light'
+      font_family: 'Roboto, sans-serif'
     },
     navigation_config: {
       show_dashboard_thumbnails: true,
       show_view_counts: true,
       show_last_accessed: true,
       enable_search: true,
+      enable_favorites: false,
       sidebar_width: 280
     },
     branding_config: {
@@ -300,359 +92,324 @@ const WebviewEditDialog: React.FC<WebviewEditDialogProps> = ({
       company_logo: '',
       favicon_url: ''
     },
-    default_category_id: '',
     is_active: true
   });
 
-  const [saving, setSaving] = useState(false);
+  const { data: webviewConfigs, isLoading } = useGetWebviewConfigsQuery({
+    workspaceId: workspace?.id || ''
+  });
 
-  useEffect(() => {
-    if (webview) {
-      setFormData({
-        webview_name: webview.webview_name,
-        display_name: webview.display_name,
-        description: webview.description || '',
-        theme_config: { ...formData.theme_config, ...webview.theme_config },
-        navigation_config: { ...formData.navigation_config, ...webview.navigation_config },
-        branding_config: { ...formData.branding_config, ...webview.branding_config },
-        default_category_id: webview.default_category_id || '',
-        is_active: webview.is_active
-      });
-    } else {
-      setFormData({
-        webview_name: '',
-        display_name: '',
-        description: '',
-        theme_config: {
-          primary_color: '#1976d2',
-          secondary_color: '#dc004e',
-          background_color: '#ffffff',
-          navbar_style: 'light',
-          sidebar_style: 'light'
-        },
-        navigation_config: {
-          show_dashboard_thumbnails: true,
-          show_view_counts: true,
-          show_last_accessed: true,
-          enable_search: true,
-          sidebar_width: 280
-        },
-        branding_config: {
-          company_name: '',
-          company_logo: '',
-          favicon_url: ''
-        },
-        default_category_id: '',
-        is_active: true
-      });
-    }
-  }, [webview, open]);
+  const [createWebviewConfig] = useCreateWebviewConfigMutation();
+  const [updateWebviewConfig] = useUpdateWebviewConfigMutation();
 
-  const handleSave = async () => {
-    setSaving(true);
+  const handleCreateWebview = () => {
+    setEditingWebview(null);
+    setFormData({
+      webview_name: '',
+      display_name: '',
+      description: '',
+      theme_config: {
+        primary_color: '#1976d2',
+        secondary_color: '#dc004e',
+        background_color: '#f5f5f5',
+        sidebar_style: 'light',
+        navbar_style: 'light',
+        font_family: 'Roboto, sans-serif'
+      },
+      navigation_config: {
+        show_dashboard_thumbnails: true,
+        show_view_counts: true,
+        show_last_accessed: true,
+        enable_search: true,
+        enable_favorites: false,
+        sidebar_width: 280
+      },
+      branding_config: {
+        company_name: '',
+        company_logo: '',
+        favicon_url: ''
+      },
+      is_active: true
+    });
+    setDialogOpen(true);
+  };
+
+  const handleEditWebview = (webview: WebviewConfig) => {
+    setEditingWebview(webview);
+    setFormData({
+      webview_name: webview.webview_name,
+      display_name: webview.display_name,
+      description: webview.description || '',
+      theme_config: webview.theme_config,
+      navigation_config: webview.navigation_config,
+      branding_config: webview.branding_config,
+      is_active: webview.is_active
+    });
+    setDialogOpen(true);
+  };
+
+  const handleSubmit = async () => {
     try {
-      await onSave(formData);
-    } finally {
-      setSaving(false);
+      if (editingWebview) {
+        await updateWebviewConfig({
+          id: editingWebview.id,
+          updates: formData
+        }).unwrap();
+      } else {
+        await createWebviewConfig({
+          workspace_id: workspace?.id || '',
+          ...formData
+        }).unwrap();
+      }
+      setDialogOpen(false);
+    } catch (error) {
+      console.error('Failed to save webview config:', error);
     }
   };
 
+  const updateFormData = (section: keyof WebviewFormData, field: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      [section]: {
+        ...prev[section as keyof typeof prev],
+        [field]: value
+      }
+    }));
+  };
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>
-        {webview ? 'Edit Webview' : 'Create Webview'}
-      </DialogTitle>
-      
-      <DialogContent dividers>
-        <Tabs value={tabValue} onChange={(_, newValue) => setTabValue(newValue)}>
-          <Tab label="Basic" />
-          <Tab label="Theme" />
-          <Tab label="Navigation" />
-          <Tab label="Branding" />
-        </Tabs>
-
-        {/* Basic Tab */}
-        {tabValue === 0 && (
-          <Box sx={{ pt: 2 }}>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="URL Name"
-                  fullWidth
-                  value={formData.webview_name}
-                  onChange={(e) => setFormData(prev => ({ 
-                    ...prev, 
-                    webview_name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') 
-                  }))}
-                  required
-                  helperText="Used in URL: /{webview-name}"
-                  disabled={!!webview} // Don't allow changing URL for existing webviews
-                />
-              </Grid>
-              
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="Display Name"
-                  fullWidth
-                  value={formData.display_name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, display_name: e.target.value }))}
-                  required
-                  helperText="Name shown to users"
-                />
-              </Grid>
-              
-              <Grid item xs={12}>
-                <TextField
-                  label="Description"
-                  fullWidth
-                  multiline
-                  rows={2}
-                  value={formData.description}
-                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                />
-              </Grid>
-
-              <Grid item xs={12}>
-                <FormControl fullWidth>
-                  <InputLabel>Default Category</InputLabel>
-                  <Select
-                    value={formData.default_category_id}
-                    onChange={(e) => setFormData(prev => ({ 
-                      ...prev, 
-                      default_category_id: e.target.value 
-                    }))}
-                    label="Default Category"
-                  >
-                    <MenuItem value="">None</MenuItem>
-                    {categories.map((category) => (
-                      <MenuItem key={category.id} value={category.id}>
-                        {category.display_name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              <Grid item xs={12}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formData.is_active}
-                      onChange={(e) => setFormData(prev => ({ 
-                        ...prev, 
-                        is_active: e.target.checked 
-                      }))}
-                    />
-                  }
-                  label="Active"
-                />
-              </Grid>
-            </Grid>
+    <PermissionGate permissions={['webview.manage']}>
+      <Box>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Box>
+            <Typography variant="h4" gutterBottom>
+              Webview Configuration
+            </Typography>
+            <Typography variant="body2" color="textSecondary">
+              Configure webview panels for dashboard consumption
+            </Typography>
           </Box>
+          
+          <Button
+            variant="contained"
+            startIcon={<Add />}
+            onClick={handleCreateWebview}
+          >
+            Create Webview
+          </Button>
+        </Box>
+
+        <Alert severity="info" sx={{ mb: 3 }}>
+          Webviews provide simplified dashboard viewing interfaces for end users.
+          Each webview has its own URL structure: <code>/{'{webview-name}'}/</code>
+        </Alert>
+
+        {isLoading ? (
+          <Typography>Loading webview configurations...</Typography>
+        ) : (
+          <Grid container spacing={3}>
+            {webviewConfigs?.map((webview: WebviewConfig) => (
+              <Grid item xs={12} md={6} key={webview.id}>
+                <Card>
+                  <CardContent>
+                    <Box display="flex" alignItems="center" justifyContent="between" mb={2}>
+                      <Box display="flex" alignItems="center" gap={1}>
+                        <Web color="primary" />
+                        <Typography variant="h6">
+                          {webview.display_name}
+                        </Typography>
+                      </Box>
+                      
+                      <Box display="flex" gap={1}>
+                        <IconButton size="small" onClick={() => handleEditWebview(webview)}>
+                          <Edit fontSize="small" />
+                        </IconButton>
+                        <IconButton 
+                          size="small" 
+                          onClick={() => window.open(`/${webview.webview_name}`, '_blank')}
+                        >
+                          <Visibility fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    </Box>
+
+                    <Typography variant="body2" color="textSecondary" paragraph>
+                      URL: <code>/{webview.webview_name}</code>
+                    </Typography>
+
+                    {webview.description && (
+                      <Typography variant="body2" paragraph>
+                        {webview.description}
+                      </Typography>
+                    )}
+
+                    <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
+                      <Chip
+                        label={webview.is_active ? 'Active' : 'Inactive'}
+                        color={webview.is_active ? 'success' : 'error'}
+                        size="small"
+                      />
+                      
+                      {webview.navigation_config.enable_search && (
+                        <Chip label="Search Enabled" size="small" variant="outlined" />
+                      )}
+                      
+                      {webview.navigation_config.show_dashboard_thumbnails && (
+                        <Chip label="Thumbnails" size="small" variant="outlined" />
+                      )}
+                    </Box>
+
+                    <Typography variant="body2" color="textSecondary">
+                      Theme: {webview.theme_config.navbar_style} navbar, {webview.theme_config.sidebar_style} sidebar
+                    </Typography>
+                    
+                    {webview.branding_config.company_name && (
+                      <Typography variant="body2" color="textSecondary">
+                        Brand: {webview.branding_config.company_name}
+                      </Typography>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
         )}
 
-        {/* Theme Tab */}
-        {tabValue === 1 && (
-          <Box sx={{ pt: 2 }}>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="Primary Color"
-                  type="color"
-                  fullWidth
-                  value={formData.theme_config.primary_color}
-                  onChange={(e) => setFormData(prev => ({
-                    ...prev,
-                    theme_config: { ...prev.theme_config, primary_color: e.target.value }
-                  }))}
-                />
-              </Grid>
-              
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="Secondary Color"
-                  type="color"
-                  fullWidth
-                  value={formData.theme_config.secondary_color}
-                  onChange={(e) => setFormData(prev => ({
-                    ...prev,
-                    theme_config: { ...prev.theme_config, secondary_color: e.target.value }
-                  }))}
-                />
-              </Grid>
+        {/* Webview Configuration Dialog */}
+        <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
+          <DialogTitle>
+            {editingWebview ? 'Edit Webview Configuration' : 'Create Webview Configuration'}
+          </DialogTitle>
+          <DialogContent>
+            <Box display="flex" flexDirection="column" gap={3} mt={1}>
+              {/* Basic Settings */}
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>Basic Settings</Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        label="Webview Name (URL)"
+                        value={formData.webview_name}
+                        onChange={(e) => setFormData(prev => ({ 
+                          ...prev, 
+                          webview_name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')
+                        }))}
+                        fullWidth
+                        required
+                        helperText="Used in URL, lowercase letters and hyphens only"
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        label="Display Name"
+                        value={formData.display_name}
+                        onChange={(e) => setFormData(prev => ({ ...prev, display_name: e.target.value }))}
+                        fullWidth
+                        required
+                      />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField
+                        label="Description"
+                        value={formData.description}
+                        onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                        fullWidth
+                        multiline
+                        rows={2}
+                      />
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
 
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Navbar Style</InputLabel>
-                  <Select
-                    value={formData.theme_config.navbar_style}
-                    onChange={(e) => setFormData(prev => ({
-                      ...prev,
-                      theme_config: { ...prev.theme_config, navbar_style: e.target.value }
-                    }))}
-                    label="Navbar Style"
-                  >
-                    <MenuItem value="light">Light</MenuItem>
-                    <MenuItem value="dark">Dark</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
+              {/* Theme Configuration */}
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>Theme Configuration</Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={6} sm={4}>
+                      <TextField
+                        label="Primary Color"
+                        type="color"
+                        value={formData.theme_config.primary_color}
+                        onChange={(e) => updateFormData('theme_config', 'primary_color', e.target.value)}
+                        fullWidth
+                      />
+                    </Grid>
+                    <Grid item xs={6} sm={4}>
+                      <TextField
+                        label="Secondary Color"
+                        type="color"
+                        value={formData.theme_config.secondary_color}
+                        onChange={(e) => updateFormData('theme_config', 'secondary_color', e.target.value)}
+                        fullWidth
+                      />
+                    </Grid>
+                    <Grid item xs={6} sm={4}>
+                      <TextField
+                        label="Background Color"
+                        type="color"
+                        value={formData.theme_config.background_color}
+                        onChange={(e) => updateFormData('theme_config', 'background_color', e.target.value)}
+                        fullWidth
+                      />
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
 
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Sidebar Style</InputLabel>
-                  <Select
-                    value={formData.theme_config.sidebar_style}
-                    onChange={(e) => setFormData(prev => ({
-                      ...prev,
-                      theme_config: { ...prev.theme_config, sidebar_style: e.target.value }
-                    }))}
-                    label="Sidebar Style"
-                  >
-                    <MenuItem value="light">Light</MenuItem>
-                    <MenuItem value="dark">Dark</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
-          </Box>
-        )}
-
-        {/* Navigation Tab */}
-        {tabValue === 2 && (
-          <Box sx={{ pt: 2 }}>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="Sidebar Width (px)"
-                  type="number"
-                  fullWidth
-                  value={formData.navigation_config.sidebar_width}
-                  onChange={(e) => setFormData(prev => ({
-                    ...prev,
-                    navigation_config: { 
-                      ...prev.navigation_config, 
-                      sidebar_width: parseInt(e.target.value) || 280 
-                    }
-                  }))}
-                />
-              </Grid>
-
-              <Grid item xs={12}>
-                <Typography variant="subtitle1" gutterBottom>
-                  Navigation Features
-                </Typography>
-                
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formData.navigation_config.show_dashboard_thumbnails}
-                      onChange={(e) => setFormData(prev => ({
-                        ...prev,
-                        navigation_config: { 
-                          ...prev.navigation_config, 
-                          show_dashboard_thumbnails: e.target.checked 
+              {/* Navigation Configuration */}
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>Navigation Configuration</Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} sm={6}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={formData.navigation_config.show_dashboard_thumbnails}
+                            onChange={(e) => updateFormData('navigation_config', 'show_dashboard_thumbnails', e.target.checked)}
+                          />
                         }
-                      }))}
-                    />
-                  }
-                  label="Show Dashboard Thumbnails"
-                />
-
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formData.navigation_config.show_view_counts}
-                      onChange={(e) => setFormData(prev => ({
-                        ...prev,
-                        navigation_config: { 
-                          ...prev.navigation_config, 
-                          show_view_counts: e.target.checked 
+                        label="Show Dashboard Thumbnails"
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={formData.navigation_config.enable_search}
+                            onChange={(e) => updateFormData('navigation_config', 'enable_search', e.target.checked)}
+                          />
                         }
-                      }))}
-                    />
-                  }
-                  label="Show View Counts"
-                />
+                        label="Enable Search"
+                      />
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
 
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formData.navigation_config.enable_search}
-                      onChange={(e) => setFormData(prev => ({
-                        ...prev,
-                        navigation_config: { 
-                          ...prev.navigation_config, 
-                          enable_search: e.target.checked 
-                        }
-                      }))}
-                    />
-                  }
-                  label="Enable Search"
-                />
-              </Grid>
-            </Grid>
-          </Box>
-        )}
-
-        {/* Branding Tab */}
-        {tabValue === 3 && (
-          <Box sx={{ pt: 2 }}>
-            <Grid container spacing={2}>
-              <Grid item xs={12}>
-                <TextField
-                  label="Company Name"
-                  fullWidth
-                  value={formData.branding_config.company_name}
-                  onChange={(e) => setFormData(prev => ({
-                    ...prev,
-                    branding_config: { ...prev.branding_config, company_name: e.target.value }
-                  }))}
-                />
-              </Grid>
-              
-              <Grid item xs={12}>
-                <TextField
-                  label="Company Logo URL"
-                  fullWidth
-                  value={formData.branding_config.company_logo}
-                  onChange={(e) => setFormData(prev => ({
-                    ...prev,
-                    branding_config: { ...prev.branding_config, company_logo: e.target.value }
-                  }))}
-                  helperText="URL to company logo image"
-                />
-              </Grid>
-
-              <Grid item xs={12}>
-                <TextField
-                  label="Favicon URL"
-                  fullWidth
-                  value={formData.branding_config.favicon_url}
-                  onChange={(e) => setFormData(prev => ({
-                    ...prev,
-                    branding_config: { ...prev.branding_config, favicon_url: e.target.value }
-                  }))}
-                  helperText="URL to favicon image"
-                />
-              </Grid>
-            </Grid>
-          </Box>
-        )}
-      </DialogContent>
-      
-      <DialogActions>
-        <Button onClick={onClose} disabled={saving}>
-          Cancel
-        </Button>
-        <Button 
-          onClick={handleSave} 
-          variant="contained" 
-          disabled={saving || !formData.webview_name || !formData.display_name}
-        >
-          {saving ? 'Saving...' : 'Save'}
-        </Button>
-      </DialogActions>
-    </Dialog>
+              {/* Status */}
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={formData.is_active}
+                    onChange={(e) => setFormData(prev => ({ ...prev, is_active: e.target.checked }))}
+                  />
+                }
+                label="Active Webview"
+              />
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSubmit} variant="contained">
+              {editingWebview ? 'Update' : 'Create'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </Box>
+    </PermissionGate>
   );
 };

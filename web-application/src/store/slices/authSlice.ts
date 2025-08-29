@@ -1,37 +1,14 @@
+// File: web-application/src/store/slices/authSlice.ts
+
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-
-interface User {
-  id: string;
-  username: string;
-  email: string;
-  first_name: string;
-  last_name: string;
-  avatar_url?: string;
-}
-
-interface Workspace {
-  id: string;
-  name: string;
-  display_name: string;
-  slug: string;
-}
-
-interface AuthState {
-  isAuthenticated: boolean;
-  user: User | null;
-  token: string | null;
-  workspace: Workspace | null;
-  permissions: string[];
-  loading: boolean;
-  error: string | null;
-}
+import { AuthState, User, Workspace, Permission } from '../../types';
 
 const initialState: AuthState = {
-  isAuthenticated: false,
   user: null,
   token: null,
   workspace: null,
   permissions: [],
+  isAuthenticated: false,
   loading: false,
   error: null,
 };
@@ -44,17 +21,17 @@ const authSlice = createSlice({
       state.loading = true;
       state.error = null;
     },
-    login: (state, action: PayloadAction<{
+    loginSuccess: (state, action: PayloadAction<{
       user: User;
       token: string;
       workspace: Workspace;
-      permissions: string[];
+      permissions: Permission[];
     }>) => {
-      state.isAuthenticated = true;
       state.user = action.payload.user;
       state.token = action.payload.token;
       state.workspace = action.payload.workspace;
       state.permissions = action.payload.permissions;
+      state.isAuthenticated = true;
       state.loading = false;
       state.error = null;
     },
@@ -62,17 +39,13 @@ const authSlice = createSlice({
       state.loading = false;
       state.error = action.payload;
       state.isAuthenticated = false;
-      state.user = null;
-      state.token = null;
-      state.workspace = null;
-      state.permissions = [];
     },
     logout: (state) => {
-      state.isAuthenticated = false;
       state.user = null;
       state.token = null;
       state.workspace = null;
       state.permissions = [];
+      state.isAuthenticated = false;
       state.loading = false;
       state.error = null;
     },
@@ -83,21 +56,29 @@ const authSlice = createSlice({
     },
     switchWorkspace: (state, action: PayloadAction<{
       workspace: Workspace;
-      permissions: string[];
+      permissions: Permission[];
     }>) => {
       state.workspace = action.payload.workspace;
       state.permissions = action.payload.permissions;
+    },
+    updatePermissions: (state, action: PayloadAction<Permission[]>) => {
+      state.permissions = action.payload;
+    },
+    clearError: (state) => {
+      state.error = null;
     },
   },
 });
 
 export const {
   loginStart,
-  login,
+  loginSuccess,
   loginFailure,
   logout,
   updateUser,
   switchWorkspace,
+  updatePermissions,
+  clearError,
 } = authSlice.actions;
 
 export default authSlice.reducer;

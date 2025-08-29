@@ -3,243 +3,219 @@
 import { Request, Response } from 'express';
 import { CategoryService } from '../services/CategoryService';
 import { PermissionService } from '../services/PermissionService';
+import { validateCategoryRequest } from '../validators/categoryValidators';
 
 export class CategoryController {
-  constructor(
-    private categoryService: CategoryService,
-    private permissionService: PermissionService
-  ) {}
+  private categoryService = new CategoryService();
+  private permissionService = new PermissionService();
 
-  async getWorkspaceCategories(req: Request, res: Response) {
+  getCategories = async (req: Request, res: Response) => {
     try {
       const { workspaceId } = req.params;
-      const { 
-        include_dashboards = false, 
-        user_accessible_only = false,
-        webview_id 
-      } = req.query;
+      const { include_dashboards, user_accessible_only, webview_id } = req.query;
+      const userId = req.user?.user_id;
 
-      // Check permission
-      if (!await this.permissionService.hasPermission(req.user.id, workspaceId, 'dashboard.read')) {
+      // Check permissions
+      const hasPermission = await this.permissionService.hasPermission(
+        userId,
+        workspaceId,
+        'category.read'
+      );
+
+      if (!hasPermission) {
         return res.status(403).json({
           success: false,
-          error: { code: 'ACCESS_DENIED', message: 'Insufficient permissions' }
+          errors: [{ message: 'Insufficient permissions' }]
         });
       }
 
-      const categories = await this.categoryService.getWorkspaceCategories(
-        workspaceId,
-        include_dashboards === 'true',
-        user_accessible_only === 'true',
-        req.user.id
-      );
+      let categories;
+      if (user_accessible_only === 'true') {
+        categories = await this.categoryService.getUserAccessibleCategories(
+          userId,
+          workspaceId,
+          webview_id as string
+        );
+      } else {
+        categories = await this.categoryService.getWorkspaceCategories(
+          workspaceId,
+          include_dashboards === 'true'
+        );
+      }
 
-      const metadata = {
-        total_categories: this.countCategories(categories),
-        total_dashboards: this.countDashboards(categories),
-        featured_dashboards: this.countFeaturedDashboards(categories)
-      };
+      // Get metadata
+      const totalCategories = categories.length;
+      const totalDashboards = categories.reduce((sum, cat) => sum + (cat.dashboard_count || 0), 0);
+      const featuredDashboards = categories.reduce((sum, cat) => 
+        sum + (cat.dashboards?.filter(d => d.is_featured).length || 0), 0
+      );
 
       res.json({
         success: true,
         data: {
           categories,
-          metadata
+          metadata: {
+            total_categories: totalCategories,
+            total_dashboards: totalDashboards,
+            featured_dashboards: featuredDashboards
+          }
         }
       });
     } catch (error) {
-      console.error('Error fetching categories:', error);
+      console.error('Get categories error:', error);
       res.status(500).json({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to load categories' }
+        errors: [{ message: 'Internal server error' }]
       });
     }
-  }
+  };
 
-  async createCategory(req: Request, res: Response) {
+  createCategory = async (req: Request, res: Response) => {
     try {
-      const { workspace_id } = req.user;
-
-      // Check permission
-      if (!await this.permissionService.hasPermission(req.user.id, workspace_id, 'category.create')) {
-        return res.status(403).json({
+      const { error, value } = validateCategoryRequest(req.body);
+      if (error) {
+        return res.status(400).json({
           success: false,
-          error: { code: 'ACCESS_DENIED', message: 'Insufficient permissions' }
+          errors: error.details.map(d => ({ message: d.message, field: d.path.join('.') }))
         });
       }
 
-      const categoryData = {
-        ...req.body,
-        workspace_id,
-        created_by: req.user.id
-      };
+      const userId = req.user?.user_id;
+      const { workspace_id } = value;
 
-      const category = await this.categoryService.createCategory(categoryData);
+      // Check permissions
+      const hasPermission = await this.permissionService.hasPermission(
+        userId,
+        workspace_id,
+        'category.create'
+      );
+
+      if (!hasPermission) {
+        return res.status(403).json({
+          success: false,
+          errors: [{ message: 'Insufficient permissions' }]
+        });
+      }
+
+      const category = await this.categoryService.createCategory({
+        ...value,
+        created_by: userId
+      });
 
       res.status(201).json({
         success: true,
         data: category
       });
     } catch (error) {
-      console.error('Error creating category:', error);
-      
-      if (error.message.includes('unique constraint')) {
-        return res.status(409).json({
-          success: false,
-          error: { code: 'CATEGORY_EXISTS', message: 'Category name already exists' }
-        });
-      }
-
+      console.error('Create category error:', error);
       res.status(500).json({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to create category' }
+        errors: [{ message: 'Internal server error' }]
       });
     }
-  }
+  };
 
-  async updateCategory(req: Request, res: Response) {
+  updateCategory = async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { workspace_id } = req.user;
-
-      // Check permission
-      if (!await this.permissionService.hasPermission(req.user.id, workspace_id, 'category.update')) {
-        return res.status(403).json({
+      const { error, value } = validateCategoryRequest(req.body, true);
+      
+      if (error) {
+        return res.status(400).json({
           success: false,
-          error: { code: 'ACCESS_DENIED', message: 'Insufficient permissions' }
+          errors: error.details.map(d => ({ message: d.message, field: d.path.join('.') }))
         });
       }
 
-      const category = await this.categoryService.updateCategory(id, req.body);
+      const userId = req.user?.user_id;
 
-      if (!category) {
+      // Get category to check workspace
+      const existingCategory = await this.categoryService.getCategoryById(id);
+      if (!existingCategory) {
         return res.status(404).json({
           success: false,
-          error: { code: 'CATEGORY_NOT_FOUND', message: 'Category not found' }
+          errors: [{ message: 'Category not found' }]
         });
       }
+
+      // Check permissions
+      const hasPermission = await this.permissionService.hasPermission(
+        userId,
+        existingCategory.workspace_id,
+        'category.update'
+      );
+
+      if (!hasPermission) {
+        return res.status(403).json({
+          success: false,
+          errors: [{ message: 'Insufficient permissions' }]
+        });
+      }
+
+      const category = await this.categoryService.updateCategory(id, value);
 
       res.json({
         success: true,
         data: category
       });
     } catch (error) {
-      console.error('Error updating category:', error);
+      console.error('Update category error:', error);
       res.status(500).json({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to update category' }
+        errors: [{ message: 'Internal server error' }]
       });
     }
-  }
+  };
 
-  async deleteCategory(req: Request, res: Response) {
+  deleteCategory = async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { workspace_id } = req.user;
+      const userId = req.user?.user_id;
 
-      // Check permission
-      if (!await this.permissionService.hasPermission(req.user.id, workspace_id, 'category.delete')) {
-        return res.status(403).json({
-          success: false,
-          error: { code: 'ACCESS_DENIED', message: 'Insufficient permissions' }
-        });
-      }
-
-      const deleted = await this.categoryService.deleteCategory(id);
-
-      if (!deleted) {
+      // Get category to check workspace and dashboard count
+      const category = await this.categoryService.getCategoryById(id);
+      if (!category) {
         return res.status(404).json({
           success: false,
-          error: { code: 'CATEGORY_NOT_FOUND', message: 'Category not found' }
+          errors: [{ message: 'Category not found' }]
         });
       }
+
+      // Check permissions
+      const hasPermission = await this.permissionService.hasPermission(
+        userId,
+        category.workspace_id,
+        'category.delete'
+      );
+
+      if (!hasPermission) {
+        return res.status(403).json({
+          success: false,
+          errors: [{ message: 'Insufficient permissions' }]
+        });
+      }
+
+      // Check if category has dashboards
+      const dashboardCount = await this.categoryService.getCategoryDashboardCount(id);
+      if (dashboardCount > 0) {
+        return res.status(400).json({
+          success: false,
+          errors: [{ message: 'Cannot delete category with associated dashboards' }]
+        });
+      }
+
+      await this.categoryService.deleteCategory(id);
 
       res.json({
         success: true,
         message: 'Category deleted successfully'
       });
     } catch (error) {
-      console.error('Error deleting category:', error);
-      
-      if (error.message.includes('dashboards') || error.message.includes('subcategories')) {
-        return res.status(400).json({
-          success: false,
-          error: { 
-            code: 'CATEGORY_HAS_DEPENDENCIES', 
-            message: error.message 
-          }
-        });
-      }
-
+      console.error('Delete category error:', error);
       res.status(500).json({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to delete category' }
+        errors: [{ message: 'Internal server error' }]
       });
     }
-  }
-
-  async moveDashboardToCategory(req: Request, res: Response) {
-    try {
-      const { dashboardId } = req.params;
-      const { category_id } = req.body;
-      const { workspace_id } = req.user;
-
-      // Check permission
-      if (!await this.permissionService.hasPermission(req.user.id, workspace_id, 'dashboard.update')) {
-        return res.status(403).json({
-          success: false,
-          error: { code: 'ACCESS_DENIED', message: 'Insufficient permissions' }
-        });
-      }
-
-      await this.categoryService.moveDashboardToCategory(dashboardId, category_id);
-
-      res.json({
-        success: true,
-        message: 'Dashboard moved successfully'
-      });
-    } catch (error) {
-      console.error('Error moving dashboard:', error);
-      res.status(500).json({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to move dashboard' }
-      });
-    }
-  }
-
-  private countCategories(categories: any[]): number {
-    let count = categories.length;
-    categories.forEach(category => {
-      if (category.subcategories) {
-        count += this.countCategories(category.subcategories);
-      }
-    });
-    return count;
-  }
-
-  private countDashboards(categories: any[]): number {
-    let count = 0;
-    categories.forEach(category => {
-      if (category.dashboards) {
-        count += category.dashboards.length;
-      }
-      if (category.subcategories) {
-        count += this.countDashboards(category.subcategories);
-      }
-    });
-    return count;
-  }
-
-  private countFeaturedDashboards(categories: any[]): number {
-    let count = 0;
-    categories.forEach(category => {
-      if (category.dashboards) {
-        count += category.dashboards.filter(d => d.is_featured).length;
-      }
-      if (category.subcategories) {
-        count += this.countFeaturedDashboards(category.subcategories);
-      }
-    });
-    return count;
-  }
+  };
 }

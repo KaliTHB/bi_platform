@@ -1,93 +1,94 @@
-import { Request, Response, NextFunction } from 'express';
-import { AuthService } from '../services/AuthService';
-import { logger } from '../utils/logger';
+// File: api-services/src/services/AuthService.ts
 
-export class AuthController {
-  constructor(private authService: AuthService) {}
+import bcrypt from 'bcryptjs';
+import { DatabaseService } from './DatabaseService';
 
-  async login(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const { username, password, workspace_slug } = req.body;
-      
-      const result = await this.authService.login(username, password, workspace_slug);
-      
-      res.json({
-        success: true,
-        message: 'Login successful',
-        data: result
-      });
-    } catch (error) {
-      logger.error('Login error:', error);
-      next(error);
+export class AuthService extends DatabaseService {
+  async authenticateUser(username: string, password: string) {
+    const query = `
+      SELECT id, username, email, password_hash, first_name, last_name, 
+             avatar_url, is_active, created_at, updated_at
+      FROM users 
+      WHERE (username = $1 OR email = $1) AND is_active = true
+    `;
+    
+    const result = await this.query(query, [username]);
+    const user = result.rows[0];
+
+    if (!user) {
+      return null;
     }
+
+    const isValidPassword = await bcrypt.compare(password, user.password_hash);
+    if (!isValidPassword) {
+      return null;
+    }
+
+    return user;
   }
 
-  async register(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const userData = req.body;
-      
-      const result = await this.authService.register(userData);
-      
-      res.status(201).json({
-        success: true,
-        message: 'Registration successful',
-        data: result
-      });
-    } catch (error) {
-      logger.error('Registration error:', error);
-      next(error);
-    }
+  async getUserById(userId: string) {
+    const query = `
+      SELECT id, username, email, first_name, last_name, 
+             avatar_url, profile_data, is_active, last_login,
+             created_at, updated_at
+      FROM users 
+      WHERE id = $1 AND is_active = true
+    `;
+    
+    const result = await this.query(query, [userId]);
+    return result.rows[0];
   }
 
-  async refresh(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const { refreshToken } = req.body;
-      
-      const result = await this.authService.refreshTokens(refreshToken);
-      
-      res.json({
-        success: true,
-        message: 'Tokens refreshed successfully',
-        data: result
-      });
-    } catch (error) {
-      logger.error('Token refresh error:', error);
-      next(error);
-    }
+  async getWorkspaceBySlug(slug: string) {
+    const query = `
+      SELECT id, name, display_name, description, slug, 
+             branding_config, theme_config, is_active,
+             created_at, updated_at
+      FROM workspaces 
+      WHERE slug = $1 AND is_active = true
+    `;
+    
+    const result = await this.query(query, [slug]);
+    return result.rows[0];
   }
 
-  async logout(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const userId = (req as any).user?.id;
-      
-      if (userId) {
-        await this.authService.logout(userId);
-      }
-      
-      res.json({
-        success: true,
-        message: 'Logout successful'
-      });
-    } catch (error) {
-      logger.error('Logout error:', error);
-      next(error);
-    }
+  async getWorkspaceById(workspaceId: string) {
+    const query = `
+      SELECT id, name, display_name, description, slug, 
+             branding_config, theme_config, is_active,
+             created_at, updated_at
+      FROM workspaces 
+      WHERE id = $1 AND is_active = true
+    `;
+    
+    const result = await this.query(query, [workspaceId]);
+    return result.rows[0];
   }
 
-  async getProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const userId = (req as any).user?.id;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-      
-      const profile = await this.authService.getUserProfile(userId, workspaceId);
-      
-      res.json({
-        success: true,
-        data: profile
-      });
-    } catch (error) {
-      logger.error('Get profile error:', error);
-      next(error);
-    }
+  async checkUserWorkspaceAccess(userId: string, workspaceId: string): Promise<boolean> {
+    const query = `
+      SELECT 1
+      FROM user_role_assignments ura
+      JOIN custom_roles cr ON ura.role_id = cr.id
+      WHERE ura.user_id = $1 
+        AND ura.workspace_id = $2
+        AND ura.is_active = true
+        AND cr.is_active = true
+        AND (ura.expires_at IS NULL OR ura.expires_at > NOW())
+    `;
+    
+    const result = await this.query(query, [userId, workspaceId]);
+    return result.rows.length > 0;
+  }
+
+  async updateLastLogin(userId: string) {
+    const query = `
+      UPDATE users 
+      SET last_login = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+    `;
+    
+    await this.query(query, [userId]);
   }
 }
