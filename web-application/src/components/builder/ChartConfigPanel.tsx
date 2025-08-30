@@ -35,7 +35,7 @@ import {
   Palette as PaletteIcon
 } from '@mui/icons-material';
 import { SketchPicker } from 'react-color';
-import { Chart, Dataset } from '@/types/auth.types';
+import { Chart, Dataset } from '@/types/index';
 import { datasetAPI } from '@/services/api';
 
 interface ChartConfigPanelProps {
@@ -65,7 +65,9 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
   useEffect(() => {
     if (chart) {
       setConfig({ ...chart });
-      loadDatasetColumns(chart.dataset_id);
+      if (chart.dataset_ids && chart.dataset_ids.length > 0) {
+        loadDatasetColumns(chart.dataset_ids[0]);
+      }
     }
   }, [chart]);
 
@@ -89,19 +91,63 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
       
       const newConfig = { ...prev };
       const keys = path.split('.');
-      let current: any = newConfig;
 
-      // Navigate to the parent of the target property
-      for (let i = 0; i < keys.length - 1; i++) {
-        const key = keys[i];
-        if (!current[key]) {
-          current[key] = {};
+      // Handle config_json property specifically
+      if (keys[0] === 'config_json' || keys[0] === 'config') {
+        if (!newConfig.config_json) {
+          newConfig.config_json = {};
         }
-        current = current[key];
+        
+        let current: any = newConfig.config_json;
+        const configKeys = keys.slice(1);
+
+        // Navigate to the parent of the target property
+        for (let i = 0; i < configKeys.length - 1; i++) {
+          const key = configKeys[i];
+          if (!current[key]) {
+            current[key] = {};
+          }
+          current = current[key];
+        }
+
+        // Set the final property
+        if (configKeys.length > 0) {
+          current[configKeys[configKeys.length - 1]] = value;
+        } else {
+          newConfig.config_json = value;
+        }
+      } else {
+        // Handle other properties
+        let current: any = newConfig;
+
+        // Navigate to the parent of the target property
+        for (let i = 0; i < keys.length - 1; i++) {
+          const key = keys[i];
+          if (!current[key]) {
+            current[key] = {};
+          }
+          current = current[key];
+        }
+
+        // Set the final property
+        current[keys[keys.length - 1]] = value;
       }
 
-      // Set the final property
-      current[keys[keys.length - 1]] = value;
+      // Transform config if needed
+      let transformedConfig = {};
+
+      // FIXED: Check if chart exists and has config_json before accessing it
+      if (chart?.config_json) {
+        try {
+          transformedConfig = typeof chart.config_json === 'string' 
+            ? JSON.parse(chart.config_json) 
+            : chart.config_json;
+        } catch (error) {
+          console.error('Error parsing config_json:', error);
+          transformedConfig = {};
+        }
+      }
+
       return newConfig;
     });
   };
@@ -114,14 +160,14 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
   };
 
   const handleDatasetChange = (datasetId: string) => {
-    handleConfigChange('dataset_id', datasetId);
+    handleConfigChange('dataset_ids', [datasetId]);
     loadDatasetColumns(datasetId);
   };
 
   const addYAxis = () => {
     if (!config) return;
     
-    const currentYAxes = config.config.y_axes || [];
+    const currentYAxes = config.config_json?.y_axes || [];
     const newYAxes = [
       ...currentYAxes,
       {
@@ -135,16 +181,16 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
       }
     ];
     
-    handleConfigChange('config.y_axes', newYAxes);
+    handleConfigChange('config_json.y_axes', newYAxes);
   };
 
   const removeYAxis = (index: number) => {
     if (!config) return;
     
-    const currentYAxes = config.config.y_axes || [];
+    const currentYAxes = config.config_json?.y_axes || [];
     const newYAxes = currentYAxes.filter((_, i) => i !== index);
     
-    handleConfigChange('config.y_axes', newYAxes);
+    handleConfigChange('config_json.y_axes', newYAxes);
   };
 
   const getDefaultColor = (index: number) => {
@@ -193,7 +239,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
             <FormControl fullWidth>
               <InputLabel>Dataset</InputLabel>
               <Select
-                value={config.dataset_id || ''}
+                value={config.dataset_ids?.[0] || ''}
                 onChange={(e) => handleDatasetChange(e.target.value)}
               >
                 {datasets.map(dataset => (
@@ -207,22 +253,22 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
             <TextField
               fullWidth
               label="Chart Title"
-              value={config.config.title?.text || ''}
-              onChange={(e) => handleConfigChange('config.title.text', e.target.value)}
+              value={config.config_json?.title?.text || ''}
+              onChange={(e) => handleConfigChange('config_json.title.text', e.target.value)}
             />
 
             <TextField
               fullWidth
               label="Subtitle"
-              value={config.config.title?.subtitle || ''}
-              onChange={(e) => handleConfigChange('config.title.subtitle', e.target.value)}
+              value={config.config_json?.title?.subtitle || ''}
+              onChange={(e) => handleConfigChange('config_json.title.subtitle', e.target.value)}
             />
 
             <FormControl fullWidth>
               <InputLabel>Title Position</InputLabel>
               <Select
-                value={config.config.title?.position || 'center'}
-                onChange={(e) => handleConfigChange('config.title.position', e.target.value)}
+                value={config.config_json?.title?.position || 'center'}
+                onChange={(e) => handleConfigChange('config_json.title.position', e.target.value)}
               >
                 <MenuItem value="left">Left</MenuItem>
                 <MenuItem value="center">Center</MenuItem>
@@ -238,11 +284,11 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
   const renderDataConfig = () => {
     if (!config) return null;
 
-    const isLineOrAreaChart = ['line-chart', 'area-chart'].includes(config.type);
-    const isBarChart = config.type === 'bar-chart';
-    const isPieChart = ['pie-chart', 'donut-chart'].includes(config.type);
-    const isScatterPlot = config.type === 'scatter-plot';
-    const isMetricCard = config.type === 'metric-card';
+    const isLineOrAreaChart = ['line-chart', 'area-chart'].includes(config.chart_type);
+    const isBarChart = config.chart_type === 'bar-chart';
+    const isPieChart = ['pie-chart', 'donut-chart'].includes(config.chart_type);
+    const isScatterPlot = config.chart_type === 'scatter-plot';
+    const isMetricCard = config.chart_type === 'metric-card';
 
     return (
       <Accordion defaultExpanded>
@@ -258,8 +304,8 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                 <FormControl fullWidth>
                   <InputLabel>X-Axis Column</InputLabel>
                   <Select
-                    value={config.config.x_axis?.column || ''}
-                    onChange={(e) => handleConfigChange('config.x_axis.column', e.target.value)}
+                    value={config.config_json?.x_axis?.column || ''}
+                    onChange={(e) => handleConfigChange('config_json.x_axis.column', e.target.value)}
                   >
                     {getColumnOptions('all').map(col => (
                       <MenuItem key={col.name} value={col.name}>
@@ -272,16 +318,16 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                 <TextField
                   fullWidth
                   label="X-Axis Title"
-                  value={config.config.x_axis?.title || ''}
-                  onChange={(e) => handleConfigChange('config.x_axis.title', e.target.value)}
+                  value={config.config_json?.x_axis?.title || ''}
+                  onChange={(e) => handleConfigChange('config_json.x_axis.title', e.target.value)}
                 />
 
                 {(isLineOrAreaChart || isBarChart) && (
                   <FormControl fullWidth>
                     <InputLabel>X-Axis Type</InputLabel>
                     <Select
-                      value={config.config.x_axis?.type || 'category'}
-                      onChange={(e) => handleConfigChange('config.x_axis.type', e.target.value)}
+                      value={config.config_json?.x_axis?.type || 'category'}
+                      onChange={(e) => handleConfigChange('config_json.x_axis.type', e.target.value)}
                     >
                       <MenuItem value="category">Category</MenuItem>
                       <MenuItem value="value">Value</MenuItem>
@@ -296,18 +342,29 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
             {/* Y-Axis Configuration for Line/Bar charts */}
             {(isLineOrAreaChart || isBarChart) && (
               <>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2 }}>
-                  <Typography variant="subtitle2" color="primary">Y-Axis Series</Typography>
-                  <Button startIcon={<AddIcon />} onClick={addYAxis} size="small">
+                <Divider sx={{ my: 2 }} />
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="subtitle2" color="primary">Y-Axes</Typography>
+                  <Button 
+                    size="small" 
+                    startIcon={<AddIcon />} 
+                    onClick={addYAxis}
+                  >
                     Add Series
                   </Button>
                 </Box>
 
-                {(config.config.y_axes || []).map((yAxis: any, index: number) => (
-                  <Paper key={index} sx={{ p: 2, mt: 1 }}>
+                {config.config_json?.y_axes?.map((yAxis: any, index: number) => (
+                  <Paper key={index} sx={{ p: 2, border: '1px solid #e0e0e0' }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                      <Typography variant="body2">Series {index + 1}</Typography>
-                      <IconButton onClick={() => removeYAxis(index)} size="small">
+                      <Typography variant="body2" fontWeight="medium">
+                        Series {index + 1}
+                      </Typography>
+                      <IconButton 
+                        size="small" 
+                        onClick={() => removeYAxis(index)}
+                        color="error"
+                      >
                         <DeleteIcon />
                       </IconButton>
                     </Box>
@@ -318,7 +375,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                           <InputLabel>Column</InputLabel>
                           <Select
                             value={yAxis.column || ''}
-                            onChange={(e) => handleConfigChange(`config.y_axes.${index}.column`, e.target.value)}
+                            onChange={(e) => handleConfigChange(`config_json.y_axes.${index}.column`, e.target.value)}
                           >
                             {getColumnOptions('numeric').map(col => (
                               <MenuItem key={col.name} value={col.name}>
@@ -329,36 +386,41 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                         </FormControl>
                       </Grid>
 
-                      <Grid item xs={8}>
+                      <Grid item xs={6}>
                         <TextField
                           fullWidth
                           label="Series Name"
                           value={yAxis.name || ''}
-                          onChange={(e) => handleConfigChange(`config.y_axes.${index}.name`, e.target.value)}
+                          onChange={(e) => handleConfigChange(`config_json.y_axes.${index}.name`, e.target.value)}
                         />
                       </Grid>
 
-                      <Grid item xs={4}>
+                      <Grid item xs={6}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Typography variant="body2">Color:</Typography>
-                          <IconButton
-                            onClick={() => setShowColorPicker(prev => ({ ...prev, [`series_${index}`]: !prev[`series_${index}`] }))}
-                            sx={{ 
-                              width: 32, 
-                              height: 32, 
-                              backgroundColor: yAxis.color || getDefaultColor(index),
-                              '&:hover': { opacity: 0.8 }
-                            }}
+                          <TextField
+                            fullWidth
+                            label="Color"
+                            value={yAxis.color || ''}
+                            onChange={(e) => handleConfigChange(`config_json.y_axes.${index}.color`, e.target.value)}
+                          />
+                          <IconButton 
+                            onClick={() => setShowColorPicker({ 
+                              ...showColorPicker, 
+                              [`yAxis_${index}`]: !showColorPicker[`yAxis_${index}`] 
+                            })}
                           >
-                            <PaletteIcon sx={{ fontSize: 16, color: 'white' }} />
+                            <PaletteIcon />
                           </IconButton>
                         </Box>
-                        
-                        {showColorPicker[`series_${index}`] && (
+
+                        {showColorPicker[`yAxis_${index}`] && (
                           <Box sx={{ position: 'absolute', zIndex: 1000, mt: 1 }}>
                             <SketchPicker
-                              color={yAxis.color || getDefaultColor(index)}
-                              onChange={(color) => handleConfigChange(`config.y_axes.${index}.color`, color.hex)}
+                              color={yAxis.color || '#1976d2'}
+                              onChangeComplete={(color) => {
+                                handleConfigChange(`config_json.y_axes.${index}.color`, color.hex);
+                                setShowColorPicker({ ...showColorPicker, [`yAxis_${index}`]: false });
+                              }}
                             />
                           </Box>
                         )}
@@ -371,7 +433,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                               <InputLabel>Line Style</InputLabel>
                               <Select
                                 value={yAxis.line_style || 'solid'}
-                                onChange={(e) => handleConfigChange(`config.y_axes.${index}.line_style`, e.target.value)}
+                                onChange={(e) => handleConfigChange(`config_json.y_axes.${index}.line_style`, e.target.value)}
                               >
                                 <MenuItem value="solid">Solid</MenuItem>
                                 <MenuItem value="dashed">Dashed</MenuItem>
@@ -381,19 +443,17 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                           </Grid>
 
                           <Grid item xs={6}>
-                            <Box sx={{ px: 2 }}>
-                              <Typography variant="body2" gutterBottom>
-                                Line Width: {yAxis.line_width || 2}
-                              </Typography>
-                              <Slider
-                                value={yAxis.line_width || 2}
-                                onChange={(_, value) => handleConfigChange(`config.y_axes.${index}.line_width`, value)}
-                                min={1}
-                                max={10}
-                                step={1}
-                                marks
-                              />
-                            </Box>
+                            <Typography variant="body2" gutterBottom>
+                              Line Width: {yAxis.line_width || 2}
+                            </Typography>
+                            <Slider
+                              value={yAxis.line_width || 2}
+                              onChange={(_, value) => handleConfigChange(`config_json.y_axes.${index}.line_width`, value)}
+                              min={1}
+                              max={10}
+                              step={1}
+                              marks
+                            />
                           </Grid>
 
                           <Grid item xs={6}>
@@ -401,7 +461,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                               control={
                                 <Switch
                                   checked={yAxis.show_points !== false}
-                                  onChange={(e) => handleConfigChange(`config.y_axes.${index}.show_points`, e.target.checked)}
+                                  onChange={(e) => handleConfigChange(`config_json.y_axes.${index}.show_points`, e.target.checked)}
                                 />
                               }
                               label="Show Points"
@@ -413,7 +473,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                               control={
                                 <Switch
                                   checked={yAxis.fill_area || false}
-                                  onChange={(e) => handleConfigChange(`config.y_axes.${index}.fill_area`, e.target.checked)}
+                                  onChange={(e) => handleConfigChange(`config_json.y_axes.${index}.fill_area`, e.target.checked)}
                                 />
                               }
                               label="Fill Area"
@@ -433,8 +493,8 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                 <FormControl fullWidth>
                   <InputLabel>Label Column</InputLabel>
                   <Select
-                    value={config.config.label_column || ''}
-                    onChange={(e) => handleConfigChange('config.label_column', e.target.value)}
+                    value={config.config_json?.label_column || ''}
+                    onChange={(e) => handleConfigChange('config_json.label_column', e.target.value)}
                   >
                     {getColumnOptions('categorical').map(col => (
                       <MenuItem key={col.name} value={col.name}>
@@ -447,8 +507,8 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                 <FormControl fullWidth>
                   <InputLabel>Value Column</InputLabel>
                   <Select
-                    value={config.config.value_column || ''}
-                    onChange={(e) => handleConfigChange('config.value_column', e.target.value)}
+                    value={config.config_json?.value_column || ''}
+                    onChange={(e) => handleConfigChange('config_json.value_column', e.target.value)}
                   >
                     {getColumnOptions('numeric').map(col => (
                       <MenuItem key={col.name} value={col.name}>
@@ -461,8 +521,8 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                 <FormControlLabel
                   control={
                     <Switch
-                      checked={config.config.show_labels !== false}
-                      onChange={(e) => handleConfigChange('config.show_labels', e.target.checked)}
+                      checked={config.config_json?.show_labels !== false}
+                      onChange={(e) => handleConfigChange('config_json.show_labels', e.target.checked)}
                     />
                   }
                   label="Show Labels"
@@ -476,8 +536,8 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                 <FormControl fullWidth>
                   <InputLabel>Y-Axis Column</InputLabel>
                   <Select
-                    value={config.config.y_axis?.column || ''}
-                    onChange={(e) => handleConfigChange('config.y_axis.column', e.target.value)}
+                    value={config.config_json?.y_axis?.column || ''}
+                    onChange={(e) => handleConfigChange('config_json.y_axis.column', e.target.value)}
                   >
                     {getColumnOptions('numeric').map(col => (
                       <MenuItem key={col.name} value={col.name}>
@@ -490,17 +550,17 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                 <TextField
                   fullWidth
                   label="Y-Axis Title"
-                  value={config.config.y_axis?.title || ''}
-                  onChange={(e) => handleConfigChange('config.y_axis.title', e.target.value)}
+                  value={config.config_json?.y_axis?.title || ''}
+                  onChange={(e) => handleConfigChange('config_json.y_axis.title', e.target.value)}
                 />
 
                 <Box sx={{ px: 2 }}>
                   <Typography variant="body2" gutterBottom>
-                    Point Size: {config.config.point_size || 6}
+                    Point Size: {config.config_json?.point_size || 6}
                   </Typography>
                   <Slider
-                    value={config.config.point_size || 6}
-                    onChange={(_, value) => handleConfigChange('config.point_size', value)}
+                    value={config.config_json?.point_size || 6}
+                    onChange={(_, value) => handleConfigChange('config_json.point_size', value)}
                     min={2}
                     max={20}
                     step={1}
@@ -516,8 +576,8 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                 <FormControl fullWidth>
                   <InputLabel>Value Column</InputLabel>
                   <Select
-                    value={config.config.value_column || ''}
-                    onChange={(e) => handleConfigChange('config.value_column', e.target.value)}
+                    value={config.config_json?.value_column || ''}
+                    onChange={(e) => handleConfigChange('config_json.value_column', e.target.value)}
                   >
                     {getColumnOptions('numeric').map(col => (
                       <MenuItem key={col.name} value={col.name}>
@@ -530,8 +590,8 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                 <FormControl fullWidth>
                   <InputLabel>Value Format</InputLabel>
                   <Select
-                    value={config.config.value_format || 'number'}
-                    onChange={(e) => handleConfigChange('config.value_format', e.target.value)}
+                    value={config.config_json?.value_format || 'number'}
+                    onChange={(e) => handleConfigChange('config_json.value_format', e.target.value)}
                   >
                     <MenuItem value="number">Number</MenuItem>
                     <MenuItem value="currency">Currency</MenuItem>
@@ -542,8 +602,8 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                 <FormControl fullWidth>
                   <InputLabel>Comparison Column (Optional)</InputLabel>
                   <Select
-                    value={config.config.comparison_column || ''}
-                    onChange={(e) => handleConfigChange('config.comparison_column', e.target.value)}
+                    value={config.config_json?.comparison_column || ''}
+                    onChange={(e) => handleConfigChange('config_json.comparison_column', e.target.value)}
                   >
                     <MenuItem value="">None</MenuItem>
                     {getColumnOptions('numeric').map(col => (
@@ -562,7 +622,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
   };
 
   const renderStyleConfig = () => {
-    if (!config || config.type === 'table-chart' || config.type === 'metric-card') {
+    if (!config || config.chart_type === 'table-chart' || config.chart_type === 'metric-card') {
       return null;
     }
 
@@ -578,21 +638,21 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
             <FormControlLabel
               control={
                 <Switch
-                  checked={config.config.legend?.show !== false}
-                  onChange={(e) => handleConfigChange('config.legend.show', e.target.checked)}
+                  checked={config.config_json?.legend?.show !== false}
+                  onChange={(e) => handleConfigChange('config_json.legend.show', e.target.checked)}
                 />
               }
               label="Show Legend"
             />
 
-            {config.config.legend?.show !== false && (
+            {config.config_json?.legend?.show !== false && (
               <Grid container spacing={2}>
                 <Grid item xs={6}>
                   <FormControl fullWidth>
                     <InputLabel>Position</InputLabel>
                     <Select
-                      value={config.config.legend?.position || 'bottom'}
-                      onChange={(e) => handleConfigChange('config.legend.position', e.target.value)}
+                      value={config.config_json?.legend?.position || 'bottom'}
+                      onChange={(e) => handleConfigChange('config_json.legend.position', e.target.value)}
                     >
                       <MenuItem value="top">Top</MenuItem>
                       <MenuItem value="bottom">Bottom</MenuItem>
@@ -606,8 +666,8 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                   <FormControl fullWidth>
                     <InputLabel>Orientation</InputLabel>
                     <Select
-                      value={config.config.legend?.orientation || 'horizontal'}
-                      onChange={(e) => handleConfigChange('config.legend.orientation', e.target.value)}
+                      value={config.config_json?.legend?.orientation || 'horizontal'}
+                      onChange={(e) => handleConfigChange('config_json.legend.orientation', e.target.value)}
                     >
                       <MenuItem value="horizontal">Horizontal</MenuItem>
                       <MenuItem value="vertical">Vertical</MenuItem>
@@ -622,8 +682,8 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
             <FormControlLabel
               control={
                 <Switch
-                  checked={config.config.grid?.show_x_grid !== false}
-                  onChange={(e) => handleConfigChange('config.grid.show_x_grid', e.target.checked)}
+                  checked={config.config_json?.grid?.show_x_grid !== false}
+                  onChange={(e) => handleConfigChange('config_json.grid.show_x_grid', e.target.checked)}
                 />
               }
               label="Show X-Axis Grid"
@@ -632,8 +692,8 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
             <FormControlLabel
               control={
                 <Switch
-                  checked={config.config.grid?.show_y_grid !== false}
-                  onChange={(e) => handleConfigChange('config.grid.show_y_grid', e.target.checked)}
+                  checked={config.config_json?.grid?.show_y_grid !== false}
+                  onChange={(e) => handleConfigChange('config_json.grid.show_y_grid', e.target.checked)}
                 />
               }
               label="Show Y-Axis Grid"
@@ -644,8 +704,8 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
             <FormControlLabel
               control={
                 <Switch
-                  checked={config.config.interaction?.zoom_enabled !== false}
-                  onChange={(e) => handleConfigChange('config.interaction.zoom_enabled', e.target.checked)}
+                  checked={config.config_json?.interaction?.zoom_enabled !== false}
+                  onChange={(e) => handleConfigChange('config_json.interaction.zoom_enabled', e.target.checked)}
                 />
               }
               label="Enable Zoom"
@@ -654,8 +714,8 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
             <FormControlLabel
               control={
                 <Switch
-                  checked={config.config.interaction?.tooltip_enabled !== false}
-                  onChange={(e) => handleConfigChange('config.interaction.tooltip_enabled', e.target.checked)}
+                  checked={config.config_json?.interaction?.tooltip_enabled !== false}
+                  onChange={(e) => handleConfigChange('config_json.interaction.tooltip_enabled', e.target.checked)}
                 />
               }
               label="Show Tooltips"
@@ -664,89 +724,84 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
             <FormControlLabel
               control={
                 <Switch
-                  checked={config.config.interaction?.crosshair_enabled || false}
-                  onChange={(e) => handleConfigChange('config.interaction.crosshair_enabled', e.target.checked)}
+                  checked={config.config_json?.interaction?.crosshair_enabled || false}
+                  onChange={(e) => handleConfigChange('config_json.interaction.crosshair_enabled', e.target.checked)}
                 />
               }
               label="Show Crosshair"
             />
-
-            {/* Animation Configuration */}
-            <Typography variant="subtitle2" color="primary">Animation</Typography>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={config.config.animation?.enabled !== false}
-                  onChange={(e) => handleConfigChange('config.animation.enabled', e.target.checked)}
-                />
-              }
-              label="Enable Animations"
-            />
-
-            {config.config.animation?.enabled !== false && (
-              <Box sx={{ px: 2 }}>
-                <Typography variant="body2" gutterBottom>
-                  Duration: {config.config.animation?.duration || 1000}ms
-                </Typography>
-                <Slider
-                  value={config.config.animation?.duration || 1000}
-                  onChange={(_, value) => handleConfigChange('config.animation.duration', value)}
-                  min={0}
-                  max={5000}
-                  step={100}
-                  marks={[
-                    { value: 0, label: '0ms' },
-                    { value: 1000, label: '1s' },
-                    { value: 3000, label: '3s' },
-                    { value: 5000, label: '5s' }
-                  ]}
-                />
-              </Box>
-            )}
           </Box>
         </AccordionDetails>
       </Accordion>
     );
   };
 
-  if (!config) return null;
+  if (!open || !chart) {
+    return null;
+  }
 
   return (
     <Drawer
       anchor="right"
       open={open}
       onClose={onClose}
-      PaperProps={{
-        sx: { width: 400 }
+      sx={{
+        '& .MuiDrawer-paper': {
+          width: 480,
+          maxWidth: '90vw'
+        }
       }}
     >
-      <Box sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         {/* Header */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h6">Configure Chart</Typography>
+        <Box sx={{ 
+          p: 2, 
+          borderBottom: '1px solid #e0e0e0',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}>
+          <Typography variant="h6">
+            Chart Configuration
+          </Typography>
           <IconButton onClick={onClose}>
             <CloseIcon />
           </IconButton>
         </Box>
 
-        {/* Configuration Sections */}
-        <Box sx={{ flexGrow: 1, overflowY: 'auto' }}>
+        {/* Content */}
+        <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
           {loading && (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              Loading dataset columns...
-            </Alert>
+            <Box sx={{ p: 2, textAlign: 'center' }}>
+              <Typography>Loading dataset columns...</Typography>
+            </Box>
           )}
-          
-          {renderBasicConfig()}
-          {renderDataConfig()}
-          {renderStyleConfig()}
+
+          {!loading && (
+            <>
+              {renderBasicConfig()}
+              {renderDataConfig()}
+              {renderStyleConfig()}
+            </>
+          )}
         </Box>
 
-        {/* Actions */}
-        <Divider sx={{ my: 2 }} />
-        <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="contained" onClick={handleSave}>
+        {/* Footer */}
+        <Box sx={{ 
+          p: 2, 
+          borderTop: '1px solid #e0e0e0',
+          display: 'flex',
+          gap: 1,
+          justifyContent: 'flex-end'
+        }}>
+          <Button onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSave}
+            disabled={!config}
+          >
             Save Changes
           </Button>
         </Box>

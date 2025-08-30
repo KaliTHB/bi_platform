@@ -1,16 +1,15 @@
-// api-services/src/types/auth.types.ts
 export interface User {
   id: string;
+  username: string;
   email: string;
-  first_name: string;
-  last_name: string;
-  role: 'SUPER_ADMIN' | 'ADMIN' | 'USER';
+  display_name: string;
+  first_name?: string;
+  last_name?: string;
   avatar_url?: string;
   is_active: boolean;
   last_login_at?: Date;
   created_at: Date;
   updated_at: Date;
-  workspace_ids?: string[];
 }
 
 export interface Workspace {
@@ -19,15 +18,13 @@ export interface Workspace {
   slug: string;
   description?: string;
   logo_url?: string;
-  settings: WorkspaceSettings;
+  settings?: WorkspaceSettings;
   is_active: boolean;
   created_at: Date;
   updated_at: Date;
   user_count?: number;
   dashboard_count?: number;
   dataset_count?: number;
-  user_roles?: WorkspaceRole[];
-  highest_role_level?: number;
 }
 
 export interface WorkspaceSettings {
@@ -47,83 +44,22 @@ export interface WorkspaceSettings {
   };
 }
 
-export interface Role {
-  id: string;
-  name: string;
-  display_name: string;
-  description?: string;
-  level: number;
-  is_system: boolean;
-  workspace_id?: string;
-  permissions: Permission[];
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface Permission {
-  id: string;
-  name: string;
-  display_name: string;
-  description?: string;
-  category: string;
-  resource_type?: string;
-  is_system: boolean;
-  created_at: Date;
-}
-
-export interface WorkspaceRole {
-  role_id: string;
-  role_name: string;
-  level: number;
-  assigned_at?: Date;
-  assigned_by?: string;
-}
-
-export interface UserWorkspace {
-  user_id: string;
-  workspace_id: string;
-  roles: WorkspaceRole[];
-  joined_at: Date;
-  invited_by?: string;
-  status: 'ACTIVE' | 'INVITED' | 'SUSPENDED';
-}
-
 export interface LoginRequest {
-  email: string;
+  username: string;
   password: string;
   workspace_slug?: string;
 }
 
 export interface LoginResponse {
-  user: User;
-  token: string;
-  expires_in: number;
-  workspaces: Workspace[];
-}
-
-export interface RefreshTokenRequest {
-  refresh_token: string;
-}
-
-export interface PasswordResetRequest {
-  email: string;
-}
-
-export interface PasswordResetConfirm {
-  token: string;
-  new_password: string;
-}
-
-export interface UserInvitation {
-  id: string;
-  email: string;
-  workspace_id: string;
-  role_ids: string[];
-  invited_by: string;
-  token: string;
-  expires_at: Date;
-  status: 'PENDING' | 'ACCEPTED' | 'EXPIRED' | 'REVOKED';
-  created_at: Date;
+  success: boolean;
+  data: {
+    user: User;
+    token: string;
+    workspace: Workspace;
+    permissions: string[];
+    expires_in: number;
+  };
+  message?: string;
 }
 
 export interface CreateUserRequest {
@@ -139,7 +75,7 @@ export interface UpdateUserRequest {
   last_name?: string;
   avatar_url?: string;
   is_active?: boolean;
-  password?: string;
+  password?: string; // Added password field for user updates
 }
 
 export interface CreateWorkspaceRequest {
@@ -154,24 +90,4 @@ export interface UpdateWorkspaceRequest {
   description?: string;
   logo_url?: string;
   settings?: Partial<WorkspaceSettings>;
-}
-
-export interface AssignRoleRequest {
-  user_id: string;
-  role_ids: string[];
-}
-
-export interface CreateRoleRequest {
-  name: string;
-  display_name: string;
-  description?: string;
-  level: number;
-  permission_ids: string[];
-}
-
-export interface UpdateRoleRequest {
-  display_name?: string;
-  description?: string;
-  level?: number;
-  permission_ids?: string[];
 }

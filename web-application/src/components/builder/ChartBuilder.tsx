@@ -13,19 +13,48 @@ import {
 } from '@mui/material';
 import { ChartSelector } from './ChartSelector';
 import { ChartFactory, EnhancedChartPluginService } from '../../plugins/charts/factory/ChartFactory';
+import { ColumnDefinition } from '../../plugins/charts/interfaces';
+import { Dataset } from '../../types/dataset.types';
+import { datasetAPI } from '../../services/api';
+
+// Additional types for API responses
+interface DatasetColumn {
+  name: string;
+  type: string;
+  display_name?: string;
+  format_hint?: string;
+  nullable?: boolean;
+  description?: string;
+}
+
+interface DatasetSchema {
+  columns: DatasetColumn[];
+  row_count?: number;
+  sample_data?: any[];
+}
+
+interface DatasetQueryResponse {
+  data: any[];
+  columns: Array<{ name: string; type: string }>;
+  total_rows: number;
+  execution_time: number;
+  cached: boolean;
+}
 
 interface ChartBuilderProps {
   onChartSelect?: (chartType: string, chartLibrary: string) => void;
   initialData?: any[];
   initialConfig?: any;
   height?: number | string;
+  datasetId?: string; // Add dataset ID prop
 }
 
 export const ChartBuilder: React.FC<ChartBuilderProps> = ({
   onChartSelect,
   initialData,
   initialConfig,
-  height = 400
+  height = 400,
+  datasetId
 }) => {
   const [selectedChart, setSelectedChart] = useState<string>('');
   const [selectedLibrary, setSelectedLibrary] = useState<string>('echarts');
@@ -34,6 +63,11 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pluginService, setPluginService] = useState<EnhancedChartPluginService | null>(null);
+  
+  // New state for live data
+  const [columns, setColumns] = useState<ColumnDefinition[]>([]);
+  const [dataset, setDataset] = useState<Dataset | null>(null);
+  const [loadingData, setLoadingData] = useState(false);
 
   // Initialize plugin service
   useEffect(() => {
@@ -54,6 +88,127 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
 
     initializePlugins();
   }, []);
+
+  // Load dataset and its data when datasetId is provided
+  useEffect(() => {
+    if (datasetId) {
+      loadDatasetData(datasetId);
+    }
+  }, [datasetId]);
+
+  // Function to load data from live dataset connection
+  const loadDatasetData = async (id: string) => {
+    try {
+      setLoadingData(true);
+      setError(null);
+
+      // Fetch dataset metadata first
+      const datasetResponse = await datasetAPI.getDataset(id);
+      if (datasetResponse?.dataset) {
+        setDataset(datasetResponse.dataset);
+      }
+
+      // Fetch dataset schema to get columns
+      try {
+        const schemaResponse = await datasetAPI.getDatasetSchema(id);
+        if (schemaResponse?.schema?.columns && Array.isArray(schemaResponse.schema.columns)) {
+          const chartColumns: ColumnDefinition[] = schemaResponse.schema.columns.map((col: DatasetColumn) => ({
+            name: col.name,
+            type: mapDataTypeToChartType(col.type || 'string'),
+            displayName: col.display_name || col.name,
+            format: col.format_hint
+          }));
+          setColumns(chartColumns);
+        }
+      } catch (schemaError) {
+        console.warn('Failed to load dataset schema:', schemaError);
+        // Continue without schema - we'll still try to get data
+      }
+
+      // Fetch actual data preview (limited rows for preview)
+      try {
+        const dataResponse = await datasetAPI.queryDataset(id, { 
+          limit: 50,
+          offset: 0 
+        });
+        
+        if (dataResponse?.data && Array.isArray(dataResponse.data) && dataResponse.data.length > 0) {
+          setChartData(dataResponse.data);
+          
+          // If we don't have schema columns, infer them from data
+          if (columns.length === 0 && dataResponse.columns) {
+            const inferredColumns: ColumnDefinition[] = dataResponse.columns.map((col: { name: string; type: string }) => ({
+              name: col.name,
+              type: mapDataTypeToChartType(col.type || 'string'),
+              displayName: col.name
+            }));
+            setColumns(inferredColumns);
+          }
+        }
+      } catch (dataError) {
+        console.warn('Failed to load dataset data:', dataError);
+        // This is not critical if we have schema at least
+        if (columns.length === 0) {
+          throw dataError; // Re-throw if we have no useful data at all
+        }
+      }
+
+    } catch (err) {
+      console.error('Failed to load dataset data:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      setError(`Failed to load dataset: ${errorMessage}`);
+      
+      // Reset data states on error
+      setColumns([]);
+      setChartData([]);
+      setDataset(null);
+    } finally {
+      setLoadingData(false);
+    }
+  };
+
+  // Helper function to map dataset data types to chart types
+  const mapDataTypeToChartType = (dataType: string): 'string' | 'number' | 'date' | 'boolean' => {
+    if (!dataType) return 'string';
+    
+    const lowercaseType = dataType.toLowerCase();
+    
+    // Handle numeric types
+    if (lowercaseType.includes('int') || 
+        lowercaseType.includes('float') || 
+        lowercaseType.includes('double') ||
+        lowercaseType.includes('decimal') || 
+        lowercaseType.includes('numeric') ||
+        lowercaseType.includes('number') ||
+        lowercaseType === 'bigint' ||
+        lowercaseType === 'smallint') {
+      return 'number';
+    }
+    
+    // Handle date/time types
+    if (lowercaseType.includes('date') || 
+        lowercaseType.includes('time') ||
+        lowercaseType.includes('timestamp')) {
+      return 'date';
+    }
+    
+    // Handle boolean types
+    if (lowercaseType.includes('bool') ||
+        lowercaseType === 'bit') {
+      return 'boolean';
+    }
+    
+    // Default to string for text types
+    return 'string';
+  };
+
+  // Fallback empty data for when no dataset is connected
+  const fallbackData: ColumnDefinition[] = [];
+  const fallbackRows: any[] = [];
+
+  // Use live data if available, otherwise use fallback
+  const activeColumns = columns.length > 0 ? columns : fallbackData;
+  const activeData = chartData.length > 0 ? chartData : fallbackRows;
 
   // Handle chart selection
   const handleChartSelect = (chartType: string, library?: string) => {
@@ -85,7 +240,7 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
         }
         
         setChartConfig({
-          title: `Sample ${plugin.displayName || chartType}`,
+          title: dataset ? `${plugin.displayName || chartType} - ${dataset.display_name}` : `Sample ${plugin.displayName || chartType}`,
           ...defaultConfig,
           ...initialConfig
         });
@@ -95,25 +250,6 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
     // Notify parent component
     onChartSelect?.(chartType, selectedLibrary);
   };
-
-  // Sample data for testing
-  const sampleData = chartData.length > 0 ? chartData : [
-    { name: 'Jan', value: 100, category: 'A', sales: 1200, profit: 300 },
-    { name: 'Feb', value: 200, category: 'B', sales: 1900, profit: 450 },
-    { name: 'Mar', value: 150, category: 'A', sales: 1500, profit: 320 },
-    { name: 'Apr', value: 300, category: 'C', sales: 2100, profit: 580 },
-    { name: 'May', value: 250, category: 'B', sales: 1800, profit: 420 },
-    { name: 'Jun', value: 400, category: 'A', sales: 2500, profit: 680 }
-  ];
-
-  // Sample columns definition
-  const sampleColumns = [
-    { name: 'name', type: 'string', displayName: 'Month' },
-    { name: 'value', type: 'number', displayName: 'Value' },
-    { name: 'category', type: 'string', displayName: 'Category' },
-    { name: 'sales', type: 'number', displayName: 'Sales' },
-    { name: 'profit', type: 'number', displayName: 'Profit' }
-  ];
 
   // Handle plugin loading errors
   const handlePluginError = (error: Error) => {
@@ -196,6 +332,13 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
                           variant="outlined"
                         />
                       )}
+                      {dataset && (
+                        <Chip 
+                          label="Live Data" 
+                          color="success" 
+                          size="small" 
+                        />
+                      )}
                     </Box>
                   </Box>
                   
@@ -204,8 +347,29 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
                     {currentPlugin?.description && ` - ${currentPlugin.description}`}
                   </Typography>
                   
+                  {dataset && (
+                    <Typography variant="body2" color="textSecondary" mt={1}>
+                      Connected to: {dataset.display_name}
+                    </Typography>
+                  )}
+                  
                   <Divider sx={{ mt: 2 }} />
                 </Box>
+
+                {/* Loading indicator for data */}
+                {loadingData && (
+                  <Box display="flex" justifyContent="center" alignItems="center" my={4}>
+                    <CircularProgress size={40} />
+                    <Typography variant="body2" ml={2}>Loading dataset...</Typography>
+                  </Box>
+                )}
+
+                {/* Data connection warning */}
+                {!datasetId && !loadingData && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    No dataset connected. Connect a dataset to see live data visualization.
+                  </Alert>
+                )}
 
                 {/* Chart Container */}
                 <Box 
@@ -220,76 +384,70 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
                     flexDirection: 'column'
                   }}
                 >
-                  <ChartFactory
-                    chartType={selectedChart}
-                    chartLibrary={selectedLibrary}
-                    data={{
-                      rows: sampleData,
-                      columns: sampleColumns,
-                      metadata: {
-                        totalRows: sampleData.length,
-                        source: 'Sample Data'
-                      }
-                    }}
-                    config={{
-                      title: chartConfig.title || 'Sample Chart',
-                      subtitle: 'Interactive chart preview',
-                      ...chartConfig
-                    }}
-                    width="100%"
-                    height={typeof height === 'number' ? height : undefined}
-                    theme={{
-                      backgroundColor: 'transparent',
-                      textColor: '#333',
-                      gridColor: '#eee'
-                    }}
-                    onError={handlePluginError}
-                    onInteraction={(event) => {
-                      console.log('Chart interaction:', event);
-                    }}
-                    fallbackComponent={(props) => (
-                      <Box 
-                        display="flex" 
-                        flexDirection="column" 
-                        alignItems="center" 
-                        justifyContent="center"
-                        minHeight={200}
-                        textAlign="center"
-                        p={3}
-                      >
-                        <Typography variant="h6" gutterBottom>
-                          Chart Not Available
-                        </Typography>
-                        <Typography variant="body2" color="textSecondary">
-                          The selected chart type ({selectedChart}) is not currently available.
-                          Please try selecting a different chart type.
-                        </Typography>
-                      </Box>
-                    )}
-                  />
+                  {activeColumns.length > 0 || activeData.length > 0 ? (
+                    <ChartFactory
+                      chartType={selectedChart}
+                      chartLibrary={selectedLibrary}
+                      data={{
+                        rows: activeData,
+                        columns: activeColumns,
+                        metadata: {
+                          totalRows: activeData.length,
+                          source: dataset ? dataset.display_name : 'No Data Source',
+                          datasetId: dataset?.id
+                        }
+                      }}
+                      config={{
+                        title: chartConfig.title || (dataset ? `${dataset.display_name} Chart` : 'Chart Preview'),
+                        subtitle: dataset ? `From dataset: ${dataset.name}` : 'Connect a dataset for live data',
+                        ...chartConfig
+                      }}
+                      height={typeof height === 'number' ? height : 400}
+                      onError={handlePluginError}
+                    />
+                  ) : (
+                    <Box 
+                      display="flex" 
+                      flexDirection="column" 
+                      alignItems="center" 
+                      justifyContent="center" 
+                      flexGrow={1}
+                      textAlign="center"
+                      color="text.secondary"
+                    >
+                      <Box fontSize="3rem" mb={2}>📊</Box>
+                      <Typography variant="h6" gutterBottom>
+                        No Data Available
+                      </Typography>
+                      <Typography variant="body2">
+                        Connect a dataset to visualize your data
+                      </Typography>
+                    </Box>
+                  )}
                 </Box>
 
-                {/* Chart Info */}
-                {currentPlugin && (
-                  <Box mt={2} p={2} sx={{ bgcolor: 'grey.50', borderRadius: 1 }}>
+                {/* Data Information Panel */}
+                {(activeColumns.length > 0 || dataset) && !loadingData && (
+                  <Box mt={2}>
+                    <Divider sx={{ mb: 2 }} />
                     <Typography variant="subtitle2" gutterBottom>
-                      Chart Information
+                      Data Information
                     </Typography>
                     <Grid container spacing={2}>
                       <Grid item xs={6} sm={3}>
                         <Typography variant="body2" color="textSecondary">
-                          Library
+                          Source
                         </Typography>
                         <Typography variant="body2">
-                          {currentPlugin.library || 'Unknown'}
+                          {dataset?.display_name || 'No Dataset'}
                         </Typography>
                       </Grid>
                       <Grid item xs={6} sm={3}>
                         <Typography variant="body2" color="textSecondary">
-                          Version
+                          Plugin Version
                         </Typography>
                         <Typography variant="body2">
-                          {currentPlugin.version || 'N/A'}
+                          {currentPlugin?.version || 'N/A'}
                         </Typography>
                       </Grid>
                       <Grid item xs={6} sm={3}>
@@ -297,7 +455,7 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
                           Data Columns
                         </Typography>
                         <Typography variant="body2">
-                          {sampleColumns.length} available
+                          {activeColumns.length} available
                         </Typography>
                       </Grid>
                       <Grid item xs={6} sm={3}>
@@ -305,7 +463,7 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
                           Data Rows
                         </Typography>
                         <Typography variant="body2">
-                          {sampleData.length} records
+                          {activeData.length} records
                         </Typography>
                       </Grid>
                     </Grid>
