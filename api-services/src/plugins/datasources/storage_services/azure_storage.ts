@@ -1,26 +1,44 @@
 / File: api-services/src/plugins/datasources/storage_services/azure_storage.ts
-import { BlobServiceClient } from '@azure/storage-blob';
 import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
+import { BlobServiceClient, StorageSharedKeyCredential } from '@azure/storage-blob';
 
 export const azureStoragePlugin: DataSourcePlugin = {
   name: 'azure_storage',
   displayName: 'Azure Blob Storage',
   category: 'storage_services',
   version: '1.0.0',
+  description: 'Connect to Azure Blob Storage',
   
   configSchema: {
     type: 'object',
     properties: {
-      connectionString: { type: 'string', title: 'Connection String' },
-      containerName: { type: 'string', title: 'Container Name' }
+      accountName: { type: 'string', title: 'Storage Account Name' },
+      accountKey: { type: 'string', title: 'Account Key', format: 'password' },
+      containerName: { type: 'string', title: 'Container Name' },
+      endpoint: { type: 'string', title: 'Custom Endpoint' }
     },
-    required: ['connectionString', 'containerName'],
+    required: ['accountName', 'accountKey', 'containerName'],
     additionalProperties: false
   },
 
+  capabilities: {
+    supportsBulkInsert: false,
+    supportsTransactions: false,
+    supportsStoredProcedures: false,
+    maxConcurrentConnections: 20
+  },
+
   async connect(config: ConnectionConfig): Promise<Connection> {
-    const blobServiceClient = BlobServiceClient.fromConnectionString(config.connectionString);
+    const sharedKeyCredential = new StorageSharedKeyCredential(
+      config.accountName as string,
+      config.accountKey as string
+    );
     
+    const blobServiceClient = new BlobServiceClient(
+      config.endpoint as string || `https://${config.accountName}.blob.core.windows.net`,
+      sharedKeyCredential
+    );
+
     return {
       id: `azure-storage-${Date.now()}`,
       config,
@@ -33,74 +51,113 @@ export const azureStoragePlugin: DataSourcePlugin = {
   async testConnection(config: ConnectionConfig): Promise<boolean> {
     try {
       const connection = await this.connect(config);
-      const containerClient = connection.client.getContainerClient(config.containerName);
-      await containerClient.getProperties();
+      const containerClient = connection.client.getContainerClient(config.containerName as string);
+      await containerClient.listBlobsFlat({ maxPageSize: 1 }).next();
+      await this.disconnect(connection);
       return true;
     } catch (error) {
       return false;
     }
   },
 
-  async executeQuery(connection: Connection, query: string): Promise<QueryResult> {
+  async executeQuery(connection: Connection, query: string, params?: any[]): Promise<QueryResult> {
     const startTime = Date.now();
     
     try {
-      const queryObj = JSON.parse(query);
-      const { operation, blobName, prefix } = queryObj;
+      const operation = JSON.parse(query);
+      const containerClient = connection.client.getContainerClient(connection.config.containerName as string);
       
-      const containerClient = connection.client.getContainerClient(connection.config.containerName);
-      
-      switch (operation) {
-        case 'listBlobs':
+      switch (operation.operation) {
+        case 'list':
           const blobs = [];
-          for await (const blob of containerClient.listBlobsFlat({ prefix })) {
+          for await (const blob of containerClient.listBlobsFlat()) {
             blobs.push({
               name: blob.name,
               size: blob.properties.contentLength,
               lastModified: blob.properties.lastModified,
-              contentType: blob.properties.contentType
+              contentType: blob.properties.contentType,
+              etag: blob.properties.etag
             });
+            
+            if (blobs.length >= (operation.maxItems || 1000)) break;
           }
+          
+          const executionTimeMs = Date.now() - startTime;
+          const columns = [
+            { name: 'name', type: 'string', nullable: false, defaultValue: null },
+            { name: 'size', type: 'number', nullable: true, defaultValue: null },
+            { name: 'lastModified', type: 'date', nullable: true, defaultValue: null },
+            { name: 'contentType', type: 'string', nullable: true, defaultValue: null },
+            { name: 'etag', type: 'string', nullable: true, defaultValue: null }
+          ];
+
+          connection.lastActivity = new Date();
           
           return {
             rows: blobs,
-            columns: [
-              { name: 'name', type: 'string', nullable: false },
-              { name: 'size', type: 'number', nullable: true },
-              { name: 'lastModified', type: 'date', nullable: true },
-              { name: 'contentType', type: 'string', nullable: true }
-            ],
+            columns,
             rowCount: blobs.length,
-            executionTimeMs: Date.now() - startTime
+            executionTimeMs,
+            queryId: `azure-storage-${Date.now()}`
+          };
+          
+        case 'read':
+          const blobClient = containerClient.getBlobClient(operation.blobName);
+          const downloadResponse = await blobClient.download();
+          const content = await this.streamToBuffer(downloadResponse.readableStreamBody!);
+          
+          connection.lastActivity = new Date();
+          
+          return {
+            rows: [{ name: operation.blobName, content: content.toString('utf-8') }],
+            columns: [
+              { name: 'name', type: 'string', nullable: false, defaultValue: null },
+              { name: 'content', type: 'string', nullable: false, defaultValue: null }
+            ],
+            rowCount: 1,
+            executionTimeMs: Date.now() - startTime,
+            queryId: `azure-storage-read-${Date.now()}`
           };
           
         default:
-          throw new Error(`Unsupported operation: ${operation}`);
+          throw new Error(`Unsupported operation: ${operation.operation}`);
       }
     } catch (error) {
-      throw new Error(`Query execution failed: ${error.message}`);
+      throw new Error(`Azure Storage query error: ${error}`);
     }
   },
 
-  async getSchema(): Promise<SchemaInfo> {
-    return {
-      tables: [
-        {
-          name: 'blobs',
-          schema: 'azure_storage',
-          columns: [
-            { name: 'name', type: 'string', nullable: false },
-            { name: 'size', type: 'number', nullable: true },
-            { name: 'lastModified', type: 'date', nullable: true },
-            { name: 'contentType', type: 'string', nullable: true }
-          ]
-        }
-      ],
-      views: []
-    };
+  async getSchema(connection: Connection): Promise<SchemaInfo> {
+    const containerClient = connection.client.getContainerClient(connection.config.containerName as string);
+    const tables = [];
+    
+    for await (const blob of containerClient.listBlobsFlat()) {
+      tables.push({
+        name: blob.name.replace(/^.*\//, '').replace(/\.[^.]+$/, ''),
+        schema: 'azure_storage',
+        columns: []
+      });
+      
+      if (tables.length >= 100) break; // Limit for performance
+    }
+
+    return { tables, views: [] };
   },
 
-  async disconnect(): Promise<void> {
-    // Azure Storage doesn't require explicit disconnection
+  async disconnect(connection: Connection): Promise<void> {
+    connection.isConnected = false;
+  },
+
+  private async streamToBuffer(readableStream: NodeJS.ReadableStream): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      readableStream.on('data', (data) => {
+        chunks.push(data instanceof Buffer ? data : Buffer.from(data));
+      });
+      readableStream.on('end', () => {
+        resolve(Buffer.concat(chunks));
+      });
+      readableStream.on('error', reject);
+    });
   }
 };

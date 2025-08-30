@@ -1,28 +1,40 @@
 // File: api-services/src/plugins/datasources/cloud_databases/mongodb.ts
-import { MongoClient, Db } from 'mongodb';
 import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
+import { MongoClient, Db } from 'mongodb';
 
 export const mongodbPlugin: DataSourcePlugin = {
   name: 'mongodb',
   displayName: 'MongoDB',
   category: 'cloud_databases',
   version: '1.0.0',
+  description: 'Connect to MongoDB databases',
   
   configSchema: {
     type: 'object',
     properties: {
-      uri: { type: 'string', title: 'Connection URI', description: 'MongoDB connection URI' },
-      database: { type: 'string', title: 'Database Name' },
-      maxPoolSize: { type: 'integer', title: 'Max Pool Size', default: 10 }
+      uri: { type: 'string', title: 'Connection URI' },
+      host: { type: 'string', title: 'Host', default: 'localhost' },
+      port: { type: 'number', title: 'Port', default: 27017 },
+      database: { type: 'string', title: 'Database' },
+      username: { type: 'string', title: 'Username' },
+      password: { type: 'string', title: 'Password', format: 'password' },
+      authSource: { type: 'string', title: 'Auth Source', default: 'admin' },
+      ssl: { type: 'boolean', title: 'Use SSL', default: false }
     },
-    required: ['uri', 'database'],
+    required: ['database'],
     additionalProperties: false
   },
 
+  capabilities: {
+    supportsBulkInsert: true,
+    supportsTransactions: true,
+    supportsStoredProcedures: false,
+    maxConcurrentConnections: 100
+  },
+
   async connect(config: ConnectionConfig): Promise<Connection> {
-    const client = new MongoClient(config.uri, {
-      maxPoolSize: config.maxPoolSize || 10
-    });
+    const uri = config.uri || this.buildConnectionUri(config);
+    const client = new MongoClient(uri);
     
     await client.connect();
     const db = client.db(config.database);
@@ -47,44 +59,51 @@ export const mongodbPlugin: DataSourcePlugin = {
     }
   },
 
-  async executeQuery(connection: Connection, query: string): Promise<QueryResult> {
+  async executeQuery(connection: Connection, query: string, params?: any[]): Promise<QueryResult> {
     const startTime = Date.now();
     
     try {
-      // Parse JSON query
+      // Parse MongoDB query (simplified - in practice you'd need a more robust parser)
       const queryObj = JSON.parse(query);
-      const { collection, operation, filter = {}, options = {} } = queryObj;
+      const collection = connection.client.db.collection(queryObj.collection);
       
-      const coll = connection.client.db.collection(collection);
-      let rows = [];
-      
-      switch (operation) {
+      let result;
+      switch (queryObj.operation) {
         case 'find':
-          rows = await coll.find(filter, options).toArray();
+          result = await collection.find(queryObj.filter || {}).limit(queryObj.limit || 1000).toArray();
           break;
         case 'aggregate':
-          rows = await coll.aggregate(filter).toArray();
+          result = await collection.aggregate(queryObj.pipeline || []).toArray();
+          break;
+        case 'count':
+          result = [{ count: await collection.countDocuments(queryObj.filter || {}) }];
           break;
         default:
-          throw new Error(`Unsupported operation: ${operation}`);
+          throw new Error(`Unsupported operation: ${queryObj.operation}`);
       }
-
+      
       const executionTimeMs = Date.now() - startTime;
       
-      const columns = rows.length > 0 ? Object.keys(rows[0]).map(key => ({
-        name: key,
-        type: 'mixed',
-        nullable: true
-      })) : [];
+      // Infer columns from first document
+      const columns = result.length > 0 ? 
+        Object.keys(result[0]).map(key => ({
+          name: key,
+          type: typeof result[0][key],
+          nullable: true,
+          defaultValue: null
+        })) : [];
 
+      connection.lastActivity = new Date();
+      
       return {
-        rows,
+        rows: result,
         columns,
-        rowCount: rows.length,
-        executionTimeMs
+        rowCount: result.length,
+        executionTimeMs,
+        queryId: `mongodb-${Date.now()}`
       };
     } catch (error) {
-      throw new Error(`Query execution failed: ${error.message}`);
+      throw new Error(`MongoDB query error: ${error}`);
     }
   },
 
@@ -93,7 +112,7 @@ export const mongodbPlugin: DataSourcePlugin = {
     
     const tables = collections.map(col => ({
       name: col.name,
-      schema: connection.config.database,
+      schema: connection.config.database as string,
       columns: []
     }));
 
@@ -103,7 +122,20 @@ export const mongodbPlugin: DataSourcePlugin = {
   async disconnect(connection: Connection): Promise<void> {
     if (connection.client?.mongoClient) {
       await connection.client.mongoClient.close();
-      connection.isConnected = false;
     }
+    connection.isConnected = false;
+  },
+
+  private buildConnectionUri(config: ConnectionConfig): string {
+    const auth = config.username && config.password ? 
+      `${config.username}:${config.password}@` : '';
+    const options = [];
+    
+    if (config.authSource) options.push(`authSource=${config.authSource}`);
+    if (config.ssl) options.push('ssl=true');
+    
+    const optionsString = options.length > 0 ? `?${options.join('&')}` : '';
+    
+    return `mongodb://${auth}${config.host}:${config.port}/${config.database}${optionsString}`;
   }
 };

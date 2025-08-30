@@ -1,35 +1,47 @@
 // File: api-services/src/plugins/datasources/relational/oracle.ts
-import oracledb from 'oracledb';
 import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
+import * as oracledb from 'oracledb';
 
 export const oraclePlugin: DataSourcePlugin = {
   name: 'oracle',
   displayName: 'Oracle Database',
   category: 'relational',
   version: '1.0.0',
+  description: 'Connect to Oracle databases',
   
   configSchema: {
     type: 'object',
     properties: {
-      connectString: { type: 'string', title: 'Connect String', description: 'Oracle connection string' },
+      host: { type: 'string', title: 'Host', default: 'localhost' },
+      port: { type: 'number', title: 'Port', default: 1521, minimum: 1, maximum: 65535 },
+      serviceName: { type: 'string', title: 'Service Name' },
+      sid: { type: 'string', title: 'SID (Alternative to Service Name)' },
       user: { type: 'string', title: 'Username' },
-      password: { type: 'string', title: 'Password' },
-      poolMin: { type: 'integer', title: 'Min Pool Size', default: 1 },
-      poolMax: { type: 'integer', title: 'Max Pool Size', default: 10 },
-      poolIncrement: { type: 'integer', title: 'Pool Increment', default: 1 }
+      password: { type: 'string', title: 'Password', format: 'password' },
+      connectString: { type: 'string', title: 'Connect String (Optional)' }
     },
-    required: ['connectString', 'user', 'password'],
+    required: ['host', 'user', 'password'],
     additionalProperties: false
   },
 
+  capabilities: {
+    supportsBulkInsert: true,
+    supportsTransactions: true,
+    supportsStoredProcedures: true,
+    maxConcurrentConnections: 100
+  },
+
   async connect(config: ConnectionConfig): Promise<Connection> {
+    const connectString = config.connectString || 
+      `${config.host}:${config.port || 1521}/${config.serviceName || config.sid}`;
+
     const pool = await oracledb.createPool({
-      connectString: config.connectString,
       user: config.user || config.username,
       password: config.password,
-      poolMin: config.poolMin || 1,
-      poolMax: config.poolMax || 10,
-      poolIncrement: config.poolIncrement || 1
+      connectString,
+      poolMin: 1,
+      poolMax: 20,
+      poolIncrement: 1
     });
 
     return {
@@ -44,61 +56,95 @@ export const oraclePlugin: DataSourcePlugin = {
   async testConnection(config: ConnectionConfig): Promise<boolean> {
     try {
       const connection = await this.connect(config);
-      const result = await this.executeQuery(connection, 'SELECT * FROM dual');
       await this.disconnect(connection);
-      return result.rows.length > 0;
+      return true;
     } catch (error) {
       return false;
     }
   },
 
   async executeQuery(connection: Connection, query: string, params?: any[]): Promise<QueryResult> {
-    let oracleConnection;
+    const startTime = Date.now();
+    const conn = await connection.pool.getConnection();
+    
     try {
-      oracleConnection = await connection.pool.getConnection();
-      const startTime = Date.now();
-      const result = await oracleConnection.execute(query, params || [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
+      const result = await conn.execute(query, params || [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
       const executionTimeMs = Date.now() - startTime;
-
-      const columns = result.metaData?.map((col: any) => ({
+      
+      const columns = result.metaData?.map(col => ({
         name: col.name,
-        type: col.fetchType?.toString() || 'unknown',
-        nullable: col.nullable || false
+        type: this.mapOracleType(col.dbType),
+        nullable: col.nullable,
+        defaultValue: null
       })) || [];
 
+      connection.lastActivity = new Date();
+      
       return {
         rows: result.rows || [],
         columns,
-        rowCount: result.rows?.length || 0,
-        executionTimeMs
+        rowCount: result.rowsAffected || (result.rows ? result.rows.length : 0),
+        executionTimeMs,
+        queryId: `oracle-${Date.now()}`
       };
     } finally {
-      if (oracleConnection) {
-        await oracleConnection.close();
-      }
+      await conn.close();
     }
   },
 
   async getSchema(connection: Connection): Promise<SchemaInfo> {
-    const tablesResult = await this.executeQuery(connection, `
-      SELECT table_name, owner 
-      FROM all_tables 
-      WHERE owner = USER
-    `);
+    const tablesQuery = `
+      SELECT table_name, owner, tablespace_name
+      FROM all_tables
+      WHERE owner NOT IN ('SYS', 'SYSTEM', 'INFORMATION_SCHEMA')
+      ORDER BY owner, table_name
+    `;
+    
+    const viewsQuery = `
+      SELECT view_name, owner
+      FROM all_views
+      WHERE owner NOT IN ('SYS', 'SYSTEM', 'INFORMATION_SCHEMA')
+      ORDER BY owner, view_name
+    `;
 
-    const tables = tablesResult.rows.map((row: any) => ({
+    const tablesResult = await this.executeQuery(connection, tablesQuery);
+    const viewsResult = await this.executeQuery(connection, viewsQuery);
+    
+    const tables = tablesResult.rows.map(row => ({
       name: row.TABLE_NAME,
       schema: row.OWNER,
       columns: []
     }));
 
-    return { tables, views: [] };
+    const views = viewsResult.rows.map(row => ({
+      name: row.VIEW_NAME,
+      schema: row.OWNER,
+      columns: [],
+      definition: ''
+    }));
+
+    return { tables, views };
   },
 
   async disconnect(connection: Connection): Promise<void> {
     if (connection.pool) {
-      await connection.pool.close(0);
-      connection.isConnected = false;
+      await connection.pool.close();
     }
+    connection.isConnected = false;
+  },
+
+  private mapOracleType(dbType: number): string {
+    const typeMap: Record<number, string> = {
+      [oracledb.DB_TYPE_VARCHAR]: 'varchar2',
+      [oracledb.DB_TYPE_NVARCHAR]: 'nvarchar2',
+      [oracledb.DB_TYPE_CHAR]: 'char',
+      [oracledb.DB_TYPE_NCHAR]: 'nchar',
+      [oracledb.DB_TYPE_NUMBER]: 'number',
+      [oracledb.DB_TYPE_DATE]: 'date',
+      [oracledb.DB_TYPE_TIMESTAMP]: 'timestamp',
+      [oracledb.DB_TYPE_CLOB]: 'clob',
+      [oracledb.DB_TYPE_BLOB]: 'blob'
+    };
+    return typeMap[dbType] || 'unknown';
   }
 };

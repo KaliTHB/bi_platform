@@ -1,39 +1,48 @@
 // File: api-services/src/plugins/datasources/cloud_databases/athena.ts
-import AWS from 'aws-sdk';
 import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
+import { AthenaClient, StartQueryExecutionCommand, GetQueryResultsCommand, GetQueryExecutionCommand } from '@aws-sdk/client-athena';
 
 export const athenaPlugin: DataSourcePlugin = {
   name: 'athena',
   displayName: 'AWS Athena',
   category: 'cloud_databases',
   version: '1.0.0',
+  description: 'Connect to AWS Athena',
   
   configSchema: {
     type: 'object',
     properties: {
       region: { type: 'string', title: 'AWS Region', default: 'us-east-1' },
       accessKeyId: { type: 'string', title: 'Access Key ID' },
-      secretAccessKey: { type: 'string', title: 'Secret Access Key' },
+      secretAccessKey: { type: 'string', title: 'Secret Access Key', format: 'password' },
       database: { type: 'string', title: 'Database' },
-      outputLocation: { type: 'string', title: 'S3 Output Location', description: 'S3 path for query results' }
+      workgroup: { type: 'string', title: 'Workgroup', default: 'primary' },
+      outputLocation: { type: 'string', title: 'S3 Output Location' }
     },
     required: ['region', 'accessKeyId', 'secretAccessKey', 'database', 'outputLocation'],
     additionalProperties: false
   },
 
-  async connect(config: ConnectionConfig): Promise<Connection> {
-    AWS.config.update({
-      region: config.region,
-      accessKeyId: config.accessKeyId,
-      secretAccessKey: config.secretAccessKey
-    });
+  capabilities: {
+    supportsBulkInsert: false,
+    supportsTransactions: false,
+    supportsStoredProcedures: false,
+    maxConcurrentConnections: 20
+  },
 
-    const athena = new AWS.Athena();
+  async connect(config: ConnectionConfig): Promise<Connection> {
+    const client = new AthenaClient({
+      region: config.region,
+      credentials: {
+        accessKeyId: config.accessKeyId as string,
+        secretAccessKey: config.secretAccessKey as string
+      }
+    });
 
     return {
       id: `athena-${Date.now()}`,
       config,
-      client: athena,
+      client,
       isConnected: true,
       lastActivity: new Date()
     };
@@ -42,85 +51,119 @@ export const athenaPlugin: DataSourcePlugin = {
   async testConnection(config: ConnectionConfig): Promise<boolean> {
     try {
       const connection = await this.connect(config);
-      const result = await this.executeQuery(connection, 'SELECT 1 as test');
-      return result.rows.length > 0;
+      await this.executeQuery(connection, 'SELECT 1');
+      await this.disconnect(connection);
+      return true;
     } catch (error) {
       return false;
     }
   },
 
-  async executeQuery(connection: Connection, query: string): Promise<QueryResult> {
+  async executeQuery(connection: Connection, query: string, params?: any[]): Promise<QueryResult> {
     const startTime = Date.now();
     
-    const params = {
+    // Start query execution
+    const startCommand = new StartQueryExecutionCommand({
       QueryString: query,
       QueryExecutionContext: {
-        Database: connection.config.database
+        Database: connection.config.database as string
       },
       ResultConfiguration: {
-        OutputLocation: connection.config.outputLocation
-      }
-    };
-
-    const startQueryExecution = await connection.client.startQueryExecution(params).promise();
-    const queryExecutionId = startQueryExecution.QueryExecutionId;
-
-    // Wait for query completion
-    let queryStatus = 'RUNNING';
-    while (queryStatus === 'RUNNING' || queryStatus === 'QUEUED') {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      const statusResult = await connection.client.getQueryExecution({
-        QueryExecutionId: queryExecutionId
-      }).promise();
-      queryStatus = statusResult.QueryExecution.Status.State;
-    }
-
-    if (queryStatus !== 'SUCCEEDED') {
-      throw new Error(`Query failed with status: ${queryStatus}`);
-    }
-
-    // Get query results
-    const results = await connection.client.getQueryResults({
+        OutputLocation: connection.config.outputLocation as string
+      },
+      WorkGroup: connection.config.workgroup as string || 'primary'
+    });
+    
+    const startResult = await connection.client.send(startCommand);
+    const queryExecutionId = startResult.QueryExecutionId!;
+    
+    // Wait for query to complete
+    await this.waitForQueryCompletion(connection, queryExecutionId);
+    
+    // Get results
+    const resultsCommand = new GetQueryResultsCommand({
       QueryExecutionId: queryExecutionId
-    }).promise();
-
+    });
+    
+    const results = await connection.client.send(resultsCommand);
     const executionTimeMs = Date.now() - startTime;
-    const rows = results.ResultSet.Rows?.slice(1).map(row => {
-      const obj: any = {};
-      row.Data.forEach((cell, index) => {
-        const columnName = results.ResultSet.ResultSetMetadata.ColumnInfo[index].Name;
-        obj[columnName] = cell.VarCharValue;
+    
+    // Process results
+    const rows: any[] = [];
+    const columns: any[] = [];
+    
+    if (results.ResultSet?.Rows) {
+      const headerRow = results.ResultSet.Rows[0];
+      if (headerRow?.Data) {
+        headerRow.Data.forEach((col, index) => {
+          columns.push({
+            name: col.VarCharValue || `column_${index}`,
+            type: 'string',
+            nullable: true,
+            defaultValue: null
+          });
+        });
+      }
+      
+      results.ResultSet.Rows.slice(1).forEach(row => {
+        if (row.Data) {
+          const rowData: any = {};
+          row.Data.forEach((cell, index) => {
+            rowData[columns[index]?.name || `column_${index}`] = cell.VarCharValue;
+          });
+          rows.push(rowData);
+        }
       });
-      return obj;
-    }) || [];
+    }
 
-    const columns = results.ResultSet.ResultSetMetadata?.ColumnInfo?.map(col => ({
-      name: col.Name,
-      type: col.Type,
-      nullable: true
-    })) || [];
-
+    connection.lastActivity = new Date();
+    
     return {
       rows,
       columns,
       rowCount: rows.length,
-      executionTimeMs
+      executionTimeMs,
+      queryId: queryExecutionId
     };
   },
 
   async getSchema(connection: Connection): Promise<SchemaInfo> {
-    const result = await this.executeQuery(connection, 'SHOW TABLES');
+    const query = `SHOW TABLES IN ${connection.config.database}`;
+    const result = await this.executeQuery(connection, query);
     
-    const tables = result.rows.map((row: any) => ({
-      name: row.tab_name,
-      schema: connection.config.database,
+    const tables = result.rows.map(row => ({
+      name: Object.values(row)[0] as string,
+      schema: connection.config.database as string,
       columns: []
     }));
 
     return { tables, views: [] };
   },
 
-  async disconnect(): Promise<void> {
-    // AWS Athena doesn't require explicit disconnection
+  async disconnect(connection: Connection): Promise<void> {
+    connection.isConnected = false;
+  },
+
+  private async waitForQueryCompletion(connection: Connection, queryExecutionId: string): Promise<void> {
+    const maxWaitTime = 300000; // 5 minutes
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < maxWaitTime) {
+      const command = new GetQueryExecutionCommand({ QueryExecutionId: queryExecutionId });
+      const result = await connection.client.send(command);
+      
+      const status = result.QueryExecution?.Status?.State;
+      
+      if (status === 'SUCCEEDED') {
+        return;
+      } else if (status === 'FAILED' || status === 'CANCELLED') {
+        throw new Error(`Query ${status}: ${result.QueryExecution?.Status?.StateChangeReason}`);
+      }
+      
+      // Wait 1 second before checking again
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    throw new Error('Query execution timeout');
   }
 };

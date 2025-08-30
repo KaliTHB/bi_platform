@@ -1,35 +1,47 @@
 // File: api-services/src/plugins/datasources/relational/sqlite.ts
-import sqlite3 from 'sqlite3';
-import { open } from 'sqlite';
 import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
+import * as sqlite3 from 'sqlite3';
+import { Database, open } from 'sqlite';
 
 export const sqlitePlugin: DataSourcePlugin = {
   name: 'sqlite',
-  displayName: 'SQLite Database',
+  displayName: 'SQLite',
   category: 'relational',
   version: '1.0.0',
+  description: 'Connect to SQLite database files',
   
   configSchema: {
     type: 'object',
     properties: {
-      filename: { type: 'string', title: 'Database File Path', description: 'Path to SQLite database file' },
+      filename: { type: 'string', title: 'Database File Path' },
       mode: { 
         type: 'string', 
-        title: 'Mode', 
-        default: 'readonly',
-        enum: ['readonly', 'readwrite', 'memory']
-      }
+        title: 'Open Mode',
+        enum: ['readonly', 'readwrite', 'create'],
+        default: 'readwrite'
+      },
+      timeout: { type: 'number', title: 'Timeout (ms)', default: 5000 }
     },
     required: ['filename'],
     additionalProperties: false
   },
 
+  capabilities: {
+    supportsBulkInsert: true,
+    supportsTransactions: true,
+    supportsStoredProcedures: false,
+    maxConcurrentConnections: 1
+  },
+
   async connect(config: ConnectionConfig): Promise<Connection> {
     const db = await open({
-      filename: config.filename,
-      driver: sqlite3.Database,
-      mode: config.mode === 'readwrite' ? sqlite3.OPEN_READWRITE : sqlite3.OPEN_READONLY
+      filename: config.filename as string,
+      driver: sqlite3.Database
     });
+
+    // Configure SQLite settings
+    await db.exec('PRAGMA foreign_keys = ON');
+    await db.exec('PRAGMA journal_mode = WAL');
 
     return {
       id: `sqlite-${Date.now()}`,
@@ -43,9 +55,9 @@ export const sqlitePlugin: DataSourcePlugin = {
   async testConnection(config: ConnectionConfig): Promise<boolean> {
     try {
       const connection = await this.connect(config);
-      const result = await this.executeQuery(connection, 'SELECT 1 as test');
+      await this.executeQuery(connection, 'SELECT 1');
       await this.disconnect(connection);
-      return result.rows.length > 0;
+      return true;
     } catch (error) {
       return false;
     }
@@ -53,41 +65,75 @@ export const sqlitePlugin: DataSourcePlugin = {
 
   async executeQuery(connection: Connection, query: string, params?: any[]): Promise<QueryResult> {
     const startTime = Date.now();
-    const rows = await connection.client.all(query, params || []);
+    
+    let result;
+    if (query.trim().toLowerCase().startsWith('select')) {
+      result = await connection.client.all(query, params);
+    } else {
+      const info = await connection.client.run(query, params);
+      result = { changes: info.changes, lastID: info.lastID };
+    }
+    
     const executionTimeMs = Date.now() - startTime;
 
-    const columns = rows.length > 0 ? Object.keys(rows[0]).map(key => ({
-      name: key,
-      type: 'TEXT',
-      nullable: true
-    })) : [];
+    // Get column info for SELECT queries
+    const columns: any[] = [];
+    if (Array.isArray(result) && result.length > 0) {
+      Object.keys(result[0]).forEach(key => {
+        columns.push({
+          name: key,
+          type: typeof result[0][key],
+          nullable: true,
+          defaultValue: null
+        });
+      });
+    }
 
+    connection.lastActivity = new Date();
+    
     return {
-      rows,
+      rows: Array.isArray(result) ? result : [],
       columns,
-      rowCount: rows.length,
-      executionTimeMs
+      rowCount: Array.isArray(result) ? result.length : (result.changes || 0),
+      executionTimeMs,
+      queryId: `sqlite-${Date.now()}`
     };
   },
 
   async getSchema(connection: Connection): Promise<SchemaInfo> {
-    const tablesResult = await this.executeQuery(connection, `
-      SELECT name FROM sqlite_master WHERE type='table'
-    `);
+    const tablesQuery = `
+      SELECT name, type 
+      FROM sqlite_master 
+      WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'
+      ORDER BY name
+    `;
+    
+    const result = await this.executeQuery(connection, tablesQuery);
+    
+    const tables = result.rows
+      .filter(row => row.type === 'table')
+      .map(row => ({
+        name: row.name,
+        schema: 'main',
+        columns: []
+      }));
 
-    const tables = tablesResult.rows.map((row: any) => ({
-      name: row.name,
-      schema: 'main',
-      columns: []
-    }));
+    const views = result.rows
+      .filter(row => row.type === 'view')
+      .map(row => ({
+        name: row.name,
+        schema: 'main',
+        columns: [],
+        definition: ''
+      }));
 
-    return { tables, views: [] };
+    return { tables, views };
   },
 
   async disconnect(connection: Connection): Promise<void> {
     if (connection.client) {
       await connection.client.close();
-      connection.isConnected = false;
     }
+    connection.isConnected = false;
   }
 };

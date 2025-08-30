@@ -1,26 +1,35 @@
 // File: api-services/src/plugins/datasources/cloud_databases/snowflake.ts
-import snowflake from 'snowflake-sdk';
 import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
+import * as snowflake from 'snowflake-sdk';
 
 export const snowflakePlugin: DataSourcePlugin = {
   name: 'snowflake',
-  displayName: 'Snowflake Data Warehouse',
+  displayName: 'Snowflake',
   category: 'cloud_databases',
   version: '1.0.0',
+  description: 'Connect to Snowflake data warehouse',
   
   configSchema: {
     type: 'object',
     properties: {
-      account: { type: 'string', title: 'Account', description: 'Snowflake account identifier' },
+      account: { type: 'string', title: 'Account Identifier' },
       username: { type: 'string', title: 'Username' },
-      password: { type: 'string', title: 'Password' },
+      password: { type: 'string', title: 'Password', format: 'password' },
+      warehouse: { type: 'string', title: 'Warehouse' },
       database: { type: 'string', title: 'Database' },
       schema: { type: 'string', title: 'Schema', default: 'PUBLIC' },
-      warehouse: { type: 'string', title: 'Warehouse' },
-      role: { type: 'string', title: 'Role', default: 'PUBLIC' }
+      role: { type: 'string', title: 'Role' },
+      region: { type: 'string', title: 'Region', default: 'us-west-2' }
     },
-    required: ['account', 'username', 'password', 'database', 'warehouse'],
+    required: ['account', 'username', 'password', 'warehouse', 'database'],
     additionalProperties: false
+  },
+
+  capabilities: {
+    supportsBulkInsert: true,
+    supportsTransactions: true,
+    supportsStoredProcedures: true,
+    maxConcurrentConnections: 50
   },
 
   async connect(config: ConnectionConfig): Promise<Connection> {
@@ -29,20 +38,20 @@ export const snowflakePlugin: DataSourcePlugin = {
         account: config.account,
         username: config.username,
         password: config.password,
+        warehouse: config.warehouse,
         database: config.database,
         schema: config.schema || 'PUBLIC',
-        warehouse: config.warehouse,
-        role: config.role || 'PUBLIC'
+        role: config.role
       });
 
-      connection.connect((err) => {
+      connection.connect((err: any, conn: any) => {
         if (err) {
           reject(err);
         } else {
           resolve({
             id: `snowflake-${Date.now()}`,
             config,
-            client: connection,
+            client: conn,
             isConnected: true,
             lastActivity: new Date()
           });
@@ -54,36 +63,40 @@ export const snowflakePlugin: DataSourcePlugin = {
   async testConnection(config: ConnectionConfig): Promise<boolean> {
     try {
       const connection = await this.connect(config);
-      const result = await this.executeQuery(connection, 'SELECT 1 as test');
       await this.disconnect(connection);
-      return result.rows.length > 0;
+      return true;
     } catch (error) {
       return false;
     }
   },
 
-  async executeQuery(connection: Connection, query: string): Promise<QueryResult> {
+  async executeQuery(connection: Connection, query: string, params?: any[]): Promise<QueryResult> {
     return new Promise((resolve, reject) => {
       const startTime = Date.now();
       
       connection.client.execute({
         sqlText: query,
-        complete: (err: any, stmt: any, rows: any[]) => {
+        binds: params,
+        complete: (err: any, stmt: any, rows: any) => {
           if (err) {
             reject(err);
           } else {
             const executionTimeMs = Date.now() - startTime;
-            const columns = rows.length > 0 ? Object.keys(rows[0]).map(key => ({
-              name: key,
-              type: 'variant',
-              nullable: true
-            })) : [];
+            const columns = stmt.getColumns().map((col: any) => ({
+              name: col.getName(),
+              type: col.getType(),
+              nullable: col.isNullable(),
+              defaultValue: null
+            }));
 
+            connection.lastActivity = new Date();
+            
             resolve({
               rows: rows || [],
               columns,
               rowCount: rows?.length || 0,
-              executionTimeMs
+              executionTimeMs,
+              queryId: stmt.getStatementId()
             });
           }
         }
@@ -92,23 +105,45 @@ export const snowflakePlugin: DataSourcePlugin = {
   },
 
   async getSchema(connection: Connection): Promise<SchemaInfo> {
-    const result = await this.executeQuery(connection, 
-      'SHOW TABLES IN DATABASE ' + connection.config.database
-    );
+    const tablesQuery = `
+      SELECT table_name, table_schema, table_type 
+      FROM information_schema.tables 
+      WHERE table_schema = UPPER('${connection.config.schema || 'PUBLIC'}')
+      ORDER BY table_name
+    `;
+    
+    const result = await this.executeQuery(connection, tablesQuery);
+    
+    const tables = result.rows
+      .filter(row => row.TABLE_TYPE === 'BASE TABLE')
+      .map(row => ({
+        name: row.TABLE_NAME,
+        schema: row.TABLE_SCHEMA,
+        columns: []
+      }));
 
-    const tables = result.rows.map((row: any) => ({
-      name: row.name,
-      schema: row.database_name,
-      columns: []
-    }));
+    const views = result.rows
+      .filter(row => row.TABLE_TYPE === 'VIEW')
+      .map(row => ({
+        name: row.TABLE_NAME,
+        schema: row.TABLE_SCHEMA,
+        columns: [],
+        definition: ''
+      }));
 
-    return { tables, views: [] };
+    return { tables, views };
   },
 
   async disconnect(connection: Connection): Promise<void> {
-    if (connection.client) {
-      connection.client.destroy();
-      connection.isConnected = false;
-    }
+    return new Promise((resolve) => {
+      if (connection.client) {
+        connection.client.destroy(() => {
+          connection.isConnected = false;
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    });
   }
 };

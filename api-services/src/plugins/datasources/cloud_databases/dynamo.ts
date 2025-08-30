@@ -1,40 +1,50 @@
 // File: api-services/src/plugins/datasources/cloud_databases/dynamodb.ts
-import AWS from 'aws-sdk';
 import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
+import { DynamoDBClient, ScanCommand, QueryCommand, DescribeTableCommand, ListTablesCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 
 export const dynamodbPlugin: DataSourcePlugin = {
   name: 'dynamodb',
   displayName: 'AWS DynamoDB',
   category: 'cloud_databases',
   version: '1.0.0',
+  description: 'Connect to AWS DynamoDB',
   
   configSchema: {
     type: 'object',
     properties: {
       region: { type: 'string', title: 'AWS Region', default: 'us-east-1' },
       accessKeyId: { type: 'string', title: 'Access Key ID' },
-      secretAccessKey: { type: 'string', title: 'Secret Access Key' },
-      endpoint: { type: 'string', title: 'Custom Endpoint', description: 'Optional custom DynamoDB endpoint' }
+      secretAccessKey: { type: 'string', title: 'Secret Access Key', format: 'password' },
+      endpoint: { type: 'string', title: 'Custom Endpoint (for local DynamoDB)' }
     },
     required: ['region', 'accessKeyId', 'secretAccessKey'],
     additionalProperties: false
   },
 
+  capabilities: {
+    supportsBulkInsert: true,
+    supportsTransactions: true,
+    supportsStoredProcedures: false,
+    maxConcurrentConnections: 50
+  },
+
   async connect(config: ConnectionConfig): Promise<Connection> {
-    AWS.config.update({
+    const client = new DynamoDBClient({
       region: config.region,
-      accessKeyId: config.accessKeyId,
-      secretAccessKey: config.secretAccessKey
+      credentials: {
+        accessKeyId: config.accessKeyId as string,
+        secretAccessKey: config.secretAccessKey as string
+      },
+      ...(config.endpoint && { endpoint: config.endpoint as string })
     });
 
-    const docClient = new AWS.DynamoDB.DocumentClient({
-      endpoint: config.endpoint
-    });
+    const docClient = DynamoDBDocumentClient.from(client);
 
     return {
       id: `dynamodb-${Date.now()}`,
       config,
-      client: docClient,
+      client: { dynamodb: client, doc: docClient },
       isConnected: true,
       lastActivity: new Date()
     };
@@ -43,76 +53,125 @@ export const dynamodbPlugin: DataSourcePlugin = {
   async testConnection(config: ConnectionConfig): Promise<boolean> {
     try {
       const connection = await this.connect(config);
-      // Test by listing tables
-      const dynamodb = new AWS.DynamoDB({ region: config.region });
-      await dynamodb.listTables({ Limit: 1 }).promise();
+      await connection.client.dynamodb.send(new ListTablesCommand({}));
+      await this.disconnect(connection);
       return true;
     } catch (error) {
       return false;
     }
   },
 
-  async executeQuery(connection: Connection, query: string): Promise<QueryResult> {
+  async executeQuery(connection: Connection, query: string, params?: any[]): Promise<QueryResult> {
     const startTime = Date.now();
     
     try {
-      const queryObj = JSON.parse(query);
-      const { operation, params } = queryObj;
+      // Parse DynamoDB operation (simplified - you'd need a more robust parser)
+      const operation = JSON.parse(query);
+      let result: any;
       
-      let result;
-      switch (operation) {
+      switch (operation.type) {
         case 'scan':
-          result = await connection.client.scan(params).promise();
+          const scanCommand = new ScanCommand({
+            TableName: operation.tableName,
+            ...operation.params
+          });
+          result = await connection.client.doc.send(scanCommand);
           break;
+          
         case 'query':
-          result = await connection.client.query(params).promise();
+          const queryCommand = new QueryCommand({
+            TableName: operation.tableName,
+            ...operation.params
+          });
+          result = await connection.client.doc.send(queryCommand);
           break;
-        case 'get':
-          result = await connection.client.get(params).promise();
-          break;
+          
         default:
-          throw new Error(`Unsupported operation: ${operation}`);
+          throw new Error(`Unsupported operation: ${operation.type}`);
+      }
+      
+      const executionTimeMs = Date.now() - startTime;
+      const items = result.Items || [];
+      
+      // Infer columns from items
+      const columns: any[] = [];
+      if (items.length > 0) {
+        Object.keys(items[0]).forEach(key => {
+          columns.push({
+            name: key,
+            type: typeof items[0][key],
+            nullable: true,
+            defaultValue: null
+          });
+        });
       }
 
-      const executionTimeMs = Date.now() - startTime;
-      const rows = result.Items || (result.Item ? [result.Item] : []);
+      connection.lastActivity = new Date();
       
-      const columns = rows.length > 0 ? Object.keys(rows[0]).map(key => ({
-        name: key,
-        type: 'mixed',
-        nullable: true
-      })) : [];
-
       return {
-        rows,
+        rows: items,
         columns,
-        rowCount: rows.length,
-        executionTimeMs
+        rowCount: items.length,
+        executionTimeMs,
+        queryId: `dynamodb-${Date.now()}`
       };
     } catch (error) {
-      throw new Error(`Query execution failed: ${error.message}`);
+      throw new Error(`DynamoDB query error: ${error}`);
     }
   },
 
   async getSchema(connection: Connection): Promise<SchemaInfo> {
-    const dynamodb = new AWS.DynamoDB({ 
-      region: connection.config.region,
-      accessKeyId: connection.config.accessKeyId,
-      secretAccessKey: connection.config.secretAccessKey
-    });
+    const command = new ListTablesCommand({});
+    const result = await connection.client.dynamodb.send(command);
     
-    const result = await dynamodb.listTables().promise();
-    
-    const tables = result.TableNames?.map(tableName => ({
-      name: tableName,
-      schema: 'dynamodb',
-      columns: []
-    })) || [];
+    const tables = await Promise.all(
+      (result.TableNames || []).map(async (tableName) => {
+        try {
+          const describeCommand = new DescribeTableCommand({ TableName: tableName });
+          const tableDescription = await connection.client.dynamodb.send(describeCommand);
+          
+          const columns = tableDescription.Table?.AttributeDefinitions?.map(attr => ({
+            name: attr.AttributeName!,
+            type: this.mapDynamoDBType(attr.AttributeType!),
+            nullable: true,
+            defaultValue: null
+          })) || [];
+          
+          return {
+            name: tableName,
+            schema: 'dynamodb',
+            columns
+          };
+        } catch (error) {
+          return {
+            name: tableName,
+            schema: 'dynamodb',
+            columns: []
+          };
+        }
+      })
+    );
 
     return { tables, views: [] };
   },
 
-  async disconnect(): Promise<void> {
-    // DynamoDB doesn't require explicit disconnection
+  async disconnect(connection: Connection): Promise<void> {
+    connection.isConnected = false;
+  },
+
+  private mapDynamoDBType(dynamoType: string): string {
+    const typeMap: Record<string, string> = {
+      'S': 'string',
+      'N': 'number',
+      'B': 'binary',
+      'SS': 'string_set',
+      'NS': 'number_set',
+      'BS': 'binary_set',
+      'BOOL': 'boolean',
+      'NULL': 'null',
+      'L': 'list',
+      'M': 'map'
+    };
+    return typeMap[dynamoType] || 'unknown';
   }
 };
