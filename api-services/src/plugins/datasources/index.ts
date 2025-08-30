@@ -1,15 +1,53 @@
 // File: api-services/src/plugins/datasources/index.ts
-
-import { postgresPlugin } from './relational/postgres';
 import { DataSourcePlugin } from '../interfaces/DataSourcePlugin';
 
-// Data Source Plugin Registry
+// Relational Database Plugins
+import { postgresPlugin } from './relational/postgres';
+import { mysqlPlugin } from './relational/mysql';
+import { mariadbPlugin } from './relational/mariadb';
+import { mssqlPlugin } from './relational/mssql';
+import { oraclePlugin } from './relational/oracle';
+import { sqlitePlugin } from './relational/sqlite';
+
+// Cloud Database Plugins
+import { mongodbPlugin } from './cloud_databases/mongodb';
+import { bigqueryPlugin } from './cloud_databases/bigquery';
+import { snowflakePlugin } from './cloud_databases/snowflake';
+import { athenaPlugin } from './cloud_databases/athena';
+import { dynamodbPlugin } from './cloud_databases/dynamodb';
+import { cosmosdbPlugin } from './cloud_databases/cosmosdb';
+
+// Storage Service Plugins
+import { s3Plugin } from './storage_services/s3';
+import { azureStoragePlugin } from './storage_services/azure_storage';
+
+// Data Lake Plugins
+import { deltaTableAWSPlugin } from './data_lakes/delta_table_aws';
+
+// Complete Data Source Plugin Registry
 export const DataSourcePlugins: Record<string, DataSourcePlugin> = {
-  postgres: postgresPlugin
-  // Additional plugins will be added here:
-  // mysql: mysqlPlugin,
-  // mongodb: mongodbPlugin,
-  // etc.
+  // Relational Databases
+  postgres: postgresPlugin,
+  mysql: mysqlPlugin,
+  mariadb: mariadbPlugin,
+  mssql: mssqlPlugin,
+  oracle: oraclePlugin,
+  sqlite: sqlitePlugin,
+  
+  // Cloud Databases
+  mongodb: mongodbPlugin,
+  bigquery: bigqueryPlugin,
+  snowflake: snowflakePlugin,
+  athena: athenaPlugin,
+  dynamodb: dynamodbPlugin,
+  cosmosdb: cosmosdbPlugin,
+  
+  // Storage Services
+  s3: s3Plugin,
+  azure_storage: azureStoragePlugin,
+  
+  // Data Lakes
+  delta_table_aws: deltaTableAWSPlugin
 };
 
 export const getDataSourcePlugin = (name: string): DataSourcePlugin | null => {
@@ -24,4 +62,8 @@ export const getAvailableDataSourcePlugins = () => {
     version: DataSourcePlugins[key].version,
     configSchema: DataSourcePlugins[key].configSchema
   }));
+};
+
+export const getDataSourcePluginsByCategory = (category: string) => {
+  return Object.values(DataSourcePlugins).filter(plugin => plugin.category === category);
 };

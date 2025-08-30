@@ -1,13 +1,15 @@
 // File: api-services/src/plugins/datasources/relational/postgres.ts
 import { Pool, PoolClient } from 'pg';
-import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces';
+import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo, TableInfo, ViewInfo, ColumnDefinition } from '../interfaces/DataSourcePlugin';
 
-export const PostgreSQLPlugin: DataSourcePlugin = {
+export const postgresPlugin: DataSourcePlugin = {
   name: 'postgres',
   displayName: 'PostgreSQL Database',
   category: 'relational',
   version: '1.0.0',
+  
   configSchema: {
+    type: 'object',
     properties: {
       host: {
         type: 'string',
@@ -36,8 +38,7 @@ export const PostgreSQLPlugin: DataSourcePlugin = {
       password: {
         type: 'string',
         title: 'Password',
-        description: 'Database password',
-        format: 'password'
+        description: 'Database password'
       },
       ssl: {
         type: 'boolean',
@@ -45,16 +46,17 @@ export const PostgreSQLPlugin: DataSourcePlugin = {
         description: 'Enable SSL connection',
         default: false
       },
-      connectionLimit: {
+      maxConnections: {
         type: 'integer',
-        title: 'Connection Limit',
-        description: 'Maximum number of connections',
+        title: 'Max Connections',
+        description: 'Maximum number of connections in pool',
         default: 20,
         minimum: 1,
         maximum: 100
       }
     },
-    required: ['host', 'database', 'username', 'password']
+    required: ['host', 'database', 'username', 'password'],
+    additionalProperties: false
   },
 
   async connect(config: ConnectionConfig): Promise<Connection> {
@@ -65,179 +67,103 @@ export const PostgreSQLPlugin: DataSourcePlugin = {
       user: config.username,
       password: config.password,
       ssl: config.ssl ? { rejectUnauthorized: false } : false,
-      max: config.options?.connectionLimit || 20,
+      max: config.maxConnections || 20,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      connectionTimeoutMillis: 2000,
     });
 
-    // Test the connection
-    const client = await pool.connect();
-    client.release();
-
     return {
-      id: `postgres_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `postgres-${Date.now()}`,
       config,
-      client: pool,
+      pool,
       isConnected: true,
-      lastUsed: new Date()
+      lastActivity: new Date()
     };
   },
 
   async testConnection(config: ConnectionConfig): Promise<boolean> {
     try {
       const connection = await this.connect(config);
+      const result = await this.executeQuery(connection, 'SELECT version() as version');
       await this.disconnect(connection);
-      return true;
+      return result.rows.length > 0;
     } catch (error) {
-      console.error('PostgreSQL connection test failed:', error);
       return false;
     }
   },
 
-  async executeQuery(connection: Connection, query: string): Promise<QueryResult> {
-    const startTime = Date.now();
+  async executeQuery(connection: Connection, query: string, params?: any[]): Promise<QueryResult> {
+    const client: PoolClient = await connection.pool.connect();
     
     try {
-      const pool = connection.client as Pool;
-      const result = await pool.query(query);
+      const startTime = Date.now();
+      const result = await client.query(query, params);
+      const executionTimeMs = Date.now() - startTime;
       
-      const executionTime = Date.now() - startTime;
-      
-      // Extract column information
-      const columns = result.fields.map(field => ({
+      const columns: ColumnDefinition[] = result.fields?.map((field: any) => ({
         name: field.name,
-        type: this.mapPostgreSQLType(field.dataTypeID),
-        nullable: true, // PostgreSQL doesn't provide this easily
-        defaultValue: null
-      }));
+        type: field.dataTypeID.toString(),
+        nullable: true
+      })) || [];
 
       return {
         rows: result.rows,
         columns,
         rowCount: result.rowCount || 0,
-        executionTime
+        executionTimeMs
       };
-    } catch (error) {
-      throw new Error(`Query execution failed: ${error.message}`);
+    } finally {
+      client.release();
     }
   },
 
   async getSchema(connection: Connection): Promise<SchemaInfo> {
-    const pool = connection.client as Pool;
-    
-    // Get tables
-    const tablesQuery = `
-      SELECT 
-        t.table_schema,
-        t.table_name,
-        c.column_name,
-        c.data_type,
-        c.is_nullable,
-        c.column_default,
-        c.character_maximum_length
-      FROM information_schema.tables t
-      LEFT JOIN information_schema.columns c ON t.table_name = c.table_name AND t.table_schema = c.table_schema
-      WHERE t.table_schema NOT IN ('information_schema', 'pg_catalog')
-      ORDER BY t.table_schema, t.table_name, c.ordinal_position
-    `;
+    const tablesResult = await this.executeQuery(connection, `
+      SELECT schemaname, tablename 
+      FROM pg_tables 
+      WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
+    `);
 
-    const tablesResult = await pool.query(tablesQuery);
-    
-    // Group by table
-    const tablesMap = new Map();
-    tablesResult.rows.forEach(row => {
-      const tableKey = `${row.table_schema}.${row.table_name}`;
-      if (!tablesMap.has(tableKey)) {
-        tablesMap.set(tableKey, {
-          name: row.table_name,
-          schema: row.table_schema,
-          columns: []
-        });
-      }
-      
-      if (row.column_name) {
-        tablesMap.get(tableKey).columns.push({
-          name: row.column_name,
-          type: row.data_type,
-          nullable: row.is_nullable === 'YES',
-          defaultValue: row.column_default,
-          maxLength: row.character_maximum_length
-        });
-      }
-    });
+    const viewsResult = await this.executeQuery(connection, `
+      SELECT schemaname, viewname, definition
+      FROM pg_views 
+      WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
+    `);
 
-    // Get views
-    const viewsQuery = `
-      SELECT 
-        v.table_schema,
-        v.table_name,
-        v.view_definition,
-        c.column_name,
-        c.data_type,
-        c.is_nullable
-      FROM information_schema.views v
-      LEFT JOIN information_schema.columns c ON v.table_name = c.table_name AND v.table_schema = c.table_schema
-      WHERE v.table_schema NOT IN ('information_schema', 'pg_catalog')
-      ORDER BY v.table_schema, v.table_name, c.ordinal_position
-    `;
+    const tables: TableInfo[] = await Promise.all(
+      tablesResult.rows.map(async (row: any) => {
+        const columnsResult = await this.executeQuery(connection, `
+          SELECT column_name, data_type, is_nullable
+          FROM information_schema.columns
+          WHERE table_schema = $1 AND table_name = $2
+        `, [row.schemaname, row.tablename]);
 
-    const viewsResult = await pool.query(viewsQuery);
-    
-    const viewsMap = new Map();
-    viewsResult.rows.forEach(row => {
-      const viewKey = `${row.table_schema}.${row.table_name}`;
-      if (!viewsMap.has(viewKey)) {
-        viewsMap.set(viewKey, {
-          name: row.table_name,
-          schema: row.table_schema,
-          columns: [],
-          definition: row.view_definition
-        });
-      }
-      
-      if (row.column_name) {
-        viewsMap.get(viewKey).columns.push({
-          name: row.column_name,
-          type: row.data_type,
-          nullable: row.is_nullable === 'YES'
-        });
-      }
-    });
+        return {
+          name: row.tablename,
+          schema: row.schemaname,
+          columns: columnsResult.rows.map((col: any) => ({
+            name: col.column_name,
+            type: col.data_type,
+            nullable: col.is_nullable === 'YES'
+          }))
+        };
+      })
+    );
 
-    return {
-      tables: Array.from(tablesMap.values()),
-      views: Array.from(viewsMap.values())
-    };
+    const views: ViewInfo[] = viewsResult.rows.map((row: any) => ({
+      name: row.viewname,
+      schema: row.schemaname,
+      definition: row.definition,
+      columns: []
+    }));
+
+    return { tables, views };
   },
 
   async disconnect(connection: Connection): Promise<void> {
-    try {
-      const pool = connection.client as Pool;
-      await pool.end();
+    if (connection.pool) {
+      await connection.pool.end();
       connection.isConnected = false;
-    } catch (error) {
-      console.error('Error disconnecting from PostgreSQL:', error);
     }
-  },
-
-  mapPostgreSQLType(dataTypeID: number): string {
-    // Common PostgreSQL data type OIDs
-    const typeMap: Record<number, string> = {
-      16: 'boolean',
-      17: 'bytea',
-      20: 'bigint',
-      21: 'smallint',
-      23: 'integer',
-      25: 'text',
-      700: 'real',
-      701: 'double precision',
-      1043: 'varchar',
-      1082: 'date',
-      1114: 'timestamp',
-      1184: 'timestamptz',
-      1700: 'numeric'
-    };
-    
-    return typeMap[dataTypeID] || 'unknown';
   }
 };
