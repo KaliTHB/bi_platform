@@ -1,29 +1,58 @@
-import { ChartPluginConfig } from './types/chart.types';
+// Comprehensive Chart Plugin Registry
+// File: web-application/src/plugins/charts/registry.ts
+import { ChartPluginConfig } from './interfaces/ChartPlugin';
 
 // ECharts Components
-import BarChart from './echarts/BarChart';
-import LineChart from './echarts/LineChart';
-import PieChart from './echarts/PieChart';
-import ScatterChart from './echarts/ScatterChart';
-import HeatmapChart from './echarts/HeatmapChart';
+import { BarChart } from './echarts/BarChart';
+import { LineChart } from './echarts/LineChart';
+import { PieChart } from './echarts/PieChart';
+import { ScatterChart } from './echarts/ScatterChart';
+import { HeatmapChart } from './echarts/HeatmapChart';
+import { GaugeChart } from './echarts/GaugeChart';
+import { TreemapChart } from './echarts/TreemapChart';
+import { SankeyChart } from './echarts/SankeyChart';
+import { CandlestickChart } from './echarts/CandlestickChart';
+import { WaterfallChart } from './echarts/WaterfallChart';
+import { SunburstChart } from './echarts/SunburstChart';
+import { BoxplotChart } from './echarts/BoxplotChart';
+import { ParallelChart } from './echarts/ParallelChart';
 
 // D3.js Components
-import ForceDirectedGraph from './d3/ForceDirectedGraph';
-import TreemapChart from './d3/TreemapChart';
-import SankeyChart from './d3/SankeyChart';
+import { ForceDirectedGraph } from './d3js/ForceDirectedGraph';
+import { CalendarHeatmap } from './d3js/CalendarHeatmap';
+import { GeographicMap } from './d3js/GeographicMap';
+import { ChordDiagram } from './d3js/ChordDiagram';
+import { StreamGraph } from './d3js/StreamGraph';
+import { VoronoiDiagram } from './d3js/VoronoiDiagram';
+import { HierarchyChart } from './d3js/HierarchyChart';
 
 // Chart.js Components
-import DonutChart from './chartjs/DonutChart';
-import RadarChart from './chartjs/RadarChart';
-import PolarAreaChart from './chartjs/PolarAreaChart';
+import { DonutChart } from './chartjs/DonutChart';
+import { RadarChart } from './chartjs/RadarChart';
+import { PolarAreaChart } from './chartjs/PolarAreaChart';
+import { ChartJSBarChart } from './chartjs/BarChart';
+import { ChartJSBubbleChart } from './chartjs/BubbleChart';
+import { ChartJSMixedChart } from './chartjs/MixedChart';
 
 // Plotly Components
-import SurfaceChart from './plotly/SurfaceChart';
-import ContourChart from './plotly/ContourChart';
-import CandlestickChart from './plotly/CandlestickChart';
+import { SurfaceChart } from './plotly/SurfaceChart';
+import { ContourChart } from './plotly/ContourChart';
+import { CandlestickChart as PlotlyCandlestick } from './plotly/CandlestickChart';
+import { PlotlyMesh3D } from './plotly/Mesh3D';
+import { PlotlyFunnelChart } from './plotly/FunnelChart';
+import { PlotlyViolinPlot } from './plotly/ViolinPlot';
+
+// Drilldown Components
+import { DrilldownBar } from './drilldown/DrilldownBar';
+import { DrilldownPie } from './drilldown/DrilldownPie';
+import { HierarchicalTreemap } from './drilldown/HierarchicalTreemap';
 
 export const ChartPlugins: Record<string, ChartPluginConfig> = {
-  // ECharts - Basic Charts
+  // =========================
+  // ECHARTS COMPONENTS
+  // =========================
+  
+  // Basic Charts
   'echarts-bar': {
     name: 'echarts-bar',
     displayName: 'Bar Chart',
@@ -32,38 +61,13 @@ export const ChartPlugins: Record<string, ChartPluginConfig> = {
     version: '1.0.0',
     description: 'Standard bar chart with support for stacking and grouping',
     tags: ['bar', 'column', 'comparison'],
-    
     configSchema: {
-      xField: {
-        type: 'select',
-        required: true,
-        label: 'X-Axis Field',
-        options: 'columns'
-      },
-      yField: {
-        type: 'select',
-        required: true,
-        label: 'Y-Axis Field',
-        options: 'numeric_columns'
-      },
-      seriesField: {
-        type: 'select',
-        required: false,
-        label: 'Series Field (for grouping)',
-        options: 'categorical_columns'
-      },
-      stacked: {
-        type: 'boolean',
-        default: false,
-        label: 'Stack bars'
-      },
-      horizontal: {
-        type: 'boolean',
-        default: false,
-        label: 'Horizontal orientation'
-      }
+      xField: { type: 'string', required: true, label: 'X-Axis Field' },
+      yField: { type: 'string', required: true, label: 'Y-Axis Field' },
+      seriesField: { type: 'string', required: false, label: 'Series Field' },
+      stacked: { type: 'boolean', default: false, label: 'Stack bars' },
+      horizontal: { type: 'boolean', default: false, label: 'Horizontal orientation' }
     },
-    
     dataRequirements: {
       minColumns: 2,
       maxColumns: 3,
@@ -71,298 +75,553 @@ export const ChartPlugins: Record<string, ChartPluginConfig> = {
       supportedTypes: ['string', 'number', 'date'],
       aggregationSupport: true
     },
-    
     exportFormats: ['png', 'svg', 'pdf', 'jpg'],
-    
     interactionSupport: {
       zoom: true,
       selection: true,
       tooltip: true,
       drilldown: true
     },
-    
     component: BarChart
   },
-  
+
   'echarts-line': {
     name: 'echarts-line',
     displayName: 'Line Chart',
     category: 'basic',
     library: 'echarts',
     version: '1.0.0',
-    description: 'Time series and trend visualization',
+    description: 'Line chart for time series and trend visualization',
     tags: ['line', 'trend', 'time-series'],
-    
     configSchema: {
-      xField: {
-        type: 'select',
-        required: true,
-        label: 'X-Axis Field',
-        options: 'columns'
-      },
-      yField: {
-        type: 'select',
-        required: true,
-        label: 'Y-Axis Field',
-        options: 'numeric_columns'
-      },
-      seriesField: {
-        type: 'select',
-        required: false,
-        label: 'Series Field',
-        options: 'categorical_columns'
-      },
-      smooth: {
-        type: 'boolean',
-        default: false,
-        label: 'Smooth curves'
-      },
-      showPoints: {
-        type: 'boolean',
-        default: true,
-        label: 'Show data points'
-      },
-      areaFill: {
-        type: 'boolean',
-        default: false,
-        label: 'Fill area under line'
-      }
+      xField: { type: 'string', required: true, label: 'X-Axis Field' },
+      yField: { type: 'string', required: true, label: 'Y-Axis Field' },
+      seriesField: { type: 'string', required: false, label: 'Series Field' },
+      smooth: { type: 'boolean', default: false, label: 'Smooth curves' },
+      area: { type: 'boolean', default: false, label: 'Fill area' }
     },
-    
     dataRequirements: {
       minColumns: 2,
       requiredFields: ['xField', 'yField'],
-      supportedTypes: ['string', 'number', 'date'],
-      aggregationSupport: true
+      supportedTypes: ['string', 'number', 'date']
     },
-    
     exportFormats: ['png', 'svg', 'pdf', 'jpg'],
-    
-    interactionSupport: {
-      zoom: true,
-      pan: true,
-      tooltip: true,
-      crossFilter: true
-    },
-    
     component: LineChart
   },
-  
+
   'echarts-pie': {
     name: 'echarts-pie',
     displayName: 'Pie Chart',
     category: 'basic',
     library: 'echarts',
     version: '1.0.0',
-    description: 'Part-to-whole relationships',
+    description: 'Pie chart for categorical data distribution',
     tags: ['pie', 'proportion', 'percentage'],
-    
     configSchema: {
-      categoryField: {
-        type: 'select',
-        required: true,
-        label: 'Category Field',
-        options: 'categorical_columns'
-      },
-      valueField: {
-        type: 'select',
-        required: true,
-        label: 'Value Field',
-        options: 'numeric_columns'
-      },
-      showLabels: {
-        type: 'boolean',
-        default: true,
-        label: 'Show labels'
-      },
-      showPercentage: {
-        type: 'boolean',
-        default: true,
-        label: 'Show percentages'
-      },
-      innerRadius: {
-        type: 'number',
-        default: 0,
-        min: 0,
-        max: 100,
-        label: 'Inner radius (%)'
-      }
+      nameField: { type: 'string', required: true, label: 'Category Field' },
+      valueField: { type: 'string', required: true, label: 'Value Field' },
+      donut: { type: 'boolean', default: false, label: 'Donut style' },
+      showLabels: { type: 'boolean', default: true, label: 'Show labels' }
     },
-    
     dataRequirements: {
       minColumns: 2,
-      maxColumns: 2,
-      requiredFields: ['categoryField', 'valueField'],
-      supportedTypes: ['string', 'number'],
-      aggregationSupport: true
+      requiredFields: ['nameField', 'valueField'],
+      supportedTypes: ['string', 'number']
     },
-    
     exportFormats: ['png', 'svg', 'pdf', 'jpg'],
-    
-    interactionSupport: {
-      selection: true,
-      tooltip: true,
-      drilldown: true
-    },
-    
     component: PieChart
   },
 
-  // D3.js Advanced Charts
-  'd3-force-directed': {
-    name: 'd3-force-directed',
+  'echarts-scatter': {
+    name: 'echarts-scatter',
+    displayName: 'Scatter Plot',
+    category: 'statistical',
+    library: 'echarts',
+    version: '1.0.0',
+    description: 'Scatter plot for correlation analysis',
+    tags: ['scatter', 'correlation', 'regression'],
+    configSchema: {
+      xField: { type: 'string', required: true, label: 'X-Axis Field' },
+      yField: { type: 'string', required: true, label: 'Y-Axis Field' },
+      sizeField: { type: 'string', required: false, label: 'Size Field' },
+      colorField: { type: 'string', required: false, label: 'Color Field' }
+    },
+    dataRequirements: {
+      minColumns: 2,
+      requiredFields: ['xField', 'yField'],
+      supportedTypes: ['number']
+    },
+    exportFormats: ['png', 'svg', 'pdf', 'jpg'],
+    component: ScatterChart
+  },
+
+  'echarts-heatmap': {
+    name: 'echarts-heatmap',
+    displayName: 'Heatmap',
+    category: 'statistical',
+    library: 'echarts',
+    version: '1.0.0',
+    description: 'Heatmap for matrix data visualization',
+    tags: ['heatmap', 'matrix', 'intensity'],
+    configSchema: {
+      xField: { type: 'string', required: true, label: 'X-Axis Field' },
+      yField: { type: 'string', required: true, label: 'Y-Axis Field' },
+      valueField: { type: 'string', required: true, label: 'Value Field' }
+    },
+    dataRequirements: {
+      minColumns: 3,
+      requiredFields: ['xField', 'yField', 'valueField'],
+      supportedTypes: ['string', 'number']
+    },
+    exportFormats: ['png', 'svg', 'pdf', 'jpg'],
+    component: HeatmapChart
+  },
+
+  'echarts-gauge': {
+    name: 'echarts-gauge',
+    displayName: 'Gauge Chart',
+    category: 'advanced',
+    library: 'echarts',
+    version: '1.0.0',
+    description: 'Gauge chart for KPI visualization',
+    tags: ['gauge', 'speedometer', 'kpi'],
+    configSchema: {
+      valueField: { type: 'string', required: true, label: 'Value Field' },
+      min: { type: 'number', default: 0, label: 'Minimum Value' },
+      max: { type: 'number', default: 100, label: 'Maximum Value' },
+      unit: { type: 'string', required: false, label: 'Unit' }
+    },
+    dataRequirements: {
+      minColumns: 1,
+      requiredFields: ['valueField'],
+      supportedTypes: ['number']
+    },
+    exportFormats: ['png', 'svg', 'pdf', 'jpg'],
+    component: GaugeChart
+  },
+
+  // Advanced Charts
+  'echarts-waterfall': {
+    name: 'echarts-waterfall',
+    displayName: 'Waterfall Chart',
+    category: 'financial',
+    library: 'echarts',
+    version: '1.0.0',
+    description: 'Waterfall chart for cumulative value analysis',
+    tags: ['waterfall', 'financial', 'cumulative'],
+    configSchema: {
+      xField: { type: 'string', required: true, label: 'Category Field' },
+      yField: { type: 'string', required: true, label: 'Value Field' },
+      showConnect: { type: 'boolean', default: true, label: 'Show connectors' }
+    },
+    dataRequirements: {
+      minColumns: 2,
+      requiredFields: ['xField', 'yField'],
+      supportedTypes: ['string', 'number']
+    },
+    exportFormats: ['png', 'svg', 'pdf', 'jpg'],
+    component: WaterfallChart
+  },
+
+  'echarts-sunburst': {
+    name: 'echarts-sunburst',
+    displayName: 'Sunburst Chart',
+    category: 'advanced',
+    library: 'echarts',
+    version: '1.0.0',
+    description: 'Sunburst chart for hierarchical data',
+    tags: ['sunburst', 'hierarchy', 'radial'],
+    configSchema: {
+      nameField: { type: 'string', required: true, label: 'Name Field' },
+      valueField: { type: 'string', required: true, label: 'Value Field' },
+      parentField: { type: 'string', required: false, label: 'Parent Field' }
+    },
+    dataRequirements: {
+      minColumns: 2,
+      requiredFields: ['nameField', 'valueField'],
+      supportedTypes: ['string', 'number']
+    },
+    exportFormats: ['png', 'svg', 'pdf', 'jpg'],
+    component: SunburstChart
+  },
+
+  'echarts-boxplot': {
+    name: 'echarts-boxplot',
+    displayName: 'Box Plot',
+    category: 'statistical',
+    library: 'echarts',
+    version: '1.0.0',
+    description: 'Box and whisker plot for statistical analysis',
+    tags: ['boxplot', 'statistics', 'quartiles'],
+    configSchema: {
+      xField: { type: 'string', required: true, label: 'Category Field' },
+      yField: { type: 'string', required: true, label: 'Value Field' },
+      seriesField: { type: 'string', required: false, label: 'Series Field' }
+    },
+    dataRequirements: {
+      minColumns: 2,
+      requiredFields: ['xField', 'yField'],
+      supportedTypes: ['string', 'number']
+    },
+    exportFormats: ['png', 'svg', 'pdf', 'jpg'],
+    component: BoxplotChart
+  },
+
+  'echarts-parallel': {
+    name: 'echarts-parallel',
+    displayName: 'Parallel Coordinates',
+    category: 'advanced',
+    library: 'echarts',
+    version: '1.0.0',
+    description: 'Parallel coordinates for multidimensional data',
+    tags: ['parallel', 'multidimensional', 'coordinates'],
+    configSchema: {
+      dimensions: { type: 'array', required: true, label: 'Dimensions' },
+      colorField: { type: 'string', required: false, label: 'Color Field' }
+    },
+    dataRequirements: {
+      minColumns: 3,
+      requiredFields: ['dimensions'],
+      supportedTypes: ['number']
+    },
+    exportFormats: ['png', 'svg', 'pdf', 'jpg'],
+    component: ParallelChart
+  },
+
+  // =========================
+  // D3.JS COMPONENTS  
+  // =========================
+
+  'd3js-force-graph': {
+    name: 'd3js-force-graph',
     displayName: 'Force Directed Graph',
     category: 'advanced',
     library: 'd3js',
     version: '1.0.0',
-    description: 'Network and relationship visualization',
-    tags: ['network', 'graph', 'relationships'],
-    
+    description: 'Force-directed network graph',
+    tags: ['network', 'graph', 'nodes', 'links'],
     configSchema: {
-      sourceField: {
-        type: 'select',
-        required: true,
-        label: 'Source Node Field',
-        options: 'columns'
-      },
-      targetField: {
-        type: 'select',
-        required: true,
-        label: 'Target Node Field',
-        options: 'columns'
-      },
-      weightField: {
-        type: 'select',
-        required: false,
-        label: 'Edge Weight Field',
-        options: 'numeric_columns'
-      },
-      nodeSize: {
-        type: 'number',
-        default: 5,
-        min: 1,
-        max: 20,
-        label: 'Node size'
-      },
-      linkDistance: {
-        type: 'number',
-        default: 100,
-        min: 10,
-        max: 500,
-        label: 'Link distance'
-      }
+      sourceField: { type: 'string', required: true, label: 'Source Field' },
+      targetField: { type: 'string', required: true, label: 'Target Field' },
+      weightField: { type: 'string', required: false, label: 'Weight Field' }
     },
-    
     dataRequirements: {
       minColumns: 2,
       requiredFields: ['sourceField', 'targetField'],
-      supportedTypes: ['string', 'number'],
-      aggregationSupport: false
+      supportedTypes: ['string', 'number']
     },
-    
     exportFormats: ['svg', 'png'],
-    
-    interactionSupport: {
-      zoom: true,
-      pan: true,
-      selection: true,
-      tooltip: true
-    },
-    
     component: ForceDirectedGraph
   },
 
-  // Plotly Statistical Charts
-  'plotly-surface': {
-    name: 'plotly-surface',
-    displayName: '3D Surface Plot',
+  'd3js-calendar-heatmap': {
+    name: 'd3js-calendar-heatmap',
+    displayName: 'Calendar Heatmap',
+    category: 'advanced',
+    library: 'd3js',
+    version: '1.0.0',
+    description: 'Calendar-based heatmap visualization',
+    tags: ['calendar', 'heatmap', 'time', 'activity'],
+    configSchema: {
+      dateField: { type: 'string', required: true, label: 'Date Field' },
+      valueField: { type: 'string', required: true, label: 'Value Field' }
+    },
+    dataRequirements: {
+      minColumns: 2,
+      requiredFields: ['dateField', 'valueField'],
+      supportedTypes: ['date', 'number']
+    },
+    exportFormats: ['svg', 'png'],
+    component: CalendarHeatmap
+  },
+
+  'd3js-chord-diagram': {
+    name: 'd3js-chord-diagram',
+    displayName: 'Chord Diagram',
+    category: 'advanced',
+    library: 'd3js',
+    version: '1.0.0',
+    description: 'Chord diagram for relationship visualization',
+    tags: ['chord', 'relationships', 'flow'],
+    configSchema: {
+      sourceField: { type: 'string', required: true, label: 'Source Field' },
+      targetField: { type: 'string', required: true, label: 'Target Field' },
+      valueField: { type: 'string', required: true, label: 'Value Field' }
+    },
+    dataRequirements: {
+      minColumns: 3,
+      requiredFields: ['sourceField', 'targetField', 'valueField'],
+      supportedTypes: ['string', 'number']
+    },
+    exportFormats: ['svg', 'png'],
+    component: ChordDiagram
+  },
+
+  'd3js-stream-graph': {
+    name: 'd3js-stream-graph',
+    displayName: 'Stream Graph',
+    category: 'advanced',
+    library: 'd3js',
+    version: '1.0.0',
+    description: 'Stream graph for flowing data visualization',
+    tags: ['stream', 'flow', 'stacked', 'area'],
+    configSchema: {
+      xField: { type: 'string', required: true, label: 'X-Axis Field' },
+      yField: { type: 'string', required: true, label: 'Y-Axis Field' },
+      seriesField: { type: 'string', required: true, label: 'Series Field' }
+    },
+    dataRequirements: {
+      minColumns: 3,
+      requiredFields: ['xField', 'yField', 'seriesField'],
+      supportedTypes: ['string', 'number', 'date']
+    },
+    exportFormats: ['svg', 'png'],
+    component: StreamGraph
+  },
+
+  'd3js-voronoi-diagram': {
+    name: 'd3js-voronoi-diagram',
+    displayName: 'Voronoi Diagram',
+    category: 'advanced',
+    library: 'd3js',
+    version: '1.0.0',
+    description: 'Voronoi diagram for proximity analysis',
+    tags: ['voronoi', 'proximity', 'tessellation'],
+    configSchema: {
+      xField: { type: 'string', required: true, label: 'X-Axis Field' },
+      yField: { type: 'string', required: true, label: 'Y-Axis Field' },
+      colorField: { type: 'string', required: false, label: 'Color Field' }
+    },
+    dataRequirements: {
+      minColumns: 2,
+      requiredFields: ['xField', 'yField'],
+      supportedTypes: ['number']
+    },
+    exportFormats: ['svg', 'png'],
+    component: VoronoiDiagram
+  },
+
+  'd3js-hierarchy': {
+    name: 'd3js-hierarchy',
+    displayName: 'Hierarchy Chart',
+    category: 'advanced',
+    library: 'd3js',
+    version: '1.0.0',
+    description: 'Hierarchical data visualization (tree, pack, partition)',
+    tags: ['hierarchy', 'tree', 'pack', 'partition'],
+    configSchema: {
+      nameField: { type: 'string', required: true, label: 'Name Field' },
+      valueField: { type: 'string', required: false, label: 'Value Field' },
+      parentField: { type: 'string', required: false, label: 'Parent Field' },
+      type: { type: 'select', options: ['tree', 'cluster', 'pack', 'partition'], default: 'tree', label: 'Layout Type' }
+    },
+    dataRequirements: {
+      minColumns: 1,
+      requiredFields: ['nameField'],
+      supportedTypes: ['string', 'number']
+    },
+    exportFormats: ['svg', 'png'],
+    component: HierarchyChart
+  },
+
+  // =========================
+  // CHART.JS COMPONENTS
+  // =========================
+
+  'chartjs-bar': {
+    name: 'chartjs-bar',
+    displayName: 'Chart.js Bar Chart',
+    category: 'basic',
+    library: 'chartjs',
+    version: '1.0.0',
+    description: 'Chart.js bar chart with animations',
+    tags: ['bar', 'chartjs', 'animated'],
+    configSchema: {
+      xField: { type: 'string', required: true, label: 'X-Axis Field' },
+      yField: { type: 'string', required: true, label: 'Y-Axis Field' },
+      seriesField: { type: 'string', required: false, label: 'Series Field' },
+      stacked: { type: 'boolean', default: false, label: 'Stacked' }
+    },
+    dataRequirements: {
+      minColumns: 2,
+      requiredFields: ['xField', 'yField'],
+      supportedTypes: ['string', 'number']
+    },
+    exportFormats: ['png', 'jpg'],
+    component: ChartJSBarChart
+  },
+
+  'chartjs-bubble': {
+    name: 'chartjs-bubble',
+    displayName: 'Bubble Chart',
     category: 'statistical',
+    library: 'chartjs',
+    version: '1.0.0',
+    description: 'Chart.js bubble chart for three-dimensional data',
+    tags: ['bubble', 'chartjs', '3d-data'],
+    configSchema: {
+      xField: { type: 'string', required: true, label: 'X-Axis Field' },
+      yField: { type: 'string', required: true, label: 'Y-Axis Field' },
+      sizeField: { type: 'string', required: true, label: 'Size Field' },
+      colorField: { type: 'string', required: false, label: 'Color Field' }
+    },
+    dataRequirements: {
+      minColumns: 3,
+      requiredFields: ['xField', 'yField', 'sizeField'],
+      supportedTypes: ['number']
+    },
+    exportFormats: ['png', 'jpg'],
+    component: ChartJSBubbleChart
+  },
+
+  'chartjs-mixed': {
+    name: 'chartjs-mixed',
+    displayName: 'Mixed Chart',
+    category: 'advanced',
+    library: 'chartjs',
+    version: '1.0.0',
+    description: 'Chart.js mixed chart with multiple chart types',
+    tags: ['mixed', 'chartjs', 'combination'],
+    configSchema: {
+      xField: { type: 'string', required: true, label: 'X-Axis Field' },
+      series: { type: 'array', required: true, label: 'Series Configuration' },
+      dualAxis: { type: 'boolean', default: false, label: 'Dual Y-Axis' }
+    },
+    dataRequirements: {
+      minColumns: 2,
+      requiredFields: ['xField', 'series'],
+      supportedTypes: ['string', 'number']
+    },
+    exportFormats: ['png', 'jpg'],
+    component: ChartJSMixedChart
+  },
+
+  // =========================
+  // PLOTLY COMPONENTS
+  // =========================
+
+  'plotly-mesh3d': {
+    name: 'plotly-mesh3d',
+    displayName: 'Mesh 3D',
+    category: 'advanced',
     library: 'plotly',
     version: '1.0.0',
-    description: '3D surface visualization for multivariate data',
-    tags: ['3d', 'surface', 'multivariate'],
-    
+    description: 'Plotly 3D mesh visualization',
+    tags: ['3d', 'mesh', 'plotly'],
     configSchema: {
-      xField: {
-        type: 'select',
-        required: true,
-        label: 'X-Axis Field',
-        options: 'numeric_columns'
-      },
-      yField: {
-        type: 'select',
-        required: true,
-        label: 'Y-Axis Field',
-        options: 'numeric_columns'
-      },
-      zField: {
-        type: 'select',
-        required: true,
-        label: 'Z-Axis Field',
-        options: 'numeric_columns'
-      },
-      colorScale: {
-        type: 'select',
-        default: 'viridis',
-        options: ['viridis', 'plasma', 'inferno', 'magma'],
-        label: 'Color scale'
-      }
+      xField: { type: 'string', required: true, label: 'X-Axis Field' },
+      yField: { type: 'string', required: true, label: 'Y-Axis Field' },
+      zField: { type: 'string', required: true, label: 'Z-Axis Field' },
+      colorField: { type: 'string', required: false, label: 'Color Field' }
     },
-    
     dataRequirements: {
       minColumns: 3,
       requiredFields: ['xField', 'yField', 'zField'],
-      supportedTypes: ['number'],
-      aggregationSupport: true
+      supportedTypes: ['number']
     },
-    
-    exportFormats: ['png', 'pdf', 'html'],
-    
-    interactionSupport: {
-      zoom: true,
-      pan: true,
-      tooltip: true
+    exportFormats: ['png', 'html', 'pdf'],
+    component: PlotlyMesh3D
+  },
+
+  'plotly-funnel': {
+    name: 'plotly-funnel',
+    displayName: 'Funnel Chart',
+    category: 'basic',
+    library: 'plotly',
+    version: '1.0.0',
+    description: 'Plotly funnel chart for conversion analysis',
+    tags: ['funnel', 'conversion', 'plotly'],
+    configSchema: {
+      nameField: { type: 'string', required: true, label: 'Name Field' },
+      valueField: { type: 'string', required: true, label: 'Value Field' },
+      textposition: { type: 'select', options: ['inside', 'outside', 'auto'], default: 'inside', label: 'Text Position' }
     },
-    
-    component: SurfaceChart
+    dataRequirements: {
+      minColumns: 2,
+      requiredFields: ['nameField', 'valueField'],
+      supportedTypes: ['string', 'number']
+    },
+    exportFormats: ['png', 'html', 'pdf'],
+    component: PlotlyFunnelChart
+  },
+
+  'plotly-violin': {
+    name: 'plotly-violin',
+    displayName: 'Violin Plot',
+    category: 'statistical',
+    library: 'plotly',
+    version: '1.0.0',
+    description: 'Plotly violin plot for distribution analysis',
+    tags: ['violin', 'distribution', 'plotly'],
+    configSchema: {
+      xField: { type: 'string', required: true, label: 'X-Axis Field' },
+      yField: { type: 'string', required: true, label: 'Y-Axis Field' },
+      groupField: { type: 'string', required: false, label: 'Group Field' },
+      box: { type: 'boolean', default: true, label: 'Show Box' }
+    },
+    dataRequirements: {
+      minColumns: 2,
+      requiredFields: ['xField', 'yField'],
+      supportedTypes: ['string', 'number']
+    },
+    exportFormats: ['png', 'html', 'pdf'],
+    component: PlotlyViolinPlot
   }
 };
 
-// Helper functions for plugin management
-export const getChartPluginsByCategory = (category: string) => {
-  return Object.values(ChartPlugins).filter(
-    plugin => plugin.category === category
-  );
+// Utility functions
+export const getAllCharts = (): ChartPluginConfig[] => {
+  return Object.values(ChartPlugins);
 };
 
-export const getChartPluginsByLibrary = (library: string) => {
-  return Object.values(ChartPlugins).filter(
-    plugin => plugin.library === library
-  );
+export const getChartsByCategory = (category: string): ChartPluginConfig[] => {
+  return Object.values(ChartPlugins).filter(chart => chart.category === category);
 };
 
-export const getChartPlugin = (name: string) => {
+export const getChartsByLibrary = (library: string): ChartPluginConfig[] => {
+  return Object.values(ChartPlugins).filter(chart => chart.library === library);
+};
+
+export const getChartPlugin = (name: string): ChartPluginConfig | undefined => {
   return ChartPlugins[name];
 };
 
-export const getAllChartCategories = () => {
-  const categories = new Set(
-    Object.values(ChartPlugins).map(plugin => plugin.category)
-  );
-  return Array.from(categories);
+export const getChartCategories = (): string[] => {
+  return Array.from(new Set(Object.values(ChartPlugins).map(chart => chart.category)));
 };
 
-export const getPluginStatistics = () => {
-  const total = Object.keys(ChartPlugins).length;
-  const byCategory = Object.values(ChartPlugins).reduce((acc, plugin) => {
-    acc[plugin.category] = (acc[plugin.category] || 0) + 1;
+export const getChartLibraries = (): string[] => {
+  return Array.from(new Set(Object.values(ChartPlugins).map(chart => chart.library)));
+};
+
+export const searchCharts = (query: string): ChartPluginConfig[] => {
+  const lowercaseQuery = query.toLowerCase();
+  return Object.values(ChartPlugins).filter(chart => 
+    chart.displayName.toLowerCase().includes(lowercaseQuery) ||
+    chart.description?.toLowerCase().includes(lowercaseQuery) ||
+    chart.tags?.some(tag => tag.toLowerCase().includes(lowercaseQuery))
+  );
+};
+
+export const getChartsByTags = (tags: string[]): ChartPluginConfig[] => {
+  return Object.values(ChartPlugins).filter(chart =>
+    tags.some(tag => chart.tags?.includes(tag))
+  );
+};
+
+// Export count by library
+export const getChartStatistics = () => {
+  const stats = Object.values(ChartPlugins).reduce((acc, chart) => {
+    acc[chart.library] = (acc[chart.library] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
   
-  const byLibrary = Object.values(ChartPlugins).reduce((acc, plugin) => {
-    acc[plugin.library] = (acc[plugin.library] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-  
-  return { total, byCategory, byLibrary };
+  return {
+    total: Object.keys(ChartPlugins).length,
+    byLibrary: stats,
+    byCategory: Object.values(ChartPlugins).reduce((acc, chart) => {
+      acc[chart.category] = (acc[chart.category] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>)
+  };
 };

@@ -1,112 +1,130 @@
+// D3.js Voronoi Diagram Component  
+// File: web-application/src/plugins/charts/d3js/VoronoiDiagram.tsx
 'use client';
 
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import { ChartProps } from '@/types/chart.types';
 
-interface VoronoiData {
-  x: number;
-  y: number;
-  value: number;
-  label?: string;
+export interface VoronoiDiagramConfig {
+  xField: string;
+  yField: string;
+  colorField?: string;
+  strokeWidth?: number;
+  showPoints?: boolean;
 }
 
 export const VoronoiDiagram: React.FC<ChartProps> = ({
   data,
   config,
-  width = 800,
-  height = 600,
-  onDataPointClick,
-  onDataPointHover,
+  width = 400,
+  height = 300,
+  onInteraction,
+  onError
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
-    if (!data || !svgRef.current) return;
+    if (!svgRef.current || !data?.length) return;
 
-    const svg = d3.select(svgRef.current);
-    svg.selectAll("*").remove();
+    try {
+      const { xField, yField, colorField, strokeWidth = 1, showPoints = true } = config as VoronoiDiagramConfig;
+      
+      // Clear previous content
+      d3.select(svgRef.current).selectAll('*').remove();
 
-    svg
-      .attr('width', width)
-      .attr('height', height);
+      const svg = d3.select(svgRef.current);
+      const margin = { top: 20, right: 20, bottom: 30, left: 40 };
+      const innerWidth = width - margin.left - margin.right;
+      const innerHeight = height - margin.top - margin.bottom;
 
-    const processedData = data as VoronoiData[];
+      const g = svg.append('g')
+        .attr('transform', `translate(${margin.left}, ${margin.top})`);
 
-    // Create Voronoi generator
-    const voronoi = d3.Delaunay
-      .from(processedData, d => d.x, d => d.y)
-      .voronoi([0, 0, width, height]);
+      // Scales
+      const xScale = d3.scaleLinear()
+        .domain(d3.extent(data, (d: any) => parseFloat(d[xField])) as [number, number])
+        .range([0, innerWidth]);
 
-    // Color scale
-    const maxValue = d3.max(processedData, d => d.value) || 0;
-    const colorScale = d3.scaleSequential()
-      .interpolator(d3.interpolateBlues)
-      .domain([0, maxValue]);
+      const yScale = d3.scaleLinear()
+        .domain(d3.extent(data, (d: any) => parseFloat(d[yField])) as [number, number])
+        .range([innerHeight, 0]);
 
-    // Draw Voronoi cells
-    const cells = svg.append('g')
-      .attr('class', 'voronoi-cells')
-      .selectAll('path')
-      .data(processedData)
-      .enter()
-      .append('path')
-      .attr('d', (d, i) => voronoi.renderCell(i))
-      .attr('fill', d => colorScale(d.value))
-      .attr('stroke', '#fff')
-      .attr('stroke-width', 1)
-      .attr('opacity', 0.7)
-      .on('click', (event, d) => {
-        onDataPointClick?.(d, event);
-      })
-      .on('mouseover', (event, d) => {
-        d3.select(event.currentTarget)
-          .attr('opacity', 1)
-          .attr('stroke-width', 2);
-        onDataPointHover?.(d, event);
-      })
-      .on('mouseout', (event) => {
-        d3.select(event.currentTarget)
-          .attr('opacity', 0.7)
+      const color = d3.scaleOrdinal(d3.schemeCategory10);
+
+      // Prepare points
+      const points = data.map((d: any) => [
+        xScale(parseFloat(d[xField])),
+        yScale(parseFloat(d[yField]))
+      ]);
+
+      // Create Voronoi diagram
+      const voronoi = d3.Delaunay
+        .from(points)
+        .voronoi([0, 0, innerWidth, innerHeight]);
+
+      // Add Voronoi cells
+      g.append('g')
+        .attr('class', 'voronoi')
+        .selectAll('path')
+        .data(data)
+        .enter().append('path')
+        .attr('d', (d: any, i: number) => voronoi.renderCell(i))
+        .attr('fill', (d: any) => colorField ? color(d[colorField]) : 'none')
+        .attr('stroke', '#666')
+        .attr('stroke-width', strokeWidth)
+        .attr('fill-opacity', 0.3)
+        .on('mouseover', function(event, d) {
+          d3.select(this).attr('fill-opacity', 0.6);
+        })
+        .on('mouseout', function(event, d) {
+          d3.select(this).attr('fill-opacity', 0.3);
+        })
+        .on('click', (event, d) => {
+          onInteraction?.({
+            type: 'click',
+            data: d,
+            event
+          });
+        });
+
+      // Add points if requested
+      if (showPoints) {
+        g.append('g')
+          .attr('class', 'points')
+          .selectAll('circle')
+          .data(data)
+          .enter().append('circle')
+          .attr('cx', (d: any) => xScale(parseFloat(d[xField])))
+          .attr('cy', (d: any) => yScale(parseFloat(d[yField])))
+          .attr('r', 3)
+          .attr('fill', (d: any) => colorField ? color(d[colorField]) : '#333')
+          .attr('stroke', 'white')
           .attr('stroke-width', 1);
-      });
+      }
 
-    // Draw points
-    svg.append('g')
-      .attr('class', 'voronoi-points')
-      .selectAll('circle')
-      .data(processedData)
-      .enter()
-      .append('circle')
-      .attr('cx', d => d.x)
-      .attr('cy', d => d.y)
-      .attr('r', 3)
-      .attr('fill', '#333')
-      .attr('stroke', '#fff')
-      .attr('stroke-width', 1);
+      // Add axes
+      g.append('g')
+        .attr('transform', `translate(0, ${innerHeight})`)
+        .call(d3.axisBottom(xScale));
 
-    // Add labels for points with high values
-    svg.append('g')
-      .attr('class', 'voronoi-labels')
-      .selectAll('text')
-      .data(processedData.filter(d => d.value > maxValue * 0.7))
-      .enter()
-      .append('text')
-      .attr('x', d => d.x)
-      .attr('y', d => d.y - 10)
-      .text(d => d.label || d.value.toFixed(1))
-      .style('font-size', '10px')
-      .style('fill', '#333')
-      .style('text-anchor', 'middle')
-      .style('pointer-events', 'none');
+      g.append('g')
+        .call(d3.axisLeft(yScale));
 
-  }, [data, width, height, config]);
+    } catch (error) {
+      console.error('Voronoi diagram error:', error);
+      onError?.(error as Error);
+    }
+  }, [data, config, width, height]);
 
   return (
-    <div className="voronoi-diagram-container">
-      <svg ref={svgRef}></svg>
-    </div>
+    <svg
+      ref={svgRef}
+      width={width}
+      height={height}
+      style={{ overflow: 'visible' }}
+    />
   );
 };
 
-export default VoronoiDiagram;
+export default VoronoiDiagramConfig;
