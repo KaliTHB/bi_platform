@@ -265,7 +265,7 @@ export const PluginConfiguration: React.FC<PluginConfigurationProps> = ({ worksp
         ...prev,
         [plugin.plugin_name]: {
           success: false,
-          message: error instanceof Error ? error.message : 'Connection test failed'
+          message: error instanceof Error ? (error as Error).message : 'Connection test failed'
         }
       }));
     }

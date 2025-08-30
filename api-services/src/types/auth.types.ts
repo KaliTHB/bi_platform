@@ -1,4 +1,4 @@
-# api-services/src/types/auth.types.ts
+// api-services/src/types/auth.types.ts
 export interface User {
   id: string;
   email: string;
@@ -139,6 +139,7 @@ export interface UpdateUserRequest {
   last_name?: string;
   avatar_url?: string;
   is_active?: boolean;
+  password?: string;
 }
 
 export interface CreateWorkspaceRequest {

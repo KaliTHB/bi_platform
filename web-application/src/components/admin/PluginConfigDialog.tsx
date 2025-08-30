@@ -1,4 +1,4 @@
-// File: web-application/src/components/admin/PluginConfigDialog.tsx
+// File: ./src/components/admin/PluginConfigDialog.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Dialog,
@@ -19,6 +19,7 @@ import {
   CircularProgress
 } from '@mui/material';
 
+// Interfaces
 interface PluginConfig {
   plugin_name: string;
   plugin_type: 'datasource' | 'chart';
@@ -26,17 +27,39 @@ interface PluginConfig {
   category: string;
   version: string;
   description?: string;
-  configuration: any;
+  configuration: Record<string, any>;
   is_enabled: boolean;
-  config_schema: any;
+  config_schema: ConfigSchema;
+}
+
+interface ConfigSchema {
+  properties?: Record<string, SchemaProperty>;
+  required?: string[];
+}
+
+interface SchemaProperty {
+  type: 'string' | 'number' | 'boolean' | 'select';
+  title?: string;
+  description?: string;
+  default?: any;
+  required?: boolean;
+  format?: string;
+  minimum?: number;
+  maximum?: number;
+  options?: Array<{ label: string; value: any } | string>;
+}
+
+interface TestResult {
+  success: boolean;
+  message: string;
 }
 
 interface PluginConfigDialogProps {
   open: boolean;
   plugin?: PluginConfig;
   onClose: () => void;
-  onSave: (plugin: PluginConfig, configuration: any) => Promise<void>;
-  onTest: (plugin: PluginConfig, configuration: any) => Promise<void>;
+  onSave: (plugin: PluginConfig, configuration: Record<string, any>) => Promise<void>;
+  onTest: (plugin: PluginConfig, configuration: Record<string, any>) => Promise<void>;
 }
 
 const PluginConfigDialog: React.FC<PluginConfigDialogProps> = ({
@@ -46,14 +69,18 @@ const PluginConfigDialog: React.FC<PluginConfigDialogProps> = ({
   onSave,
   onTest
 }) => {
-  const [configuration, setConfiguration] = useState<any>({});
+  // State with proper typing
+  const [configuration, setConfiguration] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
 
   useEffect(() => {
     if (plugin) {
       setConfiguration(plugin.configuration || {});
+      setTestResult(null);
+    } else {
+      setConfiguration({});
       setTestResult(null);
     }
   }, [plugin]);
@@ -81,21 +108,24 @@ const PluginConfigDialog: React.FC<PluginConfigDialogProps> = ({
     try {
       await onTest(plugin, configuration);
       setTestResult({ success: true, message: 'Connection test successful' });
-    } catch (error) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Connection test failed';
       setTestResult({ 
         success: false, 
-        message: error instanceof Error ? error.message : 'Connection test failed' 
+        message: errorMessage
       });
     } finally {
       setTesting(false);
     }
   }, [plugin, configuration, onTest]);
 
-  const renderConfigField = useCallback((fieldName: string, fieldSchema: any) => {
-    const value = configuration[fieldName] || fieldSchema.default || '';
+  const renderConfigField = useCallback((fieldName: string, fieldSchema: SchemaProperty) => {
+    const value = configuration[fieldName] ?? fieldSchema.default ?? '';
     
     const handleChange = (newValue: any) => {
-      setConfiguration(prev => ({
+      setConfiguration((prev: Record<string, any>) => ({
         ...prev,
         [fieldName]: newValue
       }));
@@ -158,12 +188,18 @@ const PluginConfigDialog: React.FC<PluginConfigDialogProps> = ({
               value={value}
               onChange={(e) => handleChange(e.target.value)}
               required={fieldSchema.required}
+              label={fieldSchema.title || fieldName}
             >
-              {fieldSchema.options?.map((option: any) => (
-                <MenuItem key={option.value || option} value={option.value || option}>
-                  {option.label || option}
-                </MenuItem>
-              ))}
+              {fieldSchema.options?.map((option, index) => {
+                const optionValue = typeof option === 'string' ? option : option.value;
+                const optionLabel = typeof option === 'string' ? option : option.label;
+                
+                return (
+                  <MenuItem key={`${optionValue}-${index}`} value={optionValue}>
+                    {optionLabel}
+                  </MenuItem>
+                );
+              })}
             </Select>
           </FormControl>
         );
@@ -216,7 +252,7 @@ const PluginConfigDialog: React.FC<PluginConfigDialogProps> = ({
               Configuration
             </Typography>
             {Object.entries(plugin.config_schema.properties).map(
-              ([fieldName, fieldSchema]) => renderConfigField(fieldName, fieldSchema as any)
+              ([fieldName, fieldSchema]) => renderConfigField(fieldName, fieldSchema)
             )}
           </Box>
         )}
@@ -231,7 +267,7 @@ const PluginConfigDialog: React.FC<PluginConfigDialogProps> = ({
       </DialogContent>
       
       <DialogActions>
-        <Button onClick={onClose} disabled={saving}>
+        <Button onClick={onClose} disabled={saving || testing}>
           Cancel
         </Button>
         

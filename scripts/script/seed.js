@@ -1,4 +1,4 @@
-# api-services/scripts/seed.js
+// api-services/scripts/seed.js
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');

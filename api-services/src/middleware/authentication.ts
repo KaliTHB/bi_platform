@@ -1,4 +1,4 @@
-# api-services/src/middleware/authentication.ts
+// api-services/src/middleware/authentication.ts
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { DatabaseConfig } from '../config/database';

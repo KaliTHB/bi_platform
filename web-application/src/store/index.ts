@@ -1,39 +1,57 @@
+// File: ./src/store/index.ts
+
 import { configureStore } from '@reduxjs/toolkit';
-import { persistStore, persistReducer } from 'redux-persist';
-import storage from 'redux-persist/lib/storage';
-import { combineReducers } from '@reduxjs/toolkit';
+import { setupListeners } from '@reduxjs/toolkit/query';
+import { userApi } from './api/userApi';
 
-import authReducer from './slices/authSlice';
-import workspaceReducer from './slices/workspaceSlice';
-import uiReducer from './slices/uiSlice';
-import { authApi } from './api/authApi';
+// Import other API slices as they're created
+// import { dashboardApi } from './api/dashboardApi';
+// import { datasetApi } from './api/datasetApi';
+// import { workspaceApi } from './api/workspaceApi';
 
-const persistConfig = {
-  key: 'root',
-  storage,
-  whitelist: ['auth'], // Only persist auth state
-};
-
-const rootReducer = combineReducers({
-  auth: authReducer,
-  workspace: workspaceReducer,
-  ui: uiReducer,
-  [authApi.reducerPath]: authApi.reducer,
-});
-
-const persistedReducer = persistReducer(persistConfig, rootReducer);
+// Import regular reducers
+// import authReducer from './slices/authSlice';
+// import workspaceReducer from './slices/workspaceSlice';
+// import uiReducer from './slices/uiSlice';
 
 export const store = configureStore({
-  reducer: persistedReducer,
+  reducer: {
+    // API reducers
+    [userApi.reducerPath]: userApi.reducer,
+    // [dashboardApi.reducerPath]: dashboardApi.reducer,
+    // [datasetApi.reducerPath]: datasetApi.reducer,
+    // [workspaceApi.reducerPath]: workspaceApi.reducer,
+    
+    // Regular reducers
+    // auth: authReducer,
+    // workspace: workspaceReducer,
+    // ui: uiReducer,
+  },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
       serializableCheck: {
-        ignoredActions: ['persist/PERSIST', 'persist/REHYDRATE'],
+        ignoredActions: [
+          // Ignore these action types
+          'persist/FLUSH',
+          'persist/REHYDRATE',
+          'persist/PAUSE',
+          'persist/PERSIST',
+          'persist/PURGE',
+          'persist/REGISTER',
+        ],
       },
-    }).concat(authApi.middleware),
+    }).concat(
+      // Add API middleware
+      userApi.middleware,
+      // dashboardApi.middleware,
+      // datasetApi.middleware,
+      // workspaceApi.middleware,
+    ),
+  devTools: process.env.NODE_ENV !== 'production',
 });
 
-export const persistor = persistStore(store);
+// Setup RTK Query listeners
+setupListeners(store.dispatch);
 
 export type RootState = ReturnType<typeof store.getState>;
 export type AppDispatch = typeof store.dispatch;

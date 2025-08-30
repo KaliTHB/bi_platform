@@ -1,4 +1,5 @@
-// Updated imports
+// File: ./src/components/admin/DataSourceConfig.tsx
+
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -33,16 +34,16 @@ import {
   Error,
   Refresh
 } from '@mui/icons-material';
-// Updated import to use existing hook
-import  useDataSources  from '@/hooks/useDataSources';
+import useDataSources from '@/hooks/useDataSources';
 
+// Interfaces
 interface DataSource {
   id: string;
   name: string;
   display_name: string;
   description?: string;
   plugin_name: string;
-  connection_config: any;
+  connection_config: Record<string, any>;
   test_status: 'pending' | 'success' | 'failed';
   test_error_message?: string;
   last_tested?: string;
@@ -51,12 +52,49 @@ interface DataSource {
   updated_at: string;
 }
 
+interface Plugin {
+  name: string;
+  displayName: string;
+  category: 'relational' | 'cloud_databases' | 'storage_services' | 'data_lakes';
+  version?: string;
+  configSchema: {
+    type: 'object';
+    properties: Record<string, SchemaProperty>;
+    required?: string[];
+  };
+}
+
+interface SchemaProperty {
+  type: 'string' | 'number' | 'boolean';
+  title?: string;
+  description?: string;
+  default?: any;
+  format?: string;
+  minimum?: number;
+  maximum?: number;
+}
+
+interface FormData {
+  name: string;
+  display_name: string;
+  description: string;
+  plugin_name: string;
+  connection_config: Record<string, any>;
+}
+
+interface TestResult {
+  success: boolean;
+  message: string;
+  details?: any;
+  error?: string;
+}
+
 interface DataSourceConfigProps {
   workspaceId: string;
 }
 
+// Main Component
 export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId }) => {
-  // Updated to use existing hook
   const {
     dataSources,
     loading,
@@ -67,8 +105,7 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
     testConnection: testDataSource
   } = useDataSources();
 
-  // Add state for available plugins since useDataSources doesn't provide them
-  const [availablePlugins, setAvailablePlugins] = useState<any[]>([]);
+  const [availablePlugins, setAvailablePlugins] = useState<Plugin[]>([]);
   const [pluginsLoading, setPluginsLoading] = useState(false);
 
   const [editDialog, setEditDialog] = useState<{
@@ -81,17 +118,18 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
     dataSource?: DataSource;
   }>({ open: false });
 
-  const [testResults, setTestResults] = useState<Record<string, any>>({});
+  const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
 
   // Function to load available plugins
   const loadAvailablePlugins = async () => {
     setPluginsLoading(true);
     try {
-      // TODO: Replace with your actual API endpoint
       const response = await fetch(`/api/workspaces/${workspaceId}/plugins/datasources`);
       if (response.ok) {
         const plugins = await response.json();
         setAvailablePlugins(plugins);
+      } else {
+        throw { message: 'Failed to fetch plugins', name: 'FetchError' };
       }
     } catch (error) {
       console.error('Failed to load available plugins:', error);
@@ -165,9 +203,11 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
       let errorMessage = 'Test failed';
       
       if (error instanceof Error) {
-        errorMessage = error.message;
+        errorMessage = (error as Error).message;
       } else if (typeof error === 'string') {
         errorMessage = error;
+      } else if (error && typeof error === 'object' && 'message' in error) {
+        errorMessage = String((error as any).message);
       }
       
       setTestResults(prev => ({
@@ -182,8 +222,25 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
 
   const confirmDelete = async () => {
     if (deleteDialog.dataSource) {
-      await deleteDataSource(deleteDialog.dataSource.id);
-      setDeleteDialog({ open: false });
+      try {
+        await deleteDataSource(deleteDialog.dataSource.id);
+        setDeleteDialog({ open: false });
+      } catch (error) {
+        console.error('Failed to delete data source:', error);
+      }
+    }
+  };
+
+  const handleSaveDataSource = async (dataSourceData: FormData) => {
+    try {
+      if (editDialog.dataSource) {
+        await updateDataSource(editDialog.dataSource.id, dataSourceData);
+      } else {
+        await createDataSource(dataSourceData);
+      }
+    } catch (error) {
+      console.error('Failed to save data source:', error);
+      throw error;
     }
   };
 
@@ -231,9 +288,22 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
   }
 
   if (error) {
+    const getErrorMessage = (err: unknown): string => {
+      if (err instanceof Error) {
+        return (err as Error).message;
+      }
+      if (typeof err === 'string') {
+        return err;
+      }
+      if (err && typeof err === 'object' && 'message' in err) {
+        return String((err as any).message);
+      }
+      return 'An unexpected error occurred';
+    };
+
     return (
       <Alert severity="error" sx={{ mb: 2 }}>
-        Error loading data sources: {error.message || error}
+        Error loading data sources: {getErrorMessage(error)}
       </Alert>
     );
   }
@@ -317,15 +387,17 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
               alignItems="center" 
               justifyContent="center"
               minHeight={200}
-              bgcolor="grey.50"
-              borderRadius={2}
+              bgcolor="background.paper"
+              borderRadius={1}
+              border={1}
+              borderColor="divider"
               p={3}
             >
-              <Typography variant="h6" color="textSecondary" gutterBottom>
-                No data sources configured
+              <Typography variant="h6" gutterBottom>
+                No Data Sources
               </Typography>
-              <Typography variant="body2" color="textSecondary" align="center" mb={2}>
-                Add your first data source to start building dashboards
+              <Typography variant="body2" color="text.secondary" mb={2}>
+                Create your first data source to get started
               </Typography>
               <Button
                 variant="contained"
@@ -339,20 +411,13 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
         )}
       </Grid>
 
-      {/* Edit Dialog */}
+      {/* Edit/Create Dialog */}
       <DataSourceEditDialog
         open={editDialog.open}
         dataSource={editDialog.dataSource}
         availablePlugins={availablePlugins}
         onClose={() => setEditDialog({ open: false })}
-        onSave={async (dataSourceData) => {
-          if (editDialog.dataSource) {
-            await updateDataSource(editDialog.dataSource.id, dataSourceData);
-          } else {
-            await createDataSource(dataSourceData);
-          }
-          setEditDialog({ open: false });
-        }}
+        onSave={handleSaveDataSource}
       />
 
       {/* Delete Confirmation Dialog */}
@@ -379,9 +444,9 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
 interface DataSourceEditDialogProps {
   open: boolean;
   dataSource?: DataSource;
-  availablePlugins: any[];
+  availablePlugins: Plugin[];
   onClose: () => void;
-  onSave: (dataSourceData: any) => Promise<void>;
+  onSave: (dataSourceData: FormData) => Promise<void>;
 }
 
 const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
@@ -391,7 +456,7 @@ const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
   onClose,
   onSave
 }) => {
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     name: '',
     display_name: '',
     description: '',
@@ -400,7 +465,7 @@ const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
   });
 
   const [saving, setSaving] = useState(false);
-  const [selectedPlugin, setSelectedPlugin] = useState<any>(null);
+  const [selectedPlugin, setSelectedPlugin] = useState<Plugin | null>(null);
 
   useEffect(() => {
     if (dataSource) {
@@ -409,9 +474,9 @@ const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
         display_name: dataSource.display_name,
         description: dataSource.description || '',
         plugin_name: dataSource.plugin_name,
-        connection_config: dataSource.connection_config
+        connection_config: dataSource.connection_config || {}
       });
-      setSelectedPlugin(availablePlugins.find(p => p.name === dataSource.plugin_name));
+      setSelectedPlugin(availablePlugins.find(p => p.name === dataSource.plugin_name) || null);
     } else {
       setFormData({
         name: '',
@@ -426,7 +491,7 @@ const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
 
   const handlePluginChange = (pluginName: string) => {
     const plugin = availablePlugins.find(p => p.name === pluginName);
-    setSelectedPlugin(plugin);
+    setSelectedPlugin(plugin || null);
     setFormData(prev => ({
       ...prev,
       plugin_name: pluginName,
@@ -446,8 +511,9 @@ const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
     }
   };
 
-  const renderConfigField = (fieldName: string, fieldSchema: any) => {
-    const value = formData.connection_config[fieldName] || '';
+  const renderConfigField = (fieldName: string, fieldSchema: SchemaProperty) => {
+    const connectionConfig = formData.connection_config as Record<string, any>;
+    const value = connectionConfig[fieldName] || fieldSchema.default || '';
     
     const handleChange = (newValue: any) => {
       setFormData(prev => ({
@@ -483,11 +549,30 @@ const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
             fullWidth
             type="number"
             value={value}
-            onChange={(e) => handleChange(parseInt(e.target.value) || 0)}
+            onChange={(e) => handleChange(parseInt(e.target.value) || fieldSchema.default || 0)}
             helperText={fieldSchema.description}
             required={selectedPlugin?.configSchema?.required?.includes(fieldName)}
             margin="normal"
+            inputProps={{
+              min: fieldSchema.minimum,
+              max: fieldSchema.maximum
+            }}
           />
+        );
+      
+      case 'boolean':
+        return (
+          <FormControl key={fieldName} fullWidth margin="normal">
+            <InputLabel>{fieldSchema.title || fieldName}</InputLabel>
+            <Select
+              value={value}
+              onChange={(e) => handleChange(e.target.value === 'true')}
+              label={fieldSchema.title || fieldName}
+            >
+              <MenuItem value="true">Yes</MenuItem>
+              <MenuItem value="false">No</MenuItem>
+            </Select>
+          </FormControl>
         );
       
       default:
@@ -561,7 +646,7 @@ const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
                 Connection Configuration
               </Typography>
               {Object.entries(selectedPlugin.configSchema.properties).map(
-                ([fieldName, fieldSchema]) => renderConfigField(fieldName, fieldSchema as any)
+                ([fieldName, fieldSchema]) => renderConfigField(fieldName, fieldSchema)
               )}
             </Grid>
           )}
@@ -583,3 +668,5 @@ const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
     </Dialog>
   );
 };
+
+export default DataSourceConfig;

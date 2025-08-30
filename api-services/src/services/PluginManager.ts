@@ -1,4 +1,4 @@
-# api-services/src/services/PluginManager.ts
+// api-services/src/services/PluginManager.ts
 import fs from 'fs';
 import path from 'path';
 import { logger } from '../utils/logger';

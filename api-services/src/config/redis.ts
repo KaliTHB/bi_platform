@@ -1,4 +1,4 @@
-# api-services/src/config/redis.ts
+// api-services/src/config/redis.ts
 import Redis from 'ioredis';
 import { logger } from '../utils/logger';
 

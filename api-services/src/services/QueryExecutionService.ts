@@ -1,4 +1,4 @@
-# api-services/src/services/QueryExecutionService.ts
+// api-services/src/services/QueryExecutionService.ts
 import { DatabaseConfig } from '../config/database';
 import { CacheService } from '../config/redis';
 import { logger } from '../utils/logger';

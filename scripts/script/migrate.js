@@ -1,4 +1,4 @@
-# api-services/scripts/migrate.js
+// api-services/scripts/migrate.js
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');

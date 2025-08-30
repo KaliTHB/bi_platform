@@ -1,38 +1,53 @@
-// File: web-application/src/types/workspace.types.ts
+// File: ./src/types/workspace.ts
 
 export interface Workspace {
   id: string;
   name: string;
-  display_name: string;
-  description?: string;
   slug: string;
-  owner_id: string;
-  branding_config?: BrandingConfig;
-  settings_json?: Record<string, any>;
-  plugin_config?: Record<string, any>;
-  default_dashboard_id?: string;
-  theme_config?: ThemeConfig;
+  description?: string;
+  logo_url?: string;
+  settings: WorkspaceSettings;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  user_roles?: WorkspaceRole[];
+  highest_role_level?: number;
 }
 
-export interface BrandingConfig {
-  company_name?: string;
-  company_logo?: string;
-  primary_color?: string;
-  secondary_color?: string;
-  favicon_url?: string;
-  custom_css?: string;
+export interface WorkspaceSettings {
+  theme?: 'light' | 'dark' | 'auto';
+  timezone?: string;
+  date_format?: 'YYYY-MM-DD' | 'MM/DD/YYYY' | 'DD/MM/YYYY';
+  number_format?: string;
+  language?: string;
+  max_query_timeout?: number;
+  max_export_rows?: number;
+  features?: {
+    sql_editor?: boolean;
+    dashboard_builder?: boolean;
+    data_exports?: boolean;
+    api_access?: boolean;
+    webhooks?: boolean;
+  };
 }
 
-export interface ThemeConfig {
-  mode: 'light' | 'dark';
-  primary_color: string;
-  secondary_color: string;
-  background_color: string;
-  text_color: string;
-  sidebar_style: 'light' | 'dark';
-  navbar_style: 'light' | 'dark';
-  font_family?: string;
+export interface WorkspaceRole {
+  role_id: string;
+  role_name: string;
+  level: number;
+}
+
+export interface CreateWorkspaceRequest {
+  name: string;
+  slug: string;
+  description?: string;
+  settings?: Partial<WorkspaceSettings>;
+}
+
+export interface UpdateWorkspaceRequest {
+  name?: string;
+  description?: string;
+  logo_url?: string;
+  settings?: Partial<WorkspaceSettings>;
+  is_active?: boolean;
 }

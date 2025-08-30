@@ -1,4 +1,4 @@
-# api-services/src/db/migrations/001_initial_schema.sql
+-- api-services/src/db/migrations/001_initial_schema.sql
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

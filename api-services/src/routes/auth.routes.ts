@@ -1,4 +1,4 @@
-# api-services/src/routes/auth.routes.ts
+// api-services/src/routes/auth.routes.ts
 import express from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';

@@ -1,86 +1,75 @@
-// File: web-application/src/types/plugin.types.ts
+// File: ./src/types/plugin.ts
 
 export interface DataSourcePlugin {
   name: string;
   displayName: string;
   category: 'relational' | 'cloud_databases' | 'storage_services' | 'data_lakes';
   version: string;
-  configSchema: ConfigurationSchema;
-  connect(config: ConnectionConfig): Promise<Connection>;
-  testConnection(config: ConnectionConfig): Promise<boolean>;
-  executeQuery(connection: Connection, query: string): Promise<QueryResult>;
-  getSchema(connection: Connection): Promise<SchemaInfo>;
-  disconnect(connection: Connection): Promise<void>;
+  description?: string;
+  author?: string;
+  license?: string;
+  configSchema: PluginConfigSchema;
+  plugin_type: 'datasource';
+  capabilities?: DataSourceCapabilities;
 }
 
-export interface ChartPluginConfig {
+export interface ChartPlugin {
   name: string;
   displayName: string;
-  category: string;
-  library: string;
+  category: 'basic' | 'statistical' | 'geographic' | 'specialized' | 'custom';
   version: string;
-  configSchema: ConfigurationSchema;
-  dataRequirements: DataRequirements;
-  exportFormats: string[];
-  component: React.ComponentType<ChartProps>;
+  description?: string;
+  author?: string;
+  license?: string;
+  configSchema: PluginConfigSchema;
+  plugin_type: 'chart';
+  dataRequirements?: DataRequirements;
+  exportFormats?: string[];
 }
 
-export interface ConfigurationSchema {
+export interface PluginConfigSchema {
   type: 'object';
-  properties: Record<string, any>;
+  properties: Record<string, SchemaProperty>;
   required?: string[];
   additionalProperties?: boolean;
 }
 
-export interface ConnectionConfig {
-  host: string;
-  port: number;
-  database: string;
-  username: string;
-  password: string;
-  ssl?: boolean;
-  [key: string]: any;
-}
-
-export interface Connection {
-  id: string;
-  isConnected: boolean;
-  config: ConnectionConfig;
-  [key: string]: any;
-}
-
-export interface QueryResult {
-  rows: Record<string, any>[];
-  columns: ColumnInfo[];
-  total_rows: number;
-  execution_time_ms: number;
-  cached: boolean;
-}
-
-export interface ColumnInfo {
-  name: string;
-  type: string;
-  nullable: boolean;
+export interface SchemaProperty {
+  type: 'string' | 'number' | 'boolean' | 'select' | 'multiselect' | 'array' | 'object';
+  title?: string;
   description?: string;
+  default?: any;
+  required?: boolean;
+  format?: string;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  options?: Array<{ label: string; value: any } | string>;
+  validation?: {
+    pattern?: string;
+    min?: number;
+    max?: number;
+    minLength?: number;
+    maxLength?: number;
+  };
+  group?: string;
+  conditional?: {
+    field: string;
+    value: any;
+  };
 }
 
-export interface SchemaInfo {
-  tables: TableInfo[];
-  views: ViewInfo[];
-}
-
-export interface TableInfo {
-  name: string;
-  schema: string;
-  columns: ColumnInfo[];
-  row_count?: number;
-}
-
-export interface ViewInfo {
-  name: string;
-  schema: string;
-  columns: ColumnInfo[];
-  definition: string;
+export interface DataSourceCapabilities {
+  supportsBulkInsert?: boolean;
+  supportsTransactions?: boolean;
+  supportsStoredProcedures?: boolean;
+  supportsCustomFunctions?: boolean;
+  maxConcurrentConnections?: number;
+  supportsStreaming?: boolean;
+  supportsPagination?: boolean;
+  supportsAggregation?: boolean;
 }
 
 export interface DataRequirements {
@@ -90,4 +79,50 @@ export interface DataRequirements {
   supports_grouping: boolean;
   supports_time_series: boolean;
   supports_multiple_series: boolean;
+}
+
+export interface PluginConfiguration {
+  plugin_name: string;
+  plugin_type: 'datasource' | 'chart';
+  configuration: Record<string, any>;
+  is_enabled: boolean;
+  usage_count?: number;
+  workspace_id: string;
+  enabled_by?: string;
+  enabled_at?: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ConnectionTestResult {
+  success: boolean;
+  connection_valid: boolean;
+  message: string;
+  response_time?: number;
+  error_code?: string;
+  details?: Record<string, any>;
+}
+
+// Plugin registry types
+export interface PluginRegistry {
+  datasources: Record<string, DataSourcePlugin>;
+  charts: Record<string, ChartPlugin>;
+}
+
+// Plugin installation/management
+export interface PluginManifest {
+  name: string;
+  version: string;
+  type: 'datasource' | 'chart';
+  main: string;
+  dependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+  metadata: {
+    displayName: string;
+    description?: string;
+    author?: string;
+    license?: string;
+    homepage?: string;
+    repository?: string;
+  };
 }
