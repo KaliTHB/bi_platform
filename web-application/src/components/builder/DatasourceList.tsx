@@ -103,7 +103,7 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
 }) => {
   const router = useRouter();
   const { currentWorkspace } = useWorkspace();
-  const { hasPermissions } = usePermissions();
+  const { hasPermission, hasAnyPermission, hasAllPermissions } = usePermissions();
   const { 
     dataSources, 
     loading, 

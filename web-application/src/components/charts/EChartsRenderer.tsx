@@ -1,6 +1,7 @@
 // web-application/src/components/charts/EChartsRenderer.tsx
 import React, { useEffect, useRef, useMemo } from 'react';
 import * as echarts from 'echarts';
+import type { EChartsOption } from 'echarts';
 import { Box, Alert } from '@mui/material';
 
 interface EChartsRendererProps {
@@ -67,8 +68,8 @@ const EChartsRenderer: React.FC<EChartsRendererProps> = ({
     // Create new chart instance
     chartInstance.current = echarts.init(chartRef.current, theme);
 
-    // Set options
-    chartInstance.current.setOption(chartOptions, true);
+    // Set options with proper typing
+    chartInstance.current.setOption(chartOptions as EChartsOption, true);
 
     // Add event listeners
     if (onInteraction) {
@@ -121,8 +122,8 @@ const EChartsRenderer: React.FC<EChartsRendererProps> = ({
   );
 };
 
-// Chart option generators
-function generateBarChartOptions(data: any[], config: any) {
+// Chart option generators with proper typing
+function generateBarChartOptions(data: any[], config: any): EChartsOption {
   const { xAxis, yAxis, series = [], orientation = 'vertical', stacked = false } = config;
   
   if (!xAxis?.field || !yAxis?.field) {
@@ -152,26 +153,40 @@ function generateBarChartOptions(data: any[], config: any) {
       top: '15%',
       containLabel: true
     },
-    xAxis: {
-      type: orientation === 'horizontal' ? 'value' : 'category',
-      data: orientation === 'horizontal' ? null : categories,
-      name: xAxis.title,
-      nameLocation: 'middle',
-      nameGap: 30
-    },
-    yAxis: {
-      type: orientation === 'horizontal' ? 'category' : 'value',
-      data: orientation === 'horizontal' ? categories : null,
-      name: yAxis.title,
-      nameLocation: 'middle',
-      nameGap: 50
-    },
+    xAxis: orientation === 'horizontal' 
+      ? {
+          type: 'value',
+          name: xAxis.title,
+          nameLocation: 'middle',
+          nameGap: 30
+        }
+      : {
+          type: 'category',
+          data: categories,
+          name: xAxis.title,
+          nameLocation: 'middle',
+          nameGap: 30
+        },
+    yAxis: orientation === 'horizontal'
+      ? {
+          type: 'category',
+          data: categories,
+          name: yAxis.title,
+          nameLocation: 'middle',
+          nameGap: 50
+        }
+      : {
+          type: 'value',
+          name: yAxis.title,
+          nameLocation: 'middle',
+          nameGap: 50
+        },
     series: [
       {
         name: series[0]?.name || 'Data',
         type: 'bar',
         data: values,
-        stack: stacked ? 'total' : null,
+        stack: stacked ? 'total' : undefined,
         itemStyle: {
           color: series[0]?.color || '#5470c6'
         },
@@ -182,12 +197,13 @@ function generateBarChartOptions(data: any[], config: any) {
       }
     ],
     animation: config.animation !== false,
-    animationEasing: 'elasticOut',
+    // Fix: Cast to proper type or use type assertion
+    animationEasing: 'elasticOut' as any,
     animationDelayUpdate: (idx: number) => idx * 5
   };
 }
 
-function generateLineChartOptions(data: any[], config: any) {
+function generateLineChartOptions(data: any[], config: any): EChartsOption {
   const { xAxis, yAxis, series = [], smooth = false, showPoints = true, fillArea = false } = config;
   
   if (!xAxis?.field || !yAxis?.field) {
@@ -238,7 +254,7 @@ function generateLineChartOptions(data: any[], config: any) {
         type: 'line',
         smooth,
         showSymbol: showPoints,
-        areaStyle: fillArea ? {} : null,
+        areaStyle: fillArea ? {} : undefined,
         data: values,
         lineStyle: {
           color: series[0]?.color || '#5470c6',
@@ -254,7 +270,7 @@ function generateLineChartOptions(data: any[], config: any) {
   };
 }
 
-function generatePieChartOptions(data: any[], config: any) {
+function generatePieChartOptions(data: any[], config: any): EChartsOption {
   const { labelField, valueField, showLegend = true } = config;
   
   if (!labelField || !valueField) {
@@ -292,7 +308,8 @@ function generatePieChartOptions(data: any[], config: any) {
           }
         },
         animationType: 'scale',
-        animationEasing: 'elasticOut',
+        // Fix: Cast to proper type
+        animationEasing: 'elasticOut' as any,
         animationDelay: (idx: number) => Math.random() * 200
       }
     ],
@@ -300,7 +317,7 @@ function generatePieChartOptions(data: any[], config: any) {
   };
 }
 
-function generateScatterChartOptions(data: any[], config: any) {
+function generateScatterChartOptions(data: any[], config: any): EChartsOption {
   const { xAxis, yAxis, series = [] } = config;
   
   if (!xAxis?.field || !yAxis?.field) {
@@ -349,17 +366,17 @@ function generateScatterChartOptions(data: any[], config: any) {
   };
 }
 
-function generateAreaChartOptions(data: any[], config: any) {
+function generateAreaChartOptions(data: any[], config: any): EChartsOption {
   const lineOptions = generateLineChartOptions(data, { ...config, fillArea: true });
   return lineOptions;
 }
 
-function generateDonutChartOptions(data: any[], config: any) {
+function generateDonutChartOptions(data: any[], config: any): EChartsOption {
   const pieOptions = generatePieChartOptions(data, config);
   
   // Convert to donut by adding inner radius
-  if (pieOptions.series && pieOptions.series[0]) {
-    pieOptions.series[0].radius = ['40%', '70%'];
+  if (pieOptions.series && Array.isArray(pieOptions.series) && pieOptions.series[0]) {
+    (pieOptions.series[0] as any).radius = ['40%', '70%'];
   }
   
   return pieOptions;

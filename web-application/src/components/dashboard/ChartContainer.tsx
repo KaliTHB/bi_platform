@@ -45,7 +45,8 @@ interface ChartData {
     name: string;
     type: string;
   }>;
-  metadata: {
+  execution_time: number;
+  metadata?: {
     totalRows: number;
     queryTime: number;
     lastUpdated: string;
@@ -113,11 +114,22 @@ const ChartContainer: React.FC<ChartContainerProps> = ({
         filters: JSON.stringify(filters)
       });
 
-      if (response.success) {
-        setChartData(response);
+      // The API service already unwraps the response, so use it directly
+      if (response && response.data) {
+        // Create metadata from available fields
+        const metadata = {
+          totalRows: response.data.length,
+          queryTime: response.execution_time || 0,
+          lastUpdated: new Date().toISOString(),
+          error: undefined
+        };
+
+        setChartData({
+          ...response,
+          metadata
+        });
       } else {
-        setError(response.message || 'Failed to load chart data');
-        onChartError?.(chart.id, response.message || 'Failed to load chart data');
+        throw new Error('Invalid response format');
       }
     } catch (err: any) {
       const errorMessage = err.message || 'An error occurred while loading chart data';
@@ -139,69 +151,55 @@ const ChartContainer: React.FC<ChartContainerProps> = ({
     try {
       const response = await chartAPI.exportChart(chart.id, { format });
       
-      if (response.success && response.export) {
+      if (response && response.export) {
         // Create download link
         const blob = new Blob([response.export.data], {
-          type: format === 'json' ? 'application/json' : 'text/csv'
+          type: format === 'json' ? 'application/json' :
+                format === 'csv' ? 'text/csv' : 
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         });
+        
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = response.export.filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = response.export.filename || `chart_${chart.id}.${format}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
         URL.revokeObjectURL(url);
       }
-    } catch (error) {
-      console.error('Chart export failed:', error);
+    } catch (err: any) {
+      console.error('Export failed:', err);
+      // Could show a toast notification here
     }
     setMenuAnchor(null);
-  };
-
-  const handleChartInteraction = (event: any) => {
-    if (onChartClick) {
-      onChartClick({ chart, event });
-    }
   };
 
   const renderChart = () => {
     if (!chartData) return null;
 
-    const commonProps = {
+    const chartProps = {
       data: chartData.data,
+      columns: chartData.columns,
       config: chart.config,
-      dimensions,
-      onInteraction: handleChartInteraction
+      dimensions
     };
 
-    switch (chart.type) {
-      case 'echarts-bar':
-      case 'echarts-line':
-      case 'echarts-pie':
-      case 'echarts-scatter':
-      case 'echarts-area':
-      case 'echarts-donut':
-        return <EChartsRenderer type={chart.type} {...commonProps} />;
+    switch (chart.type.toLowerCase()) {
+      case 'bar':
+      case 'line':
+      case 'pie':
+      case 'scatter':
+      case 'area':
+        return <EChartsRenderer {...chartProps} chartType={chart.type} />;
       
-      case 'table-chart':
-        return (
-          <TableRenderer
-            data={chartData.data}
-            columns={chartData.columns}
-            config={chart.config}
-          />
-        );
-      
-      case 'metric-card':
-        return (
-          <MetricCardRenderer
-            data={chartData.data}
-            config={chart.config}
-            dimensions={dimensions}
-          />
-        );
-      
+      case 'table':
+        return <TableRenderer {...chartProps} />;
+        
+      case 'metric':
+      case 'kpi':
+        return <MetricCardRenderer {...chartProps} />;
+        
       default:
         return (
           <Alert severity="warning">
@@ -211,9 +209,11 @@ const ChartContainer: React.FC<ChartContainerProps> = ({
     }
   };
 
-  const formatQueryTime = (ms: number) => {
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(2)}s`;
+  const formatQueryTime = (milliseconds: number) => {
+    if (milliseconds < 1000) {
+      return `${milliseconds}ms`;
+    }
+    return `${(milliseconds / 1000).toFixed(1)}s`;
   };
 
   return (
@@ -223,40 +223,51 @@ const ChartContainer: React.FC<ChartContainerProps> = ({
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        position: 'relative'
+        backgroundColor: 'background.paper',
+        border: preview ? 'none' : '1px solid',
+        borderColor: 'divider',
+        borderRadius: 1,
+        overflow: 'hidden'
       }}
     >
       {/* Chart Header */}
       <Box
         sx={{
           display: 'flex',
-          alignItems: 'center',
           justifyContent: 'space-between',
-          mb: 1,
-          minHeight: 40
+          alignItems: 'center',
+          p: 2,
+          borderBottom: '1px solid',
+          borderBottomColor: 'divider',
+          backgroundColor: 'background.default'
         }}
       >
-        <Typography
-          variant="h6"
-          component="div"
-          sx={{
-            fontSize: '1rem',
-            fontWeight: 500,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            flex: 1
-          }}
-        >
-          {chart.name}
-        </Typography>
-        
+        <Box sx={{ flex: 1 }}>
+          <Typography
+            variant="subtitle1"
+            component="h3"
+            sx={{
+              fontWeight: 600,
+              cursor: onChartClick ? 'pointer' : 'default',
+              '&:hover': onChartClick ? { color: 'primary.main' } : {}
+            }}
+            onClick={() => onChartClick?.(chart)}
+          >
+            {chart.name}
+          </Typography>
+          {chart.dataset && (
+            <Typography variant="caption" color="text.secondary">
+              {chart.dataset.name}
+            </Typography>
+          )}
+        </Box>
+
         {!preview && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <IconButton
               size="small"
               onClick={refreshChart}
-              disabled={refreshing}
+              disabled={loading || refreshing}
               sx={{ opacity: 0.7, '&:hover': { opacity: 1 } }}
             >
               {refreshing ? (
