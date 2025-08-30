@@ -1,11 +1,13 @@
-// Updated Chart Factory with All Components
 // File: web-application/src/plugins/charts/factory/ChartFactory.tsx
 'use client';
 
-import React from 'react';
-import { ChartProps } from '@/types/chart.types';
+import React, { Suspense, useState, useEffect } from 'react';
+import { CircularProgress, Alert, Box, Typography } from '@mui/material';
+import { ChartProps } from '../interfaces';
+import { ChartRegistry } from '../registry/ChartRegistry';
+import { ChartPluginService } from '../services/ChartPluginService';
 
-// ECharts imports
+// Import all chart components statically for reliability
 import { BarChart as EChartsBarChart } from '../echarts/BarChart';
 import { PieChart as EChartsPieChart } from '../echarts/PieChart';
 import { LineChart as EChartsLineChart } from '../echarts/LineChart';
@@ -16,271 +18,356 @@ import { TreemapChart as EChartsTreemapChart } from '../echarts/TreemapChart';
 import { SankeyChart as EChartsSankeyChart } from '../echarts/SankeyChart';
 import { CandlestickChart as EChartsCandlestickChart } from '../echarts/CandlestickChart';
 import { WaterfallChart } from '../echarts/WaterfallChart';
-import { SunburstChart } from '../echarts/SunburstChart';
-import { BoxplotChart } from '../echarts/BoxplotChart';
-import { ParallelChart } from '../echarts/ParallelChart';
 
 // D3.js imports
 import { CalendarHeatmap } from '../d3js/CalendarHeatmap';
 import { ChordDiagram } from '../d3js/ChordDiagram';
 import { ForceDirectedGraph } from '../d3js/ForceDirectedGraph';
 import { GeographicMap } from '../d3js/GeographicMap';
-import { HierarchyChart } from '../d3js/HierarchyChart';
-import { StreamGraph } from '../d3js/StreamGraph';
-import { VoronoiDiagram } from '../d3js/VoronoiDiagram';
 
 // Chart.js imports
 import { DonutChart } from '../chartjs/DonutChart';
 import { RadarChart } from '../chartjs/RadarChart';
 import { PolarAreaChart } from '../chartjs/PolarAreaChart';
-import { ChartJSBarChart } from '../chartjs/BarChart';
-import { ChartJSBubbleChart } from '../chartjs/BubbleChart';
-import { ChartJSMixedChart } from '../chartjs/MixedChart';
 
 // Plotly imports
 import { SurfaceChart } from '../plotly/SurfaceChart';
 import { ContourChart } from '../plotly/ContourChart';
-import { CandlestickChart as PlotlyCandlestickChart } from '../plotly/CandlestickChart';
-import { PlotlyMesh3D } from '../plotly/Mesh3D';
-import { PlotlyFunnelChart } from '../plotly/FunnelChart';
-import { PlotlyViolinPlot } from '../plotly/ViolinPlot';
 
 // Drilldown imports
 import { DrilldownBar } from '../drilldown/DrilldownBar';
 import { DrilldownPie } from '../drilldown/DrilldownPie';
-import { HierarchicalTreemap } from '../drilldown/HierarchicalTreemap';
 
 export interface ChartFactoryProps extends ChartProps {
   chartType: string;
-  chartLibrary: string;
+  chartLibrary?: string;
+  fallbackComponent?: React.ComponentType<ChartProps>;
+  onPluginLoadError?: (error: Error) => void;
 }
+
+// Chart component registry for static imports
+const CHART_COMPONENTS: Record<string, React.ComponentType<ChartProps>> = {
+  // ECharts components
+  'echarts-bar': EChartsBarChart,
+  'echarts-pie': EChartsPieChart,
+  'echarts-line': EChartsLineChart,
+  'echarts-scatter': EChartsScatterChart,
+  'echarts-heatmap': EChartsHeatmapChart,
+  'echarts-gauge': EChartsGaugeChart,
+  'echarts-treemap': EChartsTreemapChart,
+  'echarts-sankey': EChartsSankeyChart,
+  'echarts-candlestick': EChartsCandlestickChart,
+  'echarts-waterfall': WaterfallChart,
+  
+  // D3.js components
+  'd3js-calendar': CalendarHeatmap,
+  'd3js-chord': ChordDiagram,
+  'd3js-force': ForceDirectedGraph,
+  'd3js-map': GeographicMap,
+  
+  // Chart.js components
+  'chartjs-donut': DonutChart,
+  'chartjs-radar': RadarChart,
+  'chartjs-polar': PolarAreaChart,
+  
+  // Plotly components
+  'plotly-surface': SurfaceChart,
+  'plotly-contour': ContourChart,
+  
+  // Drilldown components
+  'drilldown-bar': DrilldownBar,
+  'drilldown-pie': DrilldownPie,
+};
+
+// Loading placeholder component
+const ChartLoadingPlaceholder: React.FC<{ chartType: string }> = ({ chartType }) => (
+  <Box
+    display="flex"
+    flexDirection="column"
+    alignItems="center"
+    justifyContent="center"
+    minHeight="200px"
+    p={3}
+  >
+    <CircularProgress size={40} />
+    <Typography variant="body2" color="textSecondary" mt={2}>
+      Loading {chartType} chart...
+    </Typography>
+  </Box>
+);
+
+// Error fallback component
+const ChartErrorFallback: React.FC<{ error: string; chartType: string; onRetry?: () => void }> = ({ 
+  error, 
+  chartType, 
+  onRetry 
+}) => (
+  <Alert 
+    severity="error" 
+    action={
+      onRetry && (
+        <button onClick={onRetry} style={{ marginLeft: '8px' }}>
+          Retry
+        </button>
+      )
+    }
+  >
+    <Typography variant="body2">
+      Failed to load {chartType} chart: {error}
+    </Typography>
+  </Alert>
+);
+
+// Dynamic component loader with error handling
+const useDynamicChartComponent = (chartKey: string, chartType: string) => {
+  const [Component, setComponent] = useState<React.ComponentType<ChartProps> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadComponent = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Try static import first
+        if (CHART_COMPONENTS[chartKey]) {
+          if (mounted) {
+            setComponent(() => CHART_COMPONENTS[chartKey]);
+            setLoading(false);
+          }
+          return;
+        }
+
+        // Try plugin registry
+        const pluginConfig = ChartRegistry.getPlugin(chartKey);
+        if (pluginConfig?.component) {
+          if (mounted) {
+            setComponent(() => pluginConfig.component);
+            setLoading(false);
+          }
+          return;
+        }
+
+        // Try service lookup
+        const chartService = ChartPluginService.getInstance?.();
+        if (chartService) {
+          const plugin = chartService.getChart?.(chartType);
+          if (plugin?.component) {
+            if (mounted) {
+              setComponent(() => plugin.component);
+              setLoading(false);
+            }
+            return;
+          }
+        }
+
+        // Attempt dynamic import as fallback
+        try {
+          const [library, type] = chartKey.split('-');
+          const modulePath = `../plugins/charts/${library}/${type.charAt(0).toUpperCase() + type.slice(1)}Chart`;
+          
+          const dynamicImport = await import(modulePath);
+          const DynamicComponent = dynamicImport.default || dynamicImport[Object.keys(dynamicImport)[0]];
+          
+          if (DynamicComponent && mounted) {
+            setComponent(() => DynamicComponent);
+            setLoading(false);
+            return;
+          }
+        } catch (importError) {
+          console.warn(`Failed to dynamically import ${chartKey}:`, importError);
+        }
+
+        // If all fails
+        if (mounted) {
+          setError(`Chart type "${chartType}" not found`);
+          setLoading(false);
+        }
+
+      } catch (err) {
+        if (mounted) {
+          setError(err instanceof Error ? err.message : 'Unknown error occurred');
+          setLoading(false);
+        }
+      }
+    };
+
+    loadComponent();
+
+    return () => {
+      mounted = false;
+    };
+  }, [chartKey, chartType]);
+
+  return { Component, loading, error };
+};
 
 export const ChartFactory: React.FC<ChartFactoryProps> = ({
   chartType,
-  chartLibrary,
+  chartLibrary = 'echarts',
+  fallbackComponent: FallbackComponent,
+  onPluginLoadError,
   ...props
 }) => {
-  const getChartComponent = () => {
-    const key = `${chartLibrary}-${chartType}`;
-    
-    switch (key) {
-      // =========================
-      // ECHARTS COMPONENTS
-      // =========================
-      
-      // Basic ECharts
-      case 'echarts-bar':
-        return <EChartsBarChart {...props} />;
-      case 'echarts-pie':
-        return <EChartsPieChart {...props} />;
-      case 'echarts-line':
-        return <EChartsLineChart {...props} />;
-      case 'echarts-scatter':
-        return <EChartsScatterChart {...props} />;
-      case 'echarts-heatmap':
-        return <EChartsHeatmapChart {...props} />;
-      case 'echarts-gauge':
-        return <EChartsGaugeChart {...props} />;
-      
-      // Advanced ECharts
-      case 'echarts-treemap':
-        return <EChartsTreemapChart {...props} />;
-      case 'echarts-sankey':
-        return <EChartsSankeyChart {...props} />;
-      case 'echarts-candlestick':
-        return <EChartsCandlestickChart {...props} />;
-      case 'echarts-waterfall':
-        return <WaterfallChart {...props} />;
-      case 'echarts-sunburst':
-        return <SunburstChart {...props} />;
-      case 'echarts-boxplot':
-        return <BoxplotChart {...props} />;
-      case 'echarts-parallel':
-        return <ParallelChart {...props} />;
+  // Create chart key for component lookup
+  const chartKey = chartLibrary ? `${chartLibrary}-${chartType}` : chartType;
+  
+  // Use dynamic component loading hook
+  const { Component, loading, error } = useDynamicChartComponent(chartKey, chartType);
 
-      // =========================
-      // D3JS COMPONENTS
-      // =========================
-      
-      case 'd3js-calendar-heatmap':
-        return <CalendarHeatmap {...props} />;
-      case 'd3js-chord-diagram':
-        return <ChordDiagram {...props} />;
-      case 'd3js-force-directed-graph':
-      case 'd3js-force-graph':
-        return <ForceDirectedGraph {...props} />;
-      case 'd3js-geographic-map':
-        return <GeographicMap {...props} />;
-      case 'd3js-hierarchy-chart':
-      case 'd3js-hierarchy':
-        return <HierarchyChart {...props} />;
-      case 'd3js-stream-graph':
-        return <StreamGraph {...props} />;
-      case 'd3js-voronoi-diagram':
-        return <VoronoiDiagram {...props} />;
-
-      // =========================
-      // CHART.JS COMPONENTS  
-      // =========================
-      
-      case 'chartjs-donut':
-        return <DonutChart {...props} />;
-      case 'chartjs-radar':
-        return <RadarChart {...props} />;
-      case 'chartjs-polar':
-      case 'chartjs-polar-area':
-        return <PolarAreaChart {...props} />;
-      case 'chartjs-bar':
-        return <ChartJSBarChart {...props} />;
-      case 'chartjs-bubble':
-        return <ChartJSBubbleChart {...props} />;
-      case 'chartjs-mixed':
-        return <ChartJSMixedChart {...props} />;
-
-      // =========================
-      // PLOTLY COMPONENTS
-      // =========================
-      
-      case 'plotly-surface':
-      case 'plotly-surface-3d':
-        return <SurfaceChart {...props} />;
-      case 'plotly-contour':
-        return <ContourChart {...props} />;
-      case 'plotly-candlestick':
-        return <PlotlyCandlestickChart {...props} />;
-      case 'plotly-mesh3d':
-        return <PlotlyMesh3D {...props} />;
-      case 'plotly-funnel':
-        return <PlotlyFunnelChart {...props} />;
-      case 'plotly-violin':
-        return <PlotlyViolinPlot {...props} />;
-
-      // =========================
-      // DRILLDOWN COMPONENTS
-      // =========================
-      
-      case 'drilldown-bar':
-        return <DrilldownBar {...props} />;
-      case 'drilldown-pie':
-        return <DrilldownPie {...props} />;
-      case 'drilldown-treemap':
-        return <HierarchicalTreemap {...props} />;
-
-      // =========================
-      // FALLBACK
-      // =========================
-      
-      default:
-        console.warn(`Unknown chart type: ${key}`);
-        return (
-          <div className="chart-error" style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            padding: '20px',
-            border: '2px dashed #ccc',
-            borderRadius: '8px',
-            backgroundColor: '#f9f9f9'
-          }}>
-            <h3 style={{ color: '#666', marginBottom: '16px' }}>
-              Chart Not Found
-            </h3>
-            <p style={{ color: '#999', textAlign: 'center', marginBottom: '16px' }}>
-              Chart type "{chartType}" from library "{chartLibrary}" is not supported.
-            </p>
-            
-            <details style={{ marginTop: '16px', width: '100%' }}>
-              <summary style={{ cursor: 'pointer', color: '#666' }}>
-                View Supported Chart Types
-              </summary>
-              <div style={{ marginTop: '12px', fontSize: '14px' }}>
-                <strong>ECharts:</strong>
-                <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
-                  <li>bar, pie, line, scatter, heatmap, gauge</li>
-                  <li>treemap, sankey, candlestick, waterfall</li>
-                  <li>sunburst, boxplot, parallel</li>
-                </ul>
-                
-                <strong>D3.js:</strong>
-                <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
-                  <li>calendar-heatmap, chord-diagram, force-graph</li>
-                  <li>geographic-map, hierarchy, stream-graph</li>
-                  <li>voronoi-diagram</li>
-                </ul>
-                
-                <strong>Chart.js:</strong>
-                <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
-                  <li>donut, radar, polar-area, bar</li>
-                  <li>bubble, mixed</li>
-                </ul>
-                
-                <strong>Plotly:</strong>
-                <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
-                  <li>surface-3d, contour, candlestick</li>
-                  <li>mesh3d, funnel, violin</li>
-                </ul>
-                
-                <strong>Drilldown:</strong>
-                <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
-                  <li>bar, pie, treemap</li>
-                </ul>
-              </div>
-            </details>
-          </div>
-        );
+  // Handle plugin load errors
+  useEffect(() => {
+    if (error && onPluginLoadError) {
+      onPluginLoadError(new Error(error));
     }
-  };
+  }, [error, onPluginLoadError]);
+
+  // Show loading state
+  if (loading) {
+    return <ChartLoadingPlaceholder chartType={chartType} />;
+  }
+
+  // Show error state with retry option
+  if (error) {
+    if (FallbackComponent) {
+      return (
+        <Suspense fallback={<ChartLoadingPlaceholder chartType={chartType} />}>
+          <FallbackComponent {...props} />
+        </Suspense>
+      );
+    }
+    
+    return (
+      <ChartErrorFallback 
+        error={error} 
+        chartType={chartType}
+        onRetry={() => window.location.reload()}
+      />
+    );
+  }
+
+  // Render the chart component
+  if (!Component) {
+    return (
+      <ChartErrorFallback 
+        error="Component not available" 
+        chartType={chartType}
+      />
+    );
+  }
 
   return (
-    <div className="chart-factory-container" style={{ width: '100%', height: '100%' }}>
-      {getChartComponent()}
-    </div>
+    <Suspense fallback={<ChartLoadingPlaceholder chartType={chartType} />}>
+      <Component {...props} />
+    </Suspense>
   );
 };
 
-// Helper function to validate chart configuration
-export const validateChartConfig = (chartType: string, chartLibrary: string, config: any): boolean => {
-  const key = `${chartLibrary}-${chartType}`;
-  
-  // Basic validation - could be expanded with schema validation
-  const supportedCharts = [
-    // ECharts
-    'echarts-bar', 'echarts-pie', 'echarts-line', 'echarts-scatter', 
-    'echarts-heatmap', 'echarts-gauge', 'echarts-treemap', 'echarts-sankey',
-    'echarts-candlestick', 'echarts-waterfall', 'echarts-sunburst', 
-    'echarts-boxplot', 'echarts-parallel',
-    
-    // D3.js
-    'd3js-calendar-heatmap', 'd3js-chord-diagram', 'd3js-force-graph',
-    'd3js-geographic-map', 'd3js-hierarchy', 'd3js-stream-graph',
-    'd3js-voronoi-diagram',
-    
-    // Chart.js
-    'chartjs-donut', 'chartjs-radar', 'chartjs-polar-area', 'chartjs-bar',
-    'chartjs-bubble', 'chartjs-mixed',
-    
-    // Plotly
-    'plotly-surface-3d', 'plotly-contour', 'plotly-candlestick',
-    'plotly-mesh3d', 'plotly-funnel', 'plotly-violin',
-    
-    // Drilldown
-    'drilldown-bar', 'drilldown-pie', 'drilldown-treemap'
-  ];
-  
-  return supportedCharts.includes(key);
-};
+// Enhanced plugin service integration
+export class EnhancedChartPluginService {
+  private static instance: EnhancedChartPluginService;
+  private plugins: Map<string, any> = new Map();
+  private initialized = false;
 
-// Helper function to get chart requirements
-export const getChartRequirements = (chartType: string, chartLibrary: string) => {
-  // This could return specific data requirements for each chart type
-  // For now, return basic requirements
-  return {
-    minColumns: 1,
-    maxColumns: 10,
-    supportedTypes: ['string', 'number', 'date', 'boolean']
-  };
-};
+  static getInstance(): EnhancedChartPluginService {
+    if (!this.instance) {
+      this.instance = new EnhancedChartPluginService();
+    }
+    return this.instance;
+  }
+
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+
+    try {
+      // Load plugins from registry
+      const registryPlugins = ChartRegistry.getAllPlugins();
+      registryPlugins.forEach(plugin => {
+        this.plugins.set(plugin.name, plugin);
+      });
+
+      // Load plugins from static components
+      Object.entries(CHART_COMPONENTS).forEach(([key, component]) => {
+        if (!this.plugins.has(key)) {
+          this.plugins.set(key, {
+            name: key,
+            displayName: key.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()),
+            component,
+            library: key.split('-')[0],
+            category: 'basic'
+          });
+        }
+      });
+
+      this.initialized = true;
+      console.log('Enhanced Chart Plugin Service initialized with', this.plugins.size, 'plugins');
+    } catch (error) {
+      console.error('Failed to initialize Enhanced Chart Plugin Service:', error);
+      throw error;
+    }
+  }
+
+  getChart(name: string): any {
+    return this.plugins.get(name);
+  }
+
+  getAllCharts(): any[] {
+    return Array.from(this.plugins.values());
+  }
+
+  getChartsByCategory(category: string): any[] {
+    return Array.from(this.plugins.values()).filter(plugin => 
+      plugin.category === category
+    );
+  }
+
+  getChartsByLibrary(library: string): any[] {
+    return Array.from(this.plugins.values()).filter(plugin => 
+      plugin.library === library
+    );
+  }
+
+  getChartCategories(): string[] {
+    const categories = new Set<string>();
+    this.plugins.forEach(plugin => {
+      if (plugin.category) categories.add(plugin.category);
+    });
+    return Array.from(categories);
+  }
+
+  getChartLibraries(): string[] {
+    const libraries = new Set<string>();
+    this.plugins.forEach(plugin => {
+      if (plugin.library) libraries.add(plugin.library);
+    });
+    return Array.from(libraries);
+  }
+
+  searchCharts(query: string): any[] {
+    const lowercaseQuery = query.toLowerCase();
+    return Array.from(this.plugins.values()).filter(plugin =>
+      plugin.displayName?.toLowerCase().includes(lowercaseQuery) ||
+      plugin.name?.toLowerCase().includes(lowercaseQuery) ||
+      plugin.tags?.some((tag: string) => tag.toLowerCase().includes(lowercaseQuery))
+    );
+  }
+
+  validateChartConfig(chartName: string, config: any): { valid: boolean; errors: string[] } {
+    const plugin = this.getChart(chartName);
+    if (!plugin) {
+      return { valid: false, errors: [`Chart "${chartName}" not found`] };
+    }
+
+    // Basic validation - extend as needed
+    return { valid: true, errors: [] };
+  }
+
+  isInitialized(): boolean {
+    return this.initialized;
+  }
+}
 
 export default ChartFactory;

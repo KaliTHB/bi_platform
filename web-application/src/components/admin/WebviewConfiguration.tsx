@@ -1,5 +1,3 @@
-// File: web-application/src/components/admin/WebviewConfiguration.tsx
-
 import React, { useState } from 'react';
 import {
   Box,
@@ -18,7 +16,11 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
 import {
   Add,
@@ -140,9 +142,27 @@ export const WebviewConfiguration: React.FC = () => {
       webview_name: webview.webview_name,
       display_name: webview.display_name,
       description: webview.description || '',
-      theme_config: webview.theme_config,
-      navigation_config: webview.navigation_config,
-      branding_config: webview.branding_config,
+      theme_config: {
+        primary_color: webview.theme_config.primary_color,
+        secondary_color: webview.theme_config.secondary_color,
+        background_color: webview.theme_config.background_color,
+        sidebar_style: webview.theme_config.sidebar_style,
+        navbar_style: webview.theme_config.navbar_style,
+        font_family: webview.theme_config.font_family || 'Roboto, sans-serif' // Provide default
+      },
+      navigation_config: {
+        show_dashboard_thumbnails: webview.navigation_config.show_dashboard_thumbnails,
+        show_view_counts: webview.navigation_config.show_view_counts,
+        show_last_accessed: webview.navigation_config.show_last_accessed,
+        enable_search: webview.navigation_config.enable_search,
+        enable_favorites: webview.navigation_config.enable_favorites,
+        sidebar_width: webview.navigation_config.sidebar_width
+      },
+      branding_config: {
+        company_name: webview.branding_config.company_name,
+        company_logo: webview.branding_config.company_logo,
+        favicon_url: webview.branding_config.favicon_url
+      },
       is_active: webview.is_active
     });
     setDialogOpen(true);
@@ -167,15 +187,25 @@ export const WebviewConfiguration: React.FC = () => {
     }
   };
 
-  const updateFormData = (section: keyof WebviewFormData, field: string, value: any) => {
+   const updateFormData = <T extends keyof WebviewFormData>(
+  section: T,
+  field?: T extends 'theme_config' | 'navigation_config' | 'branding_config' ? string : never,
+  value?: any
+) => {
+  if (field !== undefined) {
+    // Handle nested object update
     setFormData(prev => ({
       ...prev,
       [section]: {
-        ...prev[section as keyof typeof prev],
+        ...((prev[section] as object) || {}),
         [field]: value
       }
     }));
-  };
+  } else {
+    // Handle direct property update
+    setFormData(prev => ({ ...prev, [section]: value }));
+  }
+};
 
   return (
     <PermissionGate permissions={['webview.manage']}>
@@ -208,43 +238,40 @@ export const WebviewConfiguration: React.FC = () => {
           <Typography>Loading webview configurations...</Typography>
         ) : (
           <Grid container spacing={3}>
-            {webviewConfigs?.map((webview: WebviewConfig) => (
-              <Grid item xs={12} md={6} key={webview.id}>
+            {webviewConfigs?.data.map((webview) => (
+              <Grid item xs={12} md={6} lg={4} key={webview.id}>
                 <Card>
                   <CardContent>
-                    <Box display="flex" alignItems="center" justifyContent="between" mb={2}>
-                      <Box display="flex" alignItems="center" gap={1}>
-                        <Web color="primary" />
-                        <Typography variant="h6">
+                    <Box display="flex" justifyContent="between" alignItems="start" mb={2}>
+                      <Box>
+                        <Typography variant="h6" gutterBottom>
                           {webview.display_name}
                         </Typography>
+                        <Typography variant="body2" color="primary" gutterBottom>
+                          /{webview.webview_name}/
+                        </Typography>
                       </Box>
-                      
                       <Box display="flex" gap={1}>
-                        <IconButton size="small" onClick={() => handleEditWebview(webview)}>
-                          <Edit fontSize="small" />
-                        </IconButton>
                         <IconButton 
                           size="small" 
-                          onClick={() => window.open(`/${webview.webview_name}`, '_blank')}
+                          onClick={() => handleEditWebview(webview)}
                         >
-                          <Visibility fontSize="small" />
+                          <Edit />
+                        </IconButton>
+                        <IconButton size="small">
+                          <Visibility />
                         </IconButton>
                       </Box>
                     </Box>
 
-                    <Typography variant="body2" color="textSecondary" paragraph>
-                      URL: <code>/{webview.webview_name}</code>
-                    </Typography>
-
                     {webview.description && (
-                      <Typography variant="body2" paragraph>
+                      <Typography variant="body2" color="textSecondary" paragraph>
                         {webview.description}
                       </Typography>
                     )}
 
                     <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
-                      <Chip
+                      <Chip 
                         label={webview.is_active ? 'Active' : 'Inactive'}
                         color={webview.is_active ? 'success' : 'error'}
                         size="small"
@@ -319,6 +346,17 @@ export const WebviewConfiguration: React.FC = () => {
                         rows={2}
                       />
                     </Grid>
+                    <Grid item xs={12}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={formData.is_active}
+                            onChange={(e) => setFormData(prev => ({ ...prev, is_active: e.target.checked }))}
+                          />
+                        }
+                        label="Active"
+                      />
+                    </Grid>
                   </Grid>
                 </CardContent>
               </Card>
@@ -355,6 +393,41 @@ export const WebviewConfiguration: React.FC = () => {
                         fullWidth
                       />
                     </Grid>
+                    <Grid item xs={6}>
+                      <FormControl fullWidth>
+                        <InputLabel>Sidebar Style</InputLabel>
+                        <Select
+                          value={formData.theme_config.sidebar_style}
+                          onChange={(e) => updateFormData('theme_config', 'sidebar_style', e.target.value)}
+                          label="Sidebar Style"
+                        >
+                          <MenuItem value="light">Light</MenuItem>
+                          <MenuItem value="dark">Dark</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <FormControl fullWidth>
+                        <InputLabel>Navbar Style</InputLabel>
+                        <Select
+                          value={formData.theme_config.navbar_style}
+                          onChange={(e) => updateFormData('theme_config', 'navbar_style', e.target.value)}
+                          label="Navbar Style"
+                        >
+                          <MenuItem value="light">Light</MenuItem>
+                          <MenuItem value="dark">Dark</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField
+                        label="Font Family"
+                        value={formData.theme_config.font_family}
+                        onChange={(e) => updateFormData('theme_config', 'font_family', e.target.value)}
+                        fullWidth
+                        helperText="CSS font family (e.g., 'Roboto, sans-serif')"
+                      />
+                    </Grid>
                   </Grid>
                 </CardContent>
               </Card>
@@ -379,6 +452,28 @@ export const WebviewConfiguration: React.FC = () => {
                       <FormControlLabel
                         control={
                           <Switch
+                            checked={formData.navigation_config.show_view_counts}
+                            onChange={(e) => updateFormData('navigation_config', 'show_view_counts', e.target.checked)}
+                          />
+                        }
+                        label="Show View Counts"
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={formData.navigation_config.show_last_accessed}
+                            onChange={(e) => updateFormData('navigation_config', 'show_last_accessed', e.target.checked)}
+                          />
+                        }
+                        label="Show Last Accessed"
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <FormControlLabel
+                        control={
+                          <Switch
                             checked={formData.navigation_config.enable_search}
                             onChange={(e) => updateFormData('navigation_config', 'enable_search', e.target.checked)}
                           />
@@ -386,24 +481,69 @@ export const WebviewConfiguration: React.FC = () => {
                         label="Enable Search"
                       />
                     </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={formData.navigation_config.enable_favorites}
+                            onChange={(e) => updateFormData('navigation_config', 'enable_favorites', e.target.checked)}
+                          />
+                        }
+                        label="Enable Favorites"
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        label="Sidebar Width (px)"
+                        type="number"
+                        value={formData.navigation_config.sidebar_width}
+                        onChange={(e) => updateFormData('navigation_config', 'sidebar_width', parseInt(e.target.value) || 280)}
+                        fullWidth
+                        inputProps={{ min: 200, max: 500 }}
+                      />
+                    </Grid>
                   </Grid>
                 </CardContent>
               </Card>
 
-              {/* Status */}
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={formData.is_active}
-                    onChange={(e) => setFormData(prev => ({ ...prev, is_active: e.target.checked }))}
-                  />
-                }
-                label="Active Webview"
-              />
+              {/* Branding Configuration */}
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>Branding Configuration</Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12}>
+                      <TextField
+                        label="Company Name"
+                        value={formData.branding_config.company_name}
+                        onChange={(e) => updateFormData('branding_config', 'company_name', e.target.value)}
+                        fullWidth
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        label="Company Logo URL"
+                        value={formData.branding_config.company_logo}
+                        onChange={(e) => updateFormData('branding_config', 'company_logo', e.target.value)}
+                        fullWidth
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        label="Favicon URL"
+                        value={formData.branding_config.favicon_url}
+                        onChange={(e) => updateFormData('branding_config', 'favicon_url', e.target.value)}
+                        fullWidth
+                      />
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
             </Box>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button onClick={() => setDialogOpen(false)}>
+              Cancel
+            </Button>
             <Button onClick={handleSubmit} variant="contained">
               {editingWebview ? 'Update' : 'Create'}
             </Button>

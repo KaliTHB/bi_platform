@@ -8,7 +8,7 @@ export type {
   CreateUserRequest,
   UpdateUserRequest,
   UserRoleAssignment,
-} from './user.types';
+} from './user';
 
 // Workspace related types
 export type {
@@ -134,18 +134,19 @@ export type {
 
 // Webview related types
 export type {
-  Webview,
+  //Webview,
   WebviewTheme,
-  WebviewNavigation,
-  WebviewCategory,
-  WebviewLink,
-  WebviewAnalytics,
-  WebviewAccessControl,
-  WebviewDashboard,
-  WebviewSession,
-  WebviewUsageStats,
-  CreateWebviewRequest,
-  UpdateWebviewRequest,
+  WebviewConfig,
+  //WebviewNavigation,
+  //WebviewCategory,
+  //WebviewLink,
+  //WebviewAnalytics,
+  //WebviewAccessControl,
+  //WebviewDashboard,
+  //WebviewSession,
+  //WebviewUsageStats,
+  //CreateWebviewRequest,
+  //UpdateWebviewRequest,
 } from './webview.types';
 
 // API related types

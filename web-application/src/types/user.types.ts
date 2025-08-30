@@ -55,6 +55,7 @@ export interface UpdateUserRequest {
   avatar_url?: string;
   role_ids?: string[];
   is_active?: boolean;
+  password?: string;
 }
 
 export interface UserRoleAssignment {

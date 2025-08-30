@@ -1,163 +1,80 @@
-// File: ./src/types/webview.ts
+// File: web-application/src/types/webview.types.ts
 
-import { BaseEntity, WorkspaceScopedEntity, ConfigurableEntity } from './common';
+import { DateRange } from './api.types'; // Import the missing DateRange type
 
-export interface Webview extends BaseEntity, WorkspaceScopedEntity, ConfigurableEntity {
-  name: string;
-  slug: string;
-  display_name?: string;
+export interface WebviewConfig {
+  id: string;
+  workspace_id: string;
+  webview_name: string;
+  display_name: string;
   description?: string;
-  logo_url?: string;
-  favicon_url?: string;
   theme_config: WebviewTheme;
-  navigation_config: WebviewNavigation;
-  is_public: boolean;
+  navigation_config: NavigationConfig;
+  branding_config: BrandingConfig;
+  default_category_id?: string;
   is_active: boolean;
-  custom_domain?: string;
-  custom_css?: string;
-  custom_js?: string;
-  meta_tags?: Record<string, string>;
-  analytics_config?: WebviewAnalytics;
-  access_control: WebviewAccessControl;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface WebviewTheme {
   primary_color: string;
   secondary_color: string;
-  accent_color: string;
   background_color: string;
-  surface_color: string;
-  text_color: string;
-  font_family: string;
-  font_size_base: number;
-  border_radius: number;
-  spacing_unit: number;
-  dark_mode_enabled: boolean;
-  custom_css?: string;
-}
-
-export interface WebviewNavigation {
-  layout: 'sidebar' | 'top' | 'both';
-  show_logo: boolean;
-  show_search: boolean;
-  show_breadcrumbs: boolean;
-  categories: WebviewCategory[];
-  featured_dashboards?: string[];
-  footer_links?: WebviewLink[];
-}
-
-export interface WebviewCategory {
-  id: string;
-  name: string;
-  description?: string;
-  icon?: string;
-  color?: string;
-  parent_id?: string;
-  dashboard_ids: string[];
-  sort_order: number;
-  is_visible: boolean;
-}
-
-export interface WebviewLink {
-  text: string;
-  url: string;
-  icon?: string;
-  external?: boolean;
-  new_tab?: boolean;
-}
-
-export interface WebviewAnalytics {
-  enabled: boolean;
-  google_analytics_id?: string;
-  google_tag_manager_id?: string;
-  custom_tracking_code?: string;
-  track_page_views: boolean;
-  track_dashboard_views: boolean;
-  track_chart_interactions: boolean;
-  track_exports: boolean;
-}
-
-export interface WebviewAccessControl {
-  type: 'public' | 'private' | 'password' | 'whitelist';
-  password?: string;
-  allowed_domains?: string[];
-  allowed_ips?: string[];
-  require_authentication: boolean;
-  allowed_roles?: string[];
-  session_timeout?: number;
-}
-
-export interface WebviewDashboard {
-  dashboard_id: string;
-  category_id?: string;
-  sort_order: number;
-  is_featured: boolean;
-  is_visible: boolean;
-  custom_title?: string;
-  custom_description?: string;
-  custom_thumbnail?: string;
-  access_level: 'public' | 'authenticated' | 'restricted';
-  allowed_roles?: string[];
-}
-
-export interface WebviewSession {
-  id: string;
-  webview_id: string;
-  session_token: string;
-  user_id?: string;
-  ip_address: string;
-  user_agent: string;
-  created_at: string;
-  last_activity: string;
-  expires_at: string;
-  is_active: boolean;
-}
-
-export interface WebviewUsageStats {
-  webview_id: string;
-  period: 'hour' | 'day' | 'week' | 'month';
-  unique_visitors: number;
-  page_views: number;
-  dashboard_views: number;
-  avg_session_duration: number;
-  bounce_rate: number;
-  top_dashboards: Array<{
-    dashboard_id: string;
-    dashboard_name: string;
-    views: number;
-  }>;
-  top_referrers: Array<{
-    domain: string;
-    visits: number;
-  }>;
-  created_at: string;
-}
-
-export interface CreateWebviewRequest {
-  name: string;
-  slug: string;
-  display_name?: string;
-  description?: string;
-  theme_config?: Partial<WebviewTheme>;
-  navigation_config?: Partial<WebviewNavigation>;
-  is_public?: boolean;
-  access_control?: Partial<WebviewAccessControl>;
-}
-
-export interface UpdateWebviewRequest {
-  name?: string;
-  display_name?: string;
-  description?: string;
+  sidebar_style: 'light' | 'dark';
+  navbar_style: 'light' | 'dark';
+  font_family?: string;
   logo_url?: string;
-  favicon_url?: string;
-  theme_config?: Partial<WebviewTheme>;
-  navigation_config?: Partial<WebviewNavigation>;
-  is_public?: boolean;
-  is_active?: boolean;
-  custom_domain?: string;
+}
+
+export interface NavigationConfig {
+  default_expanded_categories: string[];
+  show_dashboard_thumbnails: boolean;
+  show_view_counts: boolean;
+  show_last_accessed: boolean;
+  enable_search: boolean;
+  enable_favorites: boolean;
+  sidebar_width: number;
+}
+
+export interface BrandingConfig {
+  company_name: string;
+  company_logo: string;
+  favicon_url: string;
   custom_css?: string;
-  custom_js?: string;
-  meta_tags?: Record<string, string>;
-  analytics_config?: Partial<WebviewAnalytics>;
-  access_control?: Partial<WebviewAccessControl>;
+  footer_text?: string;
+  show_powered_by?: boolean;
+}
+
+export interface NavigationState {
+  expandedCategories: Set<string>;
+  selectedDashboard?: string;
+  searchQuery: string;
+  activeFilters: {
+    categories: string[];
+    tags: string[];
+    lastAccessed?: DateRange; // Now properly imported
+  };
+  viewMode: 'list' | 'grid' | 'compact';
+  sortOrder: 'name' | 'last_accessed' | 'view_count' | 'created_at';
+}
+
+export interface WebviewAnalyticsEvent {
+  event_type: 'category_view' | 'category_expand' | 'category_collapse' | 
+             'dashboard_select' | 'dashboard_view' | 'search' | 'filter';
+  webview_id: string;
+  category_id?: string;
+  dashboard_id?: string;
+  search_query?: string;
+  filter_details?: Record<string, any>;
+  navigation_path: string[];
+  device_info: {
+    type: 'desktop' | 'tablet' | 'mobile';
+    screen_resolution: string;
+    browser: string;
+  };
+  session_id: string;
+  timestamp: Date;
+  duration_ms?: number;
 }
