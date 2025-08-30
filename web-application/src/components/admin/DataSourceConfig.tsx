@@ -1,5 +1,4 @@
-// File: web-application/src/components/admin/DataSourceConfig.tsx
-
+// Updated imports
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -34,8 +33,8 @@ import {
   Error,
   Refresh
 } from '@mui/icons-material';
-import  useDataSources  from '../../hooks/useDataSources';
-import { usePluginConfiguration } from '../../hooks/usePluginConfiguration';
+// Updated import to use existing hook
+import  useDataSources  from '@/hooks/useDataSources';
 
 interface DataSource {
   id: string;
@@ -56,18 +55,21 @@ interface DataSourceConfigProps {
   workspaceId: string;
 }
 
-  export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId }) => {
+export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId }) => {
+  // Updated to use existing hook
   const {
     dataSources,
-    availablePlugins,
     loading,
     error,
     createDataSource,
     updateDataSource,
     deleteDataSource,
-    testConnection: testDataSource,
-    // Add any additional properties you need
+    testConnection: testDataSource
   } = useDataSources();
+
+  // Add state for available plugins since useDataSources doesn't provide them
+  const [availablePlugins, setAvailablePlugins] = useState<any[]>([]);
+  const [pluginsLoading, setPluginsLoading] = useState(false);
 
   const [editDialog, setEditDialog] = useState<{
     open: boolean;
@@ -81,8 +83,63 @@ interface DataSourceConfigProps {
 
   const [testResults, setTestResults] = useState<Record<string, any>>({});
 
+  // Function to load available plugins
+  const loadAvailablePlugins = async () => {
+    setPluginsLoading(true);
+    try {
+      // TODO: Replace with your actual API endpoint
+      const response = await fetch(`/api/workspaces/${workspaceId}/plugins/datasources`);
+      if (response.ok) {
+        const plugins = await response.json();
+        setAvailablePlugins(plugins);
+      }
+    } catch (error) {
+      console.error('Failed to load available plugins:', error);
+      // Set some default plugins for now
+      setAvailablePlugins([
+        {
+          name: 'postgresql',
+          displayName: 'PostgreSQL',
+          category: 'relational',
+          configSchema: {
+            type: 'object',
+            properties: {
+              host: { type: 'string', title: 'Host' },
+              port: { type: 'number', title: 'Port', default: 5432 },
+              database: { type: 'string', title: 'Database' },
+              username: { type: 'string', title: 'Username' },
+              password: { type: 'string', title: 'Password', format: 'password' }
+            },
+            required: ['host', 'database', 'username', 'password']
+          }
+        },
+        {
+          name: 'mysql',
+          displayName: 'MySQL',
+          category: 'relational',
+          configSchema: {
+            type: 'object',
+            properties: {
+              host: { type: 'string', title: 'Host' },
+              port: { type: 'number', title: 'Port', default: 3306 },
+              database: { type: 'string', title: 'Database' },
+              username: { type: 'string', title: 'Username' },
+              password: { type: 'string', title: 'Password', format: 'password' }
+            },
+            required: ['host', 'database', 'username', 'password']
+          }
+        }
+      ]);
+    } finally {
+      setPluginsLoading(false);
+    }
+  };
+
+  // Load available plugins when component mounts or workspaceId changes
   useEffect(() => {
-    loadDataSources();
+    if (workspaceId) {
+      loadAvailablePlugins();
+    }
   }, [workspaceId]);
 
   const handleCreateNew = () => {
@@ -104,12 +161,20 @@ interface DataSourceConfigProps {
         ...prev,
         [dataSource.id]: result
       }));
-    } catch (error) {
+    } catch (error: unknown) {
+      let errorMessage = 'Test failed';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
       setTestResults(prev => ({
         ...prev,
         [dataSource.id]: {
           success: false,
-          message: error instanceof Error ? error.message : 'Test failed'
+          message: errorMessage
         }
       }));
     }
@@ -119,7 +184,6 @@ interface DataSourceConfigProps {
     if (deleteDialog.dataSource) {
       await deleteDataSource(deleteDialog.dataSource.id);
       setDeleteDialog({ open: false });
-      loadDataSources();
     }
   };
 
@@ -132,36 +196,35 @@ interface DataSourceConfigProps {
     const testResult = testResults[dataSource.id];
     
     if (testResult) {
-      return testResult.success ? (
+      return testResult.success ?
         <Chip 
+          icon={<CheckCircle />} 
           label="Connected" 
           color="success" 
           size="small" 
-          icon={<CheckCircle />} 
-        />
-      ) : (
+        /> :
         <Chip 
+          icon={<Error />} 
           label="Failed" 
           color="error" 
           size="small" 
-          icon={<Error />} 
-        />
-      );
+        />;
     }
 
-    switch (dataSource.test_status) {
-      case 'success':
-        return <Chip label="Connected" color="success" size="small" />;
-      case 'failed':
-        return <Chip label="Failed" color="error" size="small" />;
-      default:
-        return <Chip label="Untested" color="default" size="small" />;
-    }
+    return (
+      <Chip 
+        label={dataSource.test_status === 'success' ? 'Connected' : 
+               dataSource.test_status === 'failed' ? 'Failed' : 'Untested'} 
+        color={dataSource.test_status === 'success' ? 'success' : 
+               dataSource.test_status === 'failed' ? 'error' : 'default'}
+        size="small"
+      />
+    );
   };
 
-  if (loading) {
+  if (loading || pluginsLoading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight={400}>
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight={200}>
         <CircularProgress />
       </Box>
     );
@@ -169,21 +232,18 @@ interface DataSourceConfigProps {
 
   if (error) {
     return (
-      <Alert severity="error" action={
-        <IconButton color="inherit" size="small" onClick={loadDataSources}>
-          <Refresh />
-        </IconButton>
-      }>
-        {error}
+      <Alert severity="error" sx={{ mb: 2 }}>
+        Error loading data sources: {error.message || error}
       </Alert>
     );
   }
 
   return (
     <Box>
-      {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h5">Data Source Configuration</Typography>
+        <Typography variant="h4" component="h1">
+          Data Sources
+        </Typography>
         <Button
           variant="contained"
           startIcon={<Add />}
@@ -193,66 +253,57 @@ interface DataSourceConfigProps {
         </Button>
       </Box>
 
-      {/* Data Sources Grid */}
       <Grid container spacing={3}>
-        {dataSources.map((dataSource) => (
-          <Grid item xs={12} sm={6} md={4} key={dataSource.id}>
-            <Card variant="outlined">
+        {dataSources.map((dataSource: DataSource) => (
+          <Grid item xs={12} md={6} lg={4} key={dataSource.id}>
+            <Card>
               <CardContent>
-                <Box display="flex" justifyContent="space-between" alignItems="start" mb={2}>
-                  <Typography variant="h6" component="h3">
+                <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
+                  <Typography variant="h6" component="h2">
                     {dataSource.display_name}
                   </Typography>
                   {getStatusChip(dataSource)}
                 </Box>
-
-                <Typography variant="body2" color="textSecondary" gutterBottom>
-                  Type: {getPluginDisplayName(dataSource.plugin_name)}
+                
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  {getPluginDisplayName(dataSource.plugin_name)}
                 </Typography>
-
+                
                 {dataSource.description && (
-                  <Typography variant="body2" color="textSecondary" gutterBottom>
+                  <Typography variant="body2" color="text.secondary">
                     {dataSource.description}
                   </Typography>
                 )}
-
-                <Box mt={2}>
-                  <Typography variant="caption" color="textSecondary">
-                    Last updated: {new Date(dataSource.updated_at).toLocaleDateString()}
-                  </Typography>
-                </Box>
-
-                {testResults[dataSource.id] && !testResults[dataSource.id].success && (
-                  <Alert severity="error" sx={{ mt: 1 }}>
-                    <Typography variant="caption">
-                      {testResults[dataSource.id].message}
-                    </Typography>
-                  </Alert>
-                )}
               </CardContent>
-
+              
               <CardActions>
-                <Button
-                  size="small"
-                  startIcon={<Visibility />}
-                  onClick={() => handleTestConnection(dataSource)}
-                >
-                  Test
-                </Button>
-                <Button
-                  size="small"
-                  startIcon={<Edit />}
-                  onClick={() => handleEdit(dataSource)}
-                >
-                  Edit
-                </Button>
-                <IconButton
-                  size="small"
-                  color="error"
-                  onClick={() => handleDelete(dataSource)}
-                >
-                  <Delete />
-                </IconButton>
+                <Tooltip title="Test Connection">
+                  <IconButton 
+                    size="small" 
+                    onClick={() => handleTestConnection(dataSource)}
+                  >
+                    <Refresh />
+                  </IconButton>
+                </Tooltip>
+                
+                <Tooltip title="Edit">
+                  <IconButton 
+                    size="small" 
+                    onClick={() => handleEdit(dataSource)}
+                  >
+                    <Edit />
+                  </IconButton>
+                </Tooltip>
+                
+                <Tooltip title="Delete">
+                  <IconButton 
+                    size="small" 
+                    color="error"
+                    onClick={() => handleDelete(dataSource)}
+                  >
+                    <Delete />
+                  </IconButton>
+                </Tooltip>
               </CardActions>
             </Card>
           </Grid>
@@ -301,7 +352,6 @@ interface DataSourceConfigProps {
             await createDataSource(dataSourceData);
           }
           setEditDialog({ open: false });
-          loadDataSources();
         }}
       />
 
@@ -388,6 +438,9 @@ const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
     setSaving(true);
     try {
       await onSave(formData);
+      onClose();
+    } catch (error) {
+      console.error('Failed to save data source:', error);
     } finally {
       setSaving(false);
     }

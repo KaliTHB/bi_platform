@@ -1,10 +1,8 @@
 module.exports = {
   extends: [
     'next/core-web-vitals',
-    '@typescript-eslint/recommended'
+    'next/typescript'
   ],
-  parser: '@typescript-eslint/parser',
-  plugins: ['@typescript-eslint'],
   rules: {
     '@typescript-eslint/no-unused-vars': 'error',
     '@typescript-eslint/no-explicit-any': 'warn',
@@ -13,6 +11,7 @@ module.exports = {
   },
   env: {
     browser: true,
-    es2020: true
+    es2020: true,
+    node: true
   }
 };

@@ -57,7 +57,7 @@ import { useRouter } from 'next/navigation';
 import { DataSource } from '@/types/datasource.types';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { usePermissions } from '@/hooks/usePermissions';
-import { useDataSources } from '@/hooks/useDataSources';
+import useDataSources from '@/hooks/useDataSources';
 import PermissionGate from '@/components/shared/PermissionGate';
 
 interface DataSourceListProps {
