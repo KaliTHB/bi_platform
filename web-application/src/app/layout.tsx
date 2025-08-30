@@ -1,24 +1,23 @@
-import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
-import { Providers } from './providers';
-import './globals.css';
-
-const inter = Inter({ subsets: ['latin'] });
-
-export const metadata: Metadata = {
-  title: 'BI Platform',
-  description: 'Enterprise Business Intelligence Platform',
-};
+'use client';
+import { useEffect } from 'react';
+import { ChartPluginService } from '../plugins/charts/services/ChartPluginService';
 
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  useEffect(() => {
+    // Initialize chart plugins on app startup
+    const chartService = ChartPluginService.getInstance();
+    chartService.initialize();
+  }, []);
+
   return (
     <html lang="en">
-      <body className={inter.className}>
-        <Providers>{children}</Providers>
+      <body>
+        {/* Your existing layout content */}
+        {children}
       </body>
     </html>
   );
