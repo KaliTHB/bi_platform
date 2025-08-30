@@ -1,5 +1,3 @@
-// File: web-application/src/components/charts/interfaces/ChartPlugin.ts
-
 import React from 'react';
 
 export interface ChartDataPoint {
@@ -78,16 +76,16 @@ export interface ChartProps {
 export interface ChartPluginConfig {
   name: string;
   displayName: string;
-  category: string;
+  category: 'basic' | 'advanced' | 'statistical' | 'geographic' | 'financial' | 'custom';
   library: 'echarts' | 'd3js' | 'plotly' | 'chartjs' | 'nvd3js' | 'drilldown';
   version: string;
   description?: string;
   icon?: string;
-  configSchema: any; // JSON schema for configuration
+  configSchema: any;
   dataRequirements: DataRequirements;
   exportFormats: (keyof ExportOptions)[];
   component: React.ComponentType<ChartProps>;
-  preview?: string; // Base64 preview image
+  preview?: string;
   tags?: string[];
   difficulty?: 'basic' | 'intermediate' | 'advanced';
 }
