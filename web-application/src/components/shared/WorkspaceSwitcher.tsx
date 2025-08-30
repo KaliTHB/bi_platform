@@ -1,59 +1,47 @@
-// web-application/src/components/shared/WorkspaceSwitcher.tsx
+# web-application/src/components/shared/WorkspaceSwitcher.tsx
+'use client';
+
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
-import { useSelector, useDispatch } from 'react-redux';
 import {
+  Box,
   Button,
   Menu,
   MenuItem,
   Typography,
+  Avatar,
   ListItemIcon,
   ListItemText,
   Divider,
+  Chip,
+  Badge,
+  useTheme
 } from '@mui/material';
-import { KeyboardArrowDown, Business, Add } from '@mui/icons-material';
-import { RootState } from '../../store';
-import { switchWorkspace } from '../../store/slices/authSlice';
-
-interface Workspace {
-  id: string;
-  name: string;
-  display_name: string;
-  slug: string;
-}
+import {
+  KeyboardArrowDown,
+  Business,
+  Add,
+  Settings,
+  People,
+  Dashboard
+} from '@mui/icons-material';
+import { useSelector, useDispatch } from 'react-redux';
+import { useRouter } from 'next/navigation';
+import { RootState } from '@/store/store';
+import { setWorkspace } from '@/store/slices/workspaceSlice';
+import { Workspace } from '@/types/auth.types';
 
 export const WorkspaceSwitcher: React.FC = () => {
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  
+  const theme = useTheme();
   const router = useRouter();
   const dispatch = useDispatch();
-  const auth = useSelector((state: RootState) => state.auth);
+  
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const open = Boolean(anchorEl);
+  
+  const { currentWorkspace, workspaces } = useSelector((state: RootState) => state.workspace);
+  const { user } = useSelector((state: RootState) => state.auth);
 
-  useEffect(() => {
-    if (auth.token) {
-      fetchWorkspaces();
-    }
-  }, [auth.token]);
-
-  const fetchWorkspaces = async () => {
-    try {
-      const response = await fetch('/api/auth/workspaces', {
-        headers: {
-          'Authorization': `Bearer ${auth.token}`,
-        },
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        setWorkspaces(data.data);
-      }
-    } catch (error) {
-      console.error('Error fetching workspaces:', error);
-    }
-  };
-
-  const handleClick = (event: React.MouseEvent<HTMLElement>) => {
+  const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     setAnchorEl(event.currentTarget);
   };
 
@@ -61,65 +49,280 @@ export const WorkspaceSwitcher: React.FC = () => {
     setAnchorEl(null);
   };
 
-  const handleWorkspaceSelect = (workspace: Workspace) => {
-    if (workspace.id !== auth.workspace?.id) {
-      dispatch(switchWorkspace({
-        workspace,
-        permissions: [] // Will be loaded after switch
-      }));
-      router.push(`/workspace/${workspace.slug}`);
-    }
+  const handleWorkspaceSwitch = (workspace: Workspace) => {
+    dispatch(setWorkspace(workspace));
+    router.push(`/workspace/${workspace.slug}`);
     handleClose();
   };
 
   const handleCreateWorkspace = () => {
-    router.push('/create-workspace');
+    router.push('/workspace-create');
     handleClose();
   };
 
-  return (
-    <>
+  const handleWorkspaceSettings = () => {
+    if (currentWorkspace) {
+      router.push(`/workspace/${currentWorkspace.slug}/admin/settings`);
+    }
+    handleClose();
+  };
+
+  const getRoleLabel = (workspace: Workspace) => {
+    const roles = workspace.user_roles || [];
+    if (roles.length === 0) return 'Member';
+    
+    // Get the highest role level
+    const highestRole = roles.reduce((prev, current) => 
+      (prev.level > current.level) ? prev : current
+    );
+    
+    return highestRole.role_name;
+  };
+
+  const getRoleColor = (workspace: Workspace) => {
+    const roles = workspace.user_roles || [];
+    if (roles.length === 0) return 'default';
+    
+    const highestRole = roles.reduce((prev, current) => 
+      (prev.level > current.level) ? prev : current
+    );
+    
+    switch (highestRole.role_name) {
+      case 'owner': return 'error';
+      case 'admin': return 'warning';
+      case 'editor': return 'info';
+      case 'analyst': return 'success';
+      default: return 'default';
+    }
+  };
+
+  if (!currentWorkspace) {
+    return (
       <Button
-        onClick={handleClick}
-        endIcon={<KeyboardArrowDown />}
+        variant="outlined"
         startIcon={<Business />}
-        sx={{ textTransform: 'none' }}
+        onClick={() => router.push('/workspace-selector')}
+        fullWidth
       >
-        {auth.workspace?.display_name || 'Select Workspace'}
+        Select Workspace
       </Button>
-      <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={handleClose}
-        PaperProps={{
-          sx: { minWidth: 250 }
+    );
+  }
+
+  return (
+    <Box>
+      <Button
+        variant="outlined"
+        onClick={handleClick}
+        fullWidth
+        endIcon={<KeyboardArrowDown />}
+        sx={{
+          justifyContent: 'space-between',
+          textAlign: 'left',
+          py: 1.5,
+          borderColor: theme.palette.divider,
+          '&:hover': {
+            borderColor: theme.palette.primary.main,
+            backgroundColor: theme.palette.action.hover,
+          }
         }}
       >
-        {workspaces.map((workspace) => (
-          <MenuItem
-            key={workspace.id}
-            onClick={() => handleWorkspaceSelect(workspace)}
-            selected={workspace.id === auth.workspace?.id}
+        <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+          <Avatar
+            src={currentWorkspace.logo_url}
+            sx={{ 
+              width: 24, 
+              height: 24, 
+              mr: 1,
+              bgcolor: theme.palette.primary.main 
+            }}
           >
-            <ListItemIcon>
-              <Business fontSize="small" />
-            </ListItemIcon>
-            <ListItemText
-              primary={workspace.display_name}
-              secondary={workspace.description}
-            />
-          </MenuItem>
-        ))}
+            {currentWorkspace.name[0]}
+          </Avatar>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography 
+              variant="body2" 
+              fontWeight={600}
+              noWrap
+              sx={{ color: theme.palette.text.primary }}
+            >
+              {currentWorkspace.name}
+            </Typography>
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                color: theme.palette.text.secondary,
+                display: 'block',
+                lineHeight: 1
+              }}
+            >
+              {getRoleLabel(currentWorkspace)}
+            </Typography>
+          </Box>
+        </Box>
+      </Button>
+
+      <Menu
+        anchorEl={anchorEl}
+        open={open}
+        onClose={handleClose}
+        PaperProps={{
+          elevation: 8,
+          sx: {
+            overflow: 'visible',
+            filter: 'drop-shadow(0px 2px 8px rgba(0,0,0,0.32))',
+            mt: 1,
+            minWidth: 300,
+            maxHeight: 400,
+          },
+        }}
+        transformOrigin={{ horizontal: 'left', vertical: 'top' }}
+        anchorOrigin={{ horizontal: 'left', vertical: 'bottom' }}
+      >
+        {/* Current workspace info */}
+        <Box sx={{ px: 2, py: 1.5, bgcolor: theme.palette.action.hover }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+            <Avatar
+              src={currentWorkspace.logo_url}
+              sx={{ 
+                width: 32, 
+                height: 32, 
+                mr: 1.5,
+                bgcolor: theme.palette.primary.main 
+              }}
+            >
+              {currentWorkspace.name[0]}
+            </Avatar>
+            <Box>
+              <Typography variant="subtitle2" fontWeight={600}>
+                {currentWorkspace.name}
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                <Chip 
+                  label={getRoleLabel(currentWorkspace)}
+                  size="small"
+                  color={getRoleColor(currentWorkspace)}
+                  variant="outlined"
+                />
+                {currentWorkspace.stats && (
+                  <Typography variant="caption" color="text.secondary">
+                    {currentWorkspace.stats.dashboard_count} dashboards
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+
         <Divider />
-        <MenuItem onClick={handleCreateWorkspace}>
+
+        {/* Quick actions for current workspace */}
+        <MenuItem 
+          onClick={() => {
+            router.push(`/workspace/${currentWorkspace.slug}/dashboards`);
+            handleClose();
+          }}
+        >
           <ListItemIcon>
-            <Add fontSize="small" />
+            <Badge 
+              badgeContent={currentWorkspace.stats?.dashboard_count || 0} 
+              color="primary"
+              max={99}
+            >
+              <Dashboard />
+            </Badge>
           </ListItemIcon>
-          <ListItemText primary="Create Workspace" />
+          <ListItemText primary="Dashboards" />
         </MenuItem>
+
+        <MenuItem 
+          onClick={() => {
+            router.push(`/workspace/${currentWorkspace.slug}/admin/users`);
+            handleClose();
+          }}
+        >
+          <ListItemIcon>
+            <Badge 
+              badgeContent={currentWorkspace.stats?.active_users || 0} 
+              color="primary"
+              max={99}
+            >
+              <People />
+            </Badge>
+          </ListItemIcon>
+          <ListItemText primary="Members" />
+        </MenuItem>
+
+        <MenuItem onClick={handleWorkspaceSettings}>
+          <ListItemIcon>
+            <Settings />
+          </ListItemIcon>
+          <ListItemText primary="Workspace Settings" />
+        </MenuItem>
+
+        <Divider />
+
+        {/* Other workspaces */}
+        <Box sx={{ maxHeight: 200, overflowY: 'auto' }}>
+          <Typography 
+            variant="caption" 
+            sx={{ 
+              px: 2, 
+              py: 1, 
+              display: 'block',
+              color: theme.palette.text.secondary,
+              fontWeight: 600
+            }}
+          >
+            SWITCH WORKSPACE
+          </Typography>
+          
+          {workspaces
+            .filter(workspace => workspace.id !== currentWorkspace.id)
+            .map((workspace) => (
+              <MenuItem 
+                key={workspace.id}
+                onClick={() => handleWorkspaceSwitch(workspace)}
+                sx={{ py: 1 }}
+              >
+                <ListItemIcon>
+                  <Avatar
+                    src={workspace.logo_url}
+                    sx={{ 
+                      width: 24, 
+                      height: 24,
+                      bgcolor: theme.palette.secondary.main 
+                    }}
+                  >
+                    {workspace.name[0]}
+                  </Avatar>
+                </ListItemIcon>
+                <ListItemText 
+                  primary={workspace.name}
+                  secondary={getRoleLabel(workspace)}
+                />
+                <Chip 
+                  label={getRoleLabel(workspace)}
+                  size="small"
+                  color={getRoleColor(workspace)}
+                  variant="outlined"
+                />
+              </MenuItem>
+            ))}
+        </Box>
+
+        {user?.role === 'SUPER_ADMIN' && (
+          <>
+            <Divider />
+            <MenuItem onClick={handleCreateWorkspace}>
+              <ListItemIcon>
+                <Add />
+              </ListItemIcon>
+              <ListItemText primary="Create New Workspace" />
+            </MenuItem>
+          </>
+        )}
       </Menu>
-    </>
+    </Box>
   );
 };
-
-export default WorkspaceSwitcher;

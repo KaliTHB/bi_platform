@@ -1,52 +1,63 @@
+# api-services/src/config/redis.ts
 import Redis from 'ioredis';
 import { logger } from '../utils/logger';
 
-class CacheService {
-  private client: Redis;
-  private isConnected: boolean = false;
+interface CacheConfig {
+  host: string;
+  port: number;
+  password?: string;
+  db: number;
+  retryDelayOnFailover: number;
+  enableReadyCheck: boolean;
+  maxRetriesPerRequest: number;
+}
+
+class Cache {
+  private client: Redis | null = null;
+  private config: CacheConfig;
 
   constructor() {
-    this.client = new Redis({
+    this.config = {
       host: process.env.REDIS_HOST || 'localhost',
       port: parseInt(process.env.REDIS_PORT || '6379'),
       password: process.env.REDIS_PASSWORD,
       db: parseInt(process.env.REDIS_DB || '0'),
       retryDelayOnFailover: 100,
+      enableReadyCheck: false,
       maxRetriesPerRequest: 3,
-      lazyConnect: true,
-    });
-
-    this.client.on('connect', () => {
-      this.isConnected = true;
-      logger.info('Redis connected');
-    });
-
-    this.client.on('error', (error) => {
-      this.isConnected = false;
-      logger.error('Redis error:', error);
-    });
-
-    this.client.on('close', () => {
-      this.isConnected = false;
-      logger.warn('Redis connection closed');
-    });
+    };
   }
 
-  async set(key: string, value: any, ttlSeconds?: number): Promise<void> {
+  async initialize(): Promise<void> {
     try {
-      const serialized = JSON.stringify(value);
-      if (ttlSeconds) {
-        await this.client.setex(key, ttlSeconds, serialized);
-      } else {
-        await this.client.set(key, serialized);
-      }
+      this.client = new Redis(this.config);
+
+      this.client.on('connect', () => {
+        logger.info('Redis client connected');
+      });
+
+      this.client.on('error', (error) => {
+        logger.error('Redis connection error:', error);
+      });
+
+      this.client.on('ready', () => {
+        logger.info('Redis client ready');
+      });
+
+      // Test connection
+      await this.client.ping();
+      logger.info('Redis cache initialized successfully');
     } catch (error) {
-      logger.error('Cache set error:', { key, error });
+      logger.error('Redis initialization failed:', error);
       throw error;
     }
   }
 
-  async get<T>(key: string): Promise<T | null> {
+  async get<T = any>(key: string): Promise<T | null> {
+    if (!this.client) {
+      throw new Error('Cache not initialized');
+    }
+
     try {
       const value = await this.client.get(key);
       return value ? JSON.parse(value) : null;
@@ -56,16 +67,44 @@ class CacheService {
     }
   }
 
-  async del(key: string): Promise<void> {
+  async set(key: string, value: any, ttl?: number): Promise<void> {
+    if (!this.client) {
+      throw new Error('Cache not initialized');
+    }
+
     try {
-      await this.client.del(key);
+      const serialized = JSON.stringify(value);
+      if (ttl) {
+        await this.client.setex(key, ttl, serialized);
+      } else {
+        await this.client.set(key, serialized);
+      }
     } catch (error) {
-      logger.error('Cache delete error:', { key, error });
-      throw error;
+      logger.error('Cache set error:', { key, error });
+    }
+  }
+
+  async del(key: string | string[]): Promise<void> {
+    if (!this.client) {
+      throw new Error('Cache not initialized');
+    }
+
+    try {
+      if (Array.isArray(key)) {
+        await this.client.del(...key);
+      } else {
+        await this.client.del(key);
+      }
+    } catch (error) {
+      logger.error('Cache del error:', { key, error });
     }
   }
 
   async exists(key: string): Promise<boolean> {
+    if (!this.client) {
+      throw new Error('Cache not initialized');
+    }
+
     try {
       const result = await this.client.exists(key);
       return result === 1;
@@ -75,40 +114,37 @@ class CacheService {
     }
   }
 
-  async flush(): Promise<void> {
+  async keys(pattern: string): Promise<string[]> {
+    if (!this.client) {
+      throw new Error('Cache not initialized');
+    }
+
     try {
-      await this.client.flushdb();
+      return await this.client.keys(pattern);
     } catch (error) {
-      logger.error('Cache flush error:', error);
-      throw error;
+      logger.error('Cache keys error:', { pattern, error });
+      return [];
     }
   }
 
-  async healthCheck(): Promise<{ status: 'healthy' | 'unhealthy'; latency: number }> {
-    const start = Date.now();
-    try {
-      await this.client.ping();
-      return {
-        status: 'healthy',
-        latency: Date.now() - start
-      };
-    } catch (error) {
-      logger.error('Redis health check failed:', error);
-      return {
-        status: 'unhealthy',
-        latency: Date.now() - start
-      };
+  async flushWorkspace(workspaceId: string): Promise<void> {
+    const keys = await this.keys(`workspace:${workspaceId}:*`);
+    if (keys.length > 0) {
+      await this.del(keys);
     }
   }
 
-  getClient(): Redis {
+  async close(): Promise<void> {
+    if (this.client) {
+      await this.client.quit();
+      this.client = null;
+      logger.info('Redis client closed');
+    }
+  }
+
+  getClient(): Redis | null {
     return this.client;
-  }
-
-  isHealthy(): boolean {
-    return this.isConnected;
   }
 }
 
-export { CacheService };
-export const cache = new CacheService();
+export const CacheService = new Cache();

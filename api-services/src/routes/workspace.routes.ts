@@ -1,280 +1,374 @@
-// api-services/src/routes/workspace.routes.ts
-import { Router } from 'express';
-import { WorkspaceController } from '../controllers/WorkspaceController';
-import { authenticate } from '../middleware/authentication';
-
-const router = Router();
-const workspaceController = new WorkspaceController();
-
-router.use(authenticate);
-
-router.post('/', workspaceController.createWorkspace);
-router.get('/:workspaceId', workspaceController.getWorkspace);
-router.put('/:workspaceId', workspaceController.updateWorkspace);
-
-export default router;
-
-// api-services/src/routes/user.routes.ts
-import { Router } from 'express';
-import { UserController } from '../controllers/UserController';
-import { authenticate } from '../middleware/authentication';
-
-const router = Router();
-const userController = new UserController();
-
-router.use(authenticate);
-
-router.get('/', userController.getUsers);
-router.post('/', userController.createUser);
-router.put('/:userId', userController.updateUser);
-router.delete('/:userId', userController.deleteUser);
-
-export default router;
-
-// api-services/src/routes/category.routes.ts
-import { Router } from 'express';
-import { CategoryController } from '../controllers/CategoryController';
-import { authenticate } from '../middleware/authentication';
-
-const router = Router();
-const categoryController = new CategoryController();
-
-router.use(authenticate);
-
-router.get('/', categoryController.getCategories);
-router.post('/', categoryController.createCategory);
-router.put('/:categoryId', categoryController.updateCategory);
-router.delete('/:categoryId', categoryController.deleteCategory);
-
-export default router;
-
-// api-services/src/routes/health.routes.ts
-import { Router } from 'express';
-import { HealthController } from '../controllers/HealthController';
-
-const router = Router();
-const healthController = new HealthController();
-
-router.get('/', healthController.checkHealth);
-
-export default router;
-
-// api-services/src/services/CategoryService.ts
-import { DatabaseService } from './DatabaseService';
+# api-services/src/routes/workspace.routes.ts
+import express from 'express';
+import { DatabaseConfig } from '../config/database';
 import { CacheService } from '../config/redis';
-import { logger } from '../utils/logger';
+import { logger, logAudit } from '../utils/logger';
+import { asyncHandler } from '../middleware/errorHandler';
+import { requirePermission, requireRole } from '../middleware/authentication';
+import { validateWorkspaceAccess, requireWorkspaceRole } from '../middleware/workspace';
+import { validateRequest } from '../middleware/validation';
+import {
+  CreateWorkspaceRequest,
+  UpdateWorkspaceRequest,
+  Workspace,
+  User
+} from '../types/auth.types';
 
-export interface CreateCategoryRequest {
-  name: string;
-  display_name: string;
-  description?: string;
-  icon?: string;
-  color?: string;
-  parent_category_id?: string;
-  sort_order?: number;
+interface AuthenticatedRequest extends express.Request {
+  user?: User;
+  workspace?: Workspace;
 }
 
-export class CategoryService {
-  private db: DatabaseService;
-  private cache: CacheService;
+const router = express.Router();
 
-  constructor() {
-    this.db = new DatabaseService();
-    this.cache = new CacheService();
-  }
+// Get user's workspaces
+router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
+  const userId = req.user!.id;
 
-  async getCategories(workspaceId: string, userId: string): Promise<any[]> {
-    try {
-      const cacheKey = `categories:${workspaceId}`;
-      
-      // Try cache first
-      let categories = await this.cache.get<any[]>(cacheKey);
-      
-      if (!categories) {
-        const query = `
-          SELECT 
-            dc.*,
-            COUNT(d.id) as dashboard_count
-          FROM dashboard_categories dc
-          LEFT JOIN dashboards d ON dc.id = d.category_id AND d.status = 'published'
-          WHERE dc.workspace_id = $1 AND dc.is_active = true
-          GROUP BY dc.id
-          ORDER BY dc.sort_order, dc.display_name
-        `;
-        
-        const result = await this.db.query(query, [workspaceId]);
-        categories = this.buildCategoryTree(result.rows);
-        
-        // Cache for 5 minutes
-        await this.cache.set(cacheKey, categories, 300);
+  const result = await DatabaseConfig.query(
+    `SELECT w.*, uw.status as membership_status,
+            ARRAY_AGG(DISTINCT r.name) as roles,
+            MAX(r.level) as highest_role_level,
+            COUNT(DISTINCT u.id) as user_count,
+            COUNT(DISTINCT d.id) as dashboard_count,
+            COUNT(DISTINCT ds.id) as dataset_count
+     FROM workspaces w
+     JOIN user_workspaces uw ON w.id = uw.workspace_id
+     LEFT JOIN user_workspace_roles uwr ON w.id = uwr.workspace_id AND uwr.user_id = uw.user_id
+     LEFT JOIN roles r ON uwr.role_id = r.id
+     LEFT JOIN user_workspaces u ON w.id = u.workspace_id AND u.status = 'ACTIVE'
+     LEFT JOIN dashboards d ON w.id = d.workspace_id AND d.is_active = true
+     LEFT JOIN datasets ds ON w.id = ds.workspace_id AND ds.is_active = true
+     WHERE uw.user_id = $1 AND w.is_active = true
+     GROUP BY w.id, uw.status
+     ORDER BY w.name`,
+    [userId]
+  );
+
+  res.json({
+    workspaces: result.rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      description: row.description,
+      logo_url: row.logo_url,
+      settings: row.settings,
+      is_active: row.is_active,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      membership_status: row.membership_status,
+      roles: row.roles || [],
+      highest_role_level: row.highest_role_level || 0,
+      stats: {
+        user_count: parseInt(row.user_count) || 0,
+        dashboard_count: parseInt(row.dashboard_count) || 0,
+        dataset_count: parseInt(row.dataset_count) || 0
       }
-      
-      return categories;
-    } catch (error) {
-      logger.error('Get categories service error:', error);
-      throw error;
-    }
-  }
+    }))
+  });
+}));
 
-  async createCategory(workspaceId: string, categoryData: CreateCategoryRequest, createdBy: string): Promise<any> {
-    try {
-      // Check if category name already exists in workspace
-      const existingCategory = await this.db.query(
-        'SELECT id FROM dashboard_categories WHERE workspace_id = $1 AND name = $2',
-        [workspaceId, categoryData.name]
+// Get specific workspace
+router.get('/:workspaceId', asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
+  const workspace = req.workspace!;
+
+  // Get additional workspace statistics
+  const statsResult = await DatabaseConfig.query(
+    `SELECT 
+       (SELECT COUNT(*) FROM user_workspaces WHERE workspace_id = $1 AND status = 'ACTIVE') as active_users,
+       (SELECT COUNT(*) FROM dashboards WHERE workspace_id = $1 AND is_active = true) as total_dashboards,
+       (SELECT COUNT(*) FROM datasets WHERE workspace_id = $1 AND is_active = true) as total_datasets,
+       (SELECT COUNT(*) FROM data_sources WHERE workspace_id = $1 AND is_active = true) as total_data_sources,
+       (SELECT COUNT(*) FROM categories WHERE workspace_id = $1 AND is_active = true) as total_categories`,
+    [workspace.id]
+  );
+
+  const stats = statsResult.rows[0];
+
+  res.json({
+    workspace: {
+      ...workspace,
+      stats: {
+        active_users: parseInt(stats.active_users),
+        total_dashboards: parseInt(stats.total_dashboards),
+        total_datasets: parseInt(stats.total_datasets),
+        total_data_sources: parseInt(stats.total_data_sources),
+        total_categories: parseInt(stats.total_categories)
+      }
+    }
+  });
+}));
+
+// Create new workspace
+router.post('/', 
+  requireRole(['SUPER_ADMIN', 'ADMIN']),
+  validateRequest('createWorkspace'),
+  asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
+    const { name, slug, description, settings } = req.body as CreateWorkspaceRequest;
+    const userId = req.user!.id;
+
+    // Check if slug is already taken
+    const existing = await DatabaseConfig.query(
+      'SELECT id FROM workspaces WHERE slug = $1',
+      [slug]
+    );
+
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'Workspace slug already exists' });
+    }
+
+    // Create workspace in transaction
+    const result = await DatabaseConfig.transaction(async (client) => {
+      // Create workspace
+      const workspaceResult = await client.query(
+        `INSERT INTO workspaces (name, slug, description, settings, created_by)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [name, slug, description, settings || {}, userId]
       );
 
-      if (existingCategory.rows.length > 0) {
-        throw new Error('Category name already exists in this workspace');
-      }
+      const newWorkspace = workspaceResult.rows[0];
 
-      const result = await this.db.query(`
-        INSERT INTO dashboard_categories (
-          workspace_id, name, display_name, description, icon, color,
-          parent_category_id, sort_order, created_by
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING *
-      `, [
-        workspaceId,
-        categoryData.name,
-        categoryData.display_name,
-        categoryData.description,
-        categoryData.icon,
-        categoryData.color,
-        categoryData.parent_category_id,
-        categoryData.sort_order || 0,
-        createdBy
-      ]);
-
-      // Invalidate cache
-      await this.cache.delete(`categories:${workspaceId}`);
-
-      return result.rows[0];
-    } catch (error) {
-      logger.error('Create category service error:', error);
-      throw error;
-    }
-  }
-
-  async updateCategory(categoryId: string, updates: any, userId: string): Promise<any> {
-    try {
-      const setClause: string[] = [];
-      const values: any[] = [categoryId];
-      let paramIndex = 2;
-
-      const updatableFields = ['display_name', 'description', 'icon', 'color', 'parent_category_id', 'sort_order'];
-      
-      updatableFields.forEach(field => {
-        if (updates[field] !== undefined) {
-          setClause.push(`${field} = $${paramIndex++}`);
-          values.push(updates[field]);
-        }
-      });
-
-      if (setClause.length === 0) {
-        throw new Error('No valid fields to update');
-      }
-
-      setClause.push('updated_at = CURRENT_TIMESTAMP');
-
-      const result = await this.db.query(`
-        UPDATE dashboard_categories
-        SET ${setClause.join(', ')}
-        WHERE id = $1 AND is_active = true
-        RETURNING *
-      `, values);
-
-      if (result.rows.length === 0) {
-        throw new Error('Category not found');
-      }
-
-      const category = result.rows[0];
-
-      // Invalidate cache
-      await this.cache.delete(`categories:${category.workspace_id}`);
-
-      return category;
-    } catch (error) {
-      logger.error('Update category service error:', error);
-      throw error;
-    }
-  }
-
-  async deleteCategory(categoryId: string, userId: string): Promise<void> {
-    try {
-      // Check if category has dashboards
-      const dashboardCount = await this.db.query(
-        'SELECT COUNT(*) as count FROM dashboards WHERE category_id = $1 AND status != $2',
-        [categoryId, 'archived']
+      // Add creator to workspace
+      await client.query(
+        'INSERT INTO user_workspaces (user_id, workspace_id, status) VALUES ($1, $2, $3)',
+        [userId, newWorkspace.id, 'ACTIVE']
       );
 
-      if (parseInt(dashboardCount.rows[0].count) > 0) {
-        throw new Error('Cannot delete category that contains dashboards');
-      }
-
-      // Check if category has child categories
-      const childCount = await this.db.query(
-        'SELECT COUNT(*) as count FROM dashboard_categories WHERE parent_category_id = $1 AND is_active = true',
-        [categoryId]
+      // Assign owner role to creator
+      const ownerRoleResult = await client.query(
+        'SELECT id FROM roles WHERE name = $1 AND is_system = true',
+        ['owner']
       );
 
-      if (parseInt(childCount.rows[0].count) > 0) {
-        throw new Error('Cannot delete category that has child categories');
+      if (ownerRoleResult.rows.length > 0) {
+        await client.query(
+          'INSERT INTO user_workspace_roles (user_id, workspace_id, role_id, assigned_by) VALUES ($1, $2, $3, $4)',
+          [userId, newWorkspace.id, ownerRoleResult.rows[0].id, userId]
+        );
       }
 
-      // Get workspace_id before deletion for cache invalidation
-      const categoryResult = await this.db.query(
-        'SELECT workspace_id FROM dashboard_categories WHERE id = $1',
-        [categoryId]
-      );
-
-      if (categoryResult.rows.length === 0) {
-        throw new Error('Category not found');
-      }
-
-      const workspaceId = categoryResult.rows[0].workspace_id;
-
-      // Soft delete
-      await this.db.query(`
-        UPDATE dashboard_categories
-        SET is_active = false, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
-      `, [categoryId]);
-
-      // Invalidate cache
-      await this.cache.delete(`categories:${workspaceId}`);
-    } catch (error) {
-      logger.error('Delete category service error:', error);
-      throw error;
-    }
-  }
-
-  private buildCategoryTree(categories: any[]): any[] {
-    const categoryMap = new Map();
-    const rootCategories: any[] = [];
-
-    // First pass: create map and initialize children arrays
-    categories.forEach(category => {
-      category.children = [];
-      categoryMap.set(category.id, category);
+      return newWorkspace;
     });
 
-    // Second pass: build tree structure
-    categories.forEach(category => {
-      if (category.parent_category_id) {
-        const parent = categoryMap.get(category.parent_category_id);
-        if (parent) {
-          parent.children.push(category);
-        } else {
-          // Parent not found, treat as root
-          rootCategories.push(category);
-        }
-      } else {
-        rootCategories.push(category);
-      }
+    // Log audit event
+    logAudit('WORKSPACE_CREATE', userId, result.id, {
+      workspace_name: result.name,
+      workspace_slug: result.slug
     });
 
-    return rootCategories;
-  }
-}
+    res.status(201).json({
+      message: 'Workspace created successfully',
+      workspace: {
+        id: result.id,
+        name: result.name,
+        slug: result.slug,
+        description: result.description,
+        settings: result.settings,
+        is_active: result.is_active,
+        created_at: result.created_at,
+        updated_at: result.updated_at
+      }
+    });
+  })
+);
+
+// Update workspace
+router.put('/:workspaceId',
+  requireWorkspaceRole(['admin', 'owner']),
+  validateRequest('updateWorkspace'),
+  asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
+    const { name, description, logo_url, settings } = req.body as UpdateWorkspaceRequest;
+    const workspaceId = req.params.workspaceId;
+    const userId = req.user!.id;
+
+    // Build update query dynamically
+    const updates: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
+
+    if (name !== undefined) {
+      updates.push(`name = $${paramIndex++}`);
+      values.push(name);
+    }
+
+    if (description !== undefined) {
+      updates.push(`description = $${paramIndex++}`);
+      values.push(description);
+    }
+
+    if (logo_url !== undefined) {
+      updates.push(`logo_url = $${paramIndex++}`);
+      values.push(logo_url);
+    }
+
+    if (settings !== undefined) {
+      updates.push(`settings = settings || $${paramIndex++}::jsonb`);
+      values.push(JSON.stringify(settings));
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No updates provided' });
+    }
+
+    updates.push(`updated_at = NOW()`);
+    values.push(workspaceId);
+
+    const result = await DatabaseConfig.query(
+      `UPDATE workspaces SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+      values
+    );
+
+    // Clear workspace cache
+    await CacheService.del(`workspace:${workspaceId}`);
+
+    // Log audit event
+    logAudit('WORKSPACE_UPDATE', userId, workspaceId, {
+      updated_fields: Object.keys(req.body)
+    });
+
+    res.json({
+      message: 'Workspace updated successfully',
+      workspace: result.rows[0]
+    });
+  })
+);
+
+// Delete workspace (soft delete)
+router.delete('/:workspaceId',
+  requireWorkspaceRole(['owner']),
+  asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
+    const workspaceId = req.params.workspaceId;
+    const userId = req.user!.id;
+
+    await DatabaseConfig.query(
+      'UPDATE workspaces SET is_active = false, updated_at = NOW() WHERE id = $1',
+      [workspaceId]
+    );
+
+    // Clear workspace cache
+    await CacheService.del(`workspace:${workspaceId}`);
+    await CacheService.flushWorkspace(workspaceId);
+
+    // Log audit event
+    logAudit('WORKSPACE_DELETE', userId, workspaceId, {
+      workspace_name: req.workspace!.name
+    });
+
+    res.json({ message: 'Workspace deleted successfully' });
+  })
+);
+
+// Get workspace members
+router.get('/:workspaceId/members',
+  requireWorkspaceRole(['admin', 'owner']),
+  asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
+    const workspaceId = req.params.workspaceId;
+
+    const result = await DatabaseConfig.query(
+      `SELECT u.id, u.email, u.first_name, u.last_name, u.avatar_url,
+              uw.status, uw.joined_at,
+              ARRAY_AGG(DISTINCT r.name ORDER BY r.level DESC) as roles,
+              MAX(r.level) as highest_role_level,
+              STRING_AGG(DISTINCT r.display_name, ', ' ORDER BY r.level DESC) as role_names
+       FROM users u
+       JOIN user_workspaces uw ON u.id = uw.user_id
+       LEFT JOIN user_workspace_roles uwr ON u.id = uwr.user_id AND uwr.workspace_id = uw.workspace_id
+       LEFT JOIN roles r ON uwr.role_id = r.id
+       WHERE uw.workspace_id = $1 AND u.is_active = true
+       GROUP BY u.id, u.email, u.first_name, u.last_name, u.avatar_url, uw.status, uw.joined_at
+       ORDER BY uw.joined_at ASC`,
+      [workspaceId]
+    );
+
+    res.json({
+      members: result.rows.map(row => ({
+        id: row.id,
+        email: row.email,
+        first_name: row.first_name,
+        last_name: row.last_name,
+        avatar_url: row.avatar_url,
+        status: row.status,
+        joined_at: row.joined_at,
+        roles: row.roles || [],
+        highest_role_level: row.highest_role_level || 0,
+        role_names: row.role_names
+      }))
+    });
+  })
+);
+
+// Get workspace activity/audit logs
+router.get('/:workspaceId/activity',
+  requireWorkspaceRole(['admin', 'owner']),
+  asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
+    const workspaceId = req.params.workspaceId;
+    const { page = '1', limit = '50', action, user_id, from_date, to_date } = req.query;
+
+    const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
+    const conditions: string[] = ['workspace_id = $1'];
+    const values: any[] = [workspaceId];
+    let paramIndex = 2;
+
+    if (action) {
+      conditions.push(`action = $${paramIndex++}`);
+      values.push(action);
+    }
+
+    if (user_id) {
+      conditions.push(`user_id = $${paramIndex++}`);
+      values.push(user_id);
+    }
+
+    if (from_date) {
+      conditions.push(`created_at >= $${paramIndex++}`);
+      values.push(from_date);
+    }
+
+    if (to_date) {
+      conditions.push(`created_at <= $${paramIndex++}`);
+      values.push(to_date);
+    }
+
+    const result = await DatabaseConfig.query(
+      `SELECT al.*, u.first_name, u.last_name, u.email
+       FROM audit_logs al
+       LEFT JOIN users u ON al.user_id = u.id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY al.created_at DESC
+       LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
+      [...values, parseInt(limit as string), offset]
+    );
+
+    const countResult = await DatabaseConfig.query(
+      `SELECT COUNT(*) as total FROM audit_logs WHERE ${conditions.join(' AND ')}`,
+      values
+    );
+
+    res.json({
+      activity: result.rows.map(row => ({
+        id: row.id,
+        action: row.action,
+        resource_type: row.resource_type,
+        resource_id: row.resource_id,
+        details: row.details,
+        ip_address: row.ip_address,
+        created_at: row.created_at,
+        user: row.user_id ? {
+          id: row.user_id,
+          first_name: row.first_name,
+          last_name: row.last_name,
+          email: row.email
+        } : null
+      })),
+      pagination: {
+        page: parseInt(page as string),
+        limit: parseInt(limit as string),
+        total: parseInt(countResult.rows[0].total),
+        pages: Math.ceil(parseInt(countResult.rows[0].total) / parseInt(limit as string))
+      }
+    });
+  })
+);
+
+export default router;

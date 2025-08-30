@@ -1,50 +1,81 @@
-import { Pool, PoolClient } from 'pg';
+// api-services/src/config/database.ts
+import { Pool, PoolClient, QueryResult } from 'pg';
 import { logger } from '../utils/logger';
 
-class DatabaseConfig {
-  private pool: Pool;
-  
+interface DatabaseConfig {
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  password: string;
+  ssl?: boolean;
+  max?: number;
+  idleTimeoutMillis?: number;
+  connectionTimeoutMillis?: number;
+}
+
+class Database {
+  private pool: Pool | null = null;
+  private config: DatabaseConfig;
+
   constructor() {
-    this.pool = new Pool({
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT || '5432'),
-      database: process.env.DB_NAME || 'bi_platform',
-      user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'password',
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
-    });
+    this.config = {
+      host: process.env.POSTGRES_HOST || 'localhost',
+      port: parseInt(process.env.POSTGRES_PORT || '5432'),
+      database: process.env.POSTGRES_DB || 'bi_platform',
+      user: process.env.POSTGRES_USER || 'postgres',
+      password: process.env.POSTGRES_PASSWORD || 'password',
+      ssl: process.env.NODE_ENV === 'production',
+      max: 20, // maximum number of clients in the pool
+      idleTimeoutMillis: 30000, // how long a client is allowed to remain idle before being closed
+      connectionTimeoutMillis: 2000, // how long to wait for a connection
+    };
+  }
 
-    this.pool.on('error', (err) => {
-      logger.error('Database pool error:', err);
-    });
+  async initialize(): Promise<void> {
+    try {
+      this.pool = new Pool(this.config);
 
-    this.pool.on('connect', (client) => {
-      logger.debug('Database client connected');
-    });
+      // Test connection
+      const client = await this.pool.connect();
+      await client.query('SELECT NOW()');
+      client.release();
+
+      logger.info('Database pool initialized successfully');
+    } catch (error) {
+      logger.error('Database initialization failed:', error);
+      throw error;
+    }
+  }
+
+  async query<T = any>(text: string, params?: any[]): Promise<QueryResult<T>> {
+    if (!this.pool) {
+      throw new Error('Database not initialized');
+    }
+
+    const start = Date.now();
+    try {
+      const result = await this.pool.query<T>(text, params);
+      const duration = Date.now() - start;
+      
+      logger.debug('Query executed', {
+        query: text,
+        duration: `${duration}ms`,
+        rows: result.rowCount
+      });
+
+      return result;
+    } catch (error) {
+      logger.error('Query error:', { query: text, error });
+      throw error;
+    }
   }
 
   async getClient(): Promise<PoolClient> {
-    try {
-      return await this.pool.connect();
-    } catch (error) {
-      logger.error('Failed to get database client:', error);
-      throw error;
+    if (!this.pool) {
+      throw new Error('Database not initialized');
     }
-  }
-
-  async query(text: string, params?: any[]): Promise<any> {
-    const client = await this.getClient();
-    try {
-      const result = await client.query(text, params);
-      return result;
-    } catch (error) {
-      logger.error('Database query error:', { text, params, error });
-      throw error;
-    } finally {
-      client.release();
-    }
+    return this.pool.connect();
   }
 
   async transaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -56,7 +87,6 @@ class DatabaseConfig {
       return result;
     } catch (error) {
       await client.query('ROLLBACK');
-      logger.error('Transaction error:', error);
       throw error;
     } finally {
       client.release();
@@ -64,27 +94,16 @@ class DatabaseConfig {
   }
 
   async close(): Promise<void> {
-    await this.pool.end();
-    logger.info('Database pool closed');
+    if (this.pool) {
+      await this.pool.end();
+      this.pool = null;
+      logger.info('Database pool closed');
+    }
   }
 
-  async healthCheck(): Promise<{ status: 'healthy' | 'unhealthy'; latency: number }> {
-    const start = Date.now();
-    try {
-      await this.query('SELECT 1');
-      return {
-        status: 'healthy',
-        latency: Date.now() - start
-      };
-    } catch (error) {
-      logger.error('Database health check failed:', error);
-      return {
-        status: 'unhealthy',
-        latency: Date.now() - start
-      };
-    }
+  getPool(): Pool | null {
+    return this.pool;
   }
 }
 
-export const db = new DatabaseConfig();
-export { DatabaseConfig };
+export const DatabaseConfig = new Database();

@@ -1,99 +1,147 @@
-# File: README.md
 # Business Intelligence Platform
 
-A comprehensive TypeScript-based Business Intelligence platform designed for multi-tenant enterprise environments, featuring workspace-isolated sessions, custom role-based permissions, file-based plugin architecture, and a dedicated webview panel for dashboard consumption.
+A comprehensive, enterprise-grade Business Intelligence platform built with TypeScript, featuring multi-tenant workspaces, advanced permissions, file-based plugins, and powerful dashboard creation capabilities.
 
-## 🚀 Features
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js Version](https://img.shields.io/badge/node-20.10.0%2B-green)](https://nodejs.org/)
+[![PostgreSQL](https://img.shields.io/badge/postgresql-15%2B-blue)](https://www.postgresql.org/)
+[![Redis](https://img.shields.io/badge/redis-7.2%2B-red)](https://redis.io/)
 
-### Core Platform
-- **Multi-Tenant Architecture**: Complete workspace isolation with independent user sessions
-- **Custom Permission System**: Flexible role-based access control with union permission inheritance  
-- **File-Based Plugin System**: Statically compiled data source and chart plugins with workspace configuration
-- **Dataset-Centric Security**: Chart access controlled through underlying dataset permissions
-- **Transformation Pipeline**: Multi-stage dataset transformations with maximum 3-level chain depth
+## 🌟 Key Features
 
-### Data Integration
-- **20+ Data Source Connectors**: PostgreSQL, MySQL, MongoDB, BigQuery, Snowflake, etc.
-- **Real-time Query Execution**: Connection pooling and intelligent caching
-- **Advanced Transformations**: Visual transformation builder with DAX-like calculated fields
-- **Row-Level Security**: 6-tier RLS hierarchy with dynamic policy application
+### 🏢 Multi-Tenant Architecture
+- **Workspace Isolation**: Complete data and session isolation between workspaces
+- **Flexible User Management**: Users can belong to multiple workspaces with different roles
+- **Custom Branding**: Per-workspace themes, logos, and branding options
 
-### Visualization System  
-- **60+ Chart Types**: Across 6 visualization libraries (ECharts, D3.js, Plotly.js, Chart.js, etc.)
-- **Interactive Features**: Drill-down, cross-filtering, and real-time updates
-- **Mobile-Responsive**: Optimized for desktop, tablet, and mobile consumption
-- **Professional Export**: PDF, Excel, CSV, PNG, SVG export capabilities
+### 🔐 Advanced Security & Permissions
+- **Role-Based Access Control (RBAC)**: Granular permissions system with union inheritance
+- **Row-Level Security**: Dataset-level access controls with custom policies
+- **Audit Logging**: Comprehensive activity tracking for compliance and monitoring
+- **JWT Authentication**: Secure token-based authentication with refresh tokens
 
-### Webview Panel System (NEW)
-- **Category-Based Navigation**: Hierarchical dashboard organization with expand/collapse
-- **Triple-Layer Security**: Webview + Dashboard + Dataset access validation
-- **Customizable Theming**: Per-webview branding, colors, and navigation settings
-- **Analytics Tracking**: Comprehensive user navigation and interaction analytics
+### 🔌 File-Based Plugin System
+- **Data Source Plugins**: PostgreSQL, MySQL, MongoDB, and more (easily extensible)
+- **Chart Plugins**: 60+ chart types across ECharts, D3.js, Plotly.js, and Chart.js
+- **Static Compilation**: Plugins are statically compiled for optimal performance
+- **Workspace Configuration**: Enable/disable plugins per workspace
 
-## 🏗 Architecture Overview
+### 📊 Professional Dashboard Builder
+- **Drag & Drop Interface**: Intuitive dashboard creation with responsive grid layout
+- **Advanced Chart Configuration**: Comprehensive styling and interaction options
+- **Real-time Collaboration**: Multiple users can edit dashboards simultaneously
+- **Template System**: Save and reuse dashboard templates
+
+### 🔄 Dataset Management & Transformations
+- **Source Datasets**: Connect directly to databases with custom queries
+- **Transformation Datasets**: Multi-stage data transformations with 3-level chain depth
+- **Query Caching**: Intelligent caching with configurable TTL
+- **Schema Introspection**: Automatic column type detection and metadata
+
+### 🌐 Webview Panel System
+- **Dedicated Consumption Interface**: Clean, distraction-free dashboard viewing
+- **Category-Based Navigation**: Organize dashboards hierarchically
+- **Custom Themes**: Per-webview styling and branding
+- **Public Access**: Share dashboards with external users
+
+### 📈 Advanced Analytics & Export
+- **Usage Analytics**: Dashboard and chart view tracking
+- **Performance Metrics**: Query execution time monitoring
+- **Multiple Export Formats**: PDF, PNG, CSV, Excel exports
+- **Scheduled Reports**: Automated report generation and distribution
+
+## 🏗️ Architecture Overview
 
 ```
-Frontend (Next.js + TypeScript)
-├── Admin Panel (User/Role/Plugin Management)
-├── Builder Panel (Dashboard/Chart/Dataset Creation) 
-└── Webview Panel (Category-Based Dashboard Consumption)
-
-API Services (Express.js + TypeScript)
-├── Authentication & Permission Services
-├── Dataset & Query Execution Services
-├── Dashboard & Chart Management Services
-└── Webview & Category Services
-
-File-Based Plugin System
-├── Data Source Plugins (PostgreSQL, MySQL, MongoDB, etc.)
-└── Chart Plugins (ECharts, D3.js, Plotly.js, etc.)
-
-Database Layer
-├── PostgreSQL 15+ (Primary data store)
-├── Redis 7.2+ (Caching & sessions)
-└── File Storage (Exports, uploads, thumbnails)
+┌─────────────────────────────────────────────────────────────┐
+│                     Frontend Layer                          │
+├─────────────────┬─────────────────┬─────────────────────────┤
+│   Admin Panel   │  Builder Panel  │    Webview Panel        │
+│   - Users       │  - Dashboards   │    - Category Nav       │
+│   - Roles       │  - SQL Editor   │    - Dashboard View     │
+│   - Settings    │  - Data Sources │    - Mobile Support     │
+└─────────────────┴─────────────────┴─────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    API Services Layer                       │
+├─────────────────┬─────────────────┬─────────────────────────┤
+│  Authentication │ Dataset Service │   Dashboard Service     │
+│  Permission     │ Query Execution │   Webview Service       │
+│  Workspace      │ Transformation  │   Export Service        │
+└─────────────────┴─────────────────┴─────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                File-Based Plugin System                     │
+├─────────────────────────────────┬───────────────────────────┤
+│        Data Source Plugins      │      Chart Plugins        │
+│        - PostgreSQL             │      - ECharts Components │
+│        - MySQL/MariaDB          │      - D3.js Components   │
+│        - MongoDB                │      - Plotly Components  │
+│        - Cloud Databases        │      - Custom Components  │
+└─────────────────────────────────┴───────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                      Data Layer                             │
+├─────────────────┬─────────────────┬─────────────────────────┤
+│   PostgreSQL    │     Redis       │    File Storage         │
+│   - User Data   │   - Sessions    │    - Exports            │
+│   - Workspaces  │   - Query Cache │    - Uploads            │
+│   - Permissions │   - Plugin      │    - Thumbnails         │
+│   - Audit Logs  │     Configs     │                         │
+└─────────────────┴─────────────────┴─────────────────────────┘
 ```
 
-## 🛠 Installation
+## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 20.10.0+ LTS
-- PostgreSQL 15.0+
-- Redis 7.2+
-- Docker & Docker Compose (optional)
 
-### Quick Start with Docker
+- **Node.js**: 20.10.0+ LTS
+- **PostgreSQL**: 15.0+
+- **Redis**: 7.2+
+- **Docker & Docker Compose**: Latest (recommended)
 
-1. Clone the repository:
+### Option 1: Docker Compose (Recommended)
+
+1. **Clone the repository**
 ```bash
 git clone <repository-url>
 cd bi-platform
 ```
 
-2. Copy environment configuration:
+2. **Configure environment**
 ```bash
 cp .env.example .env
 # Edit .env with your configuration
 ```
 
-3. Start the platform:
+3. **Start the platform**
 ```bash
+# Development
 docker-compose up -d
+
+# Production
+docker-compose -f docker-compose.prod.yml up -d
 ```
 
-4. Access the application:
+4. **Access the application**
 - Web Application: http://localhost:3000
-- API Documentation: http://localhost:5000/api-docs
+- API Documentation: http://localhost:3001/api-docs
 - Health Check: http://localhost/health
 
-### Manual Installation
+5. **Default credentials**
+- Email: `admin@system.local`
+- Password: `admin123`
+
+### Option 2: Manual Installation
 
 #### Backend Setup
 ```bash
 cd api-services
 npm install
 npm run build
-npm run migrate
+
+# Set up database
+npm run db:migrate
+npm run db:seed
+
+# Start server
 npm start
 ```
 
@@ -107,236 +155,422 @@ npm start
 
 ## 📖 Usage Guide
 
-### 1. Initial Setup
-1. Create your first workspace at `/workspace-selector`
-2. Configure user roles and permissions in `/workspace/{slug}/admin/users`
-3. Set up data source connections in `/workspace/{slug}/admin/plugins`
+### 1. Initial Workspace Setup
 
-### 2. Data Management
-1. Create datasets from your data sources at `/workspace/{slug}/datasets`
-2. Build transformation pipelines for data cleaning and enrichment
-3. Configure row-level security policies for data access control
+1. **Login** with the default admin account
+2. **Create your first workspace** via the workspace selector
+3. **Configure user roles** in workspace settings
+4. **Set up data source connections** in the admin panel
 
-### 3. Dashboard Creation
-1. Use the dashboard builder at `/workspace/{slug}/dashboard-builder`
-2. Add charts from 60+ available chart types across multiple libraries
-3. Configure interactive filters and drill-down capabilities
+### 2. Data Source Configuration
 
-### 4. Category Organization
-1. Create dashboard categories at `/workspace/{slug}/admin/categories`
-2. Organize dashboards hierarchically with icons and colors
-3. Set up featured dashboards and sorting preferences
+1. Navigate to **Admin → Data Sources**
+2. **Add new data source** using available plugins
+3. **Test connection** to ensure proper configuration
+4. **Configure workspace-specific settings**
 
-### 5. Webview Configuration
-1. Create webview panels at `/workspace/{slug}/admin/webviews`
-2. Configure themes, branding, and navigation settings
-3. Set up user access permissions for each webview
+### 3. Dataset Creation
 
-### 6. Dashboard Consumption
-1. Users access dashboards via webview panels at `/{webview-name}/`
-2. Navigate through categories and discover dashboards
-3. Interact with charts and export content as needed
+1. Go to **Datasets** section
+2. **Create source dataset** connected to your data source
+3. **Write SQL query** to define the data
+4. **Test and validate** the dataset
+5. **Set up permissions** for different user roles
+
+### 4. Dashboard Building
+
+1. Access the **Dashboard Builder**
+2. **Create new dashboard** or use existing template
+3. **Add charts** by dragging from the component library
+4. **Configure each chart** with appropriate data and styling
+5. **Arrange layout** using the responsive grid system
+6. **Save and publish** your dashboard
+
+### 5. Webview Panel Setup
+
+1. Navigate to **Admin → Webviews**
+2. **Create new webview** with custom branding
+3. **Organize dashboards** into categories
+4. **Configure access permissions**
+5. **Share public URL** with end users
+
+### 6. User Management
+
+1. Go to **Admin → Users & Roles**
+2. **Create custom roles** with specific permissions
+3. **Invite new users** via email
+4. **Assign roles** based on user responsibilities
+5. **Monitor user activity** through audit logs
 
 ## 🔧 Configuration
 
-### Database Configuration
-```env
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=bi_platform
-DB_USER=postgres
-DB_PASSWORD=password
-DB_MAX_CONNECTIONS=20
-```
+### Environment Variables
 
-### Redis Configuration
-```env
+Key configuration options in `.env`:
+
+```bash
+# Database
+POSTGRES_HOST=localhost
+POSTGRES_DB=bi_platform
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_secure_password
+
+# Redis
 REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=
-REDIS_DB=0
-```
+REDIS_PASSWORD=your_secure_redis_password
 
-### JWT Configuration
-```env
-JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
-JWT_EXPIRES_IN=15m
-JWT_REFRESH_EXPIRES_IN=7d
+# Security
+JWT_SECRET=your_super_secret_jwt_key_minimum_32_characters
+NEXTAUTH_SECRET=your_nextauth_secret
+
+# API Configuration
+API_PORT=3001
+FRONTEND_URL=http://localhost:3000
+
+# Features
+FEATURE_SQL_EDITOR=true
+FEATURE_DASHBOARD_BUILDER=true
+FEATURE_DATA_EXPORTS=true
+FEATURE_API_ACCESS=true
 ```
 
 ### Plugin Configuration
-Plugins are file-based and configured at the workspace level:
-- Data source plugins: `api-services/src/plugins/datasources/`
-- Chart plugins: `web-application/src/components/charts/`
 
-## 🚀 Development
+#### Adding Data Source Plugins
 
-### API Development
+1. Create plugin directory: `api-services/src/plugins/datasources/your-plugin/`
+2. Implement plugin interface in `index.js`
+3. Add manifest.json with plugin metadata
+4. Restart the application
+
+#### Adding Chart Plugins
+
+1. Create plugin directory: `api-services/src/plugins/charts/your-chart/`
+2. Define chart configuration in `manifest.json`
+3. Plugin will be automatically discovered
+4. Configure per workspace in admin panel
+
+### Workspace Settings
+
+Each workspace can be configured with:
+
+- **Theme**: Light, dark, or auto
+- **Timezone**: User timezone for date displays
+- **Features**: Enable/disable specific functionality
+- **Limits**: Query timeouts, export limits, etc.
+- **Branding**: Logo, colors, custom CSS
+
+## 📊 API Documentation
+
+### Authentication
+
 ```bash
-cd api-services
-npm run dev          # Start development server
-npm run test         # Run tests
-npm run lint         # Run linting
-npm run migrate      # Run database migrations
+# Login
+POST /api/auth/login
+{
+  "email": "user@example.com",
+  "password": "password",
+  "workspace_slug": "my-workspace"
+}
+
+# Get current user
+GET /api/auth/verify
+Authorization: Bearer <token>
 ```
 
-### Frontend Development
+### Workspaces
+
 ```bash
-cd web-application
-npm run dev          # Start development server
-npm run test         # Run tests
-npm run lint         # Run linting
-npm run storybook    # Start Storybook
+# Get user workspaces
+GET /api/workspaces
+Authorization: Bearer <token>
+
+# Create workspace
+POST /api/workspaces
+{
+  "name": "My Workspace",
+  "slug": "my-workspace",
+  "description": "Workspace description"
+}
 ```
 
-### Adding New Plugins
+### Datasets
 
-#### Data Source Plugin
-1. Create plugin file in `api-services/src/plugins/datasources/{category}/{name}.ts`
-2. Implement the `DataSourcePlugin` interface
-3. Register plugin in `api-services/src/plugins/datasources/index.ts`
-4. Add configuration schema and connection logic
-
-#### Chart Plugin
-1. Create React component in `web-application/src/components/charts/{library}/{name}.tsx`
-2. Implement the `ChartPluginConfig` interface
-3. Register plugin in `web-application/src/components/charts/index.ts`
-4. Add configuration schema and rendering logic
-
-## 🧪 Testing
-
-### Backend Tests
 ```bash
-cd api-services
-npm run test                    # Unit tests
-npm run test:watch             # Watch mode
-npm run test:coverage          # Coverage report
+# Get datasets
+GET /api/datasets?workspaceId=<id>
+
+# Query dataset
+POST /api/datasets/<id>/query
+{
+  "filters": [
+    {
+      "column": "status",
+      "operator": "equals",
+      "value": "active"
+    }
+  ],
+  "limit": 100,
+  "offset": 0
+}
 ```
 
-### Frontend Tests
+### Dashboards & Charts
+
 ```bash
-cd web-application
-npm run test                   # Unit tests
-npm run test:watch            # Watch mode
-npm run test:coverage         # Coverage report
-npx playwright test           # E2E tests
+# Get dashboards
+GET /api/dashboards?workspaceId=<id>
+
+# Create chart
+POST /api/charts
+{
+  "dashboard_id": "<dashboard-id>",
+  "dataset_id": "<dataset-id>",
+  "name": "Sales Chart",
+  "type": "line-chart",
+  "config": { ... },
+  "position": { "x": 0, "y": 0, "width": 6, "height": 4 }
+}
 ```
 
-### Integration Tests
-```bash
-# Start test environment
-docker-compose -f docker-compose.test.yml up -d
+## 🔌 Plugin Development
 
-# Run integration tests
-npm run test:integration
+### Data Source Plugin Structure
 
-# Cleanup
-docker-compose -f docker-compose.test.yml down
+```javascript
+// api-services/src/plugins/datasources/my-plugin/index.js
+class MyDataSourcePlugin {
+  async connect(config) {
+    // Establish connection
+    return connection;
+  }
+
+  async disconnect(connection) {
+    // Close connection
+  }
+
+  async executeQuery(connection, query, params = []) {
+    // Execute query and return results
+    return {
+      rows: [...],
+      columns: [...]
+    };
+  }
+
+  async testConnection(config) {
+    // Test connection
+    return true;
+  }
+}
+
+module.exports = new MyDataSourcePlugin();
 ```
 
-## 📊 Performance & Scaling
+### Chart Plugin Manifest
 
-### Query Performance
-- Connection pooling: 20 connections per data source
-- Query timeout: 300 seconds maximum
-- Result caching: 1 hour default TTL
-- Concurrent query limits: 5 per user, 50 per workspace
+```json
+{
+  "name": "Custom Chart",
+  "type": "custom-chart",
+  "version": "1.0.0",
+  "description": "Custom chart implementation",
+  "category": "custom",
+  "library": "echarts",
+  "config_schema": {
+    "type": "object",
+    "required": ["data_column"],
+    "properties": {
+      "data_column": {
+        "type": "string",
+        "title": "Data Column"
+      }
+    }
+  },
+  "supported_data_types": ["number", "string"],
+  "min_columns": 1,
+  "max_columns": 5
+}
+```
 
-### Caching Strategy
-- Redis cache hierarchy with multiple TTL levels
-- Session data: 5-minute TTL
-- User permissions: 5-minute TTL
-- Query results: 15-minute TTL
-- Plugin configurations: 30-minute TTL
-
-### Scaling Considerations
-- Horizontal scaling support with load balancers
-- Database read replicas for query distribution
-- Redis clustering for cache scaling
-- CDN integration for static assets
-
-## 🔒 Security
-
-### Authentication & Authorization
-- JWT-based authentication with refresh tokens
-- Custom role-based access control (RBAC)
-- Multi-factor authentication support (optional)
-- Azure AD integration for enterprise SSO
-
-### Data Security
-- AES-256 encryption for sensitive credentials
-- TLS/SSL required for all database connections
-- Row-level security with dynamic policy application
-- Complete audit trail for all user actions
-
-### Network Security
-- HTTPS-only communication in production
-- CORS configuration for cross-origin requests
-- Rate limiting on API endpoints
-- SQL injection prevention
-- XSS protection headers
-
-## 📝 API Documentation
-
-### Authentication Endpoints
-- `POST /api/auth/login` - User authentication
-- `POST /api/auth/refresh` - Token refresh
-- `GET /api/auth/workspaces` - User workspaces
-
-### Webview Panel Endpoints
-- `GET /api/webview/{webviewName}` - Webview configuration
-- `GET /api/webview/{webviewName}/categories` - Category navigation
-- `GET /api/webview/{webviewName}/{dashboardSlug}` - Dashboard access
-- `POST /api/webview/{webviewName}/analytics` - Analytics tracking
-
-### Category Management
-- `GET /api/categories/{workspaceId}` - List categories
-- `POST /api/categories` - Create category
-- `PUT /api/categories/{id}` - Update category
-- `DELETE /api/categories/{id}` - Delete category
-
-### Export Options
-All endpoints support multiple export formats:
-- JSON: All GET endpoints
-- CSV: List endpoints with tabular data
-- Excel: List endpoints with tabular data  
-- PDF: Dashboard and chart endpoints
-- PNG/SVG: Chart endpoints
-
-## 🌐 Deployment
+## 🚀 Deployment
 
 ### Production Deployment
-```bash
-# Build production images
-docker-compose -f docker-compose.prod.yml build
 
-# Deploy with SSL
+1. **Build production images**
+```bash
+docker-compose -f docker-compose.prod.yml build
+```
+
+2. **Configure SSL certificates**
+```bash
+# Place certificates in ./ssl/
+cp your-cert.pem ./ssl/cert.pem
+cp your-key.pem ./ssl/key.pem
+```
+
+3. **Deploy with SSL**
+```bash
 docker-compose -f docker-compose.prod.yml up -d
 ```
 
-### Environment Variables
-See `.env.example` for all required environment variables.
+### Kubernetes Deployment
+
+```yaml
+# k8s/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bi-platform-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: bi-platform-api
+  template:
+    metadata:
+      labels:
+        app: bi-platform-api
+    spec:
+      containers:
+      - name: api
+        image: bi-platform-api:latest
+        ports:
+        - containerPort: 3001
+        env:
+        - name: POSTGRES_HOST
+          value: "postgres-service"
+        - name: REDIS_HOST
+          value: "redis-service"
+```
+
+### Environment-Specific Configurations
+
+#### Development
+- Debug logging enabled
+- Hot reloading for both frontend and backend
+- Development database with sample data
+- All features enabled
+- Relaxed security for testing
+
+#### Staging
+- Production-like environment
+- SSL certificates (can be self-signed)
+- Limited sample data
+- Monitoring enabled
+- Performance testing
+
+#### Production
+- Optimized builds
+- SSL certificates from trusted CA
+- Database backups
+- Monitoring and alerting
+- Security hardening
+- CDN integration
+
+## 📊 Monitoring & Analytics
+
+### Application Metrics
+
+- **Request Rate**: API requests per second
+- **Response Times**: P50, P95, P99 response times
+- **Error Rates**: HTTP error rates by endpoint
+- **Database Performance**: Query execution times
+- **Cache Hit Rates**: Redis cache effectiveness
+
+### Business Metrics
+
+- **User Activity**: Dashboard views, chart interactions
+- **Workspace Usage**: Active workspaces, user engagement
+- **Data Volume**: Dataset sizes, query frequencies
+- **Export Activity**: Report generation patterns
 
 ### Health Monitoring
-- `/health` - Application health check
-- `/api/health` - API service health
-- Prometheus metrics endpoint
-- Winston logging with rotation
+
+```bash
+# Check application health
+curl http://localhost/health
+
+# Detailed health check
+curl http://localhost/api/health/detailed
+
+# System metrics
+curl http://localhost/api/health/metrics
+```
+
+## 🔒 Security
+
+### Security Features
+
+- **Authentication**: JWT with refresh tokens
+- **Authorization**: RBAC with granular permissions
+- **Data Protection**: Row-level security, field-level encryption
+- **Network Security**: TLS 1.3, security headers
+- **Input Validation**: SQL injection prevention, XSS protection
+- **Audit Logging**: Complete activity tracking
+- **Rate Limiting**: API abuse prevention
+
+### Security Best Practices
+
+1. **Regular Updates**: Keep dependencies updated
+2. **Strong Passwords**: Enforce password policies
+3. **SSL/TLS**: Use valid certificates in production
+4. **Database Security**: Use connection pooling, prepared statements
+5. **Network Isolation**: Use firewalls, VPNs for production
+6. **Backup Encryption**: Encrypt database backups
+7. **Regular Audits**: Review audit logs regularly
+
+### Compliance
+
+- **GDPR**: Data privacy and user rights
+- **SOC 2**: Security and availability controls
+- **HIPAA**: Healthcare data protection (with additional configuration)
+- **SOX**: Financial reporting controls
+
+## 🧪 Testing
+
+### Running Tests
+
+```bash
+# Backend tests
+cd api-services
+npm test
+npm run test:coverage
+
+# Frontend tests
+cd web-application
+npm test
+npm run test:coverage
+
+# End-to-end tests
+npm run test:e2e
+```
+
+### Test Coverage
+
+- **Unit Tests**: Individual functions and components
+- **Integration Tests**: API endpoints and database operations
+- **End-to-End Tests**: Complete user workflows
+- **Performance Tests**: Load testing and stress testing
+- **Security Tests**: Vulnerability scanning and penetration testing
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
 ### Development Guidelines
-- Follow TypeScript strict mode
-- Write comprehensive tests for new features
-- Update documentation for API changes
-- Follow conventional commit messages
-- Ensure all tests pass before submitting
+
+1. **Fork the repository** and create a feature branch
+2. **Write tests** for new functionality
+3. **Follow coding standards** (ESLint, Prettier)
+4. **Update documentation** as needed
+5. **Submit pull request** with clear description
+
+### Code Style
+
+- **TypeScript**: Strict mode enabled
+- **ESLint**: Airbnb configuration
+- **Prettier**: Automatic code formatting
+- **Conventional Commits**: Standardized commit messages
 
 ## 📄 License
 
@@ -344,9 +578,41 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🆘 Support
 
-- Documentation: [Link to docs]
-- Issues: [GitHub Issues]
-- Discussions: [GitHub Discussions]
-- Email: support@yourdomain.com
+- **Documentation**: [Full documentation](docs/)
+- **API Reference**: [API docs](docs/api/)
+- **Issue Tracker**: [GitHub Issues](../../issues)
+- **Discussions**: [GitHub Discussions](../../discussions)
+- **Email Support**: support@bi-platform.com
+
+## 🗺️ Roadmap
+
+### Version 1.1 (Q2 2024)
+- [ ] Advanced SQL editor with autocomplete
+- [ ] Real-time dashboard collaboration
+- [ ] Enhanced mobile support
+- [ ] Additional chart types (Sankey, Treemap)
+
+### Version 1.2 (Q3 2024)
+- [ ] AI-powered insights and recommendations
+- [ ] Advanced data transformations (Python/R integration)
+- [ ] White-label solutions
+- [ ] Advanced export scheduling
+
+### Version 2.0 (Q4 2024)
+- [ ] Multi-cloud deployment support
+- [ ] Advanced analytics and ML integration
+- [ ] Enterprise SSO integration
+- [ ] Advanced governance features
+
+## 🙏 Acknowledgments
+
+- **ECharts** - Powerful charting library
+- **Material-UI** - Excellent React components
+- **PostgreSQL** - Reliable database system
+- **Redis** - High-performance caching
+- **Next.js** - Outstanding React framework
+- **Express.js** - Minimal Node.js framework
 
 ---
+
+**Built with ❤️ by the BI Platform Team**

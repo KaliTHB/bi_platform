@@ -1,455 +1,469 @@
-import { v4 as uuidv4 } from 'uuid';
-import { db } from '../config/database';
-import { cache } from '../config/redis';
+# api-services/src/services/DatasetService.ts
+import { DatabaseConfig } from '../config/database';
+import { CacheService } from '../config/redis';
 import { logger } from '../utils/logger';
-import { PermissionService } from './PermissionService';
-import { AuditService } from './AuditService';
-import { TransformationEngine } from './TransformationEngine';
+import { PluginManager } from './PluginManager';
 
-interface CreateDatasetRequest {
-  name: string;
-  description?: string;
-  data_source_plugin: string;
-  connection_config: any;
-  query: string;
-  refresh_schedule?: string;
-  tags?: string[];
-}
-
-interface Dataset {
-  id: string;
-  name: string;
-  description?: string;
-  workspace_id: string;
-  data_source_plugin: string;
-  connection_config: any;
-  query: string;
-  refresh_schedule?: string;
-  tags: string[];
-  created_by: string;
-  created_at: Date;
-  updated_at: Date;
-  last_refreshed_at?: Date;
-  is_active: boolean;
-  schema?: any;
-  row_count?: number;
-}
-
-interface DatasetData {
+interface DatasetSchema {
   columns: Array<{
     name: string;
     type: string;
     nullable: boolean;
+    description?: string;
   }>;
-  data: any[];
-  metadata: {
-    totalRows: number;
-    executionTime: number;
-    lastUpdated: Date;
-    cacheHit: boolean;
-  };
+  row_count?: number;
+  sample_data?: any[];
 }
 
-class DatasetService {
-  private permissionService: PermissionService;
-  private auditService: AuditService;
-  private transformationEngine: TransformationEngine;
-  private readonly CACHE_TTL = 1800; // 30 minutes
+interface QueryTestResult {
+  preview: any[];
+  columns: Array<{
+    name: string;
+    type: string;
+  }>;
+  execution_time: number;
+}
 
-  constructor() {
-    this.permissionService = new PermissionService();
-    this.auditService = new AuditService();
-    this.transformationEngine = new TransformationEngine();
-  }
+export class DatasetService {
+  
+  /**
+   * Get dataset schema with column information
+   */
+  static async getDatasetSchema(datasetId: string): Promise<DatasetSchema> {
+    const cacheKey = `dataset_schema:${datasetId}`;
+    
+    // Try to get from cache first
+    const cached = await CacheService.get<DatasetSchema>(cacheKey);
+    if (cached) {
+      return cached;
+    }
 
-  async createDataset(userId: string, workspaceId: string, data: CreateDatasetRequest): Promise<Dataset> {
+    // Get dataset information
+    const datasetResult = await DatabaseConfig.query(
+      `SELECT d.*, ds.type as data_source_type, ds.connection_config
+       FROM datasets d
+       LEFT JOIN data_sources ds ON d.data_source_id = ds.id
+       WHERE d.id = $1 AND d.is_active = true`,
+      [datasetId]
+    );
+
+    if (datasetResult.rows.length === 0) {
+      throw new Error('Dataset not found');
+    }
+
+    const dataset = datasetResult.rows[0];
+    let schema: DatasetSchema;
+
     try {
-      // Check permissions
-      const hasPermission = await this.permissionService.hasPermission(userId, workspaceId, 'dataset.create');
-      if (!hasPermission) {
-        throw new Error('Insufficient permissions to create dataset');
+      if (dataset.type === 'SOURCE') {
+        // Get schema from data source
+        schema = await this.getSourceDatasetSchema(dataset);
+      } else {
+        // Get schema from transformation
+        schema = await this.getTransformationDatasetSchema(dataset);
       }
 
-      const datasetId = uuidv4();
+      // Cache schema for 30 minutes
+      await CacheService.set(cacheKey, schema, 1800);
       
-      const query = `
-        INSERT INTO datasets (
-          id, name, description, workspace_id, data_source_plugin, 
-          connection_config, query, refresh_schedule, tags, 
-          created_by, created_at, updated_at, is_active
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW(), true
-        ) RETURNING *
-      `;
-      
-      const values = [
-        datasetId,
-        data.name,
-        data.description,
-        workspaceId,
-        data.data_source_plugin,
-        JSON.stringify(data.connection_config),
-        data.query,
-        data.refresh_schedule,
-        data.tags || [],
-        userId
-      ];
-
-      const result = await db.query(query, values);
-      const dataset = result.rows[0];
-
-      // Grant the creator full access to the dataset
-      await this.permissionService.grantDatasetPermission(userId, datasetId, 'read');
-      await this.permissionService.grantDatasetPermission(userId, datasetId, 'write');
-      await this.permissionService.grantDatasetPermission(userId, datasetId, 'delete');
-
-      // Log audit event
-      await this.auditService.logEvent({
-        event_type: 'dataset.created',
-        user_id: userId,
-        workspace_id: workspaceId,
-        resource_id: datasetId,
-        details: { dataset_name: data.name }
-      });
-
-      // Initial data refresh
-      try {
-        await this.refreshDataset(userId, workspaceId, datasetId);
-      } catch (error) {
-        logger.warn('Initial dataset refresh failed:', error);
-      }
-
-      return dataset;
+      return schema;
     } catch (error) {
-      logger.error('Create dataset error:', error);
+      logger.error('Failed to get dataset schema', { datasetId, error });
       throw error;
     }
   }
 
-  async getDatasets(userId: string, workspaceId: string, filters?: any): Promise<Dataset[]> {
+  /**
+   * Test dataset query and return preview
+   */
+  static async testDatasetQuery(datasetId: string): Promise<QueryTestResult> {
+    const datasetResult = await DatabaseConfig.query(
+      `SELECT d.*, ds.type as data_source_type, ds.connection_config
+       FROM datasets d
+       LEFT JOIN data_sources ds ON d.data_source_id = ds.id
+       WHERE d.id = $1 AND d.is_active = true`,
+      [datasetId]
+    );
+
+    if (datasetResult.rows.length === 0) {
+      throw new Error('Dataset not found');
+    }
+
+    const dataset = datasetResult.rows[0];
+    const startTime = Date.now();
+
     try {
-      let query = `
-        SELECT d.*, u.display_name as created_by_name
-        FROM datasets d
-        INNER JOIN users u ON d.created_by = u.id
-        WHERE d.workspace_id = $1 AND d.is_active = true
-      `;
-      const params = [workspaceId];
-      let paramIndex = 2;
+      let result: QueryTestResult;
 
-      // Add filters
-      if (filters?.search) {
-        query += ` AND (d.name ILIKE $${paramIndex} OR d.description ILIKE $${paramIndex})`;
-        params.push(`%${filters.search}%`);
-        paramIndex++;
+      if (dataset.type === 'SOURCE') {
+        result = await this.testSourceDataset(dataset);
+      } else {
+        result = await this.testTransformationDataset(dataset);
       }
 
-      if (filters?.tags && filters.tags.length > 0) {
-        query += ` AND d.tags && $${paramIndex}`;
-        params.push(filters.tags);
-        paramIndex++;
-      }
-
-      if (filters?.data_source_plugin) {
-        query += ` AND d.data_source_plugin = $${paramIndex}`;
-        params.push(filters.data_source_plugin);
-        paramIndex++;
-      }
-
-      query += ' ORDER BY d.updated_at DESC';
-
-      if (filters?.limit) {
-        query += ` LIMIT $${paramIndex}`;
-        params.push(filters.limit);
-        paramIndex++;
-      }
-
-      if (filters?.offset) {
-        query += ` OFFSET $${paramIndex}`;
-        params.push(filters.offset);
-      }
-
-      const result = await db.query(query, params);
-      
-      // Filter datasets based on permissions
-      const accessibleDatasets = [];
-      for (const dataset of result.rows) {
-        const hasAccess = await this.permissionService.hasDatasetAccess(
-          userId, workspaceId, dataset.id, 'read'
-        );
-        if (hasAccess) {
-          accessibleDatasets.push(dataset);
-        }
-      }
-
-      return accessibleDatasets;
+      result.execution_time = Date.now() - startTime;
+      return result;
     } catch (error) {
-      logger.error('Get datasets error:', error);
-      throw error;
+      logger.error('Dataset query test failed', { datasetId, error });
+      throw new Error(`Query test failed: ${error.message}`);
     }
   }
 
-  async getDataset(userId: string, workspaceId: string, datasetId: string): Promise<Dataset | null> {
-    try {
-      // Check permissions
-      const hasAccess = await this.permissionService.hasDatasetAccess(
-        userId, workspaceId, datasetId, 'read'
-      );
-      if (!hasAccess) {
-        throw new Error('Insufficient permissions to access dataset');
-      }
-
-      const query = `
-        SELECT d.*, u.display_name as created_by_name
-        FROM datasets d
-        INNER JOIN users u ON d.created_by = u.id
-        WHERE d.id = $1 AND d.workspace_id = $2 AND d.is_active = true
-      `;
-      
-      const result = await db.query(query, [datasetId, workspaceId]);
-      return result.rows.length > 0 ? result.rows[0] : null;
-    } catch (error) {
-      logger.error('Get dataset error:', error);
-      throw error;
+  /**
+   * Get schema for source dataset
+   */
+  private static async getSourceDatasetSchema(dataset: any): Promise<DatasetSchema> {
+    if (!dataset.data_source_id) {
+      throw new Error('No data source configured for dataset');
     }
-  }
 
-  async updateDataset(userId: string, workspaceId: string, datasetId: string, updates: Partial<CreateDatasetRequest>): Promise<Dataset> {
-    try {
-      // Check permissions
-      const hasAccess = await this.permissionService.hasDatasetAccess(
-        userId, workspaceId, datasetId, 'write'
-      );
-      if (!hasAccess) {
-        throw new Error('Insufficient permissions to update dataset');
-      }
-
-      const allowedFields = ['name', 'description', 'connection_config', 'query', 'refresh_schedule', 'tags'];
-      const updateFields = [];
-      const values = [];
-      let paramIndex = 1;
-
-      for (const [key, value] of Object.entries(updates)) {
-        if (allowedFields.includes(key) && value !== undefined) {
-          updateFields.push(`${key} = $${paramIndex}`);
-          values.push(key === 'connection_config' ? JSON.stringify(value) : value);
-          paramIndex++;
-        }
-      }
-
-      if (updateFields.length === 0) {
-        throw new Error('No valid fields to update');
-      }
-
-      updateFields.push(`updated_at = NOW()`);
-
-      const query = `
-        UPDATE datasets 
-        SET ${updateFields.join(', ')}
-        WHERE id = $${paramIndex} AND workspace_id = $${paramIndex + 1} AND is_active = true
-        RETURNING *
-      `;
-
-      values.push(datasetId, workspaceId);
-
-      const result = await db.query(query, values);
-      
-      if (result.rows.length === 0) {
-        throw new Error('Dataset not found');
-      }
-
-      // Clear cache if query or connection changed
-      if (updates.query || updates.connection_config) {
-        await this.clearDatasetCache(datasetId);
-      }
-
-      // Log audit event
-      await this.auditService.logEvent({
-        event_type: 'dataset.updated',
-        user_id: userId,
-        workspace_id: workspaceId,
-        resource_id: datasetId,
-        details: { updated_fields: Object.keys(updates) }
-      });
-
-      return result.rows[0];
-    } catch (error) {
-      logger.error('Update dataset error:', error);
-      throw error;
+    const plugin = PluginManager.getDataSourcePlugin(dataset.data_source_type);
+    if (!plugin) {
+      throw new Error(`Unsupported data source type: ${dataset.data_source_type}`);
     }
-  }
 
-  async deleteDataset(userId: string, workspaceId: string, datasetId: string): Promise<void> {
+    // Get connection
+    const connection = await plugin.connect(dataset.connection_config);
+    
     try {
-      // Check permissions
-      const hasAccess = await this.permissionService.hasDatasetAccess(
-        userId, workspaceId, datasetId, 'delete'
-      );
-      if (!hasAccess) {
-        throw new Error('Insufficient permissions to delete dataset');
+      // Get schema information
+      const query = dataset.query_config?.query;
+      if (!query) {
+        throw new Error('No query configured for dataset');
       }
 
-      // Check if dataset is used by any charts
-      const chartQuery = `
-        SELECT COUNT(*) as count 
-        FROM charts 
-        WHERE dataset_ids @> $1 AND workspace_id = $2 AND is_active = true
-      `;
+      // Execute LIMIT 0 query to get column info
+      const schemaQuery = `SELECT * FROM (${query}) AS subquery LIMIT 0`;
+      const schemaResult = await plugin.executeQuery(connection, schemaQuery);
       
-      const chartResult = await db.query(chartQuery, [JSON.stringify([datasetId]), workspaceId]);
-      
-      if (parseInt(chartResult.rows[0].count) > 0) {
-        throw new Error('Cannot delete dataset: it is being used by one or more charts');
-      }
+      // Get sample data with LIMIT 10
+      const sampleQuery = `SELECT * FROM (${query}) AS subquery LIMIT 10`;
+      const sampleResult = await plugin.executeQuery(connection, sampleQuery);
 
-      // Soft delete
-      const query = `
-        UPDATE datasets 
-        SET is_active = false, updated_at = NOW()
-        WHERE id = $1 AND workspace_id = $2
-      `;
-      
-      await db.query(query, [datasetId, workspaceId]);
-
-      // Clear cache
-      await this.clearDatasetCache(datasetId);
-
-      // Log audit event
-      await this.auditService.logEvent({
-        event_type: 'dataset.deleted',
-        user_id: userId,
-        workspace_id: workspaceId,
-        resource_id: datasetId,
-        details: { deletion_type: 'soft' }
-      });
-    } catch (error) {
-      logger.error('Delete dataset error:', error);
-      throw error;
-    }
-  }
-
-  async getDatasetData(userId: string, workspaceId: string, datasetId: string, options?: {
-    limit?: number;
-    offset?: number;
-    filters?: any;
-  }): Promise<DatasetData> {
-    try {
-      // Check permissions
-      const hasAccess = await this.permissionService.hasDatasetAccess(
-        userId, workspaceId, datasetId, 'read'
-      );
-      if (!hasAccess) {
-        throw new Error('Insufficient permissions to access dataset data');
-      }
-
-      const cacheKey = `dataset_data:${datasetId}:${JSON.stringify(options)}`;
-      const startTime = Date.now();
-
-      // Try cache first
-      const cached = await cache.get<DatasetData>(cacheKey);
-      if (cached) {
-        return {
-          ...cached,
-          metadata: {
-            ...cached.metadata,
-            cacheHit: true,
-            executionTime: Date.now() - startTime
-          }
-        };
-      }
-
-      // Get dataset
-      const dataset = await this.getDataset(userId, workspaceId, datasetId);
-      if (!dataset) {
-        throw new Error('Dataset not found');
-      }
-
-      // Execute query using transformation engine
-      const result = await this.transformationEngine.executeDatasetQuery(dataset, options);
-
-      const datasetData: DatasetData = {
-        columns: result.columns,
-        data: result.data,
-        metadata: {
-          totalRows: result.totalRows,
-          executionTime: Date.now() - startTime,
-          lastUpdated: new Date(),
-          cacheHit: false
-        }
+      return {
+        columns: schemaResult.columns.map(col => ({
+          name: col.name,
+          type: col.type,
+          nullable: col.nullable !== false,
+          description: col.description
+        })),
+        sample_data: sampleResult.rows
       };
-
-      // Cache the result
-      await cache.set(cacheKey, datasetData, this.CACHE_TTL);
-
-      // Update dataset statistics
-      await this.updateDatasetStats(datasetId, result.totalRows);
-
-      return datasetData;
-    } catch (error) {
-      logger.error('Get dataset data error:', error);
-      throw error;
+    } finally {
+      await plugin.disconnect(connection);
     }
   }
 
-  async refreshDataset(userId: string, workspaceId: string, datasetId: string): Promise<void> {
-    try {
-      // Check permissions
-      const hasAccess = await this.permissionService.hasDatasetAccess(
-        userId, workspaceId, datasetId, 'read'
+  /**
+   * Get schema for transformation dataset
+   */
+  private static async getTransformationDatasetSchema(dataset: any): Promise<DatasetSchema> {
+    if (!dataset.parent_dataset_id) {
+      throw new Error('No parent dataset configured for transformation');
+    }
+
+    // Get parent dataset schema
+    const parentSchema = await this.getDatasetSchema(dataset.parent_dataset_id);
+    
+    // Apply transformation logic to determine output schema
+    const transformConfig = dataset.transformation_config;
+    if (!transformConfig) {
+      // If no transformation config, return parent schema
+      return parentSchema;
+    }
+
+    // Process transformations
+    let resultSchema = { ...parentSchema };
+    
+    if (transformConfig.select_columns) {
+      // Filter columns based on selection
+      resultSchema.columns = resultSchema.columns.filter(col => 
+        transformConfig.select_columns.includes(col.name)
       );
-      if (!hasAccess) {
-        throw new Error('Insufficient permissions to refresh dataset');
+    }
+
+    if (transformConfig.computed_columns) {
+      // Add computed columns
+      for (const computed of transformConfig.computed_columns) {
+        resultSchema.columns.push({
+          name: computed.name,
+          type: computed.type || 'string',
+          nullable: computed.nullable !== false,
+          description: computed.description
+        });
+      }
+    }
+
+    if (transformConfig.renamed_columns) {
+      // Apply column renames
+      for (const rename of transformConfig.renamed_columns) {
+        const column = resultSchema.columns.find(col => col.name === rename.from);
+        if (column) {
+          column.name = rename.to;
+        }
+      }
+    }
+
+    return resultSchema;
+  }
+
+  /**
+   * Test source dataset query
+   */
+  private static async testSourceDataset(dataset: any): Promise<QueryTestResult> {
+    const plugin = PluginManager.getDataSourcePlugin(dataset.data_source_type);
+    if (!plugin) {
+      throw new Error(`Unsupported data source type: ${dataset.data_source_type}`);
+    }
+
+    const connection = await plugin.connect(dataset.connection_config);
+    
+    try {
+      const query = dataset.query_config?.query;
+      if (!query) {
+        throw new Error('No query configured for dataset');
       }
 
-      // Clear cache
-      await this.clearDatasetCache(datasetId);
+      // Execute query with LIMIT
+      const testQuery = `SELECT * FROM (${query}) AS subquery LIMIT 5`;
+      const result = await plugin.executeQuery(connection, testQuery);
 
-      // Update last refreshed timestamp
-      await db.query(
-        'UPDATE datasets SET last_refreshed_at = NOW() WHERE id = $1',
-        [datasetId]
-      );
+      return {
+        preview: result.rows,
+        columns: result.columns.map(col => ({
+          name: col.name,
+          type: col.type
+        }))
+      } as QueryTestResult;
+    } finally {
+      await plugin.disconnect(connection);
+    }
+  }
 
-      // Log audit event
-      await this.auditService.logEvent({
-        event_type: 'dataset.refreshed',
-        user_id: userId,
-        workspace_id: workspaceId,
-        resource_id: datasetId,
-        details: { refresh_time: new Date() }
+  /**
+   * Test transformation dataset
+   */
+  private static async testTransformationDataset(dataset: any): Promise<QueryTestResult> {
+    // For transformation datasets, we need to apply the transformation
+    // to the parent dataset and return a preview
+    
+    if (!dataset.parent_dataset_id) {
+      throw new Error('No parent dataset configured');
+    }
+
+    // Get parent dataset preview
+    const parentPreview = await this.testDatasetQuery(dataset.parent_dataset_id);
+    
+    // Apply transformations
+    const transformConfig = dataset.transformation_config;
+    if (!transformConfig) {
+      return parentPreview;
+    }
+
+    let resultData = [...parentPreview.preview];
+    let resultColumns = [...parentPreview.columns];
+
+    // Apply filters
+    if (transformConfig.filters) {
+      resultData = this.applyFilters(resultData, transformConfig.filters);
+    }
+
+    // Apply column selection
+    if (transformConfig.select_columns) {
+      const selectedCols = transformConfig.select_columns;
+      resultColumns = resultColumns.filter(col => selectedCols.includes(col.name));
+      resultData = resultData.map(row => {
+        const filteredRow: any = {};
+        selectedCols.forEach(col => {
+          if (row.hasOwnProperty(col)) {
+            filteredRow[col] = row[col];
+          }
+        });
+        return filteredRow;
       });
-    } catch (error) {
-      logger.error('Refresh dataset error:', error);
-      throw error;
     }
+
+    // Apply computed columns
+    if (transformConfig.computed_columns) {
+      for (const computed of transformConfig.computed_columns) {
+        resultColumns.push({
+          name: computed.name,
+          type: computed.type || 'string'
+        });
+        
+        // Apply computation to each row
+        resultData = resultData.map(row => ({
+          ...row,
+          [computed.name]: this.evaluateComputedColumn(row, computed.expression)
+        }));
+      }
+    }
+
+    // Apply column renames
+    if (transformConfig.renamed_columns) {
+      for (const rename of transformConfig.renamed_columns) {
+        // Update column definition
+        const colIndex = resultColumns.findIndex(col => col.name === rename.from);
+        if (colIndex >= 0) {
+          resultColumns[colIndex].name = rename.to;
+        }
+        
+        // Update data
+        resultData = resultData.map(row => {
+          if (row.hasOwnProperty(rename.from)) {
+            const newRow = { ...row };
+            newRow[rename.to] = newRow[rename.from];
+            delete newRow[rename.from];
+            return newRow;
+          }
+          return row;
+        });
+      }
+    }
+
+    return {
+      preview: resultData.slice(0, 5), // Limit preview to 5 rows
+      columns: resultColumns
+    } as QueryTestResult;
   }
 
-  private async clearDatasetCache(datasetId: string): Promise<void> {
+  /**
+   * Apply filters to data
+   */
+  private static applyFilters(data: any[], filters: any[]): any[] {
+    return data.filter(row => {
+      return filters.every(filter => {
+        const value = row[filter.column];
+        
+        switch (filter.operator) {
+          case 'equals':
+            return value === filter.value;
+          case 'not_equals':
+            return value !== filter.value;
+          case 'contains':
+            return String(value).toLowerCase().includes(String(filter.value).toLowerCase());
+          case 'starts_with':
+            return String(value).toLowerCase().startsWith(String(filter.value).toLowerCase());
+          case 'ends_with':
+            return String(value).toLowerCase().endsWith(String(filter.value).toLowerCase());
+          case 'greater_than':
+            return Number(value) > Number(filter.value);
+          case 'less_than':
+            return Number(value) < Number(filter.value);
+          case 'greater_equal':
+            return Number(value) >= Number(filter.value);
+          case 'less_equal':
+            return Number(value) <= Number(filter.value);
+          case 'is_null':
+            return value === null || value === undefined;
+          case 'is_not_null':
+            return value !== null && value !== undefined;
+          default:
+            return true;
+        }
+      });
+    });
+  }
+
+  /**
+   * Evaluate computed column expression
+   */
+  private static evaluateComputedColumn(row: any, expression: string): any {
     try {
-      // Note: In production, you'd want to use a pattern-based cache clearing
-      // For now, we'll just clear known cache keys
-      const patterns = [
-        `dataset_data:${datasetId}:*`,
-        `dataset:${datasetId}:*`
-      ];
+      // Simple expression evaluation for basic operations
+      // In a production system, you'd want to use a proper expression parser
+      // and sandbox for security
       
-      // This would need proper implementation based on Redis capabilities
-      await cache.del(`dataset:${datasetId}`);
+      // Replace column references with actual values
+      let evalExpression = expression;
+      Object.keys(row).forEach(key => {
+        const regex = new RegExp(`\\{${key}\\}`, 'g');
+        evalExpression = evalExpression.replace(regex, JSON.stringify(row[key]));
+      });
+
+      // Basic safety check - only allow basic math operations and functions
+      if (!/^[\d\s+\-*/.(),'"'{}]+$/.test(evalExpression.replace(/[a-zA-Z_][a-zA-Z0-9_]*/g, ''))) {
+        throw new Error('Invalid expression');
+      }
+
+      // Use Function constructor for evaluation (safer than eval)
+      const func = new Function(`return ${evalExpression}`);
+      return func();
     } catch (error) {
-      logger.error('Clear dataset cache error:', error);
+      logger.error('Failed to evaluate computed column expression', { expression, error });
+      return null;
     }
   }
 
-  private async updateDatasetStats(datasetId: string, rowCount: number): Promise<void> {
-    try {
-      await db.query(
-        'UPDATE datasets SET row_count = $1 WHERE id = $2',
-        [rowCount, datasetId]
-      );
-    } catch (error) {
-      logger.error('Update dataset stats error:', error);
+  /**
+   * Get dataset metadata including dependencies
+   */
+  static async getDatasetMetadata(datasetId: string): Promise<any> {
+    const result = await DatabaseConfig.query(
+      `WITH RECURSIVE dataset_deps AS (
+         SELECT id, name, parent_dataset_id, 0 as level
+         FROM datasets
+         WHERE id = $1
+         
+         UNION ALL
+         
+         SELECT d.id, d.name, d.parent_dataset_id, dd.level + 1
+         FROM datasets d
+         JOIN dataset_deps dd ON d.id = dd.parent_dataset_id
+         WHERE dd.level < 10
+       )
+       SELECT * FROM dataset_deps ORDER BY level`,
+      [datasetId]
+    );
+
+    return {
+      dependencies: result.rows,
+      dependency_count: result.rows.length - 1 // Exclude self
+    };
+  }
+
+  /**
+   * Validate dataset configuration
+   */
+  static async validateDatasetConfig(config: any): Promise<{ valid: boolean; errors: string[] }> {
+    const errors: string[] = [];
+
+    // Validate basic required fields
+    if (!config.name || config.name.trim().length === 0) {
+      errors.push('Dataset name is required');
     }
+
+    if (!config.type || !['SOURCE', 'TRANSFORMATION'].includes(config.type)) {
+      errors.push('Invalid dataset type');
+    }
+
+    // Type-specific validations
+    if (config.type === 'SOURCE') {
+      if (!config.data_source_id) {
+        errors.push('Data source is required for SOURCE datasets');
+      }
+      if (!config.query_config?.query) {
+        errors.push('Query configuration is required for SOURCE datasets');
+      }
+    }
+
+    if (config.type === 'TRANSFORMATION') {
+      if (!config.parent_dataset_id) {
+        errors.push('Parent dataset is required for TRANSFORMATION datasets');
+      }
+      if (!config.transformation_config) {
+        errors.push('Transformation configuration is required for TRANSFORMATION datasets');
+      }
+    }
+
+    // Validate cache TTL
+    if (config.cache_ttl && (config.cache_ttl < 0 || config.cache_ttl > 86400)) {
+      errors.push('Cache TTL must be between 0 and 86400 seconds');
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors
+    };
   }
 }
-
-export { DatasetService };
