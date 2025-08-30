@@ -137,7 +137,7 @@ const nextConfig = {
       // Legacy route redirects
       {
         source: '/dashboard/:slug*',
-        destination: '/workspace/:workspaceSlug/dashboard/:slug*',
+        destination: '/workspace-selector',
         permanent: true,
       },
     ];

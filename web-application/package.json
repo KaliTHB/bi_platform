@@ -4,7 +4,8 @@
   "description": "Business Intelligence Platform Web Application",
   "private": true,
   "scripts": {
-    "build": "next build",
+    "fix-paths": "node scripts/fix-paths.js",
+    "build": "npm run fix-paths && next build",
     "dev": "next dev",
     "lint": "next lint",
     "start": "next start",

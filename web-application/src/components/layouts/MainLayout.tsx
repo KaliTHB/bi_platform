@@ -1,4 +1,4 @@
-# web-application/src/components/layout/MainLayout.tsx
+// web-application/src/components/layout/MainLayout.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';

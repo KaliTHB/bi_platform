@@ -1,4 +1,4 @@
-# web-application/src/store/slices/workspaceSlice.ts
+// web-application/src/store/slices/workspaceSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { workspaceAPI } from '@/services/api';
 import { Workspace, CreateWorkspaceRequest, UpdateWorkspaceRequest } from '@/types/auth.types';

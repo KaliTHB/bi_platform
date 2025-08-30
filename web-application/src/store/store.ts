@@ -1,4 +1,4 @@
-# web-application/src/store/store.ts
+// web-application/src/store/store.ts
 import { configureStore } from '@reduxjs/toolkit';
 import { persistStore, persistReducer } from 'redux-persist';
 import storage from 'redux-persist/lib/storage';

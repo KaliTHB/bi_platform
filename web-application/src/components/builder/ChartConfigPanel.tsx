@@ -1,4 +1,4 @@
-# web-application/src/components/builder/ChartConfigPanel.tsx
+// web-application/src/components/builder/ChartConfigPanel.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';

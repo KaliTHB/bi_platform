@@ -1,4 +1,4 @@
-# web-application/src/components/shared/PermissionGate.tsx
+// web-application/src/components/shared/PermissionGate.tsx
 'use client';
 
 import React from 'react';

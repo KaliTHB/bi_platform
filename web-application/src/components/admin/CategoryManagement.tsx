@@ -1,5 +1,3 @@
-// File: web-application/src/components/admin/CategoryManagement.tsx
-
 import React, { useState } from 'react';
 import {
   Box,
@@ -19,8 +17,9 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  ColorPicker,
-  InputAdornment
+  InputAdornment,
+  CircularProgress,
+  SelectChangeEvent,
 } from '@mui/material';
 import {
   Add,
@@ -29,13 +28,21 @@ import {
   Folder,
   Dashboard as DashboardIcon,
   ColorLens,
-  DragHandle
+  DragHandle,
 } from '@mui/icons-material';
-import { PermissionGate } from '../shared/PermissionGate';
-import { DashboardCategory } from '../../types';
-import { useGetCategoriesQuery, useCreateCategoryMutation, useUpdateCategoryMutation, useDeleteCategoryMutation } from '../../store/api/categoryApi';
-import { useSelector } from 'react-redux';
-import { RootState } from '../../store';
+
+// Define category interface
+interface DashboardCategory {
+  id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  icon?: string;
+  color?: string;
+  parent_category_id?: string;
+  sort_order: number;
+  dashboard_count?: number;
+}
 
 interface CategoryFormData {
   name: string;
@@ -47,8 +54,38 @@ interface CategoryFormData {
   sort_order: number;
 }
 
+// Mock data for demonstration
+const mockCategories: DashboardCategory[] = [
+  {
+    id: '1',
+    name: 'sales',
+    display_name: 'Sales',
+    description: 'Sales performance dashboards',
+    icon: '📊',
+    color: '#1976d2',
+    sort_order: 1,
+    dashboard_count: 5,
+  },
+  {
+    id: '2',
+    name: 'marketing',
+    display_name: 'Marketing',
+    description: 'Marketing analytics',
+    icon: '📈',
+    color: '#388e3c',
+    sort_order: 2,
+    dashboard_count: 3,
+  },
+];
+
+// Predefined color palette
+const colorOptions = [
+  '#1976d2', '#388e3c', '#f57c00', '#d32f2f', '#7b1fa2',
+  '#303f9f', '#1976d2', '#00796b', '#689f38', '#f9a825',
+  '#e64a19', '#5d4037', '#455a64', '#e91e63', '#9c27b0',
+];
+
 export const CategoryManagement: React.FC = () => {
-  const workspace = useSelector((state: RootState) => state.auth.workspace);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<DashboardCategory | null>(null);
   const [formData, setFormData] = useState<CategoryFormData>({
@@ -58,17 +95,10 @@ export const CategoryManagement: React.FC = () => {
     icon: '📁',
     color: '#1976d2',
     parent_category_id: '',
-    sort_order: 0
+    sort_order: 0,
   });
-
-  const { data: categoriesData, isLoading } = useGetCategoriesQuery({
-    workspaceId: workspace?.id || '',
-    include_dashboards: true
-  });
-
-  const [createCategory] = useCreateCategoryMutation();
-  const [updateCategory] = useUpdateCategoryMutation();
-  const [deleteCategory] = useDeleteCategoryMutation();
+  const [loading, setLoading] = useState(false);
+  const [categories, setCategories] = useState<DashboardCategory[]>(mockCategories);
 
   const handleCreateCategory = () => {
     setEditingCategory(null);
@@ -79,7 +109,7 @@ export const CategoryManagement: React.FC = () => {
       icon: '📁',
       color: '#1976d2',
       parent_category_id: '',
-      sort_order: 0
+      sort_order: 0,
     });
     setDialogOpen(true);
   };
@@ -93,7 +123,7 @@ export const CategoryManagement: React.FC = () => {
       icon: category.icon || '📁',
       color: category.color || '#1976d2',
       parent_category_id: category.parent_category_id || '',
-      sort_order: category.sort_order
+      sort_order: category.sort_order,
     });
     setDialogOpen(true);
   };
@@ -101,217 +131,245 @@ export const CategoryManagement: React.FC = () => {
   const handleDeleteCategory = async (category: DashboardCategory) => {
     if (confirm('Are you sure you want to delete this category? All dashboards will be moved to uncategorized.')) {
       try {
-        await deleteCategory(category.id).unwrap();
+        setLoading(true);
+        // Mock delete - replace with actual API call
+        setCategories(prev => prev.filter(c => c.id !== category.id));
+        console.log('Deleted category:', category.id);
       } catch (error) {
         console.error('Failed to delete category:', error);
+      } finally {
+        setLoading(false);
       }
     }
   };
 
   const handleSubmit = async () => {
     try {
+      setLoading(true);
+      
       if (editingCategory) {
-        await updateCategory({
-          id: editingCategory.id,
-          updates: formData
-        }).unwrap();
+        // Mock update
+        setCategories(prev => prev.map(c => 
+          c.id === editingCategory.id 
+            ? { ...c, ...formData }
+            : c
+        ));
       } else {
-        await createCategory({
-          workspace_id: workspace?.id || '',
-          ...formData
-        }).unwrap();
+        // Mock create
+        const newCategory: DashboardCategory = {
+          id: Date.now().toString(),
+          ...formData,
+          dashboard_count: 0,
+        };
+        setCategories(prev => [...prev, newCategory]);
       }
+      
       setDialogOpen(false);
     } catch (error) {
       console.error('Failed to save category:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const categories = categoriesData?.categories || [];
+  const handleFormChange = (field: keyof CategoryFormData) => {
+    if (field === 'color') {
+      return (event: SelectChangeEvent<string>) => {
+        setFormData(prev => ({
+          ...prev,
+          [field]: event.target.value,
+        }));
+      };
+    }
+    
+    return (event: React.ChangeEvent<HTMLInputElement>) => {
+      setFormData(prev => ({
+        ...prev,
+        [field]: event.target.value,
+      }));
+    };
+  };
 
   return (
-    <PermissionGate permissions={['category.read']}>
-      <Box>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-          <Box>
-            <Typography variant="h4" gutterBottom>
-              Category Management
-            </Typography>
-            <Typography variant="body2" color="textSecondary">
-              Organize dashboards into categories for better navigation
-            </Typography>
-          </Box>
-          
-          <PermissionGate permissions={['category.create']}>
-            <Button
-              variant="contained"
-              startIcon={<Add />}
-              onClick={handleCreateCategory}
-            >
-              Add Category
-            </Button>
-          </PermissionGate>
+    <Box>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Box>
+          <Typography variant="h4" gutterBottom>
+            Category Management
+          </Typography>
+          <Typography variant="body2" color="textSecondary">
+            Organize dashboards into categories for better navigation
+          </Typography>
         </Box>
+        
+        <Button
+          variant="contained"
+          startIcon={<Add />}
+          onClick={handleCreateCategory}
+        >
+          Add Category
+        </Button>
+      </Box>
 
-        {isLoading ? (
-          <Typography>Loading categories...</Typography>
-        ) : (
-          <Grid container spacing={3}>
-            {categories.map((category) => (
-              <Grid item xs={12} sm={6} md={4} key={category.id}>
-                <Card>
-                  <CardContent>
-                    <Box display="flex" alignItems="center" mb={2}>
-                      <Box
-                        component="span"
-                        sx={{
-                          fontSize: 24,
-                          mr: 1,
-                          color: category.color
-                        }}
-                      >
-                        {category.icon || <Folder />}
-                      </Box>
-                      <Typography variant="h6" sx={{ flexGrow: 1 }}>
+      {loading ? (
+        <Box display="flex" justifyContent="center" p={4}>
+          <CircularProgress />
+        </Box>
+      ) : (
+        <Grid container spacing={3}>
+          {categories.map((category) => (
+            <Grid item xs={12} sm={6} md={4} key={category.id}>
+              <Card>
+                <CardContent>
+                  <Box display="flex" alignItems="center" mb={2}>
+                    <Box
+                      sx={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 1,
+                        backgroundColor: category.color,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        mr: 2,
+                        fontSize: '1.2rem',
+                      }}
+                    >
+                      {category.icon}
+                    </Box>
+                    <Box flexGrow={1}>
+                      <Typography variant="h6">
                         {category.display_name}
                       </Typography>
-                      
-                      <PermissionGate permissions={['category.update']}>
-                        <IconButton size="small" onClick={() => handleEditCategory(category)}>
-                          <Edit fontSize="small" />
-                        </IconButton>
-                      </PermissionGate>
-                      
-                      <PermissionGate permissions={['category.delete']}>
-                        <IconButton size="small" onClick={() => handleDeleteCategory(category)}>
-                          <Delete fontSize="small" />
-                        </IconButton>
-                      </PermissionGate>
-                    </Box>
-
-                    {category.description && (
-                      <Typography variant="body2" color="textSecondary" paragraph>
-                        {category.description}
-                      </Typography>
-                    )}
-
-                    <Box display="flex" alignItems="center" gap={1} mb={1}>
-                      <DashboardIcon fontSize="small" color="action" />
-                      <Typography variant="body2">
-                        {category.dashboard_count || 0} dashboards
+                      <Typography variant="body2" color="textSecondary">
+                        {category.dashboard_count} dashboard{category.dashboard_count !== 1 ? 's' : ''}
                       </Typography>
                     </Box>
-
-                    <Chip
-                      label={`Order: ${category.sort_order}`}
+                  </Box>
+                  
+                  <Typography variant="body2" color="textSecondary" mb={2}>
+                    {category.description || 'No description'}
+                  </Typography>
+                  
+                  <Box display="flex" justifyContent="flex-end" gap={1}>
+                    <IconButton
                       size="small"
-                      variant="outlined"
-                    />
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
-        )}
+                      onClick={() => handleEditCategory(category)}
+                    >
+                      <Edit />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={() => handleDeleteCategory(category)}
+                    >
+                      <Delete />
+                    </IconButton>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+      )}
 
-        {/* Category Form Dialog */}
-        <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
-          <DialogTitle>
-            {editingCategory ? 'Edit Category' : 'Create Category'}
-          </DialogTitle>
-          <DialogContent>
-            <Box display="flex" flexDirection="column" gap={2} mt={1}>
-              <TextField
-                label="Category Name (Slug)"
-                value={formData.name}
-                onChange={(e) => setFormData(prev => ({ 
-                  ...prev, 
-                  name: e.target.value.toLowerCase().replace(/\s+/g, '-')
-                }))}
-                placeholder="sales-reports"
-                fullWidth
-                required
-                helperText="Used in URLs, lowercase with hyphens"
-              />
-              
-              <TextField
-                label="Display Name"
-                value={formData.display_name}
-                onChange={(e) => setFormData(prev => ({ ...prev, display_name: e.target.value }))}
-                fullWidth
-                required
-              />
-              
-              <TextField
-                label="Description"
-                value={formData.description}
-                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                fullWidth
-                multiline
-                rows={3}
-              />
-
-              <Box display="flex" gap={2}>
-                <TextField
-                  label="Icon (Emoji)"
-                  value={formData.icon}
-                  onChange={(e) => setFormData(prev => ({ ...prev, icon: e.target.value }))}
-                  sx={{ width: 120 }}
-                  placeholder="📊"
-                />
-                
-                <TextField
-                  label="Color"
-                  value={formData.color}
-                  onChange={(e) => setFormData(prev => ({ ...prev, color: e.target.value }))}
-                  type="color"
-                  sx={{ width: 120 }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <ColorLens />
-                      </InputAdornment>
-                    )
-                  }}
-                />
-              </Box>
-
-              <FormControl fullWidth>
-                <InputLabel>Parent Category</InputLabel>
-                <Select
-                  value={formData.parent_category_id}
-                  onChange={(e) => setFormData(prev => ({ ...prev, parent_category_id: e.target.value }))}
-                >
-                  <MenuItem value="">None (Top Level)</MenuItem>
-                  {categories
-                    .filter(cat => cat.id !== editingCategory?.id)
-                    .map(cat => (
-                      <MenuItem key={cat.id} value={cat.id}>
-                        {cat.display_name}
-                      </MenuItem>
-                    ))
-                  }
-                </Select>
-              </FormControl>
-
-              <TextField
-                label="Sort Order"
-                type="number"
-                value={formData.sort_order}
-                onChange={(e) => setFormData(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 0 }))}
-                fullWidth
-                helperText="Lower numbers appear first"
-              />
-            </Box>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSubmit} variant="contained">
-              {editingCategory ? 'Update' : 'Create'}
-            </Button>
-          </DialogActions>
-        </Dialog>
-      </Box>
-    </PermissionGate>
+      {/* Category Form Dialog */}
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          {editingCategory ? 'Edit Category' : 'Create New Category'}
+        </DialogTitle>
+        <DialogContent>
+          <Box component="form" sx={{ pt: 2 }}>
+            <TextField
+              fullWidth
+              label="Category Name"
+              value={formData.name}
+              onChange={handleFormChange('name')}
+              margin="normal"
+              placeholder="e.g., sales, marketing"
+              helperText="Used in URLs (lowercase, no spaces)"
+            />
+            
+            <TextField
+              fullWidth
+              label="Display Name"
+              value={formData.display_name}
+              onChange={handleFormChange('display_name')}
+              margin="normal"
+              placeholder="e.g., Sales, Marketing"
+            />
+            
+            <TextField
+              fullWidth
+              label="Description"
+              value={formData.description}
+              onChange={handleFormChange('description')}
+              margin="normal"
+              multiline
+              rows={2}
+              placeholder="Brief description of this category"
+            />
+            
+            <TextField
+              fullWidth
+              label="Icon"
+              value={formData.icon}
+              onChange={handleFormChange('icon')}
+              margin="normal"
+              placeholder="📊"
+              helperText="Use an emoji or icon character"
+            />
+            
+            <FormControl fullWidth margin="normal">
+              <InputLabel>Color</InputLabel>
+              <Select
+                value={formData.color}
+                onChange={(e) => setFormData(prev => ({ ...prev, color: e.target.value }))}
+                label="Color"
+              >
+                {colorOptions.map((color) => (
+                  <MenuItem key={color} value={color}>
+                    <Box display="flex" alignItems="center">
+                      <Box
+                        sx={{
+                          width: 20,
+                          height: 20,
+                          borderRadius: '50%',
+                          backgroundColor: color,
+                          mr: 2,
+                        }}
+                      />
+                      {color}
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            
+            <TextField
+              fullWidth
+              label="Sort Order"
+              type="number"
+              value={formData.sort_order}
+              onChange={handleFormChange('sort_order')}
+              margin="normal"
+              helperText="Lower numbers appear first"
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSubmit} 
+            variant="contained"
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={20} /> : (editingCategory ? 'Update' : 'Create')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
   );
 };

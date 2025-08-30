@@ -1,130 +1,49 @@
-import { baseApi } from './baseApi';
-import { setCredentials, clearAuth, updateTokens } from '../slices/authSlice';
+import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 
-interface LoginRequest {
-  username: string;
-  password: string;
-  workspaceSlug?: string;
-}
-
-interface AuthResponse {
-  accessToken: string;
-  refreshToken: string;
-  expiresIn: number;
-  user: {
-    id: string;
-    username: string;
-    email: string;
-    display_name: string;
-  };
-  workspace: {
-    id: string;
-    name: string;
-    slug: string;
-  };
-}
-
-interface RefreshRequest {
-  refreshToken: string;
-}
-
-interface SwitchWorkspaceRequest {
-  workspaceSlug: string;
-}
-
-export const authApi = baseApi.injectEndpoints({
+export const authApi = createApi({
+  reducerPath: 'authApi',
+  baseQuery: fetchBaseQuery({
+    baseUrl: '/api/auth/',
+    prepareHeaders: (headers) => {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        headers.set('authorization', `Bearer ${token}`);
+      }
+      return headers;
+    },
+  }),
+  tagTypes: ['Auth'],
   endpoints: (builder) => ({
-    login: builder.mutation<AuthResponse, LoginRequest>({
+    login: builder.mutation({
       query: (credentials) => ({
-        url: '/auth/login',
+        url: 'login',
         method: 'POST',
         body: credentials,
       }),
-      async onQueryStarted(arg, { dispatch, queryFulfilled }) {
-        try {
-          const { data } = await queryFulfilled;
-          dispatch(setCredentials(data));
-          
-          // Store tokens in localStorage for persistence
-          localStorage.setItem('accessToken', data.accessToken);
-          localStorage.setItem('refreshToken', data.refreshToken);
-        } catch (error) {
-          // Handle login error
-        }
-      },
     }),
-    
-    refreshToken: builder.mutation<AuthResponse, RefreshRequest>({
-      query: ({ refreshToken }) => ({
-        url: '/auth/refresh',
-        method: 'POST',
-        body: { refreshToken },
-      }),
-      async onQueryStarted(arg, { dispatch, queryFulfilled }) {
-        try {
-          const { data } = await queryFulfilled;
-          dispatch(updateTokens({
-            accessToken: data.accessToken,
-            refreshToken: data.refreshToken,
-          }));
-          
-          localStorage.setItem('accessToken', data.accessToken);
-          localStorage.setItem('refreshToken', data.refreshToken);
-        } catch (error) {
-          dispatch(clearAuth());
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-        }
-      },
-    }),
-    
-    logout: builder.mutation<void, void>({
+    logout: builder.mutation({
       query: () => ({
-        url: '/auth/logout',
+        url: 'logout',
         method: 'POST',
       }),
-      async onQueryStarted(arg, { dispatch, queryFulfilled }) {
-        dispatch(clearAuth());
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-      },
     }),
-    
-    switchWorkspace: builder.mutation<AuthResponse, SwitchWorkspaceRequest>({
-      query: ({ workspaceSlug }) => ({
-        url: '/auth/switch-workspace',
+    verifyToken: builder.query({
+      query: () => 'verify',
+      providesTags: ['Auth'],
+    }),
+    refreshToken: builder.mutation({
+      query: (refreshToken) => ({
+        url: 'refresh',
         method: 'POST',
-        body: { workspaceSlug },
+        body: { refresh_token: refreshToken },
       }),
-      async onQueryStarted(arg, { dispatch, queryFulfilled }) {
-        try {
-          const { data } = await queryFulfilled;
-          dispatch(setCredentials(data));
-          
-          localStorage.setItem('accessToken', data.accessToken);
-          localStorage.setItem('refreshToken', data.refreshToken);
-        } catch (error) {
-          // Handle error
-        }
-      },
-    }),
-    
-    getCurrentUser: builder.query<{
-      user: any;
-      permissions: string[];
-      roles: string[];
-      workspaces: any[];
-    }, void>({
-      query: () => '/auth/me',
-      providesTags: ['User'],
     }),
   }),
 });
 
 export const {
   useLoginMutation,
-  useRefreshTokenMutation,
   useLogoutMutation,
-  useSwitchWorkspaceMutation,
-  useGetCurrentUserQuery,
+  useVerifyTokenQuery,
+  useRefreshTokenMutation,
 } = authApi;

@@ -34,7 +34,8 @@ import {
   Error,
   Refresh
 } from '@mui/icons-material';
-import { useDataSourceConfig } from '../../hooks/useDataSourceConfig';
+import  useDataSources  from '../../hooks/useDataSources';
+import { usePluginConfiguration } from '../../hooks/usePluginConfiguration';
 
 interface DataSource {
   id: string;
@@ -55,18 +56,18 @@ interface DataSourceConfigProps {
   workspaceId: string;
 }
 
-export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId }) => {
+  export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId }) => {
   const {
     dataSources,
     availablePlugins,
     loading,
     error,
-    loadDataSources,
     createDataSource,
     updateDataSource,
     deleteDataSource,
-    testDataSource
-  } = useDataSourceConfig(workspaceId);
+    testConnection: testDataSource,
+    // Add any additional properties you need
+  } = useDataSources();
 
   const [editDialog, setEditDialog] = useState<{
     open: boolean;

@@ -1,4 +1,4 @@
-# File: web-application/src/__tests__/components/webview/CategorySidebar.test.tsx
+// File: web-application/src/__tests__/components/webview/CategorySidebar.test.tsx
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { CategorySidebar } from '../../../components/webview/CategorySidebar';

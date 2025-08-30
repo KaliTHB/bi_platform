@@ -1,97 +1,78 @@
-// File: web-application/src/store/slices/webviewSlice.ts
-
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { WebviewConfig, CategoryWithDashboards, NavigationState } from '../../types';
 
-interface WebviewState {
-  currentWebview: WebviewConfig | null;
-  categories: CategoryWithDashboards[];
-  navigationState: NavigationState;
-  loading: boolean;
-  error: string | null;
+interface Notification {
+  id: string;
+  type: 'success' | 'error' | 'warning' | 'info';
+  title: string;
+  message?: string;
+  timestamp: number;
+  read: boolean;
+  autoHide?: boolean;
 }
 
-const initialNavigationState: NavigationState = {
-  expandedCategories: new Set<string>(),
-  selectedDashboard: undefined,
-  searchQuery: '',
-  activeFilters: {
-    categories: [],
-    tags: [],
-  },
-  viewMode: 'list',
-  sortOrder: 'name',
+interface UIState {
+  sidebarOpen: boolean;
+  theme: 'light' | 'dark';
+  notifications: Notification[];
+  loading: {
+    [key: string]: boolean;
+  };
+}
+
+const initialState: UIState = {
+  sidebarOpen: true,
+  theme: 'light',
+  notifications: [],
+  loading: {},
 };
 
-const initialState: WebviewState = {
-  currentWebview: null,
-  categories: [],
-  navigationState: initialNavigationState,
-  loading: false,
-  error: null,
-};
-
-const webviewSlice = createSlice({
-  name: 'webview',
+const uiSlice = createSlice({
+  name: 'ui',
   initialState,
   reducers: {
-    setCurrentWebview: (state, action: PayloadAction<WebviewConfig>) => {
-      state.currentWebview = action.payload;
+    toggleSidebar: (state) => {
+      state.sidebarOpen = !state.sidebarOpen;
     },
-    setCategories: (state, action: PayloadAction<CategoryWithDashboards[]>) => {
-      state.categories = action.payload;
+    setSidebarOpen: (state, action: PayloadAction<boolean>) => {
+      state.sidebarOpen = action.payload;
     },
-    updateNavigationState: (state, action: PayloadAction<Partial<NavigationState>>) => {
-      state.navigationState = { ...state.navigationState, ...action.payload };
+    setTheme: (state, action: PayloadAction<'light' | 'dark'>) => {
+      state.theme = action.payload;
     },
-    toggleCategory: (state, action: PayloadAction<string>) => {
-      const categoryId = action.payload;
-      const expanded = new Set(state.navigationState.expandedCategories);
+    addNotification: (state, action: PayloadAction<Omit<Notification, 'id' | 'timestamp' | 'read'>>) => {
+      const notification: Notification = {
+        ...action.payload,
+        id: Date.now().toString(),
+        timestamp: Date.now(),
+        read: false,
+      };
+      state.notifications.unshift(notification);
       
-      if (expanded.has(categoryId)) {
-        expanded.delete(categoryId);
-      } else {
-        expanded.add(categoryId);
+      // Keep only last 50 notifications
+      if (state.notifications.length > 50) {
+        state.notifications = state.notifications.slice(0, 50);
       }
-      
-      state.navigationState.expandedCategories = expanded;
     },
-    setSelectedDashboard: (state, action: PayloadAction<string | undefined>) => {
-      state.navigationState.selectedDashboard = action.payload;
+    removeNotification: (state, action: PayloadAction<string>) => {
+      state.notifications = state.notifications.filter(n => n.id !== action.payload);
     },
-    setSearchQuery: (state, action: PayloadAction<string>) => {
-      state.navigationState.searchQuery = action.payload;
+    clearNotifications: (state) => {
+      state.notifications = [];
     },
-    setActiveFilters: (state, action: PayloadAction<NavigationState['activeFilters']>) => {
-      state.navigationState.activeFilters = action.payload;
-    },
-    setLoading: (state, action: PayloadAction<boolean>) => {
-      state.loading = action.payload;
-    },
-    setError: (state, action: PayloadAction<string | null>) => {
-      state.error = action.payload;
-    },
-    resetWebviewState: (state) => {
-      state.currentWebview = null;
-      state.categories = [];
-      state.navigationState = initialNavigationState;
-      state.loading = false;
-      state.error = null;
+    setLoading: (state, action: PayloadAction<{ key: string; loading: boolean }>) => {
+      state.loading[action.payload.key] = action.payload.loading;
     },
   },
 });
 
 export const {
-  setCurrentWebview,
-  setCategories,
-  updateNavigationState,
-  toggleCategory,
-  setSelectedDashboard,
-  setSearchQuery,
-  setActiveFilters,
+  toggleSidebar,
+  setSidebarOpen,
+  setTheme,
+  addNotification,
+  removeNotification,
+  clearNotifications,
   setLoading,
-  setError,
-  resetWebviewState,
-} = webviewSlice.actions;
+} = uiSlice.actions;
 
-export default webviewSlice.reducer;
+export default uiSlice.reducer;

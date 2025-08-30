@@ -1,34 +1,39 @@
 import { configureStore } from '@reduxjs/toolkit';
-import { setupListeners } from '@reduxjs/toolkit/query';
-import { baseApi } from './api/baseApi';
-import authSlice from './slices/authSlice';
-import workspaceSlice from './slices/workspaceSlice';
-import datasetSlice from './slices/datasetSlice';
-import dashboardSlice from './slices/dashboardSlice';
-import chartSlice from './slices/chartSlice';
-import webviewSlice from './slices/webviewSlice';
-import categorySlice from './slices/categorySlice';
+import { persistStore, persistReducer } from 'redux-persist';
+import storage from 'redux-persist/lib/storage';
+import { combineReducers } from '@reduxjs/toolkit';
+
+import authReducer from './slices/authSlice';
+import workspaceReducer from './slices/workspaceSlice';
+import uiReducer from './slices/uiSlice';
+import { authApi } from './api/authApi';
+
+const persistConfig = {
+  key: 'root',
+  storage,
+  whitelist: ['auth'], // Only persist auth state
+};
+
+const rootReducer = combineReducers({
+  auth: authReducer,
+  workspace: workspaceReducer,
+  ui: uiReducer,
+  [authApi.reducerPath]: authApi.reducer,
+});
+
+const persistedReducer = persistReducer(persistConfig, rootReducer);
 
 export const store = configureStore({
-  reducer: {
-    [baseApi.reducerPath]: baseApi.reducer,
-    auth: authSlice,
-    workspace: workspaceSlice,
-    dataset: datasetSlice,
-    dashboard: dashboardSlice,
-    chart: chartSlice,
-    webview: webviewSlice,
-    category: categorySlice,
-  },
+  reducer: persistedReducer,
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
       serializableCheck: {
-        ignoredActions: [baseApi.util.resetApiState.type],
+        ignoredActions: ['persist/PERSIST', 'persist/REHYDRATE'],
       },
-    }).concat(baseApi.middleware),
+    }).concat(authApi.middleware),
 });
 
-setupListeners(store.dispatch);
+export const persistor = persistStore(store);
 
 export type RootState = ReturnType<typeof store.getState>;
 export type AppDispatch = typeof store.dispatch;

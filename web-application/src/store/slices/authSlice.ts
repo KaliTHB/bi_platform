@@ -1,4 +1,3 @@
-# web-application/src/store/slices/authSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { authAPI } from '@/services/api';
 import { User, LoginRequest, LoginResponse } from '@/types/auth.types';
@@ -10,6 +9,8 @@ interface AuthState {
   isLoading: boolean;
   error: string | null;
   lastActivity: number;
+  permissions: string[];
+  workspace: any | null;
 }
 
 const initialState: AuthState = {
@@ -19,6 +20,8 @@ const initialState: AuthState = {
   isLoading: false,
   error: null,
   lastActivity: Date.now(),
+  permissions: [],
+  workspace: null,
 };
 
 // Async thunks
@@ -29,11 +32,11 @@ export const login = createAsyncThunk(
       const response = await authAPI.login(credentials);
       
       // Store token in localStorage for API calls
-      if (response.token) {
-        localStorage.setItem('auth_token', response.token);
+      if (response.data?.token) {
+        localStorage.setItem('auth_token', response.data.token);
       }
       
-      return response;
+      return response.data;
     } catch (error: any) {
       const message = error.response?.data?.error || error.message || 'Login failed';
       return rejectWithValue(message);
@@ -41,27 +44,8 @@ export const login = createAsyncThunk(
   }
 );
 
-export const register = createAsyncThunk(
-  'auth/register',
-  async (data: {
-    email: string;
-    password: string;
-    first_name: string;
-    last_name: string;
-    invitation_token?: string;
-  }, { rejectWithValue }) => {
-    try {
-      const response = await authAPI.register(data);
-      return response;
-    } catch (error: any) {
-      const message = error.response?.data?.error || error.message || 'Registration failed';
-      return rejectWithValue(message);
-    }
-  }
-);
-
-export const verifyToken = createAsyncThunk(
-  'auth/verifyToken',
+export const validateToken = createAsyncThunk(
+  'auth/validateToken',
   async (_, { rejectWithValue }) => {
     try {
       const token = localStorage.getItem('auth_token');
@@ -70,32 +54,37 @@ export const verifyToken = createAsyncThunk(
       }
 
       const response = await authAPI.verifyToken();
-      return { user: response.user, token };
+      return { ...response, token };
     } catch (error: any) {
       localStorage.removeItem('auth_token');
-      const message = error.response?.data?.error || error.message || 'Token verification failed';
+      const message = error.response?.data?.error || error.message || 'Token validation failed';
       return rejectWithValue(message);
     }
   }
 );
 
-export const refreshToken = createAsyncThunk(
-  'auth/refreshToken',
-  async (_, { getState, rejectWithValue }) => {
+export const switchWorkspace = createAsyncThunk(
+  'auth/switchWorkspace',
+  async (workspaceSlug: string, { rejectWithValue }) => {
     try {
-      // In a real implementation, you'd have a refresh token endpoint
-      const state = getState() as { auth: AuthState };
-      const currentToken = state.auth.token;
+      const response = await fetch(`/api/auth/switch-workspace`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+        },
+        body: JSON.stringify({ workspace_slug: workspaceSlug }),
+      });
       
-      if (!currentToken) {
-        throw new Error('No token to refresh');
+      const data = await response.json();
+      if (data.success) {
+        localStorage.setItem('auth_token', data.data.token);
+        return data.data;
+      } else {
+        throw new Error(data.message);
       }
-
-      const response = await authAPI.verifyToken();
-      return response;
     } catch (error: any) {
-      const message = error.response?.data?.error || error.message || 'Token refresh failed';
-      return rejectWithValue(message);
+      return rejectWithValue(error.message || 'Workspace switch failed');
     }
   }
 );
@@ -109,37 +98,9 @@ export const logout = createAsyncThunk(
         await authAPI.logout();
       }
     } catch (error) {
-      // Ignore logout errors, continue with local logout
       console.warn('Logout API call failed:', error);
     } finally {
-      // Always clear local storage
       localStorage.removeItem('auth_token');
-    }
-  }
-);
-
-export const forgotPassword = createAsyncThunk(
-  'auth/forgotPassword',
-  async (email: string, { rejectWithValue }) => {
-    try {
-      const response = await authAPI.forgotPassword({ email });
-      return response;
-    } catch (error: any) {
-      const message = error.response?.data?.error || error.message || 'Failed to send reset email';
-      return rejectWithValue(message);
-    }
-  }
-);
-
-export const resetPassword = createAsyncThunk(
-  'auth/resetPassword',
-  async (data: { token: string; new_password: string }, { rejectWithValue }) => {
-    try {
-      const response = await authAPI.resetPassword(data);
-      return response;
-    } catch (error: any) {
-      const message = error.response?.data?.error || error.message || 'Password reset failed';
-      return rejectWithValue(message);
     }
   }
 );
@@ -149,6 +110,28 @@ const authSlice = createSlice({
   name: 'auth',
   initialState,
   reducers: {
+    setCredentials: (state, action: PayloadAction<{ user: User; token: string; workspace: any; permissions: string[] }>) => {
+      state.user = action.payload.user;
+      state.token = action.payload.token;
+      state.workspace = action.payload.workspace;
+      state.permissions = action.payload.permissions;
+      state.isAuthenticated = true;
+      state.lastActivity = Date.now();
+      state.error = null;
+    },
+    clearAuth: (state) => {
+      state.user = null;
+      state.token = null;
+      state.workspace = null;
+      state.permissions = [];
+      state.isAuthenticated = false;
+      state.lastActivity = Date.now();
+      state.error = null;
+    },
+    updateTokens: (state, action: PayloadAction<{ accessToken: string; refreshToken: string }>) => {
+      state.token = action.payload.accessToken;
+      state.lastActivity = Date.now();
+    },
     clearError: (state) => {
       state.error = null;
     },
@@ -173,9 +156,11 @@ const authSlice = createSlice({
       })
       .addCase(login.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.isAuthenticated = true;
         state.user = action.payload.user;
         state.token = action.payload.token;
+        state.workspace = action.payload.workspace;
+        state.permissions = action.payload.permissions || [];
+        state.isAuthenticated = true;
         state.lastActivity = Date.now();
         state.error = null;
       })
@@ -184,56 +169,54 @@ const authSlice = createSlice({
         state.isAuthenticated = false;
         state.user = null;
         state.token = null;
+        state.workspace = null;
+        state.permissions = [];
         state.error = action.payload as string;
       });
 
-    // Register
+    // Validate token
     builder
-      .addCase(register.pending, (state) => {
+      .addCase(validateToken.pending, (state) => {
         state.isLoading = true;
         state.error = null;
       })
-      .addCase(register.fulfilled, (state) => {
+      .addCase(validateToken.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.error = null;
-      })
-      .addCase(register.rejected, (state, action) => {
-        state.isLoading = false;
-        state.error = action.payload as string;
-      });
-
-    // Verify token
-    builder
-      .addCase(verifyToken.pending, (state) => {
-        state.isLoading = true;
-      })
-      .addCase(verifyToken.fulfilled, (state, action) => {
-        state.isLoading = false;
-        state.isAuthenticated = true;
         state.user = action.payload.user;
         state.token = action.payload.token;
+        state.workspace = action.payload.workspace;
+        state.permissions = action.payload.permissions || [];
+        state.isAuthenticated = true;
         state.lastActivity = Date.now();
         state.error = null;
       })
-      .addCase(verifyToken.rejected, (state) => {
+      .addCase(validateToken.rejected, (state) => {
         state.isLoading = false;
         state.isAuthenticated = false;
         state.user = null;
         state.token = null;
-        state.error = null; // Don't show error for failed token verification
+        state.workspace = null;
+        state.permissions = [];
       });
 
-    // Refresh token
+    // Switch workspace
     builder
-      .addCase(refreshToken.fulfilled, (state, action) => {
+      .addCase(switchWorkspace.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(switchWorkspace.fulfilled, (state, action) => {
+        state.isLoading = false;
         state.user = action.payload.user;
+        state.token = action.payload.token;
+        state.workspace = action.payload.workspace;
+        state.permissions = action.payload.permissions || [];
         state.lastActivity = Date.now();
         state.error = null;
       })
-      .addCase(refreshToken.rejected, (state) => {
-        state.isAuthenticated = false;
-        state.user = null;
-        state.token = null;
+      .addCase(switchWorkspace.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload as string;
       });
 
     // Logout
@@ -244,46 +227,20 @@ const authSlice = createSlice({
         state.isAuthenticated = false;
         state.lastActivity = Date.now();
         state.error = null;
-      });
-
-    // Forgot password
-    builder
-      .addCase(forgotPassword.pending, (state) => {
-        state.isLoading = true;
-        state.error = null;
-      })
-      .addCase(forgotPassword.fulfilled, (state) => {
-        state.isLoading = false;
-        state.error = null;
-      })
-      .addCase(forgotPassword.rejected, (state, action) => {
-        state.isLoading = false;
-        state.error = action.payload as string;
-      });
-
-    // Reset password
-    builder
-      .addCase(resetPassword.pending, (state) => {
-        state.isLoading = true;
-        state.error = null;
-      })
-      .addCase(resetPassword.fulfilled, (state) => {
-        state.isLoading = false;
-        state.error = null;
-      })
-      .addCase(resetPassword.rejected, (state, action) => {
-        state.isLoading = false;
-        state.error = action.payload as string;
+        state.workspace = null;
+        state.permissions = [];
       });
   },
 });
 
-export const { clearError, updateLastActivity, updateUser, setLoading } = authSlice.actions;
-export default authSlice.reducer;
+export const { 
+  setCredentials, 
+  clearAuth, 
+  updateTokens, 
+  clearError, 
+  updateLastActivity, 
+  updateUser, 
+  setLoading 
+} = authSlice.actions;
 
-// Selectors
-export const selectAuth = (state: { auth: AuthState }) => state.auth;
-export const selectIsAuthenticated = (state: { auth: AuthState }) => state.auth.isAuthenticated;
-export const selectCurrentUser = (state: { auth: AuthState }) => state.auth.user;
-export const selectAuthLoading = (state: { auth: AuthState }) => state.auth.isLoading;
-export const selectAuthError = (state: { auth: AuthState }) => state.auth.error;
+export default authSlice.reducer;

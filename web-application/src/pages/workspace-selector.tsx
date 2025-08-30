@@ -1,39 +1,30 @@
-// web-application/src/pages/workspace-selector.tsx
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { useSelector, useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import {
   Container,
+  Paper,
+  Typography,
+  Box,
   Grid,
   Card,
   CardContent,
-  CardActionArea,
-  Typography,
-  Box,
+  CardActions,
   Button,
-  TextField,
-  InputAdornment,
   CircularProgress,
+  Alert,
 } from '@mui/material';
-import { Search as SearchIcon, Add as AddIcon } from '@mui/icons-material';
 import { RootState } from '../store';
 import { switchWorkspace } from '../store/slices/authSlice';
 
-interface Workspace {
-  id: string;
-  name: string;
-  display_name: string;
-  slug: string;
-  description?: string;
-}
-
-export default function WorkspaceSelectorPage() {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  
+export default function WorkspaceSelector() {
   const router = useRouter();
   const dispatch = useDispatch();
+  const [workspaces, setWorkspaces] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [switching, setSwitching] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
   const auth = useSelector((state: RootState) => state.auth);
 
   useEffect(() => {
@@ -43,7 +34,7 @@ export default function WorkspaceSelectorPage() {
   const fetchWorkspaces = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/auth/workspaces', {
+      const response = await fetch('/api/workspaces', {
         headers: {
           'Authorization': `Bearer ${auth.token}`,
         },
@@ -51,126 +42,104 @@ export default function WorkspaceSelectorPage() {
 
       const data = await response.json();
       if (data.success) {
-        setWorkspaces(data.data);
+        setWorkspaces(data.data.workspaces || []);
+      } else {
+        setError(data.message || 'Failed to fetch workspaces');
       }
-    } catch (error) {
-      console.error('Error fetching workspaces:', error);
+    } catch (err: any) {
+      setError(err.message || 'Network error occurred');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleWorkspaceSelect = async (workspace: Workspace) => {
+  const handleWorkspaceSelect = async (workspaceSlug: string) => {
     try {
-      // Switch to selected workspace
-      dispatch(switchWorkspace({
-        workspace,
-        permissions: [] // Will be loaded after workspace switch
-      }));
+      setSwitching(workspaceSlug);
+      setError('');
 
-      // Navigate to workspace
-      router.push(`/workspace/${workspace.slug}`);
-    } catch (error) {
-      console.error('Error switching workspace:', error);
+      const result = await dispatch(switchWorkspace(workspaceSlug) as any);
+      
+      if (result.meta.requestStatus === 'fulfilled') {
+        router.push(`/workspace/${workspaceSlug}`);
+      } else {
+        setError(result.payload || 'Failed to switch workspace');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to switch workspace');
+    } finally {
+      setSwitching(null);
     }
   };
 
-  const filteredWorkspaces = workspaces.filter(workspace =>
-    workspace.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    workspace.display_name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   if (loading) {
     return (
-      <Container maxWidth="md" sx={{ mt: 8, textAlign: 'center' }}>
-        <CircularProgress size={48} />
-        <Typography variant="h6" sx={{ mt: 2 }}>
-          Loading workspaces...
-        </Typography>
+      <Container component="main" maxWidth="md">
+        <Box display="flex" justifyContent="center" alignItems="center" minHeight="50vh">
+          <CircularProgress />
+        </Box>
       </Container>
     );
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4 }}>
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
+    <Container component="main" maxWidth="md">
+      <Box sx={{ marginTop: 8, textAlign: 'center' }}>
+        <Typography variant="h4" gutterBottom>
           Select Workspace
         </Typography>
         <Typography variant="body1" color="textSecondary" paragraph>
-          Choose a workspace to continue to the BI Platform
+          Choose a workspace to continue
         </Typography>
-      </Box>
 
-      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <TextField
-          placeholder="Search workspaces..."
-          variant="outlined"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon />
-              </InputAdornment>
-            ),
-          }}
-          sx={{ width: 300 }}
-        />
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => router.push('/create-workspace')}
-        >
-          Create Workspace
-        </Button>
-      </Box>
+        {error && (
+          <Alert severity="error" sx={{ mb: 3 }}>
+            {error}
+          </Alert>
+        )}
 
-      {filteredWorkspaces.length === 0 ? (
-        <Box sx={{ textAlign: 'center', mt: 8 }}>
-          <Typography variant="h6" color="textSecondary">
-            No workspaces found
-          </Typography>
-          <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-            {searchQuery ? 'Try adjusting your search terms.' : 'Contact your administrator for access.'}
-          </Typography>
-        </Box>
-      ) : (
-        <Grid container spacing={3}>
-          {filteredWorkspaces.map((workspace) => (
+        <Grid container spacing={3} sx={{ mt: 2 }}>
+          {workspaces.map((workspace) => (
             <Grid item xs={12} sm={6} md={4} key={workspace.id}>
-              <Card 
-                elevation={2} 
-                sx={{ 
-                  height: '100%',
-                  '&:hover': {
-                    elevation: 4,
-                    transform: 'translateY(-2px)',
-                    transition: 'all 0.2s ease-in-out'
-                  }
-                }}
-              >
-                <CardActionArea 
-                  onClick={() => handleWorkspaceSelect(workspace)}
-                  sx={{ height: '100%', p: 2 }}
-                >
-                  <CardContent>
-                    <Typography variant="h6" component="h2" gutterBottom>
-                      {workspace.display_name}
-                    </Typography>
-                    <Typography variant="body2" color="textSecondary" paragraph>
-                      {workspace.description || 'No description available'}
-                    </Typography>
-                    <Typography variant="caption" color="textSecondary">
-                      Slug: {workspace.slug}
-                    </Typography>
-                  </CardContent>
-                </CardActionArea>
+              <Card elevation={2}>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    {workspace.name}
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary">
+                    {workspace.description || 'No description available'}
+                  </Typography>
+                  <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+                    {workspace.user_count || 0} users • {workspace.dashboard_count || 0} dashboards
+                  </Typography>
+                </CardContent>
+                <CardActions>
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    onClick={() => handleWorkspaceSelect(workspace.slug)}
+                    disabled={switching === workspace.slug}
+                    startIcon={switching === workspace.slug ? <CircularProgress size={16} /> : undefined}
+                  >
+                    {switching === workspace.slug ? 'Switching...' : 'Select'}
+                  </Button>
+                </CardActions>
               </Card>
             </Grid>
           ))}
         </Grid>
-      )}
+
+        {workspaces.length === 0 && (
+          <Paper sx={{ p: 4, mt: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              No Workspaces Available
+            </Typography>
+            <Typography variant="body2" color="textSecondary">
+              You don't have access to any workspaces. Contact your administrator.
+            </Typography>
+          </Paper>
+        )}
+      </Box>
     </Container>
   );
 }

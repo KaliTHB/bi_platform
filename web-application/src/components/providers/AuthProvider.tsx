@@ -1,16 +1,16 @@
 // web-application/src/components/providers/AuthProvider.tsx
 import React, { createContext, useContext, useEffect, ReactNode } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { useRouter } from 'next/router';
 import { RootState } from '../../store';
-import { logout } from '../../store/slices/authSlice';
+import { logout, validateToken } from '../../store/slices/authSlice';
 
 interface AuthContextType {
   isAuthenticated: boolean;
-  user: any;
-  workspace: any;
+  user: any | null;
+  workspace: any | null;
   permissions: string[];
-  signOut: () => void;
+  loading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -25,58 +25,39 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const auth = useSelector((state: RootState) => state.auth);
 
   useEffect(() => {
-    // Check if token is expired
-    if (auth.token) {
-      try {
-        const payload = JSON.parse(atob(auth.token.split('.')[1]));
-        const isExpired = payload.exp * 1000 < Date.now();
-        
-        if (isExpired) {
-          dispatch(logout());
-          router.push('/login');
-        }
-      } catch (error) {
-        console.error('Error checking token expiration:', error);
-        dispatch(logout());
-        router.push('/login');
-      }
+    // Check if user is authenticated on app load
+    const token = localStorage.getItem('token');
+    if (token && !auth.isAuthenticated) {
+      // Validate token
+      dispatch(validateToken() as any);
     }
-  }, [auth.token, dispatch, router]);
+  }, [dispatch, auth.isAuthenticated]);
 
-  const signOut = async () => {
-    try {
-      if (auth.token) {
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${auth.token}`,
-          },
-        });
-      }
-    } catch (error) {
-      console.error('Logout error:', error);
-    } finally {
-      dispatch(logout());
+  useEffect(() => {
+    // Redirect to login if not authenticated and not on public pages
+    const publicPaths = ['/login', '/register', '/forgot-password'];
+    const isPublicPath = publicPaths.some(path => router.pathname.startsWith(path));
+    
+    if (!auth.isAuthenticated && !auth.loading && !isPublicPath) {
       router.push('/login');
     }
-  };
+  }, [auth.isAuthenticated, auth.loading, router]);
 
   const value: AuthContextType = {
     isAuthenticated: auth.isAuthenticated,
     user: auth.user,
     workspace: auth.workspace,
-    permissions: auth.permissions,
-    signOut,
+    permissions: auth.permissions || [],
+    loading: auth.loading,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-export const useAuthContext = () => {
+export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuthContext must be used within an AuthProvider');
+    throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
 };
-

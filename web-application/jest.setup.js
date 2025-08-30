@@ -1,4 +1,4 @@
-# File: web-application/jest.setup.js
+// File: web-application/jest.setup.js
 import '@testing-library/jest-dom';
 
 // Mock Next.js router
