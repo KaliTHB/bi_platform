@@ -1,4 +1,4 @@
-# web-application/next.config.js
+// web-application/next.config.js
 /** @type {import('next').NextConfig} */
 const { withBundleAnalyzer } = require('@next/bundle-analyzer');
 
@@ -12,7 +12,7 @@ const nextConfig = {
   // Experimental features
   experimental: {
     // Enable app directory
-    appDir: true,
+    //appDir: true,
     // Enable server components
     serverComponentsExternalPackages: [],
   },
@@ -171,7 +171,7 @@ const nextConfig = {
 };
 
 // Bundle analyzer configuration
-const withAnalyzer = withBundleAnalyzer({
+const withAnalyzer = require('@next/bundle-analyzer')({
   enabled: process.env.ANALYZE === 'true',
 });
 
