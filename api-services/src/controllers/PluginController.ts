@@ -1,33 +1,52 @@
-// File: api-services/src/controllers/PluginController.ts
-
+/ File: api-services/src/controllers/PluginController.ts
 import { Request, Response } from 'express';
 import { PluginService } from '../services/PluginService';
 import { PermissionService } from '../services/PermissionService';
+import { CacheService } from '../services/CacheService';
+import { logger } from '../utils/logger';
+import { validateRequest } from '../utils/validation';
+import { Joi } from 'joi';
 
 export class PluginController {
-  constructor(
-    private pluginService: PluginService,
-    private permissionService: PermissionService
-  ) {}
+  private pluginService: PluginService;
+  private permissionService: PermissionService;
+  private cacheService: CacheService;
 
-  async getAvailableDataSourcePlugins(req: Request, res: Response) {
+  constructor() {
+    this.pluginService = new PluginService();
+    this.permissionService = new PermissionService();
+    this.cacheService = new CacheService();
+  }
+
+  // Get all available plugins
+  async getAvailablePlugins(req: Request, res: Response) {
     try {
-      const plugins = await this.pluginService.getAvailableDataSourcePlugins();
+      const cacheKey = 'available-plugins';
       
+      // Try cache first
+      let plugins = await this.cacheService.get(cacheKey);
+      
+      if (!plugins) {
+        plugins = await this.pluginService.getAvailablePlugins();
+        // Cache for 1 hour
+        await this.cacheService.set(cacheKey, plugins, 3600);
+      }
+
       res.json({
         success: true,
-        data: plugins
+        data: { plugins }
       });
     } catch (error) {
-      console.error('Error fetching data source plugins:', error);
+      logger.error('Error getting available plugins:', error);
       res.status(500).json({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to load plugins' }
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get available plugins' }
       });
     }
   }
 
-  async getWorkspacePluginConfigs(req: Request, res: Response) {
+  // Get workspace plugin configurations
+  async getWorkspaceConfigurations(req: Request, res: Response) {
     try {
       const { workspace_id } = req.user;
 
@@ -39,25 +58,41 @@ export class PluginController {
         });
       }
 
-      const configs = await this.pluginService.getWorkspacePluginConfigs(workspace_id);
+      const configurations = await this.pluginService.getWorkspaceConfigurations(workspace_id);
 
       res.json({
         success: true,
-        data: configs
+        data: { configurations }
       });
     } catch (error) {
-      console.error('Error fetching plugin configs:', error);
+      logger.error('Error getting workspace configurations:', error);
       res.status(500).json({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to load plugin configurations' }
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get configurations' }
       });
     }
   }
 
+  // Update plugin configuration
   async updatePluginConfiguration(req: Request, res: Response) {
     try {
       const { workspace_id } = req.user;
-      const { plugin_type, plugin_name, configuration, is_enabled } = req.body;
+      const schema = Joi.object({
+        plugin_type: Joi.string().valid('datasource', 'chart').required(),
+        plugin_name: Joi.string().required(),
+        configuration: Joi.object().default({}),
+        is_enabled: Joi.boolean().required()
+      });
+
+      const { error, value } = schema.validate(req.body);
+      if (error) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: error.details[0].message }
+        });
+      }
+
+      const { plugin_type, plugin_name, configuration, is_enabled } = value;
 
       // Check permission
       if (!await this.permissionService.hasPermission(req.user.id, workspace_id, 'plugin.config.update')) {
@@ -78,10 +113,10 @@ export class PluginController {
 
       res.json({
         success: true,
-        data: config
+        data: { configuration: config }
       });
     } catch (error) {
-      console.error('Error updating plugin config:', error);
+      logger.error('Error updating plugin config:', error);
       res.status(500).json({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Failed to update plugin configuration' }
@@ -89,112 +124,82 @@ export class PluginController {
     }
   }
 
-  async enablePlugin(req: Request, res: Response) {
+  // Test plugin connection
+  async testPluginConnection(req: Request, res: Response) {
     try {
       const { workspace_id } = req.user;
-      const { plugin_type, plugin_name } = req.body;
+      const schema = Joi.object({
+        plugin_name: Joi.string().required(),
+        configuration: Joi.object().required()
+      });
+
+      const { error, value } = schema.validate(req.body);
+      if (error) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: error.details[0].message }
+        });
+      }
+
+      const { plugin_name, configuration } = value;
 
       // Check permission
-      if (!await this.permissionService.hasPermission(req.user.id, workspace_id, 'plugin.config.update')) {
+      if (!await this.permissionService.hasPermission(req.user.id, workspace_id, 'plugin.config.test')) {
         return res.status(403).json({
           success: false,
           error: { code: 'ACCESS_DENIED', message: 'Insufficient permissions' }
         });
       }
 
-      await this.pluginService.enablePlugin(workspace_id, plugin_type, plugin_name, req.user.id);
+      const startTime = Date.now();
+      const result = await this.pluginService.testPluginConnection(plugin_name, configuration);
+      const responseTime = Date.now() - startTime;
 
-      res.json({
-        success: true,
-        message: 'Plugin enabled successfully'
-      });
-    } catch (error) {
-      console.error('Error enabling plugin:', error);
-      res.status(500).json({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to enable plugin' }
-      });
-    }
-  }
-
-  async disablePlugin(req: Request, res: Response) {
-    try {
-      const { workspace_id } = req.user;
-      const { plugin_type, plugin_name } = req.body;
-
-      // Check permission
-      if (!await this.permissionService.hasPermission(req.user.id, workspace_id, 'plugin.config.update')) {
-        return res.status(403).json({
-          success: false,
-          error: { code: 'ACCESS_DENIED', message: 'Insufficient permissions' }
-        });
-      }
-
-      await this.pluginService.disablePlugin(workspace_id, plugin_type, plugin_name);
-
-      res.json({
-        success: true,
-        message: 'Plugin disabled successfully'
-      });
-    } catch (error) {
-      console.error('Error disabling plugin:', error);
-      res.status(500).json({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to disable plugin' }
-      });
-    }
-  }
-
-  async testDataSourceConnection(req: Request, res: Response) {
-    try {
-      const { plugin_name, configuration } = req.body;
-
-      const isValid = await this.pluginService.testDataSourceConnection(plugin_name, configuration);
+      // Cache test result for 1 minute
+      const cacheKey = `plugin-test:${workspace_id}:${plugin_name}`;
+      await this.cacheService.set(cacheKey, { ...result, response_time: responseTime }, 60);
 
       res.json({
         success: true,
         data: {
-          connection_valid: isValid,
-          tested_at: new Date().toISOString()
+          connection_valid: result.success,
+          message: result.message,
+          response_time: responseTime
         }
       });
     } catch (error) {
-      console.error('Error testing data source connection:', error);
-      res.status(400).json({
+      logger.error('Error testing plugin connection:', error);
+      res.status(500).json({
         success: false,
-        error: { code: 'CONNECTION_FAILED', message: error.message }
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to test connection' }
       });
     }
   }
 
-  async getPluginUsageStats(req: Request, res: Response) {
+  // Get plugin statistics
+  async getPluginStatistics(req: Request, res: Response) {
     try {
       const { workspace_id } = req.user;
-      const { plugin_name } = req.query;
 
       // Check permission
-      if (!await this.permissionService.hasPermission(req.user.id, workspace_id, 'plugin.stats.read')) {
+      if (!await this.permissionService.hasPermission(req.user.id, workspace_id, 'plugin.config.read')) {
         return res.status(403).json({
           success: false,
           error: { code: 'ACCESS_DENIED', message: 'Insufficient permissions' }
         });
       }
 
-      const stats = await this.pluginService.getPluginUsageStats(
-        workspace_id,
-        plugin_name as string
-      );
+      const statistics = await this.pluginService.getPluginStatistics(workspace_id);
 
       res.json({
         success: true,
-        data: stats
+        data: statistics
       });
     } catch (error) {
-      console.error('Error fetching plugin usage stats:', error);
+      logger.error('Error getting plugin statistics:', error);
       res.status(500).json({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to load plugin statistics' }
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get statistics' }
       });
     }
   }
-}

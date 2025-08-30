@@ -1,184 +1,259 @@
-/ File: api-services/src/plugins/datasources/relational/postgres.ts
-import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
-import { Pool } from 'pg';
+// File: api-services/src/plugins/datasources/relational/postgresql.ts
+import { Pool, PoolClient } from 'pg';
+import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo, TableInfo, ColumnInfo } from '../interfaces/DataSourcePlugin';
 
-export const postgresPlugin: DataSourcePlugin = {
-  name: 'postgres',
+class PostgreSQLConnection implements Connection {
+  id: string;
+  config: ConnectionConfig;
+  client: Pool;
+  isConnected: boolean;
+  lastActivity: Date;
+
+  constructor(config: ConnectionConfig) {
+    this.id = `pg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    this.config = config;
+    this.client = new Pool({
+      host: config.host,
+      port: config.port || 5432,
+      database: config.database,
+      user: config.username,
+      password: config.password,
+      max: 5,
+      idleTimeoutMillis: 30000,
+    });
+    this.isConnected = false;
+    this.lastActivity = new Date();
+  }
+}
+
+export const PostgreSQLPlugin: DataSourcePlugin = {
+  name: 'postgresql',
   displayName: 'PostgreSQL',
   category: 'relational',
   version: '1.0.0',
-  description: 'Connect to PostgreSQL databases',
+  description: 'PostgreSQL database connector with full SQL support',
   
   configSchema: {
     type: 'object',
     properties: {
-      host: { type: 'string', title: 'Host', default: 'localhost' },
-      port: { type: 'number', title: 'Port', default: 5432, minimum: 1, maximum: 65535 },
-      database: { type: 'string', title: 'Database' },
-      username: { type: 'string', title: 'Username' },
-      password: { type: 'string', title: 'Password', format: 'password' },
-      ssl: { type: 'boolean', title: 'Use SSL', default: false },
-      connectionTimeout: { type: 'number', title: 'Connection Timeout (ms)', default: 30000 }
+      host: {
+        type: 'string',
+        required: true,
+        title: 'Host',
+        description: 'Database server hostname or IP address',
+        default: 'localhost'
+      },
+      port: {
+        type: 'number',
+        title: 'Port',
+        description: 'Database server port',
+        default: 5432,
+        minimum: 1,
+        maximum: 65535
+      },
+      database: {
+        type: 'string',
+        required: true,
+        title: 'Database Name',
+        description: 'Name of the database to connect to'
+      },
+      username: {
+        type: 'string',
+        required: true,
+        title: 'Username',
+        description: 'Database username'
+      },
+      password: {
+        type: 'password',
+        required: true,
+        title: 'Password',
+        description: 'Database password'
+      }
     },
-    required: ['host', 'port', 'database', 'username', 'password'],
-    additionalProperties: false
-  },
-
-  capabilities: {
-    supportsBulkInsert: true,
-    supportsTransactions: true,
-    supportsStoredProcedures: true,
-    maxConcurrentConnections: 100
+    required: ['host', 'database', 'username', 'password']
   },
 
   async connect(config: ConnectionConfig): Promise<Connection> {
-    const pool = new Pool({
-      host: config.host,
-      port: config.port,
-      database: config.database,
-      user: config.username,
-      password: config.password,
-      ssl: config.ssl,
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: config.connectionTimeout || 30000
-    });
-
-    // Test the connection
-    const client = await pool.connect();
-    client.release();
-
-    return {
-      id: `postgres-${Date.now()}`,
-      config,
-      pool,
-      isConnected: true,
-      lastActivity: new Date()
-    };
-  },
-
-  async testConnection(config: ConnectionConfig): Promise<boolean> {
+    const connection = new PostgreSQLConnection(config);
+    
     try {
-      const connection = await this.connect(config);
-      await this.disconnect(connection);
-      return true;
+      // Test the connection
+      const client = await connection.client.connect();
+      await client.query('SELECT 1');
+      client.release();
+      
+      connection.isConnected = true;
+      connection.lastActivity = new Date();
+      
+      return connection;
     } catch (error) {
-      return false;
+      await connection.client.end();
+      throw new Error(`Failed to connect to PostgreSQL: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   },
 
-  async executeQuery(connection: Connection, query: string, params?: any[]): Promise<QueryResult> {
+  async testConnection(config: ConnectionConfig): Promise<boolean> {
+    const testPool = new Pool({
+      host: config.host,
+      port: config.port || 5432,
+      database: config.database,
+      user: config.username,
+      password: config.password,
+      max: 1,
+      connectionTimeoutMillis: 5000,
+    });
+
+    try {
+      const client = await testPool.connect();
+      await client.query('SELECT 1');
+      client.release();
+      return true;
+    } catch (error) {
+      return false;
+    } finally {
+      await testPool.end();
+    }
+  },
+
+  async executeQuery(connection: Connection, query: string, params: any[] = []): Promise<QueryResult> {
+    if (!connection.isConnected) {
+      throw new Error('Connection is not established');
+    }
+
     const startTime = Date.now();
-    const client = await connection.pool.connect();
     
     try {
-      const result = await client.query(query, params);
-      const executionTimeMs = Date.now() - startTime;
+      const result = await connection.client.query(query, params);
+      const executionTime = Date.now() - startTime;
       
-      const columns = result.fields.map(field => ({
-        name: field.name,
-        type: this.mapPostgresType(field.dataTypeID),
-        nullable: true,
-        defaultValue: null
-      }));
-
       connection.lastActivity = new Date();
       
       return {
         rows: result.rows,
-        columns,
+        fields: result.fields?.map(field => ({
+          name: field.name,
+          type: this.mapPostgreSQLType(field.dataTypeID)
+        })),
         rowCount: result.rowCount || 0,
-        executionTimeMs,
-        queryId: `pg-${Date.now()}`
+        executionTime
       };
-    } finally {
-      client.release();
+    } catch (error) {
+      throw new Error(`Query execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   },
 
   async getSchema(connection: Connection): Promise<SchemaInfo> {
     const tablesQuery = `
-      SELECT schemaname, tablename, tableowner 
+      SELECT 
+        schemaname as schema,
+        tablename as name,
+        'table' as type
       FROM pg_tables 
       WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
-      ORDER BY schemaname, tablename
-    `;
-    
-    const viewsQuery = `
-      SELECT schemaname, viewname, viewowner, definition
-      FROM pg_views 
+      UNION ALL
+      SELECT 
+        schemaname as schema,
+        viewname as name,
+        'view' as type  
+      FROM pg_views
       WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
-      ORDER BY schemaname, viewname
+      ORDER BY schema, name
     `;
 
-    const tablesResult = await this.executeQuery(connection, tablesQuery);
-    const viewsResult = await this.executeQuery(connection, viewsQuery);
+    const result = await this.executeQuery(connection, tablesQuery);
     
-    const tables = await Promise.all(
-      tablesResult.rows.map(async (row) => {
-        const columns = await this.getTableColumns(connection, row.tablename, row.schemaname);
-        return {
-          name: row.tablename,
-          schema: row.schemaname,
-          columns,
-          primaryKey: await this.getPrimaryKey(connection, row.tablename, row.schemaname)
-        };
-      })
-    );
+    const tables = result.rows.filter(row => row.type === 'table').map(row => ({
+      name: row.name,
+      schema: row.schema,
+      type: 'table' as const
+    }));
 
-    const views = viewsResult.rows.map(row => ({
-      name: row.viewname,
-      schema: row.schemaname,
-      columns: [],
-      definition: row.definition
+    const views = result.rows.filter(row => row.type === 'view').map(row => ({
+      name: row.name,
+      schema: row.schema,
+      type: 'view' as const
     }));
 
     return { tables, views };
   },
 
-  async disconnect(connection: Connection): Promise<void> {
-    if (connection.pool) {
-      await connection.pool.end();
-    }
-    connection.isConnected = false;
-  },
-
-  // Helper methods
-  private mapPostgresType(typeId: number): string {
-    const typeMap: Record<number, string> = {
-      20: 'bigint', 21: 'smallint', 23: 'integer', 25: 'text',
-      1042: 'char', 1043: 'varchar', 1114: 'timestamp', 1082: 'date',
-      700: 'real', 701: 'double precision', 16: 'boolean', 17: 'bytea'
-    };
-    return typeMap[typeId] || 'unknown';
-  },
-
-  private async getTableColumns(connection: Connection, tableName: string, schemaName: string): Promise<any[]> {
+  async getTables(connection: Connection, database?: string): Promise<TableInfo[]> {
     const query = `
-      SELECT column_name, data_type, is_nullable, column_default
-      FROM information_schema.columns
-      WHERE table_name = $1 AND table_schema = $2
-      ORDER BY ordinal_position
+      SELECT 
+        schemaname as schema,
+        tablename as name,
+        'table' as type
+      FROM pg_tables 
+      WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
+      ORDER BY schemaname, tablename
     `;
+
+    const result = await this.executeQuery(connection, query);
     
-    const result = await this.executeQuery(connection, query, [tableName, schemaName]);
+    return result.rows.map(row => ({
+      name: row.name,
+      schema: row.schema,
+      type: 'table' as const
+    }));
+  },
+
+  async getColumns(connection: Connection, table: string): Promise<ColumnInfo[]> {
+    const [schema, tableName] = table.includes('.') ? table.split('.') : ['public', table];
+    
+    const query = `
+      SELECT 
+        column_name,
+        data_type,
+        is_nullable,
+        column_default,
+        CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_primary_key
+      FROM information_schema.columns c
+      LEFT JOIN (
+        SELECT ku.table_name, ku.column_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage ku ON tc.constraint_name = ku.constraint_name
+        WHERE tc.constraint_type = 'PRIMARY KEY'
+      ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name
+      WHERE c.table_schema = $1 AND c.table_name = $2
+      ORDER BY c.ordinal_position
+    `;
+
+    const result = await this.executeQuery(connection, query, [schema, tableName]);
+    
     return result.rows.map(row => ({
       name: row.column_name,
       type: row.data_type,
       nullable: row.is_nullable === 'YES',
-      defaultValue: row.column_default
+      defaultValue: row.column_default,
+      isPrimaryKey: row.is_primary_key
     }));
   },
 
-  private async getPrimaryKey(connection: Connection, tableName: string, schemaName: string): Promise<string[]> {
-    const query = `
-      SELECT a.attname
-      FROM pg_index i
-      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-      WHERE i.indrelid = $1::regclass AND i.indisprimary
-    `;
-    
-    const result = await this.executeQuery(connection, query, [`${schemaName}.${tableName}`]);
-    return result.rows.map(row => row.attname);
+  async disconnect(connection: Connection): Promise<void> {
+    if (connection.client) {
+      await connection.client.end();
+      connection.isConnected = false;
+    }
+  },
+
+  // Helper method to map PostgreSQL types to common types
+  mapPostgreSQLType(dataTypeID: number): string {
+    const typeMap: Record<number, string> = {
+      16: 'boolean',
+      17: 'bytea',
+      20: 'bigint',
+      21: 'smallint',
+      23: 'integer',
+      25: 'text',
+      700: 'real',
+      701: 'double precision',
+      1043: 'varchar',
+      1082: 'date',
+      1083: 'time',
+      1114: 'timestamp',
+      1184: 'timestamp with time zone'
+    };
+
+    return typeMap[dataTypeID] || 'unknown';
   }
 };

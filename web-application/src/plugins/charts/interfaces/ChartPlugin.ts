@@ -1,91 +1,40 @@
-import React from 'react';
-
-export interface ChartDataPoint {
-  [key: string]: any;
-}
-
-export interface ChartConfig {
-  title?: string;
-  subtitle?: string;
-  xAxis?: AxisConfig;
-  yAxis?: AxisConfig;
-  colors?: string[];
-  theme?: 'light' | 'dark';
-  legend?: LegendConfig;
-  tooltip?: TooltipConfig;
-  animation?: AnimationConfig;
-  responsive?: boolean;
-  [key: string]: any;
-}
-
-export interface AxisConfig {
-  label?: string;
-  type?: 'category' | 'value' | 'time';
-  min?: number | string;
-  max?: number | string;
-  format?: string;
-  rotation?: number;
-}
-
-export interface LegendConfig {
-  show?: boolean;
-  position?: 'top' | 'bottom' | 'left' | 'right';
-  orientation?: 'horizontal' | 'vertical';
-}
-
-export interface TooltipConfig {
-  show?: boolean;
-  format?: string;
-  backgroundColor?: string;
-  textColor?: string;
-}
-
-export interface AnimationConfig {
-  enabled?: boolean;
-  duration?: number;
-  easing?: string;
-}
-
-export interface DataRequirements {
-  minColumns: number;
-  maxColumns?: number;
-  requiredColumnTypes?: string[];
-  supportedAggregations?: string[];
-  supportsDrilldown?: boolean;
-  supportsFiltering?: boolean;
-}
-
-export interface ExportOptions {
-  png?: boolean;
-  svg?: boolean;
-  pdf?: boolean;
-  csv?: boolean;
-}
-
+// File: web-application/src/plugins/interfaces/ChartPlugin.ts
 export interface ChartProps {
-  data: ChartDataPoint[];
-  config: ChartConfig;
-  width?: number | string;
-  height?: number | string;
-  onDataPointClick?: (dataPoint: ChartDataPoint, event: MouseEvent) => void;
-  onChartReady?: (chartInstance: any) => void;
-  loading?: boolean;
+  data: any[];
+  config: any;
+  dimensions: {
+    width: number;
+    height: number;
+  };
+  theme?: {
+    name: string;
+    colors: string[];
+  };
+  filters?: any[];
+  onInteraction?: (event: ChartInteractionEvent) => void;
+  onError?: (error: Error) => void;
+  isLoading?: boolean;
   error?: string;
 }
 
-export interface ChartPluginConfig {
-  name: string;
-  displayName: string;
-  category: 'basic' | 'advanced' | 'statistical' | 'geographic' | 'financial' | 'custom';
-  library: 'echarts' | 'd3js' | 'plotly' | 'chartjs' | 'nvd3js' | 'drilldown';
-  version: string;
-  description?: string;
-  icon?: string;
-  configSchema: any;
-  dataRequirements: DataRequirements;
-  exportFormats: (keyof ExportOptions)[];
-  component: React.ComponentType<ChartProps>;
-  preview?: string;
-  tags?: string[];
-  difficulty?: 'basic' | 'intermediate' | 'advanced';
+export interface ChartInteractionEvent {
+  type: 'click' | 'hover' | 'select' | 'zoom' | 'pan';
+  data?: any;
+  dataIndex?: number;
+  seriesIndex?: number;
+}
+
+export interface ChartConfigSchema {
+  type: 'object';
+  properties: {
+    [key: string]: {
+      type: 'string' | 'number' | 'boolean' | 'select' | 'color';
+      required?: boolean;
+      default?: any;
+      title?: string;
+      description?: string;
+      options?: Array<{ label: string; value: any }>;
+    };
+  };
+  required?: string[];
 }

@@ -1,45 +1,34 @@
+// File: api-services/src/middleware/rateLimit.ts
 import rateLimit from 'express-rate-limit';
-import { Request, Response } from 'express';
+import { RedisStore } from 'rate-limit-redis';
+import Redis from 'ioredis';
 
-// Create rate limiter
-export const rateLimiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW || '3600') * 1000, // Default: 1 hour
-  max: parseInt(process.env.RATE_LIMIT_MAX || '1000'), // Default: 1000 requests per window
-  message: {
-    success: false,
-    message: 'Too many requests, please try again later.',
-    errors: [
-      {
-        code: 'RATE_LIMIT_EXCEEDED',
-        message: 'Rate limit exceeded',
-      },
-    ],
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req: Request): string => {
-    return req.ip || 'unknown';
-  },
-  skip: (req: Request): boolean => {
-    // Skip rate limiting for health checks
-    return req.path === '/health';
-  },
+const redis = new Redis({
+  host: process.env.REDIS_HOST || 'localhost',
+  port: parseInt(process.env.REDIS_PORT || '6379'),
+  password: process.env.REDIS_PASSWORD,
+  db: parseInt(process.env.REDIS_DB || '1'), // Use different db for rate limiting
 });
 
-// Stricter rate limiter for auth endpoints
-export const authRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20, // 20 attempts per 15 minutes
-  message: {
-    success: false,
-    message: 'Too many authentication attempts, please try again later.',
-    errors: [
-      {
-        code: 'AUTH_RATE_LIMIT_EXCEEDED',
-        message: 'Authentication rate limit exceeded',
-      },
-    ],
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+export const rateLimitMiddleware = (options: {
+  windowMs: number;
+  max: number;
+  message: string;
+  keyPrefix?: string;
+}) => {
+  return rateLimit({
+    store: new RedisStore({
+      sendCommand: (...args: string[]) => redis.call(...args),
+    }),
+    windowMs: options.windowMs,
+    max: options.max,
+    message: { error: options.message },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+      const workspace_id = req.user?.workspace_id || 'anonymous';
+      const user_id = req.user?.id || 'anonymous';
+      return `${options.keyPrefix || 'rl'}:${workspace_id}:${user_id}`;
+    }
+  });
+};

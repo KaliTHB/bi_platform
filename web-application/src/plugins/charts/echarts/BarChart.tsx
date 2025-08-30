@@ -1,44 +1,56 @@
-'use client';
-import React, { useEffect, useRef } from 'react';
-import * as echarts from 'echarts';
-import { ChartProps, ChartPluginConfig } from '../interfaces/ChartPlugin';
+// File: web-application/src/plugins/charts/echarts/BarChart.tsx
+import React, { useMemo } from 'react';
+import ReactECharts from 'echarts-for-react';
+import { ChartProps } from '../interfaces/ChartPlugin';
 
-export const BarChart: React.FC<ChartProps> = ({ 
-  data, 
-  config, 
-  width = '100%', 
-  height = 400,
-  onDataPointClick,
-  onChartReady,
-  loading = false,
-  error 
+interface BarChartProps extends ChartProps {
+  config: {
+    xField: string;
+    yField: string;
+    colorField?: string;
+    showLegend?: boolean;
+    orientation?: 'vertical' | 'horizontal';
+  };
+}
+
+export const EChartsBarChart: React.FC<BarChartProps> = ({
+  data,
+  config,
+  dimensions,
+  theme,
+  onInteraction,
+  isLoading = false
 }) => {
-  const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstance = useRef<echarts.ECharts>();
+  const options = useMemo(() => {
+    if (!data || data.length === 0) {
+      return {
+        title: {
+          text: 'No Data Available',
+          left: 'center',
+          top: 'center'
+        }
+      };
+    }
 
-  useEffect(() => {
-    if (!chartRef.current || loading || error) return;
-
-    // Initialize ECharts instance
-    chartInstance.current = echarts.init(chartRef.current, config.theme || 'light');
+    const { xField, yField, colorField, showLegend = true, orientation = 'vertical' } = config;
     
-    const option = {
+    const xAxisData = data.map(item => item[xField]);
+    const yAxisData = data.map(item => item[yField]);
+    
+    return {
       title: {
-        text: config.title,
-        subtext: config.subtitle,
-        left: 'center'
+        text: 'Bar Chart',
+        left: 'left'
       },
       tooltip: {
         trigger: 'axis',
         axisPointer: {
           type: 'shadow'
-        },
-        show: config.tooltip?.show !== false
+        }
       },
       legend: {
-        show: config.legend?.show !== false,
-        orient: config.legend?.orientation || 'horizontal',
-        top: config.legend?.position === 'top' ? '10%' : 'bottom'
+        show: showLegend,
+        data: ['Data']
       },
       grid: {
         left: '3%',
@@ -47,109 +59,62 @@ export const BarChart: React.FC<ChartProps> = ({
         containLabel: true
       },
       xAxis: {
-        type: config.xAxis?.type || 'category',
-        name: config.xAxis?.label,
-        data: data.map(item => item[config.xField || Object.keys(item)[0]]),
-        axisLabel: {
-          rotate: config.xAxis?.rotation || 0
-        }
+        type: orientation === 'vertical' ? 'category' : 'value',
+        data: orientation === 'vertical' ? xAxisData : undefined,
+        name: orientation === 'vertical' ? xField : yField
       },
       yAxis: {
-        type: config.yAxis?.type || 'value',
-        name: config.yAxis?.label,
-        min: config.yAxis?.min,
-        max: config.yAxis?.max
+        type: orientation === 'vertical' ? 'value' : 'category',
+        data: orientation === 'horizontal' ? xAxisData : undefined,
+        name: orientation === 'vertical' ? yField : xField
       },
       series: [{
+        name: 'Data',
         type: 'bar',
-        data: data.map(item => item[config.yField || Object.keys(item)[1]]),
-        itemStyle: {
-          color: config.colors?.[0] || '#5470c6'
-        },
-        animationDelay: config.animation?.enabled !== false ? (idx: number) => idx * 10 : 0
-      }],
-      animation: config.animation?.enabled !== false,
-      animationDuration: config.animation?.duration || 1000,
-      animationEasing: config.animation?.easing || 'cubicOut'
+        data: orientation === 'vertical' ? yAxisData : yAxisData,
+        itemStyle: colorField ? {
+          color: (params: any) => {
+            // Simple color mapping based on colorField
+            const colors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de'];
+            return colors[params.dataIndex % colors.length];
+          }
+        } : undefined
+      }]
     };
+  }, [data, config]);
 
-    chartInstance.current.setOption(option);
-
-    // Handle click events
-    if (onDataPointClick) {
-      chartInstance.current.on('click', (params: any) => {
-        const dataPoint = data[params.dataIndex];
-        onDataPointClick(dataPoint, params.event?.event);
+  const handleEvents = useMemo(() => ({
+    click: (params: any) => {
+      onInteraction?.({
+        type: 'click',
+        data: params.data,
+        dataIndex: params.dataIndex
       });
     }
+  }), [onInteraction]);
 
-    if (onChartReady) {
-      onChartReady(chartInstance.current);
-    }
-
-    // Handle resize
-    const handleResize = () => {
-      chartInstance.current?.resize();
-    };
-
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      chartInstance.current?.dispose();
-    };
-  }, [data, config, loading, error]);
-
-  if (error) {
+  if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full text-red-500">
-        Error: {error}
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+      <div style={{ 
+        width: dimensions.width, 
+        height: dimensions.height,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}>
+        Loading...
       </div>
     );
   }
 
   return (
-    <div
-      ref={chartRef}
-      style={{ width, height }}
-      className="echarts-container"
+    <ReactECharts
+      option={options}
+      style={{ width: dimensions.width, height: dimensions.height }}
+      onEvents={handleEvents}
+      theme={theme?.name}
     />
   );
 };
 
-export const barChartConfig: ChartPluginConfig = {
-  name: 'echarts-bar',
-  displayName: 'Bar Chart',
-  category: 'basic',
-  library: 'echarts',
-  version: '1.0.0',
-  description: 'A basic bar chart for comparing values across categories',
-  icon: '📊',
-  configSchema: {
-    xField: { type: 'string', required: true, label: 'X-Axis Field' },
-    yField: { type: 'string', required: true, label: 'Y-Axis Field' },
-    title: { type: 'string', label: 'Chart Title' },
-    colors: { type: 'array', label: 'Color Palette' },
-    stacked: { type: 'boolean', label: 'Stack Bars', default: false }
-  },
-  dataRequirements: {
-    minColumns: 2,
-    maxColumns: 10,
-    requiredColumnTypes: ['string', 'number'],
-    supportedAggregations: ['sum', 'avg', 'count'],
-    supportsDrilldown: true,
-    supportsFiltering: true
-  },
-  exportFormats: ['png', 'svg', 'pdf'],
-  component: BarChart,
-  tags: ['comparison', 'categorical'],
-  difficulty: 'basic'
-};
+export default EChartsBarChart;

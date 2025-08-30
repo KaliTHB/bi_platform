@@ -1,141 +1,217 @@
-// File: api-services/src/plugins/datasources/cloud_databases/mongodb.ts
-import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
+// File: api-services/src/plugins/datasources/nosql/mongodb.ts
 import { MongoClient, Db } from 'mongodb';
+import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo, TableInfo, ColumnInfo } from '../interfaces/DataSourcePlugin';
 
-export const mongodbPlugin: DataSourcePlugin = {
+class MongoDBConnection implements Connection {
+  id: string;
+  config: ConnectionConfig;
+  client: MongoClient;
+  db?: Db;
+  isConnected: boolean;
+  lastActivity: Date;
+
+  constructor(config: ConnectionConfig) {
+    this.id = `mongo-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    this.config = config;
+    
+    const uri = config.connectionString || 
+      `mongodb://${config.username}:${config.password}@${config.host}:${config.port || 27017}/${config.database}`;
+    
+    this.client = new MongoClient(uri, {
+      maxPoolSize: 5,
+      serverSelectionTimeoutMS: 5000,
+    });
+    this.isConnected = false;
+    this.lastActivity = new Date();
+  }
+}
+
+export const MongoDBPlugin: DataSourcePlugin = {
   name: 'mongodb',
   displayName: 'MongoDB',
-  category: 'cloud_databases',
+  category: 'nosql',
   version: '1.0.0',
-  description: 'Connect to MongoDB databases',
+  description: 'MongoDB NoSQL database connector',
   
   configSchema: {
     type: 'object',
     properties: {
-      uri: { type: 'string', title: 'Connection URI' },
-      host: { type: 'string', title: 'Host', default: 'localhost' },
-      port: { type: 'number', title: 'Port', default: 27017 },
-      database: { type: 'string', title: 'Database' },
-      username: { type: 'string', title: 'Username' },
-      password: { type: 'string', title: 'Password', format: 'password' },
-      authSource: { type: 'string', title: 'Auth Source', default: 'admin' },
-      ssl: { type: 'boolean', title: 'Use SSL', default: false }
+      connectionString: {
+        type: 'string',
+        title: 'Connection String',
+        description: 'Complete MongoDB connection string (optional, overrides other fields)'
+      },
+      host: {
+        type: 'string',
+        title: 'Host',
+        description: 'MongoDB server hostname or IP address',
+        default: 'localhost'
+      },
+      port: {
+        type: 'number',
+        title: 'Port',
+        description: 'MongoDB server port',
+        default: 27017,
+        minimum: 1,
+        maximum: 65535
+      },
+      database: {
+        type: 'string',
+        required: true,
+        title: 'Database Name',
+        description: 'Name of the database to connect to'
+      },
+      username: {
+        type: 'string',
+        title: 'Username',
+        description: 'Database username (optional)'
+      },
+      password: {
+        type: 'password',
+        title: 'Password',
+        description: 'Database password (optional)'
+      }
     },
-    required: ['database'],
-    additionalProperties: false
-  },
-
-  capabilities: {
-    supportsBulkInsert: true,
-    supportsTransactions: true,
-    supportsStoredProcedures: false,
-    maxConcurrentConnections: 100
+    required: ['database']
   },
 
   async connect(config: ConnectionConfig): Promise<Connection> {
-    const uri = config.uri || this.buildConnectionUri(config);
-    const client = new MongoClient(uri);
+    const connection = new MongoDBConnection(config);
     
-    await client.connect();
-    const db = client.db(config.database);
-
-    return {
-      id: `mongodb-${Date.now()}`,
-      config,
-      client: { mongoClient: client, db },
-      isConnected: true,
-      lastActivity: new Date()
-    };
-  },
-
-  async testConnection(config: ConnectionConfig): Promise<boolean> {
     try {
-      const connection = await this.connect(config);
-      await connection.client.db.admin().ping();
-      await this.disconnect(connection);
-      return true;
+      await connection.client.connect();
+      connection.db = connection.client.db(config.database);
+      
+      // Test the connection
+      await connection.db.admin().ping();
+      
+      connection.isConnected = true;
+      connection.lastActivity = new Date();
+      
+      return connection;
     } catch (error) {
-      return false;
+      await connection.client.close();
+      throw new Error(`Failed to connect to MongoDB: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   },
 
-  async executeQuery(connection: Connection, query: string, params?: any[]): Promise<QueryResult> {
+  async testConnection(config: ConnectionConfig): Promise<boolean> {
+    const testConnection = new MongoDBConnection(config);
+    
+    try {
+      await testConnection.client.connect();
+      const db = testConnection.client.db(config.database);
+      await db.admin().ping();
+      return true;
+    } catch (error) {
+      return false;
+    } finally {
+      await testConnection.client.close();
+    }
+  },
+
+  async executeQuery(connection: Connection, query: string, params: any[] = []): Promise<QueryResult> {
+    if (!connection.isConnected || !connection.db) {
+      throw new Error('Connection is not established');
+    }
+
     const startTime = Date.now();
     
     try {
-      // Parse MongoDB query (simplified - in practice you'd need a more robust parser)
-      const queryObj = JSON.parse(query);
-      const collection = connection.client.db.collection(queryObj.collection);
+      // Parse MongoDB query (this is simplified - in reality you'd want a proper parser)
+      const parsedQuery = JSON.parse(query);
+      const { collection, operation, filter, options } = parsedQuery;
       
-      let result;
-      switch (queryObj.operation) {
+      const coll = connection.db.collection(collection);
+      let result: any;
+      
+      switch (operation) {
         case 'find':
-          result = await collection.find(queryObj.filter || {}).limit(queryObj.limit || 1000).toArray();
+          result = await coll.find(filter || {}, options || {}).toArray();
+          break;
+        case 'findOne':
+          result = [await coll.findOne(filter || {}, options || {})];
           break;
         case 'aggregate':
-          result = await collection.aggregate(queryObj.pipeline || []).toArray();
-          break;
-        case 'count':
-          result = [{ count: await collection.countDocuments(queryObj.filter || {}) }];
+          result = await coll.aggregate(filter || [], options || {}).toArray();
           break;
         default:
-          throw new Error(`Unsupported operation: ${queryObj.operation}`);
+          throw new Error(`Unsupported operation: ${operation}`);
       }
       
-      const executionTimeMs = Date.now() - startTime;
-      
-      // Infer columns from first document
-      const columns = result.length > 0 ? 
-        Object.keys(result[0]).map(key => ({
-          name: key,
-          type: typeof result[0][key],
-          nullable: true,
-          defaultValue: null
-        })) : [];
-
+      const executionTime = Date.now() - startTime;
       connection.lastActivity = new Date();
       
       return {
-        rows: result,
-        columns,
-        rowCount: result.length,
-        executionTimeMs,
-        queryId: `mongodb-${Date.now()}`
+        rows: result || [],
+        rowCount: result?.length || 0,
+        executionTime
       };
     } catch (error) {
-      throw new Error(`MongoDB query error: ${error}`);
+      throw new Error(`Query execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   },
 
   async getSchema(connection: Connection): Promise<SchemaInfo> {
-    const collections = await connection.client.db.listCollections().toArray();
-    
-    const tables = collections.map(col => ({
-      name: col.name,
-      schema: connection.config.database as string,
-      columns: []
-    }));
+    if (!connection.isConnected || !connection.db) {
+      throw new Error('Connection is not established');
+    }
 
-    return { tables, views: [] };
+    try {
+      const collections = await connection.db.listCollections().toArray();
+      
+      const tables = collections.map(coll => ({
+        name: coll.name,
+        schema: connection.config.database as string,
+        type: 'table' as const
+      }));
+
+      return { tables, views: [] };
+    } catch (error) {
+      throw new Error(`Failed to get schema: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  },
+
+  async getTables(connection: Connection): Promise<TableInfo[]> {
+    const schema = await this.getSchema(connection);
+    return schema.tables;
+  },
+
+  async getColumns(connection: Connection, table: string): Promise<ColumnInfo[]> {
+    if (!connection.isConnected || !connection.db) {
+      throw new Error('Connection is not established');
+    }
+
+    try {
+      // Sample documents to infer schema
+      const collection = connection.db.collection(table);
+      const sample = await collection.findOne();
+      
+      if (!sample) {
+        return [];
+      }
+
+      // Simple schema inference from one document
+      const columns: ColumnInfo[] = [];
+      for (const [key, value] of Object.entries(sample)) {
+        columns.push({
+          name: key,
+          type: typeof value,
+          nullable: true,
+          isPrimaryKey: key === '_id'
+        });
+      }
+
+      return columns;
+    } catch (error) {
+      throw new Error(`Failed to get columns: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   },
 
   async disconnect(connection: Connection): Promise<void> {
-    if (connection.client?.mongoClient) {
-      await connection.client.mongoClient.close();
+    if (connection.client) {
+      await connection.client.close();
+      connection.isConnected = false;
     }
-    connection.isConnected = false;
-  },
-
-  private buildConnectionUri(config: ConnectionConfig): string {
-    const auth = config.username && config.password ? 
-      `${config.username}:${config.password}@` : '';
-    const options = [];
-    
-    if (config.authSource) options.push(`authSource=${config.authSource}`);
-    if (config.ssl) options.push('ssl=true');
-    
-    const optionsString = options.length > 0 ? `?${options.join('&')}` : '';
-    
-    return `mongodb://${auth}${config.host}:${config.port}/${config.database}${optionsString}`;
   }
 };
