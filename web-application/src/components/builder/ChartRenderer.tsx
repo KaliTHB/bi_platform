@@ -24,7 +24,7 @@ import {
   Refresh as RefreshIcon
 } from '@mui/icons-material';
 import * as echarts from 'echarts';
-import { Chart, Dataset } from '@/types/auth.types';
+import { Chart, Dataset } from '@/types/index';
 import { chartAPI } from '@/services/api';
 
 interface ChartRendererProps {
@@ -65,7 +65,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
         echartsInstance.current = null;
       }
     };
-  }, [data, chart.config, error]);
+  }, [data, chart.config_json, error]);
 
   // Handle window resize
   useEffect(() => {
@@ -109,7 +109,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
     let option: any = {};
 
     try {
-      switch (chart.type) {
+      switch (chart.chart_type) {
         case 'line-chart':
           option = generateLineChartOption();
           break;
@@ -129,7 +129,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
           option = generateDonutChartOption();
           break;
         default:
-          throw new Error(`Unsupported chart type: ${chart.type}`);
+          throw new Error(`Unsupported chart type: ${chart.chart_type}`);
       }
 
       echartsInstance.current.setOption(option);
@@ -148,7 +148,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
   };
 
   const generateLineChartOption = () => {
-    const config = chart.config;
+    const config = chart.config_json;
     const xAxisColumn = config.x_axis?.column;
     const yAxes = config.y_axes || [];
 
@@ -234,7 +234,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
   };
 
   const generateBarChartOption = () => {
-    const config = chart.config;
+    const config = chart.config_json;
     const xAxisColumn = config.x_axis?.column;
     const yAxes = config.y_axes || [];
 
@@ -293,7 +293,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
   };
 
   const generatePieChartOption = () => {
-    const config = chart.config;
+    const config = chart.config_json;
     const labelColumn = config.label_column;
     const valueColumn = config.value_column;
 
@@ -343,7 +343,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
   };
 
   const generateScatterPlotOption = () => {
-    const config = chart.config;
+    const config = chart.config_json;
     const xColumn = config.x_axis?.column;
     const yColumn = config.y_axis?.column;
 
@@ -419,8 +419,8 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
   const renderTableChart = () => {
     if (data.length === 0) return null;
 
-    const displayColumns = chart.config.columns || columns.slice(0, 10);
-    const displayRows = data.slice(0, chart.config.max_rows || 100);
+    const displayColumns = chart.config_json.columns || columns.slice(0, 10);
+    const displayRows = data.slice(0, chart.config_json.max_rows || 100);
 
     return (
       <Table size="small">
@@ -454,7 +454,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
   };
 
   const renderMetricCard = () => {
-    const config = chart.config;
+    const config = chart.config_json;
     const valueColumn = config.value_column;
     const comparisonColumn = config.comparison_column;
 
@@ -557,7 +557,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
   }
 
   // Render different chart types
-  if (chart.type === 'table-chart') {
+  if (chart.chart_type === 'table-chart') {
     return (
       <Box sx={{ height, overflow: 'auto' }}>
         {renderTableChart()}
@@ -565,7 +565,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
     );
   }
 
-  if (chart.type === 'metric-card') {
+  if (chart.chart_type === 'metric-card') {
     return renderMetricCard();
   }
 

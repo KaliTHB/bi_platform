@@ -38,7 +38,7 @@ import {
   Preview as PreviewIcon,
   Add as AddIcon,
   BarChart as BarChartIcon,
-  LineChart as LineChartIcon,
+  ShowChart as LineChartIcon,
   PieChart as PieChartIcon,
   ScatterPlot as ScatterPlotIcon,
   DonutLarge as DonutLargeIcon,
@@ -177,7 +177,7 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
     setLoading(true);
     try {
       const response = await dashboardAPI.getDashboard(dashboardId);
-      if (response.success) {
+      if (!('error' in response)) {
         setDashboard(response.dashboard);
         setCharts(response.dashboard.charts || []);
         
@@ -207,19 +207,20 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
     }
   };
 
-  const loadDatasets = async () => {
-    try {
-      const response = await datasetAPI.getDatasets({
-        workspaceId: currentWorkspace?.id
-      });
-      if (response.success) {
-        setDatasets(response.datasets);
-      }
-    } catch (error) {
-      showSnackbar('Failed to load datasets', 'error');
+ const loadDatasets = async () => {
+  if (!currentWorkspace?.id) return;
+  
+  try {
+    const response = await datasetAPI.getDatasets(currentWorkspace.id);
+    // Handle both possible response structures
+    const datasets = response.data?.datasets || (response as any).datasets;
+    if (datasets) {
+      setDatasets(datasets);
     }
-  };
-
+  } catch (error) {
+    showSnackbar('Failed to load datasets', 'error');
+  }
+};
   const handleLayoutChange = useCallback((layout: any[], layouts: { [key: string]: any[] }) => {
     setLayouts(layouts);
     
@@ -288,7 +289,6 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
 
       const response = await chartAPI.createChart(newChart);
       
-      if (response.success) {
         const createdChart = {
           ...response.chart,
           dataset: chartDialog.dataset
@@ -315,7 +315,6 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
         
         showSnackbar('Chart created successfully', 'success');
         setChartDialog({ open: false });
-      }
     } catch (error) {
       showSnackbar('Failed to create chart', 'error');
     } finally {
@@ -332,7 +331,7 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
         dashboard_id: dashboard.id
       });
       
-      if (response.success) {
+      if (!('error' in response)) {
         const duplicatedChart = response.chart;
         setCharts(prev => [...prev, duplicatedChart]);
         showSnackbar('Chart duplicated successfully', 'success');
@@ -349,7 +348,7 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
       setSaving(true);
       const response = await chartAPI.deleteChart(chartId);
       
-      if (response.success) {
+      if (!('error' in response)) {
         setCharts(prev => prev.filter(c => c.id !== chartId));
         setLayouts(prev => ({
           ...prev,
@@ -380,7 +379,7 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
 
       const response = await dashboardAPI.updateDashboard(dashboard.id, updatedDashboard);
       
-      if (response.success) {
+      if (!('error' in response)) {
         setDashboard(response.dashboard);
         showSnackbar('Dashboard saved successfully', 'success');
       }

@@ -224,7 +224,7 @@ export const dashboardAPI = {
     return response.data;
   },
 
-  getDashboard: async (dashboardId: string): Promise<{ dashboard: any }> => {
+  getDashboard: async (dashboardId: string): Promise<{ success: boolean; dashboard: any }> => {
     const response = await apiClient.get(`/dashboards/${dashboardId}`);
     return response.data;
   },
@@ -281,6 +281,12 @@ export const chartAPI = {
     const response = await apiClient.delete(`/charts/${chartId}`);
     return response.data;
   },
+
+  // In chartAPI object
+duplicateChart: async (chartId: string, data: { dashboard_id: string }): Promise<{ chart: any; message: string }> => {
+  const response = await apiClient.post(`/charts/${chartId}/duplicate`, data);
+  return response.data;
+},
 
   getChartData: async (chartId: string, filters?: any): Promise<{
     data: any[];
@@ -410,6 +416,7 @@ export const healthAPI = {
     return response.data;
   },
 };
+
 
 // Utility functions
 export const downloadFile = (blob: Blob, filename: string): void => {

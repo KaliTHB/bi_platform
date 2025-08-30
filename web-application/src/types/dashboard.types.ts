@@ -1,19 +1,149 @@
-// File: ./src/types/dashboard.ts
+// File: ./src/types/dashboard.types.ts
 
 export interface Dashboard {
   id: string;
-  name: string;
-  description?: string;
-  layout: DashboardLayout;
-  filters: DashboardFilter[];
-  is_published: boolean;
-  category_id?: string;
   workspace_id: string;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
+  category_id?: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  slug: string;
+  config_json?: DashboardConfiguration;
+  tabs?: DashboardTab[];
+  global_filters?: GlobalFilter[];
+  filter_connections?: FilterConnection[];
+  theme_config?: DashboardTheme;
+  layout_config?: LayoutConfiguration;
+  responsive_settings?: ResponsiveSettings;
+  thumbnail_url?: string;
+  owner_id?: string;
+  status: 'draft' | 'published' | 'archived';
+  is_public: boolean;
+  is_featured: boolean;
+  sort_order?: number;
+  tags?: string[];
+  version?: number;
+  published_at?: Date | string;
+  view_count?: number;
+  last_viewed?: Date | string;
+  rls_policies_json?: RLSPolicy[];
+  created_by?: string;
+  created_at: Date | string;
+  updated_at: Date | string;
+  
+  // Legacy properties for backward compatibility
+  layout?: DashboardLayout;
+  filters?: DashboardFilter[];
+  is_published?: boolean;
 }
 
+export interface DashboardConfiguration {
+  auto_refresh?: {
+    enabled: boolean;
+    interval: number; // seconds
+  };
+  export_settings?: {
+    include_filters: boolean;
+    page_size: 'A4' | 'A3' | 'Letter' | 'Legal';
+    orientation: 'portrait' | 'landscape';
+  };
+  interaction_settings?: {
+    enable_cross_filtering: boolean;
+    enable_drill_through: boolean;
+    click_behavior: 'filter' | 'drill' | 'none';
+  };
+  performance_settings?: {
+    lazy_loading: boolean;
+    concurrent_chart_loads: number;
+    cache_duration: number;
+  };
+}
+
+export interface DashboardTab {
+  id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  layout: ChartLayout[];
+  is_visible: boolean;
+  sort_order: number;
+}
+
+export interface ChartLayout {
+  chart_id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  min_width?: number;
+  min_height?: number;
+  max_width?: number;
+  max_height?: number;
+  is_resizable: boolean;
+  is_draggable: boolean;
+}
+
+export interface GlobalFilter {
+  id: string;
+  name: string;
+  display_name: string;
+  type: 'date_range' | 'single_select' | 'multi_select' | 'text' | 'numeric_range';
+  data_source: {
+    type: 'dataset' | 'static' | 'query';
+    source: string; // dataset_id or static values or query
+    value_column: string;
+    label_column?: string;
+  };
+  default_value?: any;
+  is_required: boolean;
+  is_visible: boolean;
+  position: number;
+}
+
+export interface FilterConnection {
+  filter_id: string;
+  chart_id: string;
+  target_column: string;
+  connection_type: 'direct' | 'parameter' | 'calculated';
+  transformation?: string; // JavaScript expression for value transformation
+}
+
+export interface DashboardTheme {
+  primary_color?: string;
+  secondary_color?: string;
+  background_color?: string;
+  text_color?: string;
+  accent_color?: string;
+}
+
+export interface LayoutConfiguration {
+  type: 'grid' | 'freeform';
+  columns?: number;
+  row_height?: number;
+  margin?: number;
+  padding?: number;
+}
+
+export interface ResponsiveSettings {
+  breakpoints?: {
+    xs: number;
+    sm: number;
+    md: number;
+    lg: number;
+    xl: number;
+  };
+  hide_on_mobile?: string[];
+  mobile_layout?: LayoutConfiguration;
+}
+
+export interface RLSPolicy {
+  id: string;
+  name: string;
+  condition: string;
+  enabled: boolean;
+}
+
+// Legacy interfaces for backward compatibility
 export interface DashboardLayout {
   type: 'grid' | 'freeform';
   columns: number;
@@ -51,6 +181,7 @@ export interface Chart {
   configuration: ChartConfiguration;
   dataset_id: string;
   dashboard_id?: string;
+  config_json: any;
   created_by: string;
   created_at: string;
   updated_at: string;

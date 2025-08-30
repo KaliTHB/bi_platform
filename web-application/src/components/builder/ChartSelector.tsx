@@ -31,8 +31,7 @@ import {
   BubbleChart,
   Timeline,
   DonutLarge,
-  Scatter,
-  Map,
+ScatterPlot,  Map,
   AccountTree
 } from '@mui/icons-material';
 import { EnhancedChartPluginService } from '../../plugins/charts/factory/ChartFactory';
@@ -72,7 +71,7 @@ const getChartIcon = (chartType: string, library: string) => {
       return <DonutLarge {...iconProps} />;
     case 'd3js-force':
     case 'd3js-network':
-      return <Scatter {...iconProps} />;
+      return <ScatterPlot {...iconProps} />;
     case 'd3js-map':
     case 'plotly-map':
       return <Map {...iconProps} />;

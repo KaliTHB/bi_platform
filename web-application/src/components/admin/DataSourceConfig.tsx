@@ -35,44 +35,14 @@ import {
   Refresh
 } from '@mui/icons-material';
 import useDataSources from '@/hooks/useDataSources';
-
-// Interfaces
-interface DataSource {
-  id: string;
-  name: string;
-  display_name: string;
-  description?: string;
-  plugin_name: string;
-  connection_config: Record<string, any>;
-  test_status: 'pending' | 'success' | 'failed';
-  test_error_message?: string;
-  last_tested?: string;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-interface Plugin {
-  name: string;
-  displayName: string;
-  category: 'relational' | 'cloud_databases' | 'storage_services' | 'data_lakes';
-  version?: string;
-  configSchema: {
-    type: 'object';
-    properties: Record<string, SchemaProperty>;
-    required?: string[];
-  };
-}
-
-interface SchemaProperty {
-  type: 'string' | 'number' | 'boolean';
-  title?: string;
-  description?: string;
-  default?: any;
-  format?: string;
-  minimum?: number;
-  maximum?: number;
-}
+import { 
+  DataSource, 
+  Plugin, 
+  SchemaProperty, 
+  ConnectionTestResult,
+  CreateDataSourceRequest,
+  UpdateDataSourceRequest 
+} from '@/types/datasource.types';
 
 interface FormData {
   name: string;
@@ -129,7 +99,7 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
         const plugins = await response.json();
         setAvailablePlugins(plugins);
       } else {
-        throw { message: 'Failed to fetch plugins', name: 'FetchError' };
+        throw new (Error as any)('Failed to fetch plugins');
       }
     } catch (error) {
       console.error('Failed to load available plugins:', error);
@@ -197,13 +167,17 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
       const result = await testDataSource(dataSource.id);
       setTestResults(prev => ({
         ...prev,
-        [dataSource.id]: result
+        [dataSource.id]: {
+          success: result.success,
+          message: result.message,
+          details: result.details
+        }
       }));
     } catch (error: unknown) {
       let errorMessage = 'Test failed';
       
       if (error instanceof Error) {
-        errorMessage = (error as Error).message;
+        errorMessage = (Error as any).message;
       } else if (typeof error === 'string') {
         errorMessage = error;
       } else if (error && typeof error === 'object' && 'message' in error) {
@@ -234,9 +208,23 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
   const handleSaveDataSource = async (dataSourceData: FormData) => {
     try {
       if (editDialog.dataSource) {
-        await updateDataSource(editDialog.dataSource.id, dataSourceData);
+        const updateData: UpdateDataSourceRequest = {
+          name: dataSourceData.name,
+          display_name: dataSourceData.display_name,
+          description: dataSourceData.description,
+          connection_config: dataSourceData.connection_config,
+        };
+        await updateDataSource(editDialog.dataSource.id, updateData);
       } else {
-        await createDataSource(dataSourceData);
+        const createData: CreateDataSourceRequest = {
+          name: dataSourceData.name,
+          display_name: dataSourceData.display_name,
+          description: dataSourceData.description,
+          plugin_name: dataSourceData.plugin_name,
+          connection_config: dataSourceData.connection_config,
+          workspace_id: workspaceId,
+        };
+        await createDataSource(createData);
       }
     } catch (error) {
       console.error('Failed to save data source:', error);
@@ -274,42 +262,29 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
                dataSource.test_status === 'failed' ? 'Failed' : 'Untested'} 
         color={dataSource.test_status === 'success' ? 'success' : 
                dataSource.test_status === 'failed' ? 'error' : 'default'}
-        size="small"
+        size="small" 
       />
     );
   };
 
-  if (loading || pluginsLoading) {
+  const formatLastTested = (lastTested?: string | Date) => {
+    if (!lastTested) return 'Never';
+    
+    const date = typeof lastTested === 'string' ? new Date(lastTested) : lastTested;
+    return date.toLocaleDateString();
+  };
+
+  if (loading && dataSources.length === 0) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight={200}>
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight={400}>
         <CircularProgress />
       </Box>
     );
   }
 
-  if (error) {
-    const getErrorMessage = (err: unknown): string => {
-      if (err instanceof Error) {
-        return (err as Error).message;
-      }
-      if (typeof err === 'string') {
-        return err;
-      }
-      if (err && typeof err === 'object' && 'message' in err) {
-        return String((err as any).message);
-      }
-      return 'An unexpected error occurred';
-    };
-
-    return (
-      <Alert severity="error" sx={{ mb: 2 }}>
-        Error loading data sources: {getErrorMessage(error)}
-      </Alert>
-    );
-  }
-
   return (
     <Box>
+      {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h4" component="h1">
           Data Sources
@@ -323,42 +298,62 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
         </Button>
       </Box>
 
+      {/* Error Alert */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {error}
+        </Alert>
+      )}
+
+      {/* Data Sources Grid */}
       <Grid container spacing={3}>
         {dataSources.map((dataSource: DataSource) => (
-          <Grid item xs={12} md={6} lg={4} key={dataSource.id}>
+          <Grid item xs={12} sm={6} md={4} key={dataSource.id}>
             <Card>
               <CardContent>
-                <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
+                <Box display="flex" justifyContent="space-between" alignItems="start" mb={2}>
                   <Typography variant="h6" component="h2">
-                    {dataSource.display_name}
+                    {dataSource.display_name || dataSource.name}
                   </Typography>
                   {getStatusChip(dataSource)}
                 </Box>
                 
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  {getPluginDisplayName(dataSource.plugin_name)}
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  {dataSource.description || 'No description available'}
                 </Typography>
                 
-                {dataSource.description && (
-                  <Typography variant="body2" color="text.secondary">
-                    {dataSource.description}
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                  <Chip 
+                    label={getPluginDisplayName(dataSource.plugin_name)} 
+                    size="small" 
+                    variant="outlined"
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    Last tested: {formatLastTested(dataSource.last_tested)}
                   </Typography>
-                )}
+                </Box>
               </CardContent>
               
               <CardActions>
                 <Tooltip title="Test Connection">
-                  <IconButton 
-                    size="small" 
+                  <IconButton
+                    size="small"
                     onClick={() => handleTestConnection(dataSource)}
+                    disabled={loading}
                   >
                     <Refresh />
                   </IconButton>
                 </Tooltip>
                 
+                <Tooltip title="View Details">
+                  <IconButton size="small">
+                    <Visibility />
+                  </IconButton>
+                </Tooltip>
+                
                 <Tooltip title="Edit">
-                  <IconButton 
-                    size="small" 
+                  <IconButton
+                    size="small"
                     onClick={() => handleEdit(dataSource)}
                   >
                     <Edit />
@@ -366,10 +361,10 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
                 </Tooltip>
                 
                 <Tooltip title="Delete">
-                  <IconButton 
-                    size="small" 
-                    color="error"
+                  <IconButton
+                    size="small"
                     onClick={() => handleDelete(dataSource)}
+                    color="error"
                   >
                     <Delete />
                   </IconButton>
@@ -378,38 +373,33 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
             </Card>
           </Grid>
         ))}
-
-        {dataSources.length === 0 && (
-          <Grid item xs={12}>
-            <Box 
-              display="flex" 
-              flexDirection="column" 
-              alignItems="center" 
-              justifyContent="center"
-              minHeight={200}
-              bgcolor="background.paper"
-              borderRadius={1}
-              border={1}
-              borderColor="divider"
-              p={3}
-            >
-              <Typography variant="h6" gutterBottom>
-                No Data Sources
-              </Typography>
-              <Typography variant="body2" color="text.secondary" mb={2}>
-                Create your first data source to get started
-              </Typography>
-              <Button
-                variant="contained"
-                startIcon={<Add />}
-                onClick={handleCreateNew}
-              >
-                Add Data Source
-              </Button>
-            </Box>
-          </Grid>
-        )}
       </Grid>
+
+      {/* Empty State */}
+      {dataSources.length === 0 && !loading && (
+        <Box 
+          display="flex" 
+          flexDirection="column" 
+          alignItems="center" 
+          justifyContent="center" 
+          minHeight={300}
+          textAlign="center"
+        >
+          <Typography variant="h6" color="text.secondary" gutterBottom>
+            No data sources configured
+          </Typography>
+          <Typography variant="body2" color="text.secondary" paragraph>
+            Add your first data source to start building dashboards
+          </Typography>
+          <Button
+            variant="contained"
+            startIcon={<Add />}
+            onClick={handleCreateNew}
+          >
+            Add Data Source
+          </Button>
+        </Box>
+      )}
 
       {/* Edit/Create Dialog */}
       <DataSourceEditDialog
@@ -425,8 +415,8 @@ export const DataSourceConfig: React.FC<DataSourceConfigProps> = ({ workspaceId 
         <DialogTitle>Delete Data Source</DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to delete "{deleteDialog.dataSource?.display_name}"? 
-            This action cannot be undone and may affect existing dashboards.
+            Are you sure you want to delete "{deleteDialog.dataSource?.display_name || deleteDialog.dataSource?.name}"?
+            This action cannot be undone and may affect existing datasets and dashboards.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -527,6 +517,7 @@ const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
 
     switch (fieldSchema.type) {
       case 'string':
+      case 'password':
         return (
           <TextField
             key={fieldName}
@@ -535,8 +526,8 @@ const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
             value={value}
             onChange={(e) => handleChange(e.target.value)}
             helperText={fieldSchema.description}
-            type={fieldSchema.format === 'password' ? 'password' : 'text'}
-            required={selectedPlugin?.configSchema?.required?.includes(fieldName)}
+            type={fieldSchema.type === 'password' || fieldSchema.format === 'password' ? 'password' : 'text'}
+            required={selectedPlugin?.configSchema.required?.includes(fieldName)}
             margin="normal"
           />
         );
@@ -549,14 +540,14 @@ const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
             fullWidth
             type="number"
             value={value}
-            onChange={(e) => handleChange(parseInt(e.target.value) || fieldSchema.default || 0)}
+            onChange={(e) => handleChange(Number(e.target.value))}
             helperText={fieldSchema.description}
-            required={selectedPlugin?.configSchema?.required?.includes(fieldName)}
-            margin="normal"
             inputProps={{
               min: fieldSchema.minimum,
               max: fieldSchema.maximum
             }}
+            required={selectedPlugin?.configSchema.required?.includes(fieldName)}
+            margin="normal"
           />
         );
       
@@ -565,9 +556,8 @@ const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
           <FormControl key={fieldName} fullWidth margin="normal">
             <InputLabel>{fieldSchema.title || fieldName}</InputLabel>
             <Select
-              value={value}
+              value={value ? 'true' : 'false'}
               onChange={(e) => handleChange(e.target.value === 'true')}
-              label={fieldSchema.title || fieldName}
             >
               <MenuItem value="true">Yes</MenuItem>
               <MenuItem value="false">No</MenuItem>
@@ -575,8 +565,39 @@ const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
           </FormControl>
         );
       
+      case 'select':
+        return (
+          <FormControl key={fieldName} fullWidth margin="normal">
+            <InputLabel>{fieldSchema.title || fieldName}</InputLabel>
+            <Select
+              value={value}
+              onChange={(e) => handleChange(e.target.value)}
+            >
+              {fieldSchema.options?.map((option) => {
+                const optionValue = typeof option === 'string' ? option : option.value;
+                const optionLabel = typeof option === 'string' ? option : option.label;
+                return (
+                  <MenuItem key={optionValue} value={optionValue}>
+                    {optionLabel}
+                  </MenuItem>
+                );
+              })}
+            </Select>
+          </FormControl>
+        );
+      
       default:
-        return null;
+        return (
+          <TextField
+            key={fieldName}
+            label={fieldSchema.title || fieldName}
+            fullWidth
+            value={value}
+            onChange={(e) => handleChange(e.target.value)}
+            helperText={fieldSchema.description}
+            margin="normal"
+          />
+        );
     }
   };
 
@@ -585,88 +606,72 @@ const DataSourceEditDialog: React.FC<DataSourceEditDialogProps> = ({
       <DialogTitle>
         {dataSource ? 'Edit Data Source' : 'Create Data Source'}
       </DialogTitle>
-      
-      <DialogContent dividers>
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={6}>
-            <TextField
-              label="Name"
-              fullWidth
-              value={formData.name}
-              onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+      <DialogContent>
+        <TextField
+          label="Name"
+          fullWidth
+          value={formData.name}
+          onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+          margin="normal"
+          required
+        />
+        
+        <TextField
+          label="Display Name"
+          fullWidth
+          value={formData.display_name}
+          onChange={(e) => setFormData(prev => ({ ...prev, display_name: e.target.value }))}
+          margin="normal"
+        />
+        
+        <TextField
+          label="Description"
+          fullWidth
+          multiline
+          rows={3}
+          value={formData.description}
+          onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+          margin="normal"
+        />
+        
+        {!dataSource && (
+          <FormControl fullWidth margin="normal">
+            <InputLabel>Plugin</InputLabel>
+            <Select
+              value={formData.plugin_name}
+              onChange={(e) => handlePluginChange(e.target.value)}
               required
-              helperText="Internal identifier (lowercase, no spaces)"
-            />
-          </Grid>
-          
-          <Grid item xs={12} sm={6}>
-            <TextField
-              label="Display Name"
-              fullWidth
-              value={formData.display_name}
-              onChange={(e) => setFormData(prev => ({ ...prev, display_name: e.target.value }))}
-              required
-              helperText="Human-readable name"
-            />
-          </Grid>
-          
-          <Grid item xs={12}>
-            <TextField
-              label="Description"
-              fullWidth
-              multiline
-              rows={2}
-              value={formData.description}
-              onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-              helperText="Optional description"
-            />
-          </Grid>
-          
-          <Grid item xs={12}>
-            <FormControl fullWidth required>
-              <InputLabel>Plugin Type</InputLabel>
-              <Select
-                value={formData.plugin_name}
-                onChange={(e) => handlePluginChange(e.target.value)}
-                label="Plugin Type"
-                disabled={!!dataSource} // Don't allow changing plugin type for existing data sources
-              >
-                {availablePlugins.map((plugin) => (
-                  <MenuItem key={plugin.name} value={plugin.name}>
-                    {plugin.displayName} - {plugin.category}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-
-          {selectedPlugin?.configSchema?.properties && (
-            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Connection Configuration
-              </Typography>
-              {Object.entries(selectedPlugin.configSchema.properties).map(
-                ([fieldName, fieldSchema]) => renderConfigField(fieldName, fieldSchema)
-              )}
-            </Grid>
-          )}
-        </Grid>
+            >
+              {availablePlugins.map((plugin) => (
+                <MenuItem key={plugin.name} value={plugin.name}>
+                  {plugin.displayName}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
+        
+        {selectedPlugin && (
+          <Box mt={2}>
+            <Typography variant="h6" gutterBottom>
+              Connection Configuration
+            </Typography>
+            {Object.entries(selectedPlugin.configSchema.properties).map(([fieldName, fieldSchema]) =>
+              renderConfigField(fieldName, fieldSchema)
+            )}
+          </Box>
+        )}
       </DialogContent>
-      
       <DialogActions>
-        <Button onClick={onClose} disabled={saving}>
-          Cancel
-        </Button>
+        <Button onClick={onClose}>Cancel</Button>
         <Button 
           onClick={handleSave} 
-          variant="contained" 
+          variant="contained"
           disabled={saving || !formData.name || !formData.plugin_name}
         >
-          {saving ? 'Saving...' : 'Save'}
+          {saving ? <CircularProgress size={20} /> : (dataSource ? 'Update' : 'Create')}
         </Button>
       </DialogActions>
     </Dialog>
   );
 };
-
-export default DataSourceConfig;

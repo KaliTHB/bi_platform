@@ -40,10 +40,10 @@ import {
   BarChart,
   PieChart,
   ShowChart,
-  Scatter,
   Timeline,
   BubbleChart,
   DonutLarge,
+  ScatterPlot,
   Search,
   FilterList,
   ViewModule,
@@ -53,7 +53,7 @@ import {
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 import { Chart } from '@/types/chart.types';
-import { useWorkspace } from '@/hooks/useWorkspace';
+import { useWorkspace } from '@/components/providers/WorkspaceProvider';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useCharts } from '@/hooks/useCharts';
 import PermissionGate from '@/components/shared/PermissionGate';
@@ -81,7 +81,7 @@ export const ChartList: React.FC<ChartListProps> = ({
 }) => {
   const router = useRouter();
   const { currentWorkspace } = useWorkspace();
-  const { hasPermissions } = usePermissions();
+  const { hasPermission } = usePermissions();
   const { 
     charts, 
     loading, 
@@ -209,7 +209,7 @@ export const ChartList: React.FC<ChartListProps> = ({
       case 'echarts-line': return <ShowChart />;
       case 'echarts-scatter': return <BubbleChart />;
       case 'echarts-area': return <Timeline />;
-      case 'd3js-network': return <Scatter />;
+      case 'd3js-network': return <ScatterPlot />;
       case 'drilldown-pie': return <DonutLarge />;
       default: return <BarChart />;
     }

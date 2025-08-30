@@ -48,7 +48,7 @@ import {
   Storage,
   Transform,
   TableChart,
-  Query,
+  QueryBuilder,
   Refresh,
   Schedule,
   TrendingUp,
@@ -86,7 +86,7 @@ export const DatasetList: React.FC<DatasetListProps> = ({
 }) => {
   const router = useRouter();
   const { currentWorkspace } = useWorkspace();
-  const { hasPermissions } = usePermissions();
+  const { hasPermission } = usePermissions();
   const { 
     datasets, 
     loading, 
@@ -215,7 +215,7 @@ export const DatasetList: React.FC<DatasetListProps> = ({
   const getTypeIcon = (type: string) => {
     switch (type) {
       case 'table': return <TableChart />;
-      case 'query': return <Query />;
+      case 'query': return <QueryBuilder />;
       case 'transformation': return <Transform />;
       default: return <DataObject />;
     }

@@ -75,7 +75,7 @@ export const DashboardList: React.FC<DashboardListProps> = ({
 }) => {
   const router = useRouter();
   const { currentWorkspace } = useWorkspace();
-  const { hasPermissions } = usePermissions();
+  const { hasPermission } = usePermissions();
   const { 
     dashboards, 
     loading, 

@@ -41,8 +41,6 @@ import {
   Visibility,
   Storage,
   Cloud,
-  Database,
-  TestTube,
   CheckCircle,
   Error,
   Warning,
@@ -53,6 +51,8 @@ import {
   Settings,
   Cable,
 } from '@mui/icons-material';
+import StorageIcon from '@mui/icons-material/Storage';
+import ScienceIcon from '@mui/icons-material/Science';
 import { useRouter } from 'next/navigation';
 import { DataSource } from '@/types/datasource.types';
 import { useWorkspace } from '@/hooks/useWorkspace';
@@ -68,6 +68,28 @@ interface DataSourceListProps {
   selectedDataSources?: string[];
   onSelectionChange?: (dataSourceIds: string[]) => void;
   filterByPlugin?: string;
+}
+
+interface Plugin {
+  name: string;
+  displayName: string;
+  category: 'relational' | 'cloud_databases' | 'storage_services' | 'data_lakes';
+  version?: string;
+  configSchema: {
+    type: 'object';
+    properties: Record<string, SchemaProperty>;
+    required?: string[];
+  };
+}
+
+interface SchemaProperty {
+  type: 'string' | 'number' | 'boolean' | 'password';
+  title?: string;
+  description?: string;
+  default?: any;
+  format?: string;
+  minimum?: number;
+  maximum?: number;
 }
 
 export const DataSourceList: React.FC<DataSourceListProps> = ({
@@ -108,34 +130,119 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
   const [dataSourceName, setDataSourceName] = useState('');
   const [dataSourceDescription, setDataSourceDescription] = useState('');
   const [selectedPlugin, setSelectedPlugin] = useState('');
+  const [connectionConfig, setConnectionConfig] = useState<Record<string, any>>({});
+
+  // Plugin states
+  const [availablePlugins, setAvailablePlugins] = useState<Plugin[]>([]);
+  const [pluginsLoading, setPluginsLoading] = useState(false);
+
+  // Load available plugins
+  const loadAvailablePlugins = async () => {
+    if (!currentWorkspace?.id) return;
+    
+    setPluginsLoading(true);
+    try {
+      const response = await fetch(`/api/workspaces/${currentWorkspace.id}/plugins/datasources`);
+      if (response.ok) {
+        const plugins = await response.json();
+        setAvailablePlugins(plugins);
+      } else {
+        // Fallback plugins if API fails
+        setAvailablePlugins([
+          {
+            name: 'postgresql',
+            displayName: 'PostgreSQL',
+            category: 'relational',
+            configSchema: {
+              type: 'object',
+              properties: {
+                host: { type: 'string', title: 'Host' },
+                port: { type: 'number', title: 'Port', default: 5432 },
+                database: { type: 'string', title: 'Database' },
+                username: { type: 'string', title: 'Username' },
+                password: { type: 'password', title: 'Password' }
+              },
+              required: ['host', 'database', 'username', 'password']
+            }
+          },
+          {
+            name: 'mysql',
+            displayName: 'MySQL',
+            category: 'relational',
+            configSchema: {
+              type: 'object',
+              properties: {
+                host: { type: 'string', title: 'Host' },
+                port: { type: 'number', title: 'Port', default: 3306 },
+                database: { type: 'string', title: 'Database' },
+                username: { type: 'string', title: 'Username' },
+                password: { type: 'password', title: 'Password' }
+              },
+              required: ['host', 'database', 'username', 'password']
+            }
+          }
+        ]);
+      }
+    } catch (error) {
+      console.error('Failed to load available plugins:', error);
+    } finally {
+      setPluginsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAvailablePlugins();
+  }, [currentWorkspace?.id]);
 
   const filteredDataSources = dataSources
-    .filter(dataSource => {
-      if (pluginFilter !== 'all' && dataSource.plugin_name !== pluginFilter) return false;
-      if (statusFilter !== 'all') {
-        if (statusFilter === 'active' && !dataSource.is_active) return false;
-        if (statusFilter === 'inactive' && dataSource.is_active) return false;
-        if (statusFilter === 'connected' && dataSource.test_status !== 'success') return false;
-        if (statusFilter === 'error' && dataSource.test_status !== 'error') return false;
+    .filter((ds) => {
+      // Search filter
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const matchesSearch = 
+          ds.name.toLowerCase().includes(query) ||
+          ds.display_name?.toLowerCase().includes(query) ||
+          ds.description?.toLowerCase().includes(query) ||
+          ds.plugin_name.toLowerCase().includes(query);
+        if (!matchesSearch) return false;
       }
-      if (searchQuery && !dataSource.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
-          !dataSource.description?.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+
+      // Plugin filter
+      if (pluginFilter !== 'all' && ds.plugin_name !== pluginFilter) {
+        return false;
+      }
+
+      // Status filter
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'active' && !ds.is_active) return false;
+        if (statusFilter === 'inactive' && ds.is_active) return false;
+        if (statusFilter === 'success' && ds.test_status !== 'success') return false;
+        if (statusFilter === 'failed' && ds.test_status !== 'failed') return false;
+        if (statusFilter === 'pending' && ds.test_status !== 'pending') return false;
+      }
+
       return true;
     })
     .sort((a, b) => {
       switch (sortBy) {
-        case 'name': return a.name.localeCompare(b.name);
-        case 'updated_at': return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-        case 'plugin': return a.plugin_name.localeCompare(b.plugin_name);
-        case 'status': return a.test_status.localeCompare(b.test_status);
-        default: return 0;
+        case 'name':
+          return a.name.localeCompare(b.name);
+        case 'plugin':
+          return a.plugin_name.localeCompare(b.plugin_name);
+        case 'status':
+          return a.test_status.localeCompare(b.test_status);
+        case 'created_at':
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        default: // updated_at
+          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
       }
     });
 
+  const uniquePlugins = Array.from(new Set(dataSources.map(ds => ds.plugin_name)));
+
   const handleMenuClick = (event: React.MouseEvent<HTMLElement>, dataSource: DataSource) => {
-    event.stopPropagation();
-    setAnchorEl(event.currentTarget);
     setSelectedDataSource(dataSource);
+    setAnchorEl(event.currentTarget);
   };
 
   const handleMenuClose = () => {
@@ -168,7 +275,7 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
       try {
         const result = await testConnection(selectedDataSource.id);
         setTestResult(result);
-      } catch (error) {
+      } catch (error: any) {
         setTestResult({ success: false, message: 'Connection test failed', error: error.message });
       } finally {
         setTesting(false);
@@ -188,13 +295,18 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
 
   const handleCreateDataSource = async () => {
     if (dataSourceName.trim() && selectedPlugin) {
-      await createDataSource({
-        name: dataSourceName,
-        description: dataSourceDescription,
-        plugin_name: selectedPlugin,
-      });
-      resetForm();
-      setCreateDialogOpen(false);
+      try {
+        await createDataSource({
+          name: dataSourceName,
+          description: dataSourceDescription,
+          plugin_name: selectedPlugin,
+          connection_config: connectionConfig
+        });
+        resetForm();
+        setCreateDialogOpen(false);
+      } catch (error: any) {
+        console.error('Failed to create data source:', error);
+      }
     }
   };
 
@@ -202,6 +314,65 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
     setDataSourceName('');
     setDataSourceDescription('');
     setSelectedPlugin('');
+    setConnectionConfig({});
+  };
+
+  const handleConnectionConfigChange = (key: string, value: any) => {
+    setConnectionConfig(prev => ({
+      ...prev,
+      [key]: value
+    }));
+  };
+
+  const renderConnectionConfigFields = () => {
+    const plugin = availablePlugins.find(p => p.name === selectedPlugin);
+    if (!plugin?.configSchema?.properties) return null;
+
+    return Object.entries(plugin.configSchema.properties).map(([fieldName, fieldSchema]: [string, SchemaProperty]) => {
+      switch (fieldSchema.type) {
+        case 'password':
+          return (
+            <TextField
+              key={fieldName}
+              fullWidth
+              type="password"
+              label={fieldSchema.title || fieldName}
+              value={connectionConfig[fieldName] || ''}
+              onChange={(e) => handleConnectionConfigChange(fieldName, e.target.value)}
+              required={plugin.configSchema.required?.includes(fieldName)}
+              helperText={fieldSchema.description}
+              margin="normal"
+            />
+          );
+        case 'number':
+          return (
+            <TextField
+              key={fieldName}
+              fullWidth
+              type="number"
+              label={fieldSchema.title || fieldName}
+              value={connectionConfig[fieldName] || fieldSchema.default || ''}
+              onChange={(e) => handleConnectionConfigChange(fieldName, parseInt(e.target.value))}
+              required={plugin.configSchema.required?.includes(fieldName)}
+              helperText={fieldSchema.description}
+              margin="normal"
+            />
+          );
+        default:
+          return (
+            <TextField
+              key={fieldName}
+              fullWidth
+              label={fieldSchema.title || fieldName}
+              value={connectionConfig[fieldName] || ''}
+              onChange={(e) => handleConnectionConfigChange(fieldName, e.target.value)}
+              required={plugin.configSchema.required?.includes(fieldName)}
+              helperText={fieldSchema.description}
+              margin="normal"
+            />
+          );
+      }
+    });
   };
 
   const handleDataSourceClick = (dataSource: DataSource) => {
@@ -216,183 +387,156 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
   };
 
   const getPluginIcon = (pluginName: string) => {
-    if (pluginName.includes('postgres') || pluginName.includes('mysql') || pluginName.includes('sql')) {
-      return <Database />;
-    } else if (pluginName.includes('cloud') || pluginName.includes('azure') || pluginName.includes('gcp')) {
-      return <Cloud />;
-    } else {
-      return <Storage />;
+    switch (pluginName.toLowerCase()) {
+      case 'postgresql':
+      case 'mysql':
+      case 'sqlite':
+      case 'oracle':
+      case 'mariadb':
+        return <StorageIcon />;
+      case 'snowflake':
+      case 'bigquery':
+      case 'redshift':
+        return <Cloud />;
+      default:
+        return <Storage />;
     }
-  };
-
-  const getPluginColor = (pluginName: string) => {
-    if (pluginName.includes('postgres')) return 'primary';
-    if (pluginName.includes('mysql')) return 'warning';
-    if (pluginName.includes('mongodb')) return 'success';
-    if (pluginName.includes('azure')) return 'info';
-    if (pluginName.includes('aws')) return 'secondary';
-    return 'default';
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'success': return <CheckCircle color="success" />;
-      case 'error': return <Error color="error" />;
-      case 'warning': return <Warning color="warning" />;
-      default: return <Warning color="action" />;
+      case 'success':
+        return <CheckCircle color="success" />;
+      case 'failed':
+        return <Error color="error" />;
+      case 'pending':
+        return <Warning color="warning" />;
+      default:
+        return <Warning color="disabled" />;
     }
   };
 
-  const DataSourceCard = ({ dataSource }: { dataSource: DataSource }) => {
-    const isSelected = selectionMode && selectedDataSources.includes(dataSource.id);
-    
-    return (
-      <Card 
-        sx={{ 
-          height: '100%', 
-          display: 'flex', 
-          flexDirection: 'column',
-          cursor: 'pointer',
-          border: isSelected ? 2 : 1,
-          borderColor: isSelected ? 'primary.main' : 'divider',
-          '&:hover': {
-            boxShadow: 3,
-          },
-        }}
-        onClick={() => handleDataSourceClick(dataSource)}
-      >
-        <CardContent sx={{ flexGrow: 1, pb: 1 }}>
-          <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-            <Box display="flex" alignItems="center" gap={1} flex={1}>
+  const DataSourceCard: React.FC<{ dataSource: DataSource }> = ({ dataSource }) => (
+    <Card 
+      sx={{ 
+        cursor: 'pointer',
+        '&:hover': { boxShadow: 4 },
+        opacity: dataSource.is_active ? 1 : 0.6
+      }}
+      onClick={() => handleDataSourceClick(dataSource)}
+    >
+      <CardContent>
+        <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <Avatar sx={{ width: 32, height: 32 }}>
               {getPluginIcon(dataSource.plugin_name)}
-              <Typography variant="h6" component="h3" noWrap>
-                {dataSource.display_name || dataSource.name}
-              </Typography>
-            </Box>
-            <Box display="flex" alignItems="center" gap={1}>
-              {getStatusIcon(dataSource.test_status)}
-              <IconButton
-                size="small"
-                onClick={(e) => handleMenuClick(e, dataSource)}
-              >
-                <MoreVert />
-              </IconButton>
-            </Box>
-          </Box>
-
-          <Typography 
-            variant="body2" 
-            color="text.secondary" 
-            sx={{ 
-              mb: 2,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              minHeight: 32,
-            }}
-          >
-            {dataSource.description || 'No description available'}
-          </Typography>
-
-          <Box display="flex" alignItems="center" gap={1} mb={2}>
-            <Chip 
-              label={dataSource.plugin_name} 
-              size="small" 
-              color={getPluginColor(dataSource.plugin_name) as any}
-            />
-            <Chip 
-              label={dataSource.is_active ? 'Active' : 'Inactive'} 
-              size="small" 
-              color={dataSource.is_active ? 'success' : 'default'}
-            />
-          </Box>
-
-          <Box display="flex" alignItems="center" justifyContent="space-between" mt={2}>
-            <Typography variant="caption" color="text.secondary">
-              {dataSource.test_status === 'success' ? 'Connected' : 
-               dataSource.test_status === 'error' ? 'Connection Failed' : 
-               dataSource.test_status === 'pending' ? 'Not Tested' : 'Unknown Status'}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {dataSource.last_tested 
-                ? `Tested ${new Date(dataSource.last_tested).toLocaleDateString()}`
-                : 'Never tested'
-              }
-            </Typography>
-          </Box>
-        </CardContent>
-      </Card>
-    );
-  };
-
-  const DataSourceListItem = ({ dataSource }: { dataSource: DataSource }) => {
-    const isSelected = selectionMode && selectedDataSources.includes(dataSource.id);
-    
-    return (
-      <ListItem
-        button
-        selected={isSelected}
-        onClick={() => handleDataSourceClick(dataSource)}
-        sx={{
-          border: 1,
-          borderColor: 'divider',
-          borderRadius: 1,
-          mb: 1,
-        }}
-      >
-        <ListItemAvatar>
-          <Avatar sx={{ bgcolor: getPluginColor(dataSource.plugin_name) + '.main' }}>
-            {getPluginIcon(dataSource.plugin_name)}
-          </Avatar>
-        </ListItemAvatar>
-        <ListItemText
-          primary={
-            <Box display="flex" alignItems="center" gap={1}>
-              <Typography variant="subtitle1">
-                {dataSource.display_name || dataSource.name}
-              </Typography>
-              {getStatusIcon(dataSource.test_status)}
-            </Box>
-          }
-          secondary={
+            </Avatar>
             <Box>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                {dataSource.description || 'No description'}
+              <Typography variant="h6" noWrap>
+                {dataSource.display_name || dataSource.name}
               </Typography>
-              <Box display="flex" alignItems="center" gap={1}>
-                <Chip 
-                  label={dataSource.plugin_name} 
-                  size="small" 
-                  color={getPluginColor(dataSource.plugin_name) as any}
-                />
-                <Typography variant="caption" color="text.secondary">
-                  Last tested: {dataSource.last_tested 
-                    ? new Date(dataSource.last_tested).toLocaleDateString()
-                    : 'Never'
-                  } • Updated {new Date(dataSource.updated_at).toLocaleDateString()}
-                </Typography>
-              </Box>
+              <Typography variant="body2" color="text.secondary" noWrap>
+                {dataSource.plugin_name}
+              </Typography>
             </Box>
-          }
-        />
-        <ListItemSecondaryAction>
-          <IconButton
-            edge="end"
-            onClick={(e) => handleMenuClick(e, dataSource)}
-          >
-            <MoreVert />
-          </IconButton>
-        </ListItemSecondaryAction>
-      </ListItem>
-    );
-  };
+          </Box>
+          <Box display="flex" alignItems="center" gap={0.5}>
+            {getStatusIcon(dataSource.test_status)}
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleMenuClick(e, dataSource);
+              }}
+            >
+              <MoreVert />
+            </IconButton>
+          </Box>
+        </Box>
+        
+        {dataSource.description && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {dataSource.description}
+          </Typography>
+        )}
+
+        <Box display="flex" justifyContent="space-between" alignItems="center">
+          <Chip
+            size="small"
+            label={dataSource.test_status}
+            color={
+              dataSource.test_status === 'success' ? 'success' :
+              dataSource.test_status === 'failed' ? 'error' : 'warning'
+            }
+            variant="outlined"
+          />
+          <Typography variant="caption" color="text.secondary">
+            {new Date(dataSource.updated_at).toLocaleDateString()}
+          </Typography>
+        </Box>
+      </CardContent>
+    </Card>
+  );
+
+  const DataSourceListItem: React.FC<{ dataSource: DataSource }> = ({ dataSource }) => (
+    <ListItem
+      button
+      onClick={() => handleDataSourceClick(dataSource)}
+      sx={{ opacity: dataSource.is_active ? 1 : 0.6 }}
+    >
+      <ListItemAvatar>
+        <Avatar>
+          {getPluginIcon(dataSource.plugin_name)}
+        </Avatar>
+      </ListItemAvatar>
+      <ListItemText
+        primary={
+          <Box display="flex" alignItems="center" gap={1}>
+            <Typography variant="subtitle1">
+              {dataSource.display_name || dataSource.name}
+            </Typography>
+            <Chip
+              size="small"
+              label={dataSource.test_status}
+              color={
+                dataSource.test_status === 'success' ? 'success' :
+                dataSource.test_status === 'failed' ? 'error' : 'warning'
+              }
+              variant="outlined"
+            />
+          </Box>
+        }
+        secondary={
+          <Box>
+            <Typography variant="body2" color="text.secondary">
+              {dataSource.plugin_name} • {dataSource.description || 'No description'}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Last tested: {
+                dataSource.last_tested 
+                  ? new Date(dataSource.last_tested).toLocaleDateString()
+                  : 'Never'
+              } • Updated {new Date(dataSource.updated_at).toLocaleDateString()}
+            </Typography>
+          </Box>
+        }
+      />
+      <ListItemSecondaryAction>
+        <IconButton
+          edge="end"
+          onClick={(e) => handleMenuClick(e, dataSource)}
+        >
+          <MoreVert />
+        </IconButton>
+      </ListItemSecondaryAction>
+    </ListItem>
+  );
 
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" p={4}>
-        <Typography>Loading data sources...</Typography>
+        <CircularProgress />
+        <Typography sx={{ ml: 2 }}>Loading data sources...</Typography>
       </Box>
     );
   }
@@ -454,11 +598,11 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
                 onChange={(e) => setPluginFilter(e.target.value)}
               >
                 <MenuItem value="all">All Plugins</MenuItem>
-                <MenuItem value="postgres">PostgreSQL</MenuItem>
-                <MenuItem value="mysql">MySQL</MenuItem>
-                <MenuItem value="mongodb">MongoDB</MenuItem>
-                <MenuItem value="azure">Azure</MenuItem>
-                <MenuItem value="aws">AWS</MenuItem>
+                {uniquePlugins.map((plugin) => (
+                  <MenuItem key={plugin} value={plugin}>
+                    {plugin}
+                  </MenuItem>
+                ))}
               </Select>
             </FormControl>
           </Grid>
@@ -470,15 +614,16 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
                 label="Status"
                 onChange={(e) => setStatusFilter(e.target.value)}
               >
-                <MenuItem value="all">All</MenuItem>
+                <MenuItem value="all">All Status</MenuItem>
                 <MenuItem value="active">Active</MenuItem>
                 <MenuItem value="inactive">Inactive</MenuItem>
-                <MenuItem value="connected">Connected</MenuItem>
-                <MenuItem value="error">Connection Error</MenuItem>
+                <MenuItem value="success">Connected</MenuItem>
+                <MenuItem value="failed">Failed</MenuItem>
+                <MenuItem value="pending">Pending</MenuItem>
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} md={2}>
             <FormControl fullWidth size="small">
               <InputLabel>Sort By</InputLabel>
               <Select
@@ -486,22 +631,25 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
                 label="Sort By"
                 onChange={(e) => setSortBy(e.target.value)}
               >
-                <MenuItem value="updated_at">Recently Updated</MenuItem>
+                <MenuItem value="updated_at">Last Updated</MenuItem>
+                <MenuItem value="created_at">Created Date</MenuItem>
                 <MenuItem value="name">Name</MenuItem>
                 <MenuItem value="plugin">Plugin</MenuItem>
-                <MenuItem value="status">Connection Status</MenuItem>
+                <MenuItem value="status">Status</MenuItem>
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={2}>
-            <Typography variant="body2" color="text.secondary">
-              {filteredDataSources.length} data source(s)
-            </Typography>
+          <Grid item xs={12} md={3}>
+            <Box display="flex" justifyContent="flex-end" gap={1}>
+              <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center' }}>
+                {filteredDataSources.length} of {dataSources.length} sources
+              </Typography>
+            </Box>
           </Grid>
         </Grid>
       </Paper>
 
-      {/* Data Source List */}
+      {/* Data Sources List/Grid */}
       {filteredDataSources.length === 0 ? (
         <Card>
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
@@ -554,87 +702,92 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
           <Visibility fontSize="small" sx={{ mr: 1 }} />
           {onDataSourceSelect ? 'Select' : 'View'}
         </MenuItem>
-        <PermissionGate permissions={['datasource.update']}>
-          <MenuItem onClick={handleEdit}>
-            <Edit fontSize="small" sx={{ mr: 1 }} />
-            Edit
-          </MenuItem>
-        </PermissionGate>
-        <PermissionGate permissions={['datasource.test']}>
-          <MenuItem onClick={handleTest}>
-            <TestTube fontSize="small" sx={{ mr: 1 }} />
-            Test Connection
-          </MenuItem>
-        </PermissionGate>
-        <PermissionGate permissions={['datasource.delete']}>
-          <MenuItem 
-            onClick={() => setDeleteDialogOpen(true)}
-            sx={{ color: 'error.main' }}
-          >
-            <Delete fontSize="small" sx={{ mr: 1 }} />
-            Delete
-          </MenuItem>
-        </PermissionGate>
+        <MenuItem onClick={handleEdit}>
+          <Edit fontSize="small" sx={{ mr: 1 }} />
+          Edit
+        </MenuItem>
+        <MenuItem onClick={handleTest}>
+          <ScienceIcon fontSize="small" sx={{ mr: 1 }} />
+          Test Connection
+        </MenuItem>
+        <MenuItem onClick={() => setDeleteDialogOpen(true)} sx={{ color: 'error.main' }}>
+          <Delete fontSize="small" sx={{ mr: 1 }} />
+          Delete
+        </MenuItem>
       </Menu>
 
       {/* Create Data Source Dialog */}
-      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Add New Data Source</DialogTitle>
+      <Dialog 
+        open={createDialogOpen} 
+        onClose={() => setCreateDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Add Data Source</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
-            margin="dense"
-            label="Data Source Name"
+            margin="normal"
+            label="Name"
             fullWidth
-            variant="outlined"
+            required
             value={dataSourceName}
             onChange={(e) => setDataSourceName(e.target.value)}
-            sx={{ mb: 2 }}
-            required
+            helperText="Internal identifier (lowercase, no spaces recommended)"
           />
           <TextField
-            margin="dense"
+            margin="normal"
             label="Description"
             fullWidth
             multiline
-            rows={3}
-            variant="outlined"
+            rows={2}
             value={dataSourceDescription}
             onChange={(e) => setDataSourceDescription(e.target.value)}
-            sx={{ mb: 2 }}
+            helperText="Optional description for this data source"
           />
-          <FormControl fullWidth>
+          <FormControl fullWidth margin="normal" required>
             <InputLabel>Plugin Type</InputLabel>
             <Select
               value={selectedPlugin}
               label="Plugin Type"
-              onChange={(e) => setSelectedPlugin(e.target.value)}
+              onChange={(e) => {
+                setSelectedPlugin(e.target.value);
+                setConnectionConfig({}); // Reset config when plugin changes
+              }}
+              disabled={pluginsLoading}
             >
-              <MenuItem value="postgres">PostgreSQL</MenuItem>
-              <MenuItem value="mysql">MySQL</MenuItem>
-              <MenuItem value="mongodb">MongoDB</MenuItem>
-              <MenuItem value="azure-sql">Azure SQL Database</MenuItem>
-              <MenuItem value="aws-rds">AWS RDS</MenuItem>
+              {availablePlugins.map((plugin) => (
+                <MenuItem key={plugin.name} value={plugin.name}>
+                  {plugin.displayName} - {plugin.category}
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
+
+          {selectedPlugin && (
+            <>
+              <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>
+                Connection Configuration
+              </Typography>
+              {renderConnectionConfigFields()}
+            </>
+          )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { setCreateDialogOpen(false); resetForm(); }}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleCreateDataSource} 
+          <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleCreateDataSource}
             variant="contained"
             disabled={!dataSourceName.trim() || !selectedPlugin}
           >
-            Add Data Source
+            Create
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Test Connection Dialog */}
-      <Dialog open={testDialogOpen} onClose={() => setTestDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Connection Test Result</DialogTitle>
+      <Dialog open={testDialogOpen} onClose={() => setTestDialogOpen(false)}>
+        <DialogTitle>Connection Test</DialogTitle>
         <DialogContent>
           {testing ? (
             <Box display="flex" alignItems="center" gap={2} py={4}>

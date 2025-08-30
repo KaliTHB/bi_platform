@@ -23,7 +23,6 @@ import {
   Paper,
   Grid,
   Slider,
-  ColorPicker,
   Autocomplete,
   Alert
 } from '@mui/material';
@@ -35,7 +34,8 @@ import {
   Palette as PaletteIcon
 } from '@mui/icons-material';
 import { SketchPicker } from 'react-color';
-import { Chart, Dataset } from '@/types/index';
+import { Chart, ChartConfig, ChartDimensions, ChartAxes, ChartAxis, ChartLegend } from '@/types/chart.types';
+import { Dataset } from '@/types/dashboard.types';
 import { datasetAPI } from '@/services/api';
 
 interface ChartConfigPanelProps {
@@ -61,6 +61,43 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
   const [datasetColumns, setDatasetColumns] = useState<Array<{ name: string; type: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState<{ [key: string]: boolean }>({});
+
+  // Helper function to create default ChartConfig
+  const createDefaultChartConfig = (): ChartConfig => ({
+    dimensions: {
+      width: 400,
+      height: 300,
+      margin: { top: 20, right: 20, bottom: 20, left: 20 }
+    },
+    series: [],
+    axes: {
+      x: {
+        field: '',
+        title: '',
+        type: 'category',
+        scale: 'linear',
+        grid: true,
+        labels: true
+      },
+      y: {
+        field: '',
+        title: '',
+        type: 'value',
+        scale: 'linear',
+        grid: true,
+        labels: true
+      }
+    },
+    legend: {
+      show: true,
+      position: 'bottom',
+      align: 'center',
+      orientation: 'horizontal'
+    },
+    colors: ['#1976d2', '#dc004e', '#388e3c', '#f57c00'],
+    animations: true,
+    interactivity: true
+  });
 
   useEffect(() => {
     if (chart) {
@@ -95,7 +132,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
       // Handle config_json property specifically
       if (keys[0] === 'config_json' || keys[0] === 'config') {
         if (!newConfig.config_json) {
-          newConfig.config_json = {};
+          newConfig.config_json = createDefaultChartConfig();
         }
         
         let current: any = newConfig.config_json;
@@ -144,7 +181,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
             : chart.config_json;
         } catch (error) {
           console.error('Error parsing config_json:', error);
-          transformedConfig = {};
+          transformedConfig = createDefaultChartConfig();
         }
       }
 
@@ -188,7 +225,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
     if (!config) return;
     
     const currentYAxes = config.config_json?.y_axes || [];
-    const newYAxes = currentYAxes.filter((_, i) => i !== index);
+    const newYAxes = currentYAxes.filter((_: any, i: number ) => i !== index);
     
     handleConfigChange('config_json.y_axes', newYAxes);
   };
