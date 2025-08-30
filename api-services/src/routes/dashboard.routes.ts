@@ -1,33 +1,31 @@
-# api-services/src/routes/dashboard.routes.ts
+// api-services/src/routes/dashboard.routes.ts
 import express from 'express';
 import { DatabaseConfig } from '../config/database';
-import { CacheService } from '../config/redis';
 import { logger, logAudit } from '../utils/logger';
 import { asyncHandler } from '../middleware/errorHandler';
+import { authenticate, AuthenticatedRequest } from '../middleware/authentication';
 import { requireWorkspaceRole } from '../middleware/workspace';
 import { validateRequest } from '../middleware/validation';
-import { User, Workspace } from '../types/auth.types';
-
-interface AuthenticatedRequest extends express.Request {
-  user?: User;
-  workspace?: Workspace;
-}
+import { ChartRenderer } from '../services/ChartRenderer';
 
 const router = express.Router();
 
-// Get all dashboards in workspace
+// Apply authentication to all routes
+router.use(authenticate);
+
+// Get all dashboards
 router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
-  const workspaceId = req.workspace!.id;
-  const { category, search, page = '1', limit = '20', featured } = req.query;
+  const workspaceId = req.user!.workspaceId;
+  const { category_id, search, page = '1', limit = '20', is_public } = req.query;
 
   const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
   const conditions: string[] = ['d.workspace_id = $1', 'd.is_active = true'];
   const values: any[] = [workspaceId];
   let paramIndex = 2;
 
-  if (category) {
+  if (category_id) {
     conditions.push(`d.category_id = $${paramIndex++}`);
-    values.push(category);
+    values.push(category_id);
   }
 
   if (search) {
@@ -36,29 +34,28 @@ router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: express.Resp
     paramIndex += 2;
   }
 
-  if (featured === 'true') {
-    conditions.push('d.is_featured = true');
+  if (is_public !== undefined) {
+    conditions.push(`d.is_public = $${paramIndex++}`);
+    values.push(is_public === 'true');
   }
 
   const result = await DatabaseConfig.query(
     `SELECT d.*, c.name as category_name, c.color as category_color,
             u.first_name || ' ' || u.last_name as created_by_name,
-            COUNT(DISTINCT ch.id) as chart_count,
-            COUNT(DISTINCT wv.webview_id) as webview_count
+            COUNT(ch.id) as chart_count
      FROM dashboards d
      LEFT JOIN categories c ON d.category_id = c.id
      LEFT JOIN users u ON d.created_by = u.id
      LEFT JOIN charts ch ON d.id = ch.dashboard_id AND ch.is_active = true
-     LEFT JOIN webview_permissions wv ON d.id = wv.dashboard_id
      WHERE ${conditions.join(' AND ')}
-     GROUP BY d.id, c.name, c.color, u.first_name, u.last_name
+     GROUP BY d.id, c.id, u.id
      ORDER BY d.updated_at DESC
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
     [...values, parseInt(limit as string), offset]
   );
 
   const countResult = await DatabaseConfig.query(
-    `SELECT COUNT(*) as total FROM dashboards d WHERE ${conditions.join(' AND ')}`,
+    `SELECT COUNT(DISTINCT d.id) as total FROM dashboards d WHERE ${conditions.join(' AND ')}`,
     values
   );
 
@@ -76,7 +73,6 @@ router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: express.Resp
       is_public: row.is_public,
       is_featured: row.is_featured,
       chart_count: parseInt(row.chart_count),
-      webview_count: parseInt(row.webview_count),
       created_by: row.created_by_name,
       created_at: row.created_at,
       updated_at: row.updated_at
@@ -93,6 +89,7 @@ router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: express.Resp
 // Get specific dashboard
 router.get('/:dashboardId', asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
   const { dashboardId } = req.params;
+  const workspaceId = req.user!.workspaceId;
 
   const result = await DatabaseConfig.query(
     `SELECT d.*, c.name as category_name, c.color as category_color,
@@ -100,12 +97,15 @@ router.get('/:dashboardId', asyncHandler(async (req: AuthenticatedRequest, res: 
      FROM dashboards d
      LEFT JOIN categories c ON d.category_id = c.id
      LEFT JOIN users u ON d.created_by = u.id
-     WHERE d.id = $1 AND d.is_active = true`,
-    [dashboardId]
+     WHERE d.id = $1 AND d.workspace_id = $2 AND d.is_active = true`,
+    [dashboardId, workspaceId]
   );
 
   if (result.rows.length === 0) {
-    return res.status(404).json({ error: 'Dashboard not found' });
+    return res.status(404).json({ 
+      success: false,
+      message: 'Dashboard not found' 
+    });
   }
 
   const dashboard = result.rows[0];
@@ -121,6 +121,7 @@ router.get('/:dashboardId', asyncHandler(async (req: AuthenticatedRequest, res: 
   );
 
   res.json({
+    success: true,
     dashboard: {
       id: dashboard.id,
       name: dashboard.name,
@@ -171,7 +172,7 @@ router.post('/',
       is_featured
     } = req.body;
 
-    const workspaceId = req.workspace!.id;
+    const workspaceId = req.user!.workspaceId;
     const userId = req.user!.id;
 
     // Check if slug already exists in workspace
@@ -181,7 +182,11 @@ router.post('/',
     );
 
     if (existingResult.rows.length > 0) {
-      return res.status(409).json({ error: 'Dashboard slug already exists in workspace' });
+      return res.status(409).json({ 
+        success: false,
+        message: 'Dashboard slug already exists in workspace',
+        errors: [{ code: 'SLUG_EXISTS', message: 'A dashboard with this slug already exists' }]
+      });
     }
 
     // Validate category exists if provided
@@ -192,7 +197,11 @@ router.post('/',
       );
 
       if (categoryResult.rows.length === 0) {
-        return res.status(400).json({ error: 'Invalid category ID' });
+        return res.status(400).json({ 
+          success: false,
+          message: 'Invalid category ID',
+          errors: [{ code: 'INVALID_CATEGORY', message: 'Category not found' }]
+        });
       }
     }
 
@@ -205,7 +214,7 @@ router.post('/',
       [
         workspaceId, name, slug, description, category_id,
         JSON.stringify(layout_config || {}),
-        JSON.stringify(filter_config || []),
+        JSON.stringify(filter_config || {}),
         is_public || false,
         is_featured || false,
         userId
@@ -220,12 +229,18 @@ router.post('/',
     });
 
     res.status(201).json({
+      success: true,
       message: 'Dashboard created successfully',
       dashboard: {
         id: result.rows[0].id,
         name: result.rows[0].name,
         slug: result.rows[0].slug,
         description: result.rows[0].description,
+        category_id: result.rows[0].category_id,
+        layout_config: result.rows[0].layout_config,
+        filter_config: result.rows[0].filter_config,
+        is_public: result.rows[0].is_public,
+        is_featured: result.rows[0].is_featured,
         created_at: result.rows[0].created_at
       }
     });
@@ -249,98 +264,67 @@ router.put('/:dashboardId',
       is_featured
     } = req.body;
 
+    const workspaceId = req.user!.workspaceId;
     const userId = req.user!.id;
-    const workspaceId = req.workspace!.id;
 
-    // Check if dashboard exists and user has permission
-    const dashboardResult = await DatabaseConfig.query(
-      'SELECT id FROM dashboards WHERE id = $1 AND workspace_id = $2 AND is_active = true',
+    // Check if dashboard exists
+    const existingResult = await DatabaseConfig.query(
+      'SELECT id, slug FROM dashboards WHERE id = $1 AND workspace_id = $2 AND is_active = true',
       [dashboardId, workspaceId]
     );
 
-    if (dashboardResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Dashboard not found' });
+    if (existingResult.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Dashboard not found' 
+      });
     }
 
-    // Check slug uniqueness if changing
-    if (slug) {
-      const existingResult = await DatabaseConfig.query(
+    // Check if slug conflict (if slug is being changed)
+    if (slug && slug !== existingResult.rows[0].slug) {
+      const slugResult = await DatabaseConfig.query(
         'SELECT id FROM dashboards WHERE workspace_id = $1 AND slug = $2 AND id != $3 AND is_active = true',
         [workspaceId, slug, dashboardId]
       );
 
-      if (existingResult.rows.length > 0) {
-        return res.status(409).json({ error: 'Dashboard slug already exists in workspace' });
+      if (slugResult.rows.length > 0) {
+        return res.status(409).json({ 
+          success: false,
+          message: 'Dashboard slug already exists in workspace' 
+        });
       }
     }
 
-    // Build update query
-    const updates: string[] = [];
-    const values: any[] = [];
-    let paramIndex = 1;
-
-    if (name !== undefined) {
-      updates.push(`name = $${paramIndex++}`);
-      values.push(name);
-    }
-
-    if (slug !== undefined) {
-      updates.push(`slug = $${paramIndex++}`);
-      values.push(slug);
-    }
-
-    if (description !== undefined) {
-      updates.push(`description = $${paramIndex++}`);
-      values.push(description);
-    }
-
-    if (category_id !== undefined) {
-      updates.push(`category_id = $${paramIndex++}`);
-      values.push(category_id);
-    }
-
-    if (layout_config !== undefined) {
-      updates.push(`layout_config = $${paramIndex++}`);
-      values.push(JSON.stringify(layout_config));
-    }
-
-    if (filter_config !== undefined) {
-      updates.push(`filter_config = $${paramIndex++}`);
-      values.push(JSON.stringify(filter_config));
-    }
-
-    if (is_public !== undefined) {
-      updates.push(`is_public = $${paramIndex++}`);
-      values.push(is_public);
-    }
-
-    if (is_featured !== undefined) {
-      updates.push(`is_featured = $${paramIndex++}`);
-      values.push(is_featured);
-    }
-
-    if (updates.length === 0) {
-      return res.status(400).json({ error: 'No updates provided' });
-    }
-
-    updates.push(`updated_at = NOW()`);
-    values.push(dashboardId);
-
     const result = await DatabaseConfig.query(
-      `UPDATE dashboards SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
-      values
+      `UPDATE dashboards SET
+        name = COALESCE($3, name),
+        slug = COALESCE($4, slug),
+        description = COALESCE($5, description),
+        category_id = COALESCE($6, category_id),
+        layout_config = COALESCE($7, layout_config),
+        filter_config = COALESCE($8, filter_config),
+        is_public = COALESCE($9, is_public),
+        is_featured = COALESCE($10, is_featured),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1 AND workspace_id = $2
+      RETURNING *`,
+      [
+        dashboardId, workspaceId, name, slug, description, category_id,
+        layout_config ? JSON.stringify(layout_config) : null,
+        filter_config ? JSON.stringify(filter_config) : null,
+        is_public, is_featured
+      ]
     );
-
-    // Clear cache
-    await CacheService.del(`dashboard:${dashboardId}`);
 
     // Log audit event
     logAudit('DASHBOARD_UPDATE', userId, workspaceId, {
       dashboard_id: dashboardId,
-      updated_fields: Object.keys(req.body)
+      dashboard_name: result.rows[0].name,
+      changes: { name, slug, description, is_public, is_featured }
     });
 
     res.json({
+      success: true,
       message: 'Dashboard updated successfully',
       dashboard: result.rows[0]
     });
@@ -349,206 +333,130 @@ router.put('/:dashboardId',
 
 // Delete dashboard
 router.delete('/:dashboardId',
-  requireWorkspaceRole(['admin', 'owner']),
-  asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
-    const { dashboardId } = req.params;
-    const userId = req.user!.id;
-    const workspaceId = req.workspace!.id;
-
-    // Check if dashboard has charts
-    const chartsResult = await DatabaseConfig.query(
-      'SELECT COUNT(*) as count FROM charts WHERE dashboard_id = $1 AND is_active = true',
-      [dashboardId]
-    );
-
-    const chartCount = parseInt(chartsResult.rows[0].count);
-    if (chartCount > 0) {
-      return res.status(409).json({
-        error: 'Cannot delete dashboard with active charts',
-        details: { chart_count: chartCount }
-      });
-    }
-
-    // Soft delete dashboard
-    await DatabaseConfig.query(
-      'UPDATE dashboards SET is_active = false, updated_at = NOW() WHERE id = $1',
-      [dashboardId]
-    );
-
-    // Clear cache
-    await CacheService.del(`dashboard:${dashboardId}`);
-
-    // Log audit event
-    logAudit('DASHBOARD_DELETE', userId, workspaceId, {
-      dashboard_id: dashboardId
-    });
-
-    res.json({ message: 'Dashboard deleted successfully' });
-  })
-);
-
-// Duplicate dashboard
-router.post('/:dashboardId/duplicate',
-  requireWorkspaceRole(['analyst', 'editor', 'admin', 'owner']),
-  validateRequest('duplicateDashboard'),
-  asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
-    const { dashboardId } = req.params;
-    const { name, slug } = req.body;
-    const userId = req.user!.id;
-    const workspaceId = req.workspace!.id;
-
-    // Get original dashboard
-    const dashboardResult = await DatabaseConfig.query(
-      'SELECT * FROM dashboards WHERE id = $1 AND workspace_id = $2 AND is_active = true',
-      [dashboardId, workspaceId]
-    );
-
-    if (dashboardResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Dashboard not found' });
-    }
-
-    const originalDashboard = dashboardResult.rows[0];
-
-    // Check slug uniqueness
-    const existingResult = await DatabaseConfig.query(
-      'SELECT id FROM dashboards WHERE workspace_id = $1 AND slug = $2 AND is_active = true',
-      [workspaceId, slug]
-    );
-
-    if (existingResult.rows.length > 0) {
-      return res.status(409).json({ error: 'Dashboard slug already exists' });
-    }
-
-    // Create duplicate in transaction
-    const result = await DatabaseConfig.transaction(async (client) => {
-      // Create new dashboard
-      const newDashboardResult = await client.query(
-        `INSERT INTO dashboards (
-          workspace_id, name, slug, description, category_id,
-          layout_config, filter_config, is_public, is_featured, created_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING *`,
-        [
-          workspaceId,
-          name,
-          slug,
-          originalDashboard.description,
-          originalDashboard.category_id,
-          originalDashboard.layout_config,
-          originalDashboard.filter_config,
-          false, // New dashboard not public by default
-          false, // New dashboard not featured by default
-          userId
-        ]
-      );
-
-      const newDashboard = newDashboardResult.rows[0];
-
-      // Get original charts
-      const chartsResult = await client.query(
-        'SELECT * FROM charts WHERE dashboard_id = $1 AND is_active = true',
-        [dashboardId]
-      );
-
-      // Create duplicate charts
-      for (const chart of chartsResult.rows) {
-        await client.query(
-          `INSERT INTO charts (
-            workspace_id, dashboard_id, dataset_id, name, type, config, position, created_by
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [
-            workspaceId,
-            newDashboard.id,
-            chart.dataset_id,
-            chart.name,
-            chart.type,
-            chart.config,
-            chart.position,
-            userId
-          ]
-        );
-      }
-
-      return newDashboard;
-    });
-
-    // Log audit event
-    logAudit('DASHBOARD_DUPLICATE', userId, workspaceId, {
-      original_dashboard_id: dashboardId,
-      new_dashboard_id: result.id,
-      new_dashboard_name: result.name
-    });
-
-    res.status(201).json({
-      message: 'Dashboard duplicated successfully',
-      dashboard: {
-        id: result.id,
-        name: result.name,
-        slug: result.slug,
-        created_at: result.created_at
-      }
-    });
-  })
-);
-
-// Get dashboard analytics
-router.get('/:dashboardId/analytics',
   requireWorkspaceRole(['editor', 'admin', 'owner']),
   asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
     const { dashboardId } = req.params;
-    const { timeframe = '7d' } = req.query;
+    const workspaceId = req.user!.workspaceId;
+    const userId = req.user!.id;
 
-    const timeCondition = timeframe === '24h' ? 
-      'created_at >= NOW() - INTERVAL \'24 hours\'' :
-      timeframe === '7d' ?
-      'created_at >= NOW() - INTERVAL \'7 days\'' :
-      'created_at >= NOW() - INTERVAL \'30 days\'';
+    // Check if dashboard exists
+    const existingResult = await DatabaseConfig.query(
+      'SELECT name FROM dashboards WHERE id = $1 AND workspace_id = $2 AND is_active = true',
+      [dashboardId, workspaceId]
+    );
 
-    // Get view analytics
-    const viewsResult = await DatabaseConfig.query(
-      `SELECT 
-         COUNT(*) as total_views,
-         COUNT(DISTINCT user_id) as unique_viewers,
-         DATE_TRUNC('day', created_at) as view_date,
-         COUNT(*) as daily_views
-       FROM audit_logs
-       WHERE resource_type = 'dashboard' 
-         AND resource_id = $1 
-         AND action = 'DASHBOARD_VIEW'
-         AND ${timeCondition}
-       GROUP BY view_date
-       ORDER BY view_date`,
+    if (existingResult.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Dashboard not found' 
+      });
+    }
+
+    // Soft delete dashboard and associated charts
+    await DatabaseConfig.query(
+      'UPDATE dashboards SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
       [dashboardId]
     );
 
-    // Get top viewers
-    const topViewersResult = await DatabaseConfig.query(
-      `SELECT u.first_name || ' ' || u.last_name as user_name,
-              COUNT(*) as view_count
-       FROM audit_logs al
-       JOIN users u ON al.user_id = u.id
-       WHERE al.resource_type = 'dashboard' 
-         AND al.resource_id = $1 
-         AND al.action = 'DASHBOARD_VIEW'
-         AND ${timeCondition}
-       GROUP BY u.id, u.first_name, u.last_name
-       ORDER BY view_count DESC
-       LIMIT 10`,
+    await DatabaseConfig.query(
+      'UPDATE charts SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE dashboard_id = $1',
       [dashboardId]
     );
+
+    // Log audit event
+    logAudit('DASHBOARD_DELETE', userId, workspaceId, {
+      dashboard_id: dashboardId,
+      dashboard_name: existingResult.rows[0].name
+    });
 
     res.json({
-      analytics: {
-        total_views: viewsResult.rows.reduce((sum, row) => sum + parseInt(row.total_views), 0),
-        unique_viewers: new Set(viewsResult.rows.flatMap(row => row.unique_viewers)).size,
-        daily_views: viewsResult.rows.map(row => ({
-          date: row.view_date,
-          views: parseInt(row.daily_views)
-        })),
-        top_viewers: topViewersResult.rows
-      }
+      success: true,
+      message: 'Dashboard deleted successfully'
     });
   })
 );
+
+// Get dashboard data with all chart data rendered
+router.get('/:dashboardId/data', asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
+  const { dashboardId } = req.params;
+  const workspaceId = req.user!.workspaceId;
+  const { filters } = req.query;
+
+  try {
+    // Get dashboard and charts
+    const dashboard = await DatabaseConfig.query(
+      `SELECT d.*, 
+       COALESCE(
+         JSON_AGG(
+           JSON_BUILD_OBJECT(
+             'id', ch.id,
+             'name', ch.name,
+             'type', ch.type,
+             'config', ch.config,
+             'position', ch.position,
+             'dataset_id', ch.dataset_id
+           )
+         ) FILTER (WHERE ch.id IS NOT NULL), 
+         '[]'::json
+       ) as charts
+       FROM dashboards d
+       LEFT JOIN charts ch ON d.id = ch.dashboard_id AND ch.is_active = true
+       WHERE d.id = $1 AND d.workspace_id = $2 AND d.is_active = true
+       GROUP BY d.id`,
+      [dashboardId, workspaceId]
+    );
+
+    if (dashboard.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Dashboard not found' 
+      });
+    }
+
+    const dashboardData = dashboard.rows[0];
+    const parsedFilters = filters ? JSON.parse(filters as string) : [];
+
+    // Render data for each chart
+    const chartDataPromises = dashboardData.charts.map(async (chart: any) => {
+      try {
+        const chartData = await ChartRenderer.renderChart(chart.id, workspaceId, parsedFilters);
+        return {
+          chartId: chart.id,
+          ...chartData
+        };
+      } catch (error) {
+        logger.error('Chart rendering failed', { chartId: chart.id, error });
+        return {
+          chartId: chart.id,
+          data: [],
+          columns: [],
+          metadata: { error: 'Failed to render chart data' }
+        };
+      }
+    });
+
+    const chartsData = await Promise.all(chartDataPromises);
+
+    res.json({
+      success: true,
+      dashboard: {
+        id: dashboardData.id,
+        name: dashboardData.name,
+        slug: dashboardData.slug,
+        description: dashboardData.description,
+        layout_config: dashboardData.layout_config,
+        filter_config: dashboardData.filter_config,
+        charts: dashboardData.charts
+      },
+      chartsData
+    });
+  } catch (error) {
+    logger.error('Dashboard data fetch failed', { dashboardId, error });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch dashboard data'
+    });
+  }
+}));
 
 export default router;
