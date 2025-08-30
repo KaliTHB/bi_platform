@@ -1,0 +1,12 @@
+{
+  "name": "bi-platform",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix api-services\" \"npm run dev --prefix web-application\"",
+    "dev:backend": "npm run dev --prefix api-services",
+    "dev:frontend": "npm run dev --prefix web-application"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

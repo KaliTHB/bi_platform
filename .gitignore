@@ -34,3 +34,17 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Frontend (Next.js)
+web-application/.next/
+web-application/out/
+web-application/node_modules
+web-application/coverage
+web-application/.env
+
+# Backend (Express + TS)
+api-services/dist/
+api-services/build/
+api-services/node_modules
+api-services/coverage
+api-services/.env
