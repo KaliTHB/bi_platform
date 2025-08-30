@@ -1,47 +1,24 @@
 import { Router } from 'express';
 import { AuthController } from '../controllers/AuthController';
-import { AuthService } from '../services/AuthService';
-import { DatabaseService } from '../config/database';
-import { CacheService } from '../config/redis';
-import { validateLogin, validateRegister } from '../middleware/validation';
-import { authRateLimiter } from '../middleware/rateLimit';
-import { authenticate } from '../middleware/authentication';
+import { validateRequest } from '../middleware/validation';
+import { loginSchema, refreshTokenSchema, switchWorkspaceSchema } from '../schemas/auth.schemas';
 
 const router = Router();
+const authController = new AuthController();
 
-// Initialize services
-const db = new DatabaseService();
-const cache = new CacheService();
-const authService = new AuthService(db, cache);
-const authController = new AuthController(authService);
+// Login
+router.post('/login', validateRequest(loginSchema), authController.login);
 
-// Public routes
-router.post('/login', 
-  authRateLimiter,
-  validateLogin,
-  authController.login.bind(authController)
-);
+// Refresh token
+router.post('/refresh', validateRequest(refreshTokenSchema), authController.refreshToken);
 
-router.post('/register',
-  authRateLimiter,
-  validateRegister,
-  authController.register.bind(authController)
-);
+// Logout
+router.post('/logout', authController.logout);
 
-router.post('/refresh',
-  authRateLimiter,
-  authController.refresh.bind(authController)
-);
+// Switch workspace
+router.post('/switch-workspace', validateRequest(switchWorkspaceSchema), authController.switchWorkspace);
 
-// Protected routes
-router.post('/logout',
-  authenticate,
-  authController.logout.bind(authController)
-);
-
-router.get('/profile',
-  authenticate,
-  authController.getProfile.bind(authController)
-);
+// Get current user info
+router.get('/me', authController.getCurrentUser);
 
 export default router;

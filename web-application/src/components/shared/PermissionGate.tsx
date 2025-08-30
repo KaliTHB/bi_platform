@@ -1,6 +1,6 @@
-// web-application/src/components/shared/PermissionGate.tsx
 import React from 'react';
-import { useAuth } from '../../hooks/useAuth';
+import { useSelector } from 'react-redux';
+import { RootState } from '../../store';
 
 interface PermissionGateProps {
   permissions: string[];
@@ -13,23 +13,17 @@ export const PermissionGate: React.FC<PermissionGateProps> = ({
   permissions,
   operation = 'OR',
   fallback = null,
-  children
+  children,
 }) => {
-  const { hasPermission, hasAnyPermission, hasAllPermissions } = useAuth();
+  const userPermissions = useSelector((state: RootState) => state.auth.permissions);
 
-  let hasAccess = false;
+  const hasPermission = operation === 'AND'
+    ? permissions.every(permission => userPermissions.includes(permission))
+    : permissions.some(permission => userPermissions.includes(permission));
 
-  if (operation === 'AND') {
-    hasAccess = hasAllPermissions(permissions);
-  } else {
-    hasAccess = hasAnyPermission(permissions);
-  }
-
-  if (!hasAccess) {
+  if (!hasPermission) {
     return <>{fallback}</>;
   }
 
   return <>{children}</>;
 };
-
-export default PermissionGate;

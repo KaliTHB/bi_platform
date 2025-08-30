@@ -1,154 +1,154 @@
-// web-application/src/components/shared/Navigation.tsx
 import React, { useState } from 'react';
-import { useRouter } from 'next/router';
 import {
   AppBar,
   Toolbar,
   Typography,
-  Button,
+  IconButton,
   Menu,
   MenuItem,
   Avatar,
   Box,
-  IconButton,
   Drawer,
   List,
   ListItem,
   ListItemIcon,
   ListItemText,
+  Divider,
 } from '@mui/material';
 import {
-  Dashboard,
-  DataObject,
-  Settings,
-  AccountCircle,
   Menu as MenuIcon,
-  Analytics,
-  Category,
+  Dashboard,
+  BarChart,
+  Storage,
+  Settings,
+  ExitToApp,
+  Person,
 } from '@mui/icons-material';
-import { useAuth } from '../../hooks/useAuth';
-import { useWorkspace } from '../providers/WorkspaceProvider';
-import PermissionGate from './PermissionGate';
+import { useSelector, useDispatch } from 'react-redux';
+import { useRouter } from 'next/navigation';
+import { RootState } from '../../store';
+import { useLogoutMutation } from '../../store/api/authApi';
+import { WorkspaceSwitcher } from './WorkspaceSwitcher';
+import { PermissionGate } from './PermissionGate';
 
-export const Navigation: React.FC = () => {
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+interface NavigationProps {
+  children: React.ReactNode;
+}
+
+export const Navigation: React.FC<NavigationProps> = ({ children }) => {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [userMenuAnchor, setUserMenuAnchor] = useState<null | HTMLElement>(null);
   
+  const { user, workspace } = useSelector((state: RootState) => state.auth);
+  const [logout] = useLogoutMutation();
   const router = useRouter();
-  const { user, workspace, signOut } = useAuth();
-  const { currentWorkspace } = useWorkspace();
 
-  const handleProfileMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget);
-  };
-
-  const handleProfileMenuClose = () => {
-    setAnchorEl(null);
-  };
-
-  const handleSignOut = () => {
-    signOut();
-    handleProfileMenuClose();
+  const handleLogout = async () => {
+    try {
+      await logout().unwrap();
+      router.push('/login');
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
   };
 
   const navigationItems = [
     {
-      label: 'Dashboards',
+      text: 'Dashboards',
       icon: <Dashboard />,
-      path: `/workspace/${currentWorkspace?.slug}`,
-      permissions: ['dashboard.read']
+      path: `/workspace/${workspace?.slug}`,
+      permissions: ['dashboard.read'],
     },
     {
-      label: 'Datasets',
-      icon: <DataObject />,
-      path: `/workspace/${currentWorkspace?.slug}/datasets`,
-      permissions: ['dataset.read']
+      text: 'Charts',
+      icon: <BarChart />,
+      path: `/workspace/${workspace?.slug}/charts`,
+      permissions: ['chart.read'],
     },
     {
-      label: 'Dashboard Builder',
-      icon: <Analytics />,
-      path: `/workspace/${currentWorkspace?.slug}/dashboard-builder`,
-      permissions: ['dashboard.create']
+      text: 'Datasets',
+      icon: <Storage />,
+      path: `/workspace/${workspace?.slug}/datasets`,
+      permissions: ['dataset.read'],
     },
     {
-      label: 'SQL Editor',
-      icon: <DataObject />,
-      path: `/workspace/${currentWorkspace?.slug}/sql-editor`,
-      permissions: ['sql_editor.access']
+      text: 'Dashboard Builder',
+      icon: <Dashboard />,
+      path: `/workspace/${workspace?.slug}/dashboard-builder`,
+      permissions: ['dashboard.create', 'dashboard.edit'],
     },
     {
-      label: 'Categories',
-      icon: <Category />,
-      path: `/workspace/${currentWorkspace?.slug}/admin/categories`,
-      permissions: ['category.read']
-    },
-    {
-      label: 'Admin',
-      icon: <Settings />,
-      path: `/workspace/${currentWorkspace?.slug}/admin`,
-      permissions: ['workspace.admin']
+      text: 'SQL Editor',
+      icon: <BarChart />,
+      path: `/workspace/${workspace?.slug}/sql-editor`,
+      permissions: ['dataset.create', 'query.execute'],
     },
   ];
 
+  const adminItems = [
+    {
+      text: 'User Management',
+      icon: <Person />,
+      path: `/workspace/${workspace?.slug}/admin/users`,
+      permissions: ['user.manage'],
+    },
+    {
+      text: 'Workspace Settings',
+      icon: <Settings />,
+      path: `/workspace/${workspace?.slug}/admin/settings`,
+      permissions: ['workspace.manage'],
+    },
+  ];
+
+  const handleNavigation = (path: string) => {
+    router.push(path);
+    setDrawerOpen(false);
+  };
+
   return (
     <>
-      <AppBar position="static" elevation={1}>
+      <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
         <Toolbar>
           <IconButton
-            edge="start"
             color="inherit"
+            edge="start"
             onClick={() => setDrawerOpen(true)}
-            sx={{ mr: 2, display: { sm: 'none' } }}
+            sx={{ marginRight: 2 }}
           >
             <MenuIcon />
           </IconButton>
           
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            BI Platform - {currentWorkspace?.display_name}
+            BI Platform
           </Typography>
-
-          <Box sx={{ display: { xs: 'none', sm: 'flex' }, mr: 2 }}>
-            {navigationItems.map((item) => (
-              <PermissionGate key={item.path} permissions={item.permissions}>
-                <Button
-                  color="inherit"
-                  startIcon={item.icon}
-                  onClick={() => router.push(item.path)}
-                  sx={{ mx: 1 }}
-                >
-                  {item.label}
-                </Button>
-              </PermissionGate>
-            ))}
+          
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <WorkspaceSwitcher />
+            
+            <IconButton
+              color="inherit"
+              onClick={(e) => setUserMenuAnchor(e.currentTarget)}
+            >
+              <Avatar sx={{ width: 32, height: 32 }}>
+                {user?.display_name?.charAt(0).toUpperCase()}
+              </Avatar>
+            </IconButton>
           </Box>
-
-          <IconButton
-            size="large"
-            edge="end"
-            onClick={handleProfileMenuOpen}
-            color="inherit"
-          >
-            <Avatar sx={{ width: 32, height: 32 }}>
-              {user?.first_name?.[0]}{user?.last_name?.[0]}
-            </Avatar>
-          </IconButton>
         </Toolbar>
       </AppBar>
 
       <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={handleProfileMenuClose}
-        onClick={handleProfileMenuClose}
+        anchorEl={userMenuAnchor}
+        open={Boolean(userMenuAnchor)}
+        onClose={() => setUserMenuAnchor(null)}
       >
-        <MenuItem onClick={() => router.push('/profile')}>
+        <MenuItem onClick={() => setUserMenuAnchor(null)}>
+          <Person sx={{ mr: 1 }} />
           Profile
         </MenuItem>
-        <MenuItem onClick={() => router.push('/workspace-selector')}>
-          Switch Workspace
-        </MenuItem>
-        <MenuItem onClick={handleSignOut}>
-          Sign Out
+        <MenuItem onClick={handleLogout}>
+          <ExitToApp sx={{ mr: 1 }} />
+          Logout
         </MenuItem>
       </Menu>
 
@@ -156,23 +156,54 @@ export const Navigation: React.FC = () => {
         anchor="left"
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        sx={{ display: { sm: 'none' } }}
       >
-        <Box sx={{ width: 250 }} onClick={() => setDrawerOpen(false)}>
+        <Toolbar />
+        <Box sx={{ width: 250, pt: 1 }}>
           <List>
             {navigationItems.map((item) => (
-              <PermissionGate key={item.path} permissions={item.permissions}>
-                <ListItem button onClick={() => router.push(item.path)}>
+              <PermissionGate key={item.text} permissions={item.permissions}>
+                <ListItem 
+                  button 
+                  onClick={() => handleNavigation(item.path)}
+                >
                   <ListItemIcon>{item.icon}</ListItemIcon>
-                  <ListItemText primary={item.label} />
+                  <ListItemText primary={item.text} />
                 </ListItem>
               </PermissionGate>
             ))}
           </List>
+          
+          <PermissionGate permissions={['user.manage', 'workspace.manage']}>
+            <>
+              <Divider />
+              <List>
+                <ListItem>
+                  <ListItemText 
+                    primary="Administration" 
+                    primaryTypographyProps={{ variant: 'overline', color: 'textSecondary' }}
+                  />
+                </ListItem>
+                {adminItems.map((item) => (
+                  <PermissionGate key={item.text} permissions={item.permissions}>
+                    <ListItem 
+                      button 
+                      onClick={() => handleNavigation(item.path)}
+                    >
+                      <ListItemIcon>{item.icon}</ListItemIcon>
+                      <ListItemText primary={item.text} />
+                    </ListItem>
+                  </PermissionGate>
+                ))}
+              </List>
+            </>
+          </PermissionGate>
         </Box>
       </Drawer>
+
+      <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
+        <Toolbar />
+        {children}
+      </Box>
     </>
   );
 };
-
-export default Navigation;

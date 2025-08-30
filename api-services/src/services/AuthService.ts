@@ -1,339 +1,325 @@
-import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import { DatabaseService } from './DatabaseService';
-import { CacheService } from './CacheService';
+import { db } from '../config/database';
+import { cache } from '../config/redis';
 import { logger } from '../utils/logger';
+import { AuditService } from './AuditService';
 
-export interface LoginResult {
-  user: any;
-  token: string;
-  refresh_token: string;
-  workspace: any;
-  permissions: string[];
-  expires_at: Date;
+interface LoginCredentials {
+  username: string;
+  password: string;
+  workspaceSlug?: string;
 }
 
-export interface RegisterData {
+interface User {
+  id: string;
   username: string;
   email: string;
-  password: string;
-  first_name: string;
-  last_name: string;
-  workspace_slug?: string;
+  display_name: string;
+  is_active: boolean;
+  created_at: Date;
+  updated_at: Date;
 }
 
-export class AuthService {
-  private db: DatabaseService;
-  private cache: CacheService;
-  private jwtSecret: string;
-  private jwtExpiresIn: string;
-  private refreshTokenExpiresIn: string;
+interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  user: User;
+  workspace?: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+}
+
+class AuthService {
+  private readonly JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key';
+  private readonly REFRESH_SECRET = process.env.REFRESH_SECRET || 'your-refresh-secret';
+  private readonly ACCESS_TOKEN_EXPIRY = '1h';
+  private readonly REFRESH_TOKEN_EXPIRY = '7d';
+  
+  private auditService: AuditService;
 
   constructor() {
-    this.db = new DatabaseService();
-    this.cache = new CacheService();
-    this.jwtSecret = process.env.JWT_SECRET || 'your-super-secret-jwt-key';
-    this.jwtExpiresIn = process.env.JWT_EXPIRES_IN || '15m';
-    this.refreshTokenExpiresIn = process.env.REFRESH_TOKEN_EXPIRES_IN || '7d';
+    this.auditService = new AuditService();
   }
 
-  async login(username: string, password: string, workspaceSlug: string): Promise<LoginResult> {
+  async login(credentials: LoginCredentials): Promise<AuthTokens> {
     try {
-      // Find user
+      // Get user with password hash
       const userQuery = `
-        SELECT id, username, email, password_hash, first_name, last_name, is_active
+        SELECT id, username, email, display_name, password_hash, is_active
         FROM users 
         WHERE username = $1 AND is_active = true
       `;
-      const userResult = await this.db.query(userQuery, [username]);
+      
+      const userResult = await db.query(userQuery, [credentials.username]);
       
       if (userResult.rows.length === 0) {
         throw new Error('Invalid credentials');
       }
-      
+
       const user = userResult.rows[0];
       
       // Verify password
-      const isValidPassword = await bcrypt.compare(password, user.password_hash);
+      const isValidPassword = await bcrypt.compare(credentials.password, user.password_hash);
       if (!isValidPassword) {
+        await this.auditService.logEvent({
+          event_type: 'auth.login_failed',
+          user_id: user.id,
+          details: { reason: 'invalid_password', username: credentials.username }
+        });
         throw new Error('Invalid credentials');
       }
-      
-      // Find workspace
-      const workspaceQuery = `
-        SELECT id, name, display_name, slug
-        FROM workspaces 
-        WHERE slug = $1 AND is_active = true
-      `;
-      const workspaceResult = await this.db.query(workspaceQuery, [workspaceSlug]);
-      
-      if (workspaceResult.rows.length === 0) {
-        throw new Error('Workspace not found');
-      }
-      
-      const workspace = workspaceResult.rows[0];
-      
-      // Check if user has access to workspace
-      const accessQuery = `
-        SELECT COUNT(*) as access_count
-        FROM user_role_assignments ura
-        JOIN custom_roles cr ON ura.role_id = cr.id
-        WHERE ura.user_id = $1 
-        AND ura.workspace_id = $2 
-        AND ura.is_active = true
-        AND (ura.expires_at IS NULL OR ura.expires_at > NOW())
-      `;
-      const accessResult = await this.db.query(accessQuery, [user.id, workspace.id]);
-      
-      if (parseInt(accessResult.rows[0].access_count) === 0) {
-        throw new Error('Access denied to workspace');
-      }
-      
-      // Get user permissions for this workspace
-      const permissions = await this.getUserPermissions(user.id, workspace.id);
-      
-      // Generate tokens
-      const token = this.generateAccessToken(user, workspace);
-      const refreshToken = this.generateRefreshToken(user.id);
-      
-      // Update last login
-      await this.db.query(
-        'UPDATE users SET last_login = NOW() WHERE id = $1',
-        [user.id]
-      );
-      
-      // Cache user session
-      await this.cache.set(`user:${user.id}:workspace:${workspace.id}`, {
-        user: { ...user, password_hash: undefined },
-        workspace,
-        permissions
-      }, 900); // 15 minutes
-      
-      return {
-        user: { ...user, password_hash: undefined },
-        token,
-        refresh_token: refreshToken,
-        workspace,
-        permissions,
-        expires_at: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
-      };
-      
-    } catch (error) {
-      logger.error('Login service error:', error);
-      throw error;
-    }
-  }
 
-  async register(userData: RegisterData): Promise<any> {
-    try {
-      // Check if username or email already exists
-      const existingUserQuery = `
-        SELECT id FROM users 
-        WHERE username = $1 OR email = $2
-      `;
-      const existingUser = await this.db.query(existingUserQuery, [userData.username, userData.email]);
-      
-      if (existingUser.rows.length > 0) {
-        throw new Error('Username or email already exists');
-      }
-      
-      // Hash password
-      const passwordHash = await bcrypt.hash(userData.password, 10);
-      
-      // Create user
-      const createUserQuery = `
-        INSERT INTO users (username, email, password_hash, first_name, last_name)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, username, email, first_name, last_name, created_at
-      `;
-      const userResult = await this.db.query(createUserQuery, [
-        userData.username,
-        userData.email,
-        passwordHash,
-        userData.first_name,
-        userData.last_name
-      ]);
-      
-      const newUser = userResult.rows[0];
-      
-      // If workspace_slug is provided, try to add user to that workspace
-      if (userData.workspace_slug) {
-        await this.addUserToWorkspace(newUser.id, userData.workspace_slug);
-      }
-      
-      return newUser;
-      
-    } catch (error) {
-      logger.error('Registration service error:', error);
-      throw error;
-    }
-  }
-
-  async logout(token: string): Promise<void> {
-    try {
-      // Add token to blacklist in Redis
-      const decoded = jwt.decode(token) as any;
-      if (decoded && decoded.exp) {
-        const expiresIn = decoded.exp - Math.floor(Date.now() / 1000);
-        if (expiresIn > 0) {
-          await this.cache.set(`blacklist:${token}`, 'true', expiresIn);
-        }
-      }
-    } catch (error) {
-      logger.error('Logout service error:', error);
-      throw error;
-    }
-  }
-
-  async getUserProfile(userId: string): Promise<any> {
-    try {
-      const query = `
-        SELECT id, username, email, first_name, last_name, avatar_url, preferences, created_at
-        FROM users 
-        WHERE id = $1 AND is_active = true
-      `;
-      const result = await this.db.query(query, [userId]);
-      
-      if (result.rows.length === 0) {
-        throw new Error('User not found');
-      }
-      
-      return result.rows[0];
-    } catch (error) {
-      logger.error('Get user profile service error:', error);
-      throw error;
-    }
-  }
-
-  async refreshToken(refreshToken: string): Promise<any> {
-    try {
-      const decoded = jwt.verify(refreshToken, this.jwtSecret) as any;
-      
-      const user = await this.getUserProfile(decoded.userId);
-      if (!user) {
-        throw new Error('Invalid refresh token');
-      }
-      
-      // Generate new access token
-      const newToken = this.generateAccessToken(user, decoded.workspace);
-      
-      return {
-        token: newToken,
-        expires_at: new Date(Date.now() + 15 * 60 * 1000)
-      };
-    } catch (error) {
-      logger.error('Refresh token service error:', error);
-      throw new Error('Invalid refresh token');
-    }
-  }
-
-  async getUserWorkspaces(userId: string): Promise<any[]> {
-    try {
-      const query = `
-        SELECT DISTINCT w.id, w.name, w.display_name, w.slug, w.description
+      // Get user's workspaces
+      const workspacesQuery = `
+        SELECT w.id, w.name, w.slug, w.is_active
         FROM workspaces w
-        JOIN user_role_assignments ura ON w.id = ura.workspace_id
-        WHERE ura.user_id = $1 
-        AND ura.is_active = true 
-        AND w.is_active = true
-        AND (ura.expires_at IS NULL OR ura.expires_at > NOW())
+        INNER JOIN workspace_users wu ON w.id = wu.workspace_id
+        WHERE wu.user_id = $1 AND w.is_active = true AND wu.is_active = true
         ORDER BY w.name
       `;
-      const result = await this.db.query(query, [userId]);
       
-      return result.rows;
+      const workspacesResult = await db.query(workspacesQuery, [user.id]);
+      
+      if (workspacesResult.rows.length === 0) {
+        throw new Error('No accessible workspaces found');
+      }
+
+      // Determine workspace
+      let selectedWorkspace = workspacesResult.rows[0];
+      
+      if (credentials.workspaceSlug) {
+        const requestedWorkspace = workspacesResult.rows.find(
+          w => w.slug === credentials.workspaceSlug
+        );
+        if (requestedWorkspace) {
+          selectedWorkspace = requestedWorkspace;
+        }
+      }
+
+      // Generate tokens
+      const accessToken = this.generateAccessToken(user, selectedWorkspace);
+      const refreshToken = this.generateRefreshToken(user.id);
+
+      // Store refresh token
+      await this.storeRefreshToken(user.id, refreshToken);
+
+      // Clean user object (remove password)
+      const { password_hash, ...cleanUser } = user;
+
+      // Log successful login
+      await this.auditService.logEvent({
+        event_type: 'auth.login_success',
+        user_id: user.id,
+        workspace_id: selectedWorkspace.id,
+        details: { 
+          username: credentials.username,
+          workspace_slug: selectedWorkspace.slug
+        }
+      });
+
+      return {
+        accessToken,
+        refreshToken,
+        expiresIn: 3600, // 1 hour in seconds
+        user: cleanUser,
+        workspace: {
+          id: selectedWorkspace.id,
+          name: selectedWorkspace.name,
+          slug: selectedWorkspace.slug
+        }
+      };
     } catch (error) {
-      logger.error('Get user workspaces service error:', error);
+      logger.error('Login error:', error);
       throw error;
     }
   }
 
-  private generateAccessToken(user: any, workspace: any): string {
-    return jwt.sign(
-      {
-        userId: user.id,
-        username: user.username,
-        workspaceId: workspace.id,
-        workspaceSlug: workspace.slug,
-        type: 'access'
-      },
-      this.jwtSecret,
-      { expiresIn: this.jwtExpiresIn }
-    );
+  async refreshToken(refreshToken: string): Promise<AuthTokens> {
+    try {
+      // Verify refresh token
+      const decoded = jwt.verify(refreshToken, this.REFRESH_SECRET) as any;
+      
+      if (decoded.type !== 'refresh') {
+        throw new Error('Invalid token type');
+      }
+
+      // Check if token is stored and not blacklisted
+      const storedToken = await cache.get(`refresh_token:${decoded.userId}`);
+      if (!storedToken || storedToken !== refreshToken) {
+        throw new Error('Invalid refresh token');
+      }
+
+      // Get user and workspace
+      const userQuery = `
+        SELECT u.id, u.username, u.email, u.display_name, u.is_active,
+               w.id as workspace_id, w.name as workspace_name, w.slug as workspace_slug
+        FROM users u
+        INNER JOIN workspace_users wu ON u.id = wu.user_id
+        INNER JOIN workspaces w ON wu.workspace_id = w.id
+        WHERE u.id = $1 AND u.is_active = true AND w.is_active = true AND wu.is_active = true
+        ORDER BY w.name
+        LIMIT 1
+      `;
+      
+      const userResult = await db.query(userQuery, [decoded.userId]);
+      
+      if (userResult.rows.length === 0) {
+        throw new Error('User not found or inactive');
+      }
+
+      const userData = userResult.rows[0];
+      
+      const user = {
+        id: userData.id,
+        username: userData.username,
+        email: userData.email,
+        display_name: userData.display_name,
+        is_active: userData.is_active,
+        created_at: userData.created_at,
+        updated_at: userData.updated_at
+      };
+
+      const workspace = {
+        id: userData.workspace_id,
+        name: userData.workspace_name,
+        slug: userData.workspace_slug
+      };
+
+      // Generate new tokens
+      const newAccessToken = this.generateAccessToken(user, workspace);
+      const newRefreshToken = this.generateRefreshToken(user.id);
+
+      // Update stored refresh token
+      await this.storeRefreshToken(user.id, newRefreshToken);
+
+      return {
+        accessToken: newAccessToken,
+        refreshToken: newRefreshToken,
+        expiresIn: 3600,
+        user,
+        workspace
+      };
+    } catch (error) {
+      logger.error('Refresh token error:', error);
+      throw error;
+    }
+  }
+
+  async logout(userId: string, refreshToken?: string): Promise<void> {
+    try {
+      if (refreshToken) {
+        // Add refresh token to blacklist
+        await cache.set(`blacklist:${refreshToken}`, true, 7 * 24 * 60 * 60); // 7 days
+        
+        // Remove stored refresh token
+        await cache.del(`refresh_token:${userId}`);
+      }
+
+      // Log logout
+      await this.auditService.logEvent({
+        event_type: 'auth.logout',
+        user_id: userId,
+        details: { logout_time: new Date() }
+      });
+    } catch (error) {
+      logger.error('Logout error:', error);
+      throw error;
+    }
+  }
+
+  async switchWorkspace(userId: string, workspaceSlug: string): Promise<AuthTokens> {
+    try {
+      // Verify user has access to workspace
+      const query = `
+        SELECT u.id, u.username, u.email, u.display_name, u.is_active,
+               w.id as workspace_id, w.name as workspace_name, w.slug as workspace_slug
+        FROM users u
+        INNER JOIN workspace_users wu ON u.id = wu.user_id
+        INNER JOIN workspaces w ON wu.workspace_id = w.id
+        WHERE u.id = $1 AND w.slug = $2 AND u.is_active = true AND w.is_active = true AND wu.is_active = true
+      `;
+      
+      const result = await db.query(query, [userId, workspaceSlug]);
+      
+      if (result.rows.length === 0) {
+        throw new Error('Workspace not found or access denied');
+      }
+
+      const userData = result.rows[0];
+      
+      const user = {
+        id: userData.id,
+        username: userData.username,
+        email: userData.email,
+        display_name: userData.display_name,
+        is_active: userData.is_active,
+        created_at: userData.created_at,
+        updated_at: userData.updated_at
+      };
+
+      const workspace = {
+        id: userData.workspace_id,
+        name: userData.workspace_name,
+        slug: userData.workspace_slug
+      };
+
+      // Generate new tokens
+      const accessToken = this.generateAccessToken(user, workspace);
+      const refreshToken = this.generateRefreshToken(user.id);
+
+      // Store new refresh token
+      await this.storeRefreshToken(user.id, refreshToken);
+
+      // Log workspace switch
+      await this.auditService.logEvent({
+        event_type: 'auth.workspace_switch',
+        user_id: userId,
+        workspace_id: workspace.id,
+        details: { 
+          new_workspace: workspaceSlug,
+          switch_time: new Date()
+        }
+      });
+
+      return {
+        accessToken,
+        refreshToken,
+        expiresIn: 3600,
+        user,
+        workspace
+      };
+    } catch (error) {
+      logger.error('Switch workspace error:', error);
+      throw error;
+    }
+  }
+
+  private generateAccessToken(user: User, workspace: any): string {
+    return jwt.sign({
+      userId: user.id,
+      username: user.username,
+      workspaceId: workspace.id,
+      workspaceSlug: workspace.slug,
+      type: 'access'
+    }, this.JWT_SECRET, { expiresIn: this.ACCESS_TOKEN_EXPIRY });
   }
 
   private generateRefreshToken(userId: string): string {
-    return jwt.sign(
-      {
-        userId,
-        type: 'refresh',
-        tokenId: uuidv4()
-      },
-      this.jwtSecret,
-      { expiresIn: this.refreshTokenExpiresIn }
-    );
+    return jwt.sign({
+      userId,
+      type: 'refresh',
+      tokenId: uuidv4()
+    }, this.REFRESH_SECRET, { expiresIn: this.REFRESH_TOKEN_EXPIRY });
   }
 
-  private async getUserPermissions(userId: string, workspaceId: string): Promise<string[]> {
-    try {
-      const query = `
-        SELECT COALESCE(jsonb_agg(DISTINCT perm), '[]'::jsonb) as permissions
-        FROM (
-          SELECT jsonb_array_elements(cr.permissions) AS perm
-          FROM custom_roles cr
-          JOIN user_role_assignments ura ON cr.id = ura.role_id
-          WHERE ura.user_id = $1 
-          AND ura.workspace_id = $2
-          AND ura.is_active = true
-          AND (ura.expires_at IS NULL OR ura.expires_at > NOW())
-        ) AS all_perms
-      `;
-      
-      const result = await this.db.query(query, [userId, workspaceId]);
-      return result.rows[0]?.permissions || [];
-    } catch (error) {
-      logger.error('Get user permissions error:', error);
-      return [];
-    }
-  }
-
-  private async addUserToWorkspace(userId: string, workspaceSlug: string): Promise<void> {
-    try {
-      // Find workspace
-      const workspaceQuery = 'SELECT id FROM workspaces WHERE slug = $1 AND is_active = true';
-      const workspaceResult = await this.db.query(workspaceQuery, [workspaceSlug]);
-      
-      if (workspaceResult.rows.length === 0) {
-        return; // Silently fail if workspace doesn't exist
-      }
-      
-      const workspaceId = workspaceResult.rows[0].id;
-      
-      // Find default reader role
-      const roleQuery = `
-        SELECT id FROM custom_roles 
-        WHERE workspace_id = $1 AND name = 'Reader' AND is_system_role = true
-      `;
-      const roleResult = await this.db.query(roleQuery, [workspaceId]);
-      
-      if (roleResult.rows.length === 0) {
-        return; // No default role found
-      }
-      
-      const roleId = roleResult.rows[0].id;
-      
-      // Assign role to user
-      const assignQuery = `
-        INSERT INTO user_role_assignments (user_id, workspace_id, role_id, assigned_by)
-        VALUES ($1, $2, $3, $1)
-        ON CONFLICT DO NOTHING
-      `;
-      await this.db.query(assignQuery, [userId, workspaceId, roleId]);
-      
-    } catch (error) {
-      logger.error('Add user to workspace error:', error);
-      // Don't throw error, just log it
-    }
+  private async storeRefreshToken(userId: string, token: string): Promise<void> {
+    await cache.set(`refresh_token:${userId}`, token, 7 * 24 * 60 * 60); // 7 days
   }
 }
+
+export { AuthService };

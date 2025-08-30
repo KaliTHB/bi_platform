@@ -1,14 +1,38 @@
-// File: web-application/src/store/slices/authSlice.ts
-
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { AuthState, User, Workspace, Permission } from '../../types';
+
+interface User {
+  id: string;
+  username: string;
+  email: string;
+  display_name: string;
+}
+
+interface Workspace {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+interface AuthState {
+  isAuthenticated: boolean;
+  token: string | null;
+  refreshToken: string | null;
+  user: User | null;
+  workspace: Workspace | null;
+  permissions: string[];
+  roles: string[];
+  loading: boolean;
+  error: string | null;
+}
 
 const initialState: AuthState = {
-  user: null,
+  isAuthenticated: false,
   token: null,
+  refreshToken: null,
+  user: null,
   workspace: null,
   permissions: [],
-  isAuthenticated: false,
+  roles: [],
   loading: false,
   error: null,
 };
@@ -17,68 +41,64 @@ const authSlice = createSlice({
   name: 'auth',
   initialState,
   reducers: {
-    loginStart: (state) => {
-      state.loading = true;
-      state.error = null;
-    },
-    loginSuccess: (state, action: PayloadAction<{
+    setCredentials: (state, action: PayloadAction<{
+      accessToken: string;
+      refreshToken: string;
       user: User;
-      token: string;
       workspace: Workspace;
-      permissions: Permission[];
     }>) => {
-      state.user = action.payload.user;
-      state.token = action.payload.token;
-      state.workspace = action.payload.workspace;
-      state.permissions = action.payload.permissions;
       state.isAuthenticated = true;
-      state.loading = false;
+      state.token = action.payload.accessToken;
+      state.refreshToken = action.payload.refreshToken;
+      state.user = action.payload.user;
+      state.workspace = action.payload.workspace;
       state.error = null;
     },
-    loginFailure: (state, action: PayloadAction<string>) => {
-      state.loading = false;
-      state.error = action.payload;
-      state.isAuthenticated = false;
+    setPermissions: (state, action: PayloadAction<{
+      permissions: string[];
+      roles: string[];
+    }>) => {
+      state.permissions = action.payload.permissions;
+      state.roles = action.payload.roles;
     },
-    logout: (state) => {
-      state.user = null;
+    updateTokens: (state, action: PayloadAction<{
+      accessToken: string;
+      refreshToken: string;
+    }>) => {
+      state.token = action.payload.accessToken;
+      state.refreshToken = action.payload.refreshToken;
+    },
+    switchWorkspace: (state, action: PayloadAction<Workspace>) => {
+      state.workspace = action.payload;
+    },
+    clearAuth: (state) => {
+      state.isAuthenticated = false;
       state.token = null;
+      state.refreshToken = null;
+      state.user = null;
       state.workspace = null;
       state.permissions = [];
-      state.isAuthenticated = false;
+      state.roles = [];
+      state.error = null;
+    },
+    setAuthLoading: (state, action: PayloadAction<boolean>) => {
+      state.loading = action.payload;
+    },
+    setAuthError: (state, action: PayloadAction<string>) => {
+      state.error = action.payload;
       state.loading = false;
-      state.error = null;
-    },
-    updateUser: (state, action: PayloadAction<Partial<User>>) => {
-      if (state.user) {
-        state.user = { ...state.user, ...action.payload };
-      }
-    },
-    switchWorkspace: (state, action: PayloadAction<{
-      workspace: Workspace;
-      permissions: Permission[];
-    }>) => {
-      state.workspace = action.payload.workspace;
-      state.permissions = action.payload.permissions;
-    },
-    updatePermissions: (state, action: PayloadAction<Permission[]>) => {
-      state.permissions = action.payload;
-    },
-    clearError: (state) => {
-      state.error = null;
     },
   },
 });
 
 export const {
-  loginStart,
-  loginSuccess,
-  loginFailure,
-  logout,
-  updateUser,
+  setCredentials,
+  setPermissions,
+  updateTokens,
   switchWorkspace,
-  updatePermissions,
-  clearError,
+  clearAuth,
+  setAuthLoading,
+  setAuthError,
 } = authSlice.actions;
 
 export default authSlice.reducer;

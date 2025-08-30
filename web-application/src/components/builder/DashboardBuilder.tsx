@@ -1,593 +1,411 @@
-// File: web-application/src/components/builder/DashboardBuilder.tsx
-
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   Box,
+  Paper,
   Typography,
   Button,
-  IconButton,
-  Paper,
-  Drawer,
-  AppBar,
-  Toolbar,
   Grid,
   Card,
   CardContent,
+  IconButton,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   TextField,
-  Select,
-  MenuItem,
   FormControl,
   InputLabel,
+  Select,
+  MenuItem,
   Chip,
-  Tooltip,
   Alert
 } from '@mui/material';
 import {
   Add,
+  Edit,
+  Delete,
   Save,
   Preview,
   Settings,
-  GridOn,
-  Palette,
-  FilterList,
-  Close,
-  DragIndicator,
-  Edit,
-  Delete,
-  ContentCopy
+  DragIndicator
 } from '@mui/icons-material';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
-import { useDashboardBuilder } from '../../hooks/useDashboardBuilder';
-import { ChartBuilder } from './ChartBuilder';
+import { useSelector } from 'react-redux';
+import { RootState } from '../../store';
+import { 
+  useGetChartsQuery,
+  useCreateDashboardMutation,
+  useUpdateDashboardMutation 
+} from '../../store/api/dashboardApi';
+import { useGetCategoriesQuery } from '../../store/api/categoryApi';
+import { ChartPreview } from './ChartPreview';
+import { PermissionGate } from '../shared/PermissionGate';
 
-interface Chart {
+interface DashboardLayout {
   id: string;
-  name: string;
-  display_name: string;
-  chart_type: string;
-  chart_library: string;
-  position: {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-  };
-  config: any;
-  dataset_ids: string[];
-}
-
-interface Dashboard {
-  id?: string;
-  name: string;
-  display_name: string;
-  description?: string;
-  category_id?: string;
-  config: any;
-  tabs: any[];
-  global_filters: any[];
-  theme_config: any;
-  layout_config: any;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  chartId?: string;
+  type: 'chart' | 'text' | 'image';
+  content?: any;
 }
 
 interface DashboardBuilderProps {
   dashboardId?: string;
-  workspaceId: string;
+  initialLayout?: DashboardLayout[];
+  onSave?: (dashboard: any) => void;
 }
 
 export const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
   dashboardId,
-  workspaceId
+  initialLayout = [],
+  onSave
 }) => {
-  const {
-    dashboard,
-    charts,
-    categories,
-    availableDatasets,
-    loading,
-    saving,
-    error,
-    loadDashboard,
-    saveDashboard,
-    addChart,
-    updateChart,
-    deleteChart,
-    updateDashboardConfig
-  } = useDashboardBuilder(workspaceId, dashboardId);
-
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [activeTab, setActiveTab] = useState('charts');
-  const [selectedChart, setSelectedChart] = useState<Chart | null>(null);
-  const [chartBuilderOpen, setChartBuilderOpen] = useState(false);
-  const [configDialog, setConfigDialog] = useState(false);
-  const [previewMode, setPreviewMode] = useState(false);
-
-  const [dashboardConfig, setDashboardConfig] = useState<Dashboard>({
+  const { workspace } = useSelector((state: RootState) => state.auth);
+  const [layout, setLayout] = useState<DashboardLayout[]>(initialLayout);
+  const [selectedItem, setSelectedItem] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showChartPicker, setShowChartPicker] = useState(false);
+  const [dashboardSettings, setDashboardSettings] = useState({
     name: '',
-    display_name: '',
     description: '',
     category_id: '',
-    config: {},
-    tabs: [{ id: 'main', name: 'Main', charts: [] }],
-    global_filters: [],
-    theme_config: {},
-    layout_config: { grid_size: 12, row_height: 100 }
+    is_public: false,
+    tags: []
   });
 
-  useEffect(() => {
-    if (dashboardId) {
-      loadDashboard();
-    }
-  }, [dashboardId, workspaceId]);
+  const { data: charts = [] } = useGetChartsQuery({
+    workspaceId: workspace?.id || ''
+  });
+  
+  const { data: categories = [] } = useGetCategoriesQuery({
+    workspaceId: workspace?.id || ''
+  });
 
-  useEffect(() => {
-    if (dashboard) {
-      setDashboardConfig(dashboard);
-    }
-  }, [dashboard]);
+  const [createDashboard] = useCreateDashboardMutation();
+  const [updateDashboard] = useUpdateDashboardMutation();
 
-  const handleSaveDashboard = async () => {
+  const handleDragEnd = useCallback((result: any) => {
+    if (!result.destination) return;
+
+    const items = Array.from(layout);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+
+    setLayout(items);
+  }, [layout]);
+
+  const addChartToLayout = useCallback((chartId: string) => {
+    const newItem: DashboardLayout = {
+      id: `item-${Date.now()}`,
+      x: 0,
+      y: layout.length * 2,
+      w: 6,
+      h: 4,
+      chartId,
+      type: 'chart'
+    };
+
+    setLayout([...layout, newItem]);
+    setShowChartPicker(false);
+  }, [layout]);
+
+  const removeFromLayout = useCallback((itemId: string) => {
+    setLayout(layout.filter(item => item.id !== itemId));
+  }, [layout]);
+
+  const updateItemSize = useCallback((itemId: string, width: number, height: number) => {
+    setLayout(layout.map(item => 
+      item.id === itemId 
+        ? { ...item, w: width, h: height }
+        : item
+    ));
+  }, [layout]);
+
+  const saveDashboard = async () => {
     try {
-      await saveDashboard(dashboardConfig);
+      const dashboardData = {
+        ...dashboardSettings,
+        layout_config: {
+          items: layout,
+          gridSize: 12,
+          rowHeight: 100,
+          margin: [10, 10]
+        }
+      };
+
+      if (dashboardId) {
+        await updateDashboard({
+          id: dashboardId,
+          ...dashboardData
+        }).unwrap();
+      } else {
+        const newDashboard = await createDashboard({
+          workspaceId: workspace?.id || '',
+          ...dashboardData
+        }).unwrap();
+        
+        if (onSave) {
+          onSave(newDashboard);
+        }
+      }
+
+      setShowSettings(false);
     } catch (error) {
       console.error('Failed to save dashboard:', error);
     }
   };
 
-  const handleAddChart = () => {
-    setSelectedChart(null);
-    setChartBuilderOpen(true);
-  };
-
-  const handleEditChart = (chart: Chart) => {
-    setSelectedChart(chart);
-    setChartBuilderOpen(true);
-  };
-
-  const handleDeleteChart = async (chartId: string) => {
-    if (window.confirm('Are you sure you want to delete this chart?')) {
-      await deleteChart(chartId);
-    }
-  };
-
-  const handleDuplicateChart = async (chart: Chart) => {
-    const duplicateChart = {
-      ...chart,
-      id: undefined,
-      name: `${chart.name}_copy`,
-      display_name: `${chart.display_name} (Copy)`,
-      position: {
-        ...chart.position,
-        x: chart.position.x + 1,
-        y: chart.position.y + 1
-      }
-    };
-    
-    await addChart(duplicateChart);
-  };
-
-  const handleChartPositionChange = useCallback((result: any) => {
-    if (!result.destination) return;
-
-    const chartId = result.draggableId;
-    const chart = charts.find(c => c.id === chartId);
-    
-    if (chart) {
-      const updatedChart = {
-        ...chart,
-        position: {
-          ...chart.position,
-          // Update position based on drop result
-          x: result.destination.index % dashboardConfig.layout_config.grid_size,
-          y: Math.floor(result.destination.index / dashboardConfig.layout_config.grid_size)
-        }
-      };
-      
-      updateChart(chartId, updatedChart);
-    }
-  }, [charts, dashboardConfig.layout_config.grid_size, updateChart]);
-
-  const renderChart = (chart: Chart, isDragging: boolean = false) => (
-    <Card 
-      sx={{ 
-        height: '100%',
-        opacity: isDragging ? 0.5 : 1,
-        cursor: isDragging ? 'grabbing' : 'grab'
-      }}
-    >
-      <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-          <Typography variant="subtitle2" noWrap>
-            {chart.display_name}
-          </Typography>
-          
-          <Box display="flex" gap={0.5}>
-            <IconButton size="small" onClick={() => handleEditChart(chart)}>
-              <Edit fontSize="small" />
-            </IconButton>
-            <IconButton size="small" onClick={() => handleDuplicateChart(chart)}>
-              <ContentCopy fontSize="small" />
-            </IconButton>
-            <IconButton size="small" color="error" onClick={() => handleDeleteChart(chart.id)}>
-              <Delete fontSize="small" />
-            </IconButton>
-          </Box>
-        </Box>
-
-        <Box sx={{ 
-          height: chart.position.h * dashboardConfig.layout_config.row_height - 60,
-          backgroundColor: '#f5f5f5',
-          borderRadius: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}>
-          <Typography variant="body2" color="textSecondary">
-            {chart.chart_type} Chart
-          </Typography>
-        </Box>
-      </CardContent>
-    </Card>
-  );
-
-  const renderChartGrid = () => {
-    const gridSize = dashboardConfig.layout_config.grid_size || 12;
-    const gridItems: (Chart | null)[] = new Array(gridSize * 10).fill(null);
-
-    // Place charts in grid positions
-    charts.forEach(chart => {
-      const index = chart.position.y * gridSize + chart.position.x;
-      if (index >= 0 && index < gridItems.length) {
-        gridItems[index] = chart;
-      }
-    });
-
-    return (
-      <Grid container spacing={1} sx={{ p: 2 }}>
-        {gridItems.map((chart, index) => (
-          <Grid key={index} item xs={12 / gridSize}>
-            {chart ? (
-              <Draggable draggableId={chart.id} index={index}>
-                {(provided, snapshot) => (
-                  <div
-                    ref={provided.innerRef}
-                    {...provided.draggableProps}
-                    {...provided.dragHandleProps}
-                    style={{
-                      height: chart.position.h * dashboardConfig.layout_config.row_height,
-                      ...provided.draggableProps.style
-                    }}
-                  >
-                    {renderChart(chart, snapshot.isDragging)}
-                  </div>
-                )}
-              </Draggable>
-            ) : (
-              <Box
-                sx={{
-                  height: dashboardConfig.layout_config.row_height,
-                  border: '2px dashed #ddd',
-                  borderRadius: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  '&:hover': {
-                    borderColor: 'primary.main',
-                    backgroundColor: 'primary.50'
-                  }
-                }}
-                onClick={handleAddChart}
-              >
-                <Add color="action" />
-              </Box>
-            )}
-          </Grid>
-        ))}
-      </Grid>
-    );
-  };
-
   return (
-    <Box sx={{ display: 'flex', height: '100vh' }}>
-      {/* Main Content */}
-      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-        {/* Top Toolbar */}
-        <AppBar position="static" color="default" elevation={1}>
-          <Toolbar variant="dense">
-            <Typography variant="h6" sx={{ flexGrow: 1 }}>
-              {dashboardConfig.display_name || 'New Dashboard'}
-            </Typography>
-            
-            <Box display="flex" gap={1}>
-              <Tooltip title="Dashboard Settings">
-                <IconButton onClick={() => setConfigDialog(true)}>
-                  <Settings />
-                </IconButton>
-              </Tooltip>
-              
-              <Tooltip title="Preview">
-                <IconButton 
-                  color={previewMode ? 'primary' : 'default'}
-                  onClick={() => setPreviewMode(!previewMode)}
-                >
-                  <Preview />
-                </IconButton>
-              </Tooltip>
-              
-              <Button
-                variant="contained"
-                startIcon={<Save />}
-                onClick={handleSaveDashboard}
-                disabled={saving}
-              >
-                {saving ? 'Saving...' : 'Save'}
-              </Button>
-            </Box>
-          </Toolbar>
-        </AppBar>
-
-        {/* Dashboard Canvas */}
-        <Box sx={{ flexGrow: 1, overflow: 'auto', backgroundColor: '#f5f5f5' }}>
-          {error && (
-            <Alert severity="error" sx={{ m: 2 }}>
-              {error}
-            </Alert>
-          )}
-
-          <DragDropContext onDragEnd={handleChartPositionChange}>
-            <Droppable droppableId="dashboard-grid" direction="horizontal">
-              {(provided) => (
-                <div
-                  ref={provided.innerRef}
-                  {...provided.droppableProps}
-                  style={{ minHeight: '100%' }}
-                >
-                  {renderChartGrid()}
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
-          </DragDropContext>
-
-          {charts.length === 0 && (
-            <Box
-              sx={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '50vh',
-                color: 'text.secondary'
-              }}
+    <Box sx={{ p: 3 }}>
+      <Box display="flex" justifyContent="between" alignItems="center" mb={3}>
+        <Typography variant="h4">
+          Dashboard Builder
+        </Typography>
+        
+        <Box display="flex" gap={2}>
+          <Button
+            variant="outlined"
+            startIcon={<Add />}
+            onClick={() => setShowChartPicker(true)}
+          >
+            Add Chart
+          </Button>
+          
+          <Button
+            variant="outlined"
+            startIcon={<Settings />}
+            onClick={() => setShowSettings(true)}
+          >
+            Settings
+          </Button>
+          
+          <PermissionGate permissions={['dashboard.create', 'dashboard.edit']}>
+            <Button
+              variant="contained"
+              startIcon={<Save />}
+              onClick={saveDashboard}
+              disabled={!dashboardSettings.name}
             >
-              <GridOn sx={{ fontSize: 64, mb: 2 }} />
-              <Typography variant="h6" gutterBottom>
-                No charts added yet
-              </Typography>
-              <Typography variant="body2" align="center" mb={2}>
-                Start building your dashboard by adding charts
-              </Typography>
-              <Button
-                variant="contained"
-                startIcon={<Add />}
-                onClick={handleAddChart}
-              >
-                Add Chart
-              </Button>
-            </Box>
-          )}
+              Save Dashboard
+            </Button>
+          </PermissionGate>
         </Box>
       </Box>
 
-      {/* Right Sidebar */}
-      <Drawer
-        variant="persistent"
-        anchor="right"
-        open={sidebarOpen}
-        sx={{
-          width: 320,
-          flexShrink: 0,
-          '& .MuiDrawer-paper': {
-            width: 320,
-            boxSizing: 'border-box'
-          }
-        }}
-      >
-        <Box sx={{ p: 2 }}>
-          <Box display="flex" justifyContent="between" alignItems="center" mb={2}>
-            <Typography variant="h6">Dashboard Tools</Typography>
-            <IconButton onClick={() => setSidebarOpen(false)}>
-              <Close />
-            </IconButton>
-          </Box>
+      {layout.length === 0 && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          Your dashboard is empty. Click "Add Chart" to get started.
+        </Alert>
+      )}
 
-          {/* Quick Actions */}
-          <Box mb={3}>
-            <Typography variant="subtitle2" gutterBottom>
-              Quick Actions
-            </Typography>
-            <Box display="flex" flexDirection="column" gap={1}>
-              <Button
-                variant="outlined"
-                startIcon={<Add />}
-                onClick={handleAddChart}
-                fullWidth
-              >
-                Add Chart
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<FilterList />}
-                fullWidth
-              >
-                Add Filter
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<Palette />}
-                fullWidth
-              >
-                Theme Settings
-              </Button>
-            </Box>
-          </Box>
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <Droppable droppableId="dashboard-layout">
+          {(provided) => (
+            <div {...provided.droppableProps} ref={provided.innerRef}>
+              <Grid container spacing={2}>
+                {layout.map((item, index) => (
+                  <Draggable key={item.id} draggableId={item.id} index={index}>
+                    {(provided, snapshot) => (
+                      <Grid 
+                        item 
+                        xs={item.w}
+                        ref={provided.innerRef}
+                        {...provided.draggableProps}
+                      >
+                        <Card 
+                          sx={{ 
+                            height: `${item.h * 100}px`,
+                            position: 'relative',
+                            border: selectedItem === item.id ? 2 : 1,
+                            borderColor: selectedItem === item.id ? 'primary.main' : 'divider',
+                            '&:hover': {
+                              boxShadow: 3
+                            }
+                          }}
+                          onClick={() => setSelectedItem(item.id)}
+                        >
+                          <Box
+                            {...provided.dragHandleProps}
+                            sx={{
+                              position: 'absolute',
+                              top: 8,
+                              right: 8,
+                              zIndex: 10,
+                              display: 'flex',
+                              gap: 1,
+                              backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                              borderRadius: 1,
+                              p: 0.5
+                            }}
+                          >
+                            <IconButton size="small">
+                              <DragIndicator fontSize="small" />
+                            </IconButton>
+                            <IconButton 
+                              size="small" 
+                              onClick={() => removeFromLayout(item.id)}
+                            >
+                              <Delete fontSize="small" />
+                            </IconButton>
+                          </Box>
 
-          {/* Charts List */}
-          <Box>
-            <Typography variant="subtitle2" gutterBottom>
-              Charts ({charts.length})
-            </Typography>
-            <Box>
-              {charts.map(chart => (
-                <Paper key={chart.id} sx={{ p: 1, mb: 1 }}>
-                  <Box display="flex" justifyContent="between" alignItems="center">
-                    <Box>
-                      <Typography variant="body2" fontWeight="medium">
-                        {chart.display_name}
-                      </Typography>
-                      <Typography variant="caption" color="textSecondary">
-                        {chart.chart_type}
-                      </Typography>
-                    </Box>
-                    <Box>
-                      <IconButton size="small" onClick={() => handleEditChart(chart)}>
-                        <Edit fontSize="small" />
-                      </IconButton>
-                    </Box>
-                  </Box>
-                </Paper>
-              ))}
-            </Box>
-          </Box>
-        </Box>
-      </Drawer>
+                          <CardContent sx={{ height: '100%', p: 1 }}>
+                            {item.type === 'chart' && item.chartId ? (
+                              <ChartPreview
+                                chartId={item.chartId}
+                                width="100%"
+                                height="100%"
+                              />
+                            ) : (
+                              <Box 
+                                display="flex" 
+                                alignItems="center" 
+                                justifyContent="center"
+                                height="100%"
+                                bgcolor="grey.50"
+                                borderRadius={1}
+                              >
+                                <Typography color="textSecondary">
+                                  Empty Widget
+                                </Typography>
+                              </Box>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    )}
+                  </Draggable>
+                ))}
+              </Grid>
+              {provided.placeholder}
+            </div>
+          )}
+        </Droppable>
+      </DragDropContext>
 
-      {/* Chart Builder Dialog */}
+      {/* Chart Picker Dialog */}
       <Dialog
-        open={chartBuilderOpen}
-        onClose={() => setChartBuilderOpen(false)}
-        maxWidth="lg"
+        open={showChartPicker}
+        onClose={() => setShowChartPicker(false)}
+        maxWidth="md"
         fullWidth
       >
-        <ChartBuilder
-          chart={selectedChart}
-          availableDatasets={availableDatasets}
-          onSave={async (chartData) => {
-            if (selectedChart) {
-              await updateChart(selectedChart.id, chartData);
-            } else {
-              await addChart(chartData);
-            }
-            setChartBuilderOpen(false);
-          }}
-          onCancel={() => setChartBuilderOpen(false)}
-        />
+        <DialogTitle>Select Chart to Add</DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2}>
+            {charts.map((chart: any) => (
+              <Grid item xs={12} sm={6} md={4} key={chart.id}>
+                <Card 
+                  sx={{ 
+                    cursor: 'pointer',
+                    '&:hover': { boxShadow: 3 }
+                  }}
+                  onClick={() => addChartToLayout(chart.id)}
+                >
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom>
+                      {chart.name}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      {chart.chart_type}
+                    </Typography>
+                    <Box mt={1}>
+                      {chart.tags.map((tag: string) => (
+                        <Chip 
+                          key={tag}
+                          label={tag}
+                          size="small"
+                          sx={{ mr: 0.5, mb: 0.5 }}
+                        />
+                      ))}
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowChartPicker(false)}>
+            Cancel
+          </Button>
+        </DialogActions>
       </Dialog>
 
-      {/* Dashboard Config Dialog */}
-      <DashboardConfigDialog
-        open={configDialog}
-        dashboard={dashboardConfig}
-        categories={categories}
-        onClose={() => setConfigDialog(false)}
-        onSave={(config) => {
-          setDashboardConfig(config);
-          updateDashboardConfig(config);
-          setConfigDialog(false);
-        }}
-      />
+      {/* Dashboard Settings Dialog */}
+      <Dialog
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Dashboard Settings</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 1 }}>
+            <TextField
+              fullWidth
+              label="Dashboard Name"
+              value={dashboardSettings.name}
+              onChange={(e) => setDashboardSettings({
+                ...dashboardSettings,
+                name: e.target.value
+              })}
+              margin="normal"
+              required
+            />
+            
+            <TextField
+              fullWidth
+              label="Description"
+              value={dashboardSettings.description}
+              onChange={(e) => setDashboardSettings({
+                ...dashboardSettings,
+                description: e.target.value
+              })}
+              margin="normal"
+              multiline
+              rows={3}
+            />
+            
+            <FormControl fullWidth margin="normal">
+              <InputLabel>Category</InputLabel>
+              <Select
+                value={dashboardSettings.category_id}
+                onChange={(e) => setDashboardSettings({
+                  ...dashboardSettings,
+                  category_id: e.target.value
+                })}
+              >
+                <MenuItem value="">
+                  <em>No Category</em>
+                </MenuItem>
+                {categories.map((category: any) => (
+                  <MenuItem key={category.id} value={category.id}>
+                    {category.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowSettings(false)}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={saveDashboard}
+            variant="contained"
+            disabled={!dashboardSettings.name}
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
 
-// Dashboard Configuration Dialog Component
-interface DashboardConfigDialogProps {
-  open: boolean;
-  dashboard: Dashboard;
-  categories: any[];
-  onClose: () => void;
-  onSave: (dashboard: Dashboard) => void;
-}
-
-const DashboardConfigDialog: React.FC<DashboardConfigDialogProps> = ({
-  open,
-  dashboard,
-  categories,
-  onClose,
-  onSave
-}) => {
-  const [formData, setFormData] = useState<Dashboard>(dashboard);
-
-  useEffect(() => {
-    setFormData(dashboard);
-  }, [dashboard, open]);
-
-  const handleSave = () => {
-    onSave(formData);
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Dashboard Settings</DialogTitle>
-      <DialogContent dividers>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <TextField
-            label="Name"
-            fullWidth
-            value={formData.name}
-            onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-            required
-          />
-          
-          <TextField
-            label="Display Name"
-            fullWidth
-            value={formData.display_name}
-            onChange={(e) => setFormData(prev => ({ ...prev, display_name: e.target.value }))}
-            required
-          />
-          
-          <TextField
-            label="Description"
-            fullWidth
-            multiline
-            rows={2}
-            value={formData.description || ''}
-            onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-          />
-
-          <FormControl fullWidth>
-            <InputLabel>Category</InputLabel>
-            <Select
-              value={formData.category_id || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value }))}
-              label="Category"
-            >
-              <MenuItem value="">None</MenuItem>
-              {categories.map((category) => (
-                <MenuItem key={category.id} value={category.id}>
-                  {category.display_name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Box>
-      </DialogContent>
-      
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button 
-          onClick={handleSave} 
-          variant="contained"
-          disabled={!formData.name || !formData.display_name}
-        >
-          Save
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-};
+export default DashboardBuilder;
