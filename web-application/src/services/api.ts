@@ -89,17 +89,17 @@ export const authAPI = {
     await apiClient.post('/auth/logout');
   },
 
-  verifyToken: async (): Promise<{ valid: boolean; user: User }> => {
+  verifyToken: async (): Promise<{ success: boolean; valid: boolean; user: User }> => {
     const response = await apiClient.get('/auth/verify');
     return response.data;
   },
 
-  forgotPassword: async (data: { email: string }): Promise<{ message: string }> => {
+  forgotPassword: async (data: { email: string }): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.post('/auth/forgot-password', data);
     return response.data;
   },
 
-  resetPassword: async (data: { token: string; new_password: string }): Promise<{ message: string }> => {
+  resetPassword: async (data: { token: string; new_password: string }): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.post('/auth/reset-password', data);
     return response.data;
   },
@@ -107,52 +107,52 @@ export const authAPI = {
 
 // Workspace API
 export const workspaceAPI = {
-  getWorkspaces: async (): Promise<{ workspaces: Workspace[] }> => {
+  getWorkspaces: async (): Promise<{ success: boolean; workspaces: Workspace[] }> => {
     const response = await apiClient.get('/workspaces');
     return response.data;
   },
 
-  getWorkspace: async (workspaceId: string): Promise<{ workspace: Workspace }> => {
+  getWorkspace: async (workspaceId: string): Promise<{ success: boolean; workspace: Workspace }> => {
     const response = await apiClient.get(`/workspaces/${workspaceId}`);
     return response.data;
   },
 
-  createWorkspace: async (data: CreateWorkspaceRequest): Promise<{ workspace: Workspace; message: string }> => {
+  createWorkspace: async (data: CreateWorkspaceRequest): Promise<{ success: boolean; workspace: Workspace; message: string }> => {
     const response = await apiClient.post('/workspaces', data);
     return response.data;
   },
 
-  updateWorkspace: async (workspaceId: string, data: UpdateWorkspaceRequest): Promise<{ workspace: Workspace; message: string }> => {
+  updateWorkspace: async (workspaceId: string, data: UpdateWorkspaceRequest): Promise<{ success: boolean; workspace: Workspace; message: string }> => {
     const response = await apiClient.put(`/workspaces/${workspaceId}`, data);
     return response.data;
   },
 
-  deleteWorkspace: async (workspaceId: string): Promise<{ message: string }> => {
+  deleteWorkspace: async (workspaceId: string): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.delete(`/workspaces/${workspaceId}`);
     return response.data;
   },
 
-  getWorkspaceMembers: async (workspaceId: string): Promise<{ members: any[] }> => {
+  getWorkspaceMembers: async (workspaceId: string): Promise<{ success: boolean; members: any[] }> => {
     const response = await apiClient.get(`/workspaces/${workspaceId}/members`);
     return response.data;
   },
 
-  getWorkspaceActivity: async (workspaceId: string, params?: any): Promise<{ activity: any[] }> => {
+  getWorkspaceActivity: async (workspaceId: string, params?: any): Promise<{ success: boolean; activity: any[] }> => {
     const response = await apiClient.get(`/workspaces/${workspaceId}/activity`, { params });
     return response.data;
   },
 
-  inviteUser: async (workspaceId: string, userData: any): Promise<{ message: string }> => {
+  inviteUser: async (workspaceId: string, userData: any): Promise<{success: boolean;  message: string }> => {
     const response = await apiClient.post(`/workspaces/${workspaceId}/members`, userData);
     return response.data;
   },
 
-  updateUserRole: async (workspaceId: string, userId: string, data: { role_ids: string[] }): Promise<{ message: string }> => {
+  updateUserRole: async (workspaceId: string, userId: string, data: { role_ids: string[] }): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.put(`/workspaces/${workspaceId}/members/${userId}`, data);
     return response.data;
   },
 
-  removeUser: async (workspaceId: string, userId: string): Promise<{ message: string }> => {
+  removeUser: async (workspaceId: string, userId: string): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.delete(`/workspaces/${workspaceId}/members/${userId}`);
     return response.data;
   },
@@ -160,34 +160,35 @@ export const workspaceAPI = {
 
 // Dataset API
 export const datasetAPI = {
-  getDatasets: async (workspaceId: string, params?: any): Promise<ApiResponse<{ datasets: any[] }>> => {
+  getDatasets: async (workspaceId: string, params?: any): Promise<ApiResponse<{ success: boolean; datasets: any[] }>> => {
     const response = await apiClient.get(`/datasets`, {
       params: { ...params, workspaceId }
     });
     return response.data;
   },
 
-  getDataset: async (datasetId: string): Promise<{ dataset: any }> => {
+  getDataset: async (datasetId: string): Promise<{ success: boolean; dataset: any }> => {
     const response = await apiClient.get(`/datasets/${datasetId}`);
     return response.data;
   },
 
-  createDataset: async (data: any): Promise<{ dataset: any; message: string }> => {
+  createDataset: async (data: any): Promise<{ success: boolean; dataset: any; message: string }> => {
     const response = await apiClient.post('/datasets', data);
     return response.data;
   },
 
-  updateDataset: async (datasetId: string, data: any): Promise<{ dataset: any; message: string }> => {
+  updateDataset: async (datasetId: string, data: any): Promise<{ success: boolean; dataset: any; message: string }> => {
     const response = await apiClient.put(`/datasets/${datasetId}`, data);
     return response.data;
   },
 
-  deleteDataset: async (datasetId: string): Promise<{ message: string }> => {
+  deleteDataset: async (datasetId: string): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.delete(`/datasets/${datasetId}`);
     return response.data;
   },
 
   queryDataset: async (datasetId: string, queryOptions: any): Promise<{
+    success: boolean; 
     data: any[];
     columns: Array<{ name: string; type: string }>;
     total_rows: number;
@@ -198,7 +199,7 @@ export const datasetAPI = {
     return response.data;
   },
 
-  getDatasetSchema: async (datasetId: string): Promise<{ schema: any }> => {
+  getDatasetSchema: async (datasetId: string): Promise<{ success: boolean; schema: any }> => {
     const response = await apiClient.get(`/datasets/${datasetId}/schema`);
     return response.data;
   },
@@ -217,7 +218,7 @@ export const datasetAPI = {
 
 // Dashboard API
 export const dashboardAPI = {
-  getDashboards: async (workspaceId: string, params?: any): Promise<ApiResponse<{ dashboards: any[] }>> => {
+  getDashboards: async (workspaceId: string, params?: any): Promise<ApiResponse<{ success: boolean; dashboards: any[] }>> => {
     const response = await apiClient.get('/dashboards', {
       params: { ...params, workspaceId }
     });
@@ -229,12 +230,12 @@ export const dashboardAPI = {
     return response.data;
   },
 
-  createDashboard: async (data: any): Promise<{ dashboard: any; message: string }> => {
+  createDashboard: async (data: any): Promise<{ success: boolean; dashboard: any; message: string }> => {
     const response = await apiClient.post('/dashboards', data);
     return response.data;
   },
 
-  updateDashboard: async (dashboardId: string, data: any): Promise<{ dashboard: any; message: string }> => {
+  updateDashboard: async (dashboardId: string, data: any): Promise<{ success: boolean; dashboard: any; message: string }> => {
     const response = await apiClient.put(`/dashboards/${dashboardId}`, data);
     return response.data;
   },
@@ -244,12 +245,12 @@ export const dashboardAPI = {
     return response.data;
   },
 
-  duplicateDashboard: async (dashboardId: string, data: { name: string; slug: string }): Promise<{ dashboard: any; message: string }> => {
+  duplicateDashboard: async (dashboardId: string, data: { name: string; slug: string }): Promise<{ success: boolean; dashboard: any; message: string }> => {
     const response = await apiClient.post(`/dashboards/${dashboardId}/duplicate`, data);
     return response.data;
   },
 
-  getDashboardAnalytics: async (dashboardId: string, params?: any): Promise<{ analytics: any }> => {
+  getDashboardAnalytics: async (dashboardId: string, params?: any): Promise<{ success: boolean; analytics: any }> => {
     const response = await apiClient.get(`/dashboards/${dashboardId}/analytics`, { params });
     return response.data;
   },
@@ -258,37 +259,38 @@ export const dashboardAPI = {
 // Chart API
 // Complete chartAPI object for web-application/src/services/api.ts
 export const chartAPI = {
-  getCharts: async (dashboardId: string): Promise<{ charts: any[] }> => {
+  getCharts: async (dashboardId: string): Promise<{ success: boolean; charts: any[] }> => {
     const response = await apiClient.get(`/charts?dashboardId=${dashboardId}`);
     return response.data;
   },
 
-  getChart: async (chartId: string): Promise<{ chart: any }> => {
+  getChart: async (chartId: string): Promise<{ success: boolean; chart: any }> => {
     const response = await apiClient.get(`/charts/${chartId}`);
     return response.data;
   },
 
-  createChart: async (data: any): Promise<{ chart: any; message: string }> => {
+  createChart: async (data: any): Promise<{ success: boolean; chart: any; message: string }> => {
     const response = await apiClient.post('/charts', data);
     return response.data;
   },
 
-  updateChart: async (chartId: string, data: any): Promise<{ chart: any; message: string }> => {
+  updateChart: async (chartId: string, data: any): Promise<{ success: boolean; chart: any; message: string }> => {
     const response = await apiClient.put(`/charts/${chartId}`, data);
     return response.data;
   },
 
-  deleteChart: async (chartId: string): Promise<{ message: string }> => {
+  deleteChart: async (chartId: string): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.delete(`/charts/${chartId}`);
     return response.data;
   },
 
-  duplicateChart: async (chartId: string, data: { dashboard_id: string }): Promise<{ chart: any; message: string }> => {
+  duplicateChart: async (chartId: string, data: { dashboard_id: string }): Promise<{ success: boolean; chart: any; message: string }> => {
     const response = await apiClient.post(`/charts/${chartId}/duplicate`, data);
     return response.data;
   },
 
   getChartData: async (chartId: string, filters?: any): Promise<{
+    success: boolean; 
     data: any[];
     columns: Array<{ name: string; type: string }>;
     execution_time: number;
@@ -332,39 +334,39 @@ export const chartAPI = {
 
 // User API
 export const userAPI = {
-  getUsers: async (workspaceId: string, params?: any): Promise<ApiResponse<{ users: any[] }>> => {
+  getUsers: async (workspaceId: string, params?: any): Promise<ApiResponse<{ success: boolean; users: any[] }>> => {
     const response = await apiClient.get('/users', {
       params: { ...params, workspaceId }
     });
     return response.data;
   },
 
-  getUser: async (userId: string): Promise<{ user: any }> => {
+  getUser: async (userId: string): Promise<{ success: boolean; user: any }> => {
     const response = await apiClient.get(`/users/${userId}`);
     return response.data;
   },
 
-  createUser: async (workspaceId: string, data: any): Promise<{ user: any; message: string }> => {
+  createUser: async (workspaceId: string, data: any): Promise<{ success: boolean; user: any; message: string }> => {
     const response = await apiClient.post('/users', { ...data, workspaceId });
     return response.data;
   },
 
-  updateUser: async (userId: string, data: any): Promise<{ user: any; message: string }> => {
+  updateUser: async (userId: string, data: any): Promise<{ success: boolean; user: any; message: string }> => {
     const response = await apiClient.put(`/users/${userId}`, data);
     return response.data;
   },
 
-  deleteUser: async (userId: string): Promise<{ message: string }> => {
+  deleteUser: async (userId: string): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.delete(`/users/${userId}`);
     return response.data;
   },
 
-  updateProfile: async (data: any): Promise<{ user: User; message: string }> => {
+  updateProfile: async (data: any): Promise<{ success: boolean; user: User; message: string }> => {
     const response = await apiClient.put('/users/profile', data);
     return response.data;
   },
 
-  changePassword: async (data: { current_password: string; new_password: string }): Promise<{ message: string }> => {
+  changePassword: async (data: { success: boolean; current_password: string; new_password: string }): Promise<{ message: string }> => {
     const response = await apiClient.put('/users/change-password', data);
     return response.data;
   },
@@ -373,6 +375,7 @@ export const userAPI = {
 // Plugin API
 export const pluginAPI = {
   getPlugins: async (): Promise<{
+    success: boolean; 
     dataSourcePlugins: any[];
     chartPlugins: any[];
   }> => {
@@ -380,12 +383,12 @@ export const pluginAPI = {
     return response.data;
   },
 
-  getDataSourcePlugins: async (): Promise<{ plugins: any[] }> => {
+  getDataSourcePlugins: async (): Promise<{ success: boolean;  plugins: any[] }> => {
     const response = await apiClient.get('/plugins/data-sources');
     return response.data;
   },
 
-  getChartPlugins: async (): Promise<{ plugins: any[] }> => {
+  getChartPlugins: async (): Promise<{ success: boolean; plugins: any[] }> => {
     const response = await apiClient.get('/plugins/charts');
     return response.data;
   },
