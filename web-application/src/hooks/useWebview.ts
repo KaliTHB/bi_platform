@@ -1,7 +1,6 @@
 // File: web-application/src/hooks/useWebview.ts
-
 import { useState, useEffect } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useAppDispatch, useAppSelector } from '@/hooks/redux';
 import { RootState } from '../store';
 import { webviewApi } from '../store/api/webviewApi';
 import { setExpandedCategories, selectDashboard as selectDashboardAction } from '../store/slices/webviewSlice';
@@ -13,8 +12,8 @@ export interface NavigationState {
 }
 
 export const useWebview = (webviewName: string) => {
-  const dispatch = useDispatch();
-  const navigationState = useSelector((state: RootState) => state.webview);
+  const dispatch = useAppDispatch();
+  const navigationState = useAppSelector((state: RootState) => state.webview);
 
   // RTK Query hooks
   const {

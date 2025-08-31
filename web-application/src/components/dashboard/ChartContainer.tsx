@@ -175,39 +175,55 @@ const ChartContainer: React.FC<ChartContainerProps> = ({
     setMenuAnchor(null);
   };
 
-  const renderChart = () => {
-    if (!chartData) return null;
+  // Fix for ChartContainer.tsx renderChart method
+const renderChart = () => {
+  if (!chartData) return null;
 
-    const chartProps = {
-      data: chartData.data,
-      columns: chartData.columns,
-      config: chart.config,
-      dimensions
-    };
-
-    switch (chart.type.toLowerCase()) {
-      case 'bar':
-      case 'line':
-      case 'pie':
-      case 'scatter':
-      case 'area':
-        return <EChartsRenderer {...chartProps} chartType={chart.type} />;
+  switch (chart.type.toLowerCase()) {
+    case 'bar':
+    case 'line':
+    case 'pie':
+    case 'scatter':
+    case 'area':
+      // EChartsRenderer expects: type, data, config, dimensions
+      return (
+        <EChartsRenderer 
+          type={chart.type}
+          data={chartData.data}
+          config={chart.config}
+          dimensions={dimensions}
+        />
+      );
+    
+    case 'table':
+      // TableRenderer expects: data, columns, config (no dimensions)
+      return (
+        <TableRenderer 
+          data={chartData.data}
+          columns={chartData.columns}
+          config={chart.config}
+        />
+      );
       
-      case 'table':
-        return <TableRenderer {...chartProps} />;
-        
-      case 'metric':
-      case 'kpi':
-        return <MetricCardRenderer {...chartProps} />;
-        
-      default:
-        return (
-          <Alert severity="warning">
-            Unsupported chart type: {chart.type}
-          </Alert>
-        );
-    }
-  };
+    case 'metric':
+    case 'kpi':
+      // MetricCardRenderer expects: data, config, dimensions (no columns)
+      return (
+        <MetricCardRenderer 
+          data={chartData.data}
+          config={chart.config}
+          dimensions={dimensions}
+        />
+      );
+      
+    default:
+      return (
+        <Alert severity="warning">
+          Unsupported chart type: {chart.type}
+        </Alert>
+      );
+  }
+};
 
   const formatQueryTime = (milliseconds: number) => {
     if (milliseconds < 1000) {

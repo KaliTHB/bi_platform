@@ -1,7 +1,7 @@
 // web-application/src/utils/apiUtils.ts
 export interface ApiResponse<T = any> {
   success: boolean;
-  data?: T;
+  data: T; // Changed from data?: T to data: T (required)
   message?: string;
   errors?: Array<{
     code: string;
@@ -73,13 +73,31 @@ export class ApiClient {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+        // Return error response with success: false
+        return {
+          success: false,
+          data: data,
+          message: data.message || `HTTP ${response.status}: ${response.statusText}`,
+          errors: data.errors || []
+        };
       }
 
-      return data;
+      // Ensure success property is always present
+      return {
+        success: data.success !== false, // Default to true unless explicitly false
+        data: data.data || data, // Use nested data if available, otherwise use full response
+        message: data.message,
+        errors: data.errors
+      };
     } catch (error) {
       console.error('API request failed:', error);
-      throw error;
+      // Return error response instead of throwing
+      return {
+        success: false,
+        data: null as T,
+        message: error instanceof Error ? error.message : 'Network error occurred',
+        errors: []
+      };
     }
   }
 

@@ -1,6 +1,6 @@
-// File: ./src/types/api.ts
+// web-application/src/types/api.types.ts
 
-// Generic API response structure
+// Generic API response structure with success property
 export interface ApiResponse<T = any> {
   success: boolean;
   data: T;
@@ -9,15 +9,27 @@ export interface ApiResponse<T = any> {
   meta?: ResponseMetadata;
 }
 
+// Alternative response structure for some APIs
+export interface SimpleApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  errors?: string[];
+}
+
 // Paginated response structure
 export interface PaginatedResponse<T = any> {
-  items: T[];
-  page: number;
-  limit: number;
-  total: number;
-  pages: number;
-  has_next: boolean;
-  has_previous: boolean;
+  success: boolean;
+  data: {
+    items: T[];
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+    has_next: boolean;
+    has_previous: boolean;
+  };
+  message?: string;
 }
 
 // Response metadata

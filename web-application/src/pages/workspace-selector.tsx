@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { useDispatch, useSelector } from 'react-redux';
+import { useAppDispatch, useAppSelector } from '@/hooks/redux';
 import {
   Container,
   Paper,
@@ -19,13 +19,13 @@ import { switchWorkspace } from '../store/slices/authSlice';
 
 export default function WorkspaceSelector() {
   const router = useRouter();
-  const dispatch = useDispatch();
+  const dispatch = useAppDispatch();
   const [workspaces, setWorkspaces] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState<string | null>(null);
   const [error, setError] = useState('');
 
-  const auth = useSelector((state: RootState) => state.auth);
+  const auth = useAppSelector((state: RootState) => state.auth);
 
   useEffect(() => {
     fetchWorkspaces();

@@ -256,6 +256,7 @@ export const dashboardAPI = {
 };
 
 // Chart API
+// Complete chartAPI object for web-application/src/services/api.ts
 export const chartAPI = {
   getCharts: async (dashboardId: string): Promise<{ charts: any[] }> => {
     const response = await apiClient.get(`/charts?dashboardId=${dashboardId}`);
@@ -282,11 +283,10 @@ export const chartAPI = {
     return response.data;
   },
 
-  // In chartAPI object
-duplicateChart: async (chartId: string, data: { dashboard_id: string }): Promise<{ chart: any; message: string }> => {
-  const response = await apiClient.post(`/charts/${chartId}/duplicate`, data);
-  return response.data;
-},
+  duplicateChart: async (chartId: string, data: { dashboard_id: string }): Promise<{ chart: any; message: string }> => {
+    const response = await apiClient.post(`/charts/${chartId}/duplicate`, data);
+    return response.data;
+  },
 
   getChartData: async (chartId: string, filters?: any): Promise<{
     data: any[];
@@ -295,6 +295,38 @@ duplicateChart: async (chartId: string, data: { dashboard_id: string }): Promise
   }> => {
     const response = await apiClient.post(`/charts/${chartId}/data`, { filters });
     return response.data;
+  },
+
+  // ADD THIS MISSING METHOD:
+  exportChart: async (chartId: string, options: { format: 'json' | 'csv' | 'excel' | 'png' | 'svg' | 'pdf'; [key: string]: any }): Promise<{ 
+    export: { 
+      data: string | Blob; 
+      filename: string;
+      format: string; 
+    } 
+  }> => {
+    const response = await apiClient.post(`/charts/${chartId}/export`, options);
+    
+    // For image formats (png, svg) and PDF, the response might be a blob
+    if (options.format === 'png' || options.format === 'svg' || options.format === 'pdf') {
+      // If the backend returns raw data for images, wrap it appropriately
+      return {
+        export: {
+          data: response.data,
+          filename: `chart_${chartId}.${options.format}`,
+          format: options.format
+        }
+      };
+    }
+    
+    // For data formats (json, csv, excel), return the structured response
+    return {
+      export: {
+        data: response.data.data.data,
+        filename: response.data.data.filename,
+        format: response.data.data.format
+      }
+    };
   },
 };
 

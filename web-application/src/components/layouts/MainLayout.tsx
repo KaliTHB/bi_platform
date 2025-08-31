@@ -1,4 +1,4 @@
-// web-application/src/components/layout/MainLayout.tsx
+// web-application/src/components/layouts/MainLayout.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -23,7 +23,9 @@ import {
   useTheme,
   useMediaQuery,
   Breadcrumbs,
-  Link as MuiLink
+  Link as MuiLink,
+  Collapse,
+  Tooltip
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -36,11 +38,17 @@ import {
   Notifications,
   AccountCircle,
   ChevronRight,
-  Home
+  Home,
+  ExpandLess,
+  ExpandMore,
+  Build,
+  AdminPanelSettings,
+  Storage,
+  Edit,
+  Visibility
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
-import { useSelector, useDispatch } from 'react-redux';
-import { RootState } from '@/store/store';
+import { useAppDispatch, useAppSelector } from '@/hooks/redux';
 import { logout } from '@/store/slices/authSlice';
 import { setWorkspace } from '@/store/slices/workspaceSlice';
 import { WorkspaceSwitcher } from '../shared/WorkspaceSwitcher';
@@ -65,15 +73,16 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const theme = useTheme();
   const router = useRouter();
   const pathname = usePathname();
-  const dispatch = useDispatch();
+  const dispatch = useAppDispatch();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuAnchor, setUserMenuAnchor] = useState<null | HTMLElement>(null);
   const [notificationAnchor, setNotificationAnchor] = useState<null | HTMLElement>(null);
+  const [expandedMenuItems, setExpandedMenuItems] = useState<Set<string>>(new Set());
 
-  const { user, isAuthenticated } = useSelector((state: RootState) => state.auth);
-  const { currentWorkspace } = useSelector((state: RootState) => state.workspace);
+  const { user, isAuthenticated } = useAppSelector((state) => state.auth);
+  const { currentWorkspace } = useAppSelector((state) => state.workspace);
 
   // Navigation items based on current workspace context
   const navigationItems: NavigationItem[] = [
@@ -90,7 +99,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     },
     {
       title: 'Dashboard Builder',
-      icon: <Analytics />,
+      icon: <Build />,
       path: `/workspace/${currentWorkspace?.slug}/dashboard-builder`,
       permission: 'dashboard.write'
     },
@@ -102,13 +111,13 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     },
     {
       title: 'SQL Editor',
-      icon: <Analytics />,
+      icon: <Edit />,
       path: `/workspace/${currentWorkspace?.slug}/sql-editor`,
       permission: 'dataset.query'
     },
     {
       title: 'Administration',
-      icon: <Settings />,
+      icon: <AdminPanelSettings />,
       path: `/workspace/${currentWorkspace?.slug}/admin`,
       permission: 'workspace.admin',
       children: [
@@ -120,7 +129,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         },
         {
           title: 'Data Sources',
-          icon: <Dataset />,
+          icon: <Storage />,
           path: `/workspace/${currentWorkspace?.slug}/admin/data-sources`,
           permission: 'data_source.read'
         },
@@ -167,106 +176,196 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     }
   };
 
-  const generateBreadcrumbs = () => {
-    if (!currentWorkspace) return [];
+  const handleMenuItemToggle = (itemTitle: string) => {
+    const newExpanded = new Set(expandedMenuItems);
+    if (newExpanded.has(itemTitle)) {
+      newExpanded.delete(itemTitle);
+    } else {
+      newExpanded.add(itemTitle);
+    }
+    setExpandedMenuItems(newExpanded);
+  };
 
+  const generateBreadcrumbs = () => {
+    if (!currentWorkspace || !pathname) return [];
     const pathSegments = pathname.split('/').filter(Boolean);
     const breadcrumbs = [
       {
         label: currentWorkspace.name,
-        href: `/workspace/${currentWorkspace.slug}`
+        href: `/workspace/${currentWorkspace.slug}`,
+        current: pathSegments.length <= 2
       }
     ];
 
-    // Build breadcrumbs based on path
-    if (pathSegments.includes('dashboards')) {
-      breadcrumbs.push({
-        label: 'Dashboards',
-        href: `/workspace/${currentWorkspace.slug}/dashboards`
-      });
-    }
-    
-    if (pathSegments.includes('dashboard-builder')) {
-      breadcrumbs.push({
-        label: 'Dashboard Builder',
-        href: `/workspace/${currentWorkspace.slug}/dashboard-builder`
-      });
-    }
-
-    if (pathSegments.includes('datasets')) {
-      breadcrumbs.push({
-        label: 'Datasets',
-        href: `/workspace/${currentWorkspace.slug}/datasets`
-      });
-    }
-
-    if (pathSegments.includes('admin')) {
-      breadcrumbs.push({
-        label: 'Administration',
-        href: `/workspace/${currentWorkspace.slug}/admin`
-      });
+    // Generate breadcrumbs based on path segments
+    if (pathSegments.length > 2) {
+      const section = pathSegments[2];
+      const subsection = pathSegments[3];
+      
+      switch (section) {
+        case 'dashboards':
+          breadcrumbs.push({
+            label: 'Dashboards',
+            href: `/workspace/${currentWorkspace.slug}/dashboards`,
+            current: !subsection
+          });
+          if (subsection) {
+            breadcrumbs.push({
+              label: 'Dashboard Details',
+              href: pathname,
+              current: true
+            });
+          }
+          break;
+        case 'dashboard-builder':
+          breadcrumbs.push({
+            label: 'Dashboard Builder',
+            href: pathname,
+            current: true
+          });
+          break;
+        case 'datasets':
+          breadcrumbs.push({
+            label: 'Datasets',
+            href: `/workspace/${currentWorkspace.slug}/datasets`,
+            current: !subsection
+          });
+          break;
+        case 'sql-editor':
+          breadcrumbs.push({
+            label: 'SQL Editor',
+            href: pathname,
+            current: true
+          });
+          break;
+        case 'admin':
+          breadcrumbs.push({
+            label: 'Administration',
+            href: `/workspace/${currentWorkspace.slug}/admin`,
+            current: !subsection
+          });
+          if (subsection) {
+            const adminLabels = {
+              users: 'Users & Roles',
+              'data-sources': 'Data Sources',
+              settings: 'Settings'
+            };
+            breadcrumbs.push({
+              label: adminLabels[subsection as keyof typeof adminLabels] || 'Admin',
+              href: pathname,
+              current: true
+            });
+          }
+          break;
+      }
     }
 
     return breadcrumbs;
   };
 
-  const renderNavigationItems = (items: NavigationItem[], level = 0) => {
-    return items.map((item) => (
-      <PermissionGate key={item.path} permission={item.permission}>
-        <ListItem disablePadding sx={{ pl: level * 2 }}>
+  const renderNavigationItem = (item: NavigationItem, depth = 0) => {
+    if (item.permission) {
+      return (
+        <PermissionGate key={item.path} permission={item.permission}>
+          {renderNavigationItemContent(item, depth)}
+        </PermissionGate>
+      );
+    }
+    
+    return renderNavigationItemContent(item, depth);
+  };
+
+  const renderNavigationItemContent = (item: NavigationItem, depth = 0) => {
+    const isActive = pathname === item.path;
+    const hasChildren = item.children && item.children.length > 0;
+    const isExpanded = expandedMenuItems.has(item.title);
+
+    return (
+      <React.Fragment key={item.path}>
+        <ListItem disablePadding sx={{ pl: depth * 2 }}>
           <ListItemButton
-            onClick={() => handleNavigation(item.path)}
-            selected={pathname === item.path}
+            selected={isActive}
+            onClick={() => {
+              if (hasChildren) {
+                handleMenuItemToggle(item.title);
+              } else {
+                handleNavigation(item.path);
+              }
+            }}
             sx={{
-              borderRadius: 1,
-              mx: 1,
+              minHeight: 48,
+              px: 2.5,
               '&.Mui-selected': {
-                backgroundColor: theme.palette.primary.main + '15',
-                '&:hover': {
-                  backgroundColor: theme.palette.primary.main + '25',
+                backgroundColor: theme.palette.primary.main + '20',
+                borderRight: `3px solid ${theme.palette.primary.main}`,
+                '& .MuiListItemIcon-root': {
+                  color: theme.palette.primary.main,
+                },
+                '& .MuiListItemText-primary': {
+                  color: theme.palette.primary.main,
+                  fontWeight: 600,
                 },
               },
             }}
           >
-            <ListItemIcon sx={{ color: pathname === item.path ? theme.palette.primary.main : 'inherit' }}>
+            <ListItemIcon
+              sx={{
+                minWidth: 0,
+                mr: 3,
+                justifyContent: 'center',
+              }}
+            >
               {item.icon}
             </ListItemIcon>
             <ListItemText 
               primary={item.title}
-              sx={{ 
-                color: pathname === item.path ? theme.palette.primary.main : 'inherit',
-                '& .MuiListItemText-primary': {
-                  fontWeight: pathname === item.path ? 600 : 400
-                }
+              primaryTypographyProps={{
+                fontSize: '0.875rem',
+                fontWeight: isActive ? 600 : 400,
               }}
             />
-            {item.children && <ChevronRight />}
+            {hasChildren && (
+              isExpanded ? <ExpandLess /> : <ExpandMore />
+            )}
           </ListItemButton>
         </ListItem>
-        {item.children && renderNavigationItems(item.children, level + 1)}
-      </PermissionGate>
-    ));
+        
+        {hasChildren && (
+          <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+            <List component="div" disablePadding>
+              {item.children?.map((childItem) => renderNavigationItem(childItem, depth + 1))}
+            </List>
+          </Collapse>
+        )}
+      </React.Fragment>
+    );
   };
 
   const drawer = (
-    <Box sx={{ overflow: 'auto', mt: 1 }}>
+    <div>
+      <Toolbar>
+        <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', px: 1 }}>
+          <Typography variant="h6" sx={{ fontWeight: 600, color: 'primary.main' }}>
+            BI Platform
+          </Typography>
+        </Box>
+      </Toolbar>
+      <Divider />
+      
       {/* Workspace Switcher */}
-      <Box sx={{ px: 2, py: 1 }}>
+      <Box sx={{ p: 2 }}>
         <WorkspaceSwitcher />
       </Box>
+      <Divider />
       
-      <Divider sx={{ my: 1 }} />
-      
-      {/* Navigation Items */}
+      {/* Navigation */}
       <List>
-        {renderNavigationItems(navigationItems)}
+        {navigationItems.map((item) => renderNavigationItem(item))}
       </List>
-    </Box>
+    </div>
   );
 
-  if (!isAuthenticated) {
-    return <>{children}</>;
-  }
+  const breadcrumbs = generateBreadcrumbs();
 
   return (
     <Box sx={{ display: 'flex' }}>
@@ -278,13 +377,13 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         sx={{
           width: { md: `calc(100% - ${drawerWidth}px)` },
           ml: { md: `${drawerWidth}px` },
-          backgroundColor: theme.palette.background.paper,
-          color: theme.palette.text.primary,
-          boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+          bgcolor: 'background.paper',
+          color: 'text.primary',
+          boxShadow: theme.shadows[1],
+          borderBottom: `1px solid ${theme.palette.divider}`,
         }}
       >
         <Toolbar>
-          {/* Mobile menu button */}
           <IconButton
             color="inherit"
             aria-label="open drawer"
@@ -297,54 +396,62 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
           {/* Breadcrumbs */}
           <Box sx={{ flexGrow: 1 }}>
-            <Breadcrumbs separator="›" aria-label="breadcrumb">
-              {generateBreadcrumbs().map((breadcrumb, index) => (
+            <Breadcrumbs
+              separator={<ChevronRight fontSize="small" />}
+              aria-label="breadcrumb"
+            >
+              {breadcrumbs.map((crumb, index) => (
                 <MuiLink
-                  key={index}
-                  color="inherit"
-                  href={breadcrumb.href}
-                  onClick={(e) => {
+                  key={crumb.href}
+                  underline={crumb.current ? 'none' : 'hover'}
+                  color={crumb.current ? 'text.primary' : 'text.secondary'}
+                  href={crumb.current ? undefined : crumb.href}
+                  onClick={crumb.current ? undefined : (e) => {
                     e.preventDefault();
-                    handleNavigation(breadcrumb.href);
+                    router.push(crumb.href);
                   }}
-                  sx={{
-                    textDecoration: 'none',
-                    '&:hover': {
-                      textDecoration: 'underline'
-                    }
+                  sx={{ 
+                    cursor: crumb.current ? 'default' : 'pointer',
+                    fontWeight: crumb.current ? 600 : 400,
                   }}
                 >
-                  {breadcrumb.label}
+                  {crumb.label}
                 </MuiLink>
               ))}
             </Breadcrumbs>
           </Box>
 
-          {/* Notifications */}
-          <IconButton
-            color="inherit"
-            onClick={handleNotificationOpen}
-            sx={{ mr: 1 }}
-          >
-            <Badge badgeContent={3} color="error">
-              <Notifications />
-            </Badge>
-          </IconButton>
+          {/* Right side actions */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {/* Notifications */}
+            <Tooltip title="Notifications">
+              <IconButton
+                color="inherit"
+                onClick={handleNotificationOpen}
+                sx={{ ml: 1 }}
+              >
+                <Badge badgeContent={0} color="error">
+                  <Notifications />
+                </Badge>
+              </IconButton>
+            </Tooltip>
 
-          {/* User menu */}
-          <IconButton
-            color="inherit"
-            onClick={handleUserMenuOpen}
-            sx={{ p: 0 }}
-          >
-            <Avatar
-              src={user?.avatar_url}
-              alt={`${user?.first_name} ${user?.last_name}`}
-              sx={{ width: 32, height: 32 }}
-            >
-              {user?.first_name?.[0]}{user?.last_name?.[0]}
-            </Avatar>
-          </IconButton>
+            {/* User Menu */}
+            <Tooltip title="Account">
+              <IconButton
+                color="inherit"
+                onClick={handleUserMenuOpen}
+                sx={{ ml: 1 }}
+              >
+                <Avatar
+                  sx={{ width: 32, height: 32 }}
+                  src={user?.avatar_url}
+                >
+                  {user?.first_name?.[0] || user?.email?.[0]?.toUpperCase()}
+                </Avatar>
+              </IconButton>
+            </Tooltip>
+          </Box>
         </Toolbar>
       </AppBar>
 
@@ -352,29 +459,36 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       <Box
         component="nav"
         sx={{ width: { md: drawerWidth }, flexShrink: { md: 0 } }}
+        aria-label="navigation"
       >
-        {/* Mobile drawer */}
         <Drawer
           variant="temporary"
           open={mobileOpen}
           onClose={handleDrawerToggle}
           ModalProps={{
-            keepMounted: true,
+            keepMounted: true, // Better performance on mobile
           }}
           sx={{
             display: { xs: 'block', md: 'none' },
-            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+            '& .MuiDrawer-paper': {
+              boxSizing: 'border-box',
+              width: drawerWidth,
+              borderRight: `1px solid ${theme.palette.divider}`,
+            },
           }}
         >
           {drawer}
         </Drawer>
         
-        {/* Desktop drawer */}
         <Drawer
           variant="permanent"
           sx={{
             display: { xs: 'none', md: 'block' },
-            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+            '& .MuiDrawer-paper': {
+              boxSizing: 'border-box',
+              width: drawerWidth,
+              borderRight: `1px solid ${theme.palette.divider}`,
+            },
           }}
           open
         >
@@ -382,17 +496,20 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         </Drawer>
       </Box>
 
-      {/* Main content */}
+      {/* Main Content */}
       <Box
         component="main"
         sx={{
           flexGrow: 1,
           width: { md: `calc(100% - ${drawerWidth}px)` },
-          mt: '64px',
-          p: 3,
+          minHeight: '100vh',
+          bgcolor: 'background.default',
         }}
       >
-        {children}
+        <Toolbar />
+        <Box sx={{ p: 3 }}>
+          {children}
+        </Box>
       </Box>
 
       {/* User Menu */}
@@ -407,24 +524,57 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             overflow: 'visible',
             filter: 'drop-shadow(0px 2px 8px rgba(0,0,0,0.32))',
             mt: 1.5,
+            minWidth: 200,
             '& .MuiAvatar-root': {
               width: 32,
               height: 32,
               ml: -0.5,
               mr: 1,
             },
+            '&:before': {
+              content: '""',
+              display: 'block',
+              position: 'absolute',
+              top: 0,
+              right: 14,
+              width: 10,
+              height: 10,
+              bgcolor: 'background.paper',
+              transform: 'translateY(-50%) rotate(45deg)',
+              zIndex: 0,
+            },
           },
         }}
         transformOrigin={{ horizontal: 'right', vertical: 'top' }}
         anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
       >
-        <MenuItem onClick={() => handleNavigation('/profile')}>
-          <AccountCircle sx={{ mr: 1 }} />
-          Profile Settings
+        <MenuItem>
+          <Avatar
+            src={user?.avatar_url}
+            sx={{ width: 32, height: 32 }}
+          >
+            {user?.first_name?.[0] || user?.email?.[0]?.toUpperCase()}
+          </Avatar>
+          <Box>
+            <Typography variant="subtitle2">
+              {user?.first_name} {user?.last_name}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {user?.email}
+            </Typography>
+          </Box>
         </MenuItem>
         <Divider />
+        <MenuItem onClick={() => router.push('/profile')}>
+          <ListItemIcon>
+            <AccountCircle fontSize="small" />
+          </ListItemIcon>
+          Profile & Settings
+        </MenuItem>
         <MenuItem onClick={handleLogout}>
-          <Logout sx={{ mr: 1 }} />
+          <ListItemIcon>
+            <Logout fontSize="small" />
+          </ListItemIcon>
           Logout
         </MenuItem>
       </Menu>

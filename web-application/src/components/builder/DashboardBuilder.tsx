@@ -1,7 +1,7 @@
 // web-application/src/components/builder/DashboardBuilder.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
-import { useDispatch, useSelector } from 'react-redux';
+import { useAppDispatch, useAppSelector } from '../../hooks/redux';
 import {
   Box,
   Drawer,
@@ -30,7 +30,13 @@ import {
   Chip,
   Switch,
   FormControlLabel,
-  CircularProgress
+  CircularProgress,
+  useTheme,
+  useMediaQuery,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -49,12 +55,18 @@ import {
   ExpandMore,
   Settings as SettingsIcon,
   Delete as DeleteIcon,
-  FileCopy as FileCopyIcon
+  FileCopy as FileCopyIcon,
+  Close as CloseIcon,
+  Visibility as VisibilityIcon,
+  Edit as EditIcon
 } from '@mui/icons-material';
 import { Responsive, WidthProvider } from 'react-grid-layout';
-import { RootState } from '../../store';
 import { dashboardAPI, chartAPI, datasetAPI } from '../../services/api';
 import ChartContainer from '../dashboard/ChartContainer';
+
+// Import CSS for react-grid-layout
+import 'react-grid-layout/css/styles.css';
+import 'react-resizable/css/styles.css';
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
@@ -97,6 +109,8 @@ interface Dataset {
   id: string;
   name: string;
   description?: string;
+  table_name?: string;
+  schema?: any;
 }
 
 const chartTypes = [
@@ -114,9 +128,11 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
   dashboardId,
   initialDashboard
 }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const router = useRouter();
-  const dispatch = useDispatch();
-  const { currentWorkspace } = useSelector((state: RootState) => state.workspace);
+  const dispatch = useAppDispatch();
+  const { currentWorkspace } = useAppSelector((state) => state.workspace);
   
   // State management
   const [dashboard, setDashboard] = useState<Dashboard | null>(initialDashboard || null);
@@ -125,7 +141,7 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
   const [layouts, setLayouts] = useState<{ [key: string]: any[] }>({});
   
   // UI state
-  const [drawerOpen, setDrawerOpen] = useState(true);
+  const [drawerOpen, setDrawerOpen] = useState(!isMobile);
   const [selectedChart, setSelectedChart] = useState<Chart | null>(null);
   const [configPanelOpen, setConfigPanelOpen] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
@@ -161,292 +177,308 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
     open: false
   });
 
-  // Load initial data
+  const [newChartName, setNewChartName] = useState('');
+  const [selectedDataset, setSelectedDataset] = useState<string>('');
+
+  const drawerWidth = 300;
+
+  // Load dashboard and related data
   useEffect(() => {
-    if (currentWorkspace) {
-      loadDatasets();
-      if (dashboardId && !initialDashboard) {
-        loadDashboard();
+    if (dashboardId && !initialDashboard) {
+      loadDashboard();
+    }
+    loadDatasets();
+  }, [dashboardId]);
+
+  // Update charts when dashboard changes
+  useEffect(() => {
+    if (dashboard) {
+      setCharts(dashboard.charts || []);
+      if (dashboard.layout_config) {
+        setLayouts(dashboard.layout_config);
       }
     }
-  }, [currentWorkspace, dashboardId]);
+  }, [dashboard]);
 
   const loadDashboard = async () => {
-    if (!dashboardId) return;
-    
+    if (!dashboardId || !currentWorkspace) return;
+
     setLoading(true);
     try {
       const response = await dashboardAPI.getDashboard(dashboardId);
-      if (!('error' in response)) {
+      if (response.success) {
         setDashboard(response.dashboard);
-        setCharts(response.dashboard.charts || []);
-        
-        // Convert charts to grid layout format
-        const gridLayouts = response.dashboard.charts?.reduce((acc: any, chart: Chart) => {
-          acc[chart.id] = {
-            i: chart.id,
-            x: chart.position.x,
-            y: chart.position.y,
-            w: chart.position.width,
-            h: chart.position.height
-          };
-          return acc;
-        }, {});
-        
-        setLayouts({
-          lg: Object.values(gridLayouts || {}),
-          md: Object.values(gridLayouts || {}),
-          sm: Object.values(gridLayouts || {}),
-          xs: Object.values(gridLayouts || {}),
-        });
+      } else {
+        showSnackbar('Failed to load dashboard', 'error');
       }
     } catch (error) {
+      console.error('Failed to load dashboard:', error);
       showSnackbar('Failed to load dashboard', 'error');
     } finally {
       setLoading(false);
     }
   };
 
- const loadDatasets = async () => {
-  if (!currentWorkspace?.id) return;
-  
-  try {
-    const response = await datasetAPI.getDatasets(currentWorkspace.id);
-    // Handle both possible response structures
-    const datasets = response.data?.datasets || (response as any).datasets;
-    if (datasets) {
-      setDatasets(datasets);
-    }
-  } catch (error) {
-    showSnackbar('Failed to load datasets', 'error');
-  }
-};
-  const handleLayoutChange = useCallback((layout: any[], layouts: { [key: string]: any[] }) => {
-    setLayouts(layouts);
-    
-    // Update chart positions
-    const updatedCharts = charts.map(chart => {
-      const layoutItem = layout.find(item => item.i === chart.id);
-      if (layoutItem) {
-        return {
-          ...chart,
-          position: {
-            x: layoutItem.x,
-            y: layoutItem.y,
-            width: layoutItem.w,
-            height: layoutItem.h
-          }
-        };
-      }
-      return chart;
-    });
-    
-    setCharts(updatedCharts);
-  }, [charts]);
+  const loadDatasets = async () => {
+    if (!currentWorkspace) return;
 
-  const handleCategoryToggle = (category: string) => {
-    setExpandedCategories(prev => ({
-      ...prev,
-      [category]: !prev[category]
-    }));
+    try {
+      const response = await datasetAPI.getDatasets(currentWorkspace.id);
+      
+      if (response.success && response.data?.datasets) {
+        setDatasets(response.data.datasets);
+      } else {
+        console.warn('Failed to load datasets:', response.message || 'Unknown error');
+        showSnackbar(response.message || 'Failed to load datasets', 'error');
+        setDatasets([]);
+      }
+    } catch (error) {
+      console.error('Failed to load datasets:', error);
+      showSnackbar('Failed to load datasets', 'error');
+      setDatasets([]);
+    }
   };
 
-  const handleChartTypeSelect = (chartType: string) => {
-    setChartDialog({
+  const showSnackbar = (message: string, severity: 'success' | 'error' | 'info' | 'warning') => {
+    setSnackbar({
       open: true,
-      type: chartType
+      message,
+      severity
     });
   };
 
-  const handleDatasetSelect = (dataset: Dataset) => {
-    setChartDialog(prev => ({
-      ...prev,
-      dataset
-    }));
-  };
-
-  const createChart = async () => {
-    if (!dashboard || !chartDialog.type || !chartDialog.dataset) {
-      showSnackbar('Please select chart type and dataset', 'error');
-      return;
-    }
-
-    try {
-      setSaving(true);
-      
-      // Find available position for new chart
-      const existingPositions = charts.map(c => c.position);
-      const newPosition = findAvailablePosition(existingPositions);
-      
-      const newChart = {
-        dashboard_id: dashboard.id,
-        dataset_id: chartDialog.dataset.id,
-        name: `New ${chartDialog.type}`,
-        type: chartDialog.type,
-        config: getDefaultChartConfig(chartDialog.type),
-        position: newPosition
-      };
-
-      const response = await chartAPI.createChart(newChart);
-      
-        const createdChart = {
-          ...response.chart,
-          dataset: chartDialog.dataset
-        };
-        
-        setCharts(prev => [...prev, createdChart]);
-        
-        // Add to layout
-        const layoutItem = {
-          i: response.chart.id,
-          x: newPosition.x,
-          y: newPosition.y,
-          w: newPosition.width,
-          h: newPosition.height
-        };
-        
-        setLayouts(prev => ({
-          ...prev,
-          lg: [...(prev.lg || []), layoutItem],
-          md: [...(prev.md || []), layoutItem],
-          sm: [...(prev.sm || []), layoutItem],
-          xs: [...(prev.xs || []), layoutItem]
-        }));
-        
-        showSnackbar('Chart created successfully', 'success');
-        setChartDialog({ open: false });
-    } catch (error) {
-      showSnackbar('Failed to create chart', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const duplicateChart = async (chartId: string) => {
-    if (!dashboard) return;
-    
-    try {
-      setSaving(true);
-      const response = await chartAPI.duplicateChart(chartId, {
-        dashboard_id: dashboard.id
-      });
-      
-      if (!('error' in response)) {
-        const duplicatedChart = response.chart;
-        setCharts(prev => [...prev, duplicatedChart]);
-        showSnackbar('Chart duplicated successfully', 'success');
-      }
-    } catch (error) {
-      showSnackbar('Failed to duplicate chart', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const deleteChart = async (chartId: string) => {
-    try {
-      setSaving(true);
-      const response = await chartAPI.deleteChart(chartId);
-      
-      if (!('error' in response)) {
-        setCharts(prev => prev.filter(c => c.id !== chartId));
-        setLayouts(prev => ({
-          ...prev,
-          lg: prev.lg?.filter(item => item.i !== chartId) || [],
-          md: prev.md?.filter(item => item.i !== chartId) || [],
-          sm: prev.sm?.filter(item => item.i !== chartId) || [],
-          xs: prev.xs?.filter(item => item.i !== chartId) || []
-        }));
-        showSnackbar('Chart deleted successfully', 'success');
-      }
-    } catch (error) {
-      showSnackbar('Failed to delete chart', 'error');
-    } finally {
-      setSaving(false);
-    }
+  const handleSnackbarClose = () => {
+    setSnackbar(prev => ({ ...prev, open: false }));
   };
 
   const saveDashboard = async () => {
-    if (!dashboard) return;
+    if (!dashboard || !currentWorkspace) return;
 
     setSaving(true);
     try {
-      // Update dashboard with current layout configuration
-      const updatedDashboard = {
+      const dashboardData = {
         ...dashboard,
-        layout_config: layouts
+        layout_config: layouts,
+        charts: charts
       };
 
-      const response = await dashboardAPI.updateDashboard(dashboard.id, updatedDashboard);
-      
-      if (!('error' in response)) {
-        setDashboard(response.dashboard);
-        showSnackbar('Dashboard saved successfully', 'success');
+      let response;
+      if (dashboardId) {
+        response = await dashboardAPI.updateDashboard(dashboardId, dashboardData);
+        if (response.dashboard) {
+          setDashboard(response.dashboard);
+          showSnackbar(response.message || 'Dashboard saved successfully', 'success');
+        }
+      } else {
+        response = await dashboardAPI.createDashboard(dashboardData);
+        if (response.dashboard) {
+          setDashboard(response.dashboard);
+          // Navigate to the new dashboard
+          router.push(`/workspace/${currentWorkspace.slug}/dashboard-builder/${response.dashboard.id}`);
+          showSnackbar(response.message || 'Dashboard created successfully', 'success');
+        }
       }
     } catch (error) {
+      console.error('Failed to save dashboard:', error);
       showSnackbar('Failed to save dashboard', 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  const togglePreview = () => {
-    setPreviewMode(!previewMode);
-    setDrawerOpen(!previewMode);
+  const toggleCategory = (category: string) => {
+    setExpandedCategories(prev => ({
+      ...prev,
+      [category]: !prev[category]
+    }));
   };
 
-  const showSnackbar = (message: string, severity: 'success' | 'error' | 'info' | 'warning') => {
-    setSnackbar({ open: true, message, severity });
+  const handleAddChart = (chartType: string) => {
+    setChartDialog({
+      open: true,
+      type: chartType
+    });
   };
 
-  const findAvailablePosition = (existingPositions: any[]) => {
-    // Simple algorithm to find next available position
-    let x = 0, y = 0;
-    const width = 6, height = 4;
-    
-    // Check if position is occupied
-    while (existingPositions.some(pos => 
-      pos.x < x + width && pos.x + pos.width > x &&
-      pos.y < y + height && pos.y + pos.height > y
-    )) {
-      x += width;
-      if (x >= 12) {
-        x = 0;
-        y += height;
+  const createChart = async () => {
+    if (!newChartName.trim() || !selectedDataset || !chartDialog.type || !dashboard) return;
+
+    try {
+      const chartData = {
+        name: newChartName,
+        type: chartDialog.type,
+        dataset_id: selectedDataset,
+        dashboard_id: dashboard.id,
+        config: {},
+        position: {
+          x: 0,
+          y: 0,
+          width: 4,
+          height: 3
+        }
+      };
+
+      const response = await chartAPI.createChart(chartData);
+      if (response.chart) {
+        const newChart = response.chart;
+        setCharts(prev => [...prev, newChart]);
+        
+        // Add to layout
+        const newLayout = {
+          i: newChart.id,
+          x: 0,
+          y: 0,
+          w: 4,
+          h: 3
+        };
+        
+        setLayouts(prev => ({
+          ...prev,
+          lg: [...(prev.lg || []), newLayout],
+          md: [...(prev.md || []), newLayout],
+          sm: [...(prev.sm || []), newLayout],
+          xs: [...(prev.xs || []), newLayout]
+        }));
+
+        showSnackbar(response.message || 'Chart added successfully', 'success');
+      } else {
+        showSnackbar('Failed to create chart', 'error');
       }
+    } catch (error) {
+      console.error('Failed to create chart:', error);
+      showSnackbar('Failed to create chart', 'error');
     }
-    
-    return { x, y, width, height };
+
+    // Reset dialog
+    setChartDialog({ open: false });
+    setNewChartName('');
+    setSelectedDataset('');
   };
 
-  const getDefaultChartConfig = (chartType: string) => {
-    // Return basic configuration based on chart type
-    switch (chartType) {
-      case 'echarts-bar':
-      case 'echarts-line':
-        return {
-          xAxis: { field: '', title: 'X Axis' },
-          yAxis: { field: '', title: 'Y Axis' },
-          series: []
-        };
-      case 'echarts-pie':
-        return {
-          labelField: '',
-          valueField: '',
-          showLegend: true
-        };
-      default:
-        return {};
+  const deleteChart = async (chartId: string) => {
+    try {
+      const response = await chartAPI.deleteChart(chartId);
+      // chartAPI.deleteChart returns { message: string }
+      if (response.message) {
+        setCharts(prev => prev.filter(chart => chart.id !== chartId));
+        
+        // Remove from layout
+        setLayouts(prev => ({
+          lg: (prev.lg || []).filter(item => item.i !== chartId),
+          md: (prev.md || []).filter(item => item.i !== chartId),
+          sm: (prev.sm || []).filter(item => item.i !== chartId),
+          xs: (prev.xs || []).filter(item => item.i !== chartId)
+        }));
+
+        showSnackbar('Chart deleted successfully', 'success');
+      } else {
+        showSnackbar('Failed to delete chart', 'error');
+      }
+    } catch (error) {
+      console.error('Failed to delete chart:', error);
+      showSnackbar('Failed to delete chart', 'error');
     }
   };
 
-  const getChartsByCategory = (category: string) => {
-    return chartTypes.filter(chart => chart.category === category);
+  const onLayoutChange = (layout: any[], layouts: { [key: string]: any[] }) => {
+    setLayouts(layouts);
   };
+
+  const renderChartTypesByCategory = () => {
+    const categories = {
+      basic: chartTypes.filter(chart => chart.category === 'basic'),
+      trend: chartTypes.filter(chart => chart.category === 'trend'),
+      analysis: chartTypes.filter(chart => chart.category === 'analysis'),
+      data: chartTypes.filter(chart => chart.category === 'data'),
+      kpi: chartTypes.filter(chart => chart.category === 'kpi')
+    };
+
+    return Object.entries(categories).map(([category, types]) => (
+      <React.Fragment key={category}>
+        <ListItemButton onClick={() => toggleCategory(category)}>
+          <ListItemText 
+            primary={category.charAt(0).toUpperCase() + category.slice(1)} 
+            primaryTypographyProps={{ fontWeight: 600 }}
+          />
+          {expandedCategories[category] ? <ExpandLess /> : <ExpandMore />}
+        </ListItemButton>
+        <Collapse in={expandedCategories[category]} timeout="auto" unmountOnExit>
+          <List component="div" disablePadding>
+            {types.map((chartType) => (
+              <ListItemButton
+                key={chartType.type}
+                sx={{ pl: 4 }}
+                onClick={() => handleAddChart(chartType.type)}
+              >
+                <ListItemIcon sx={{ minWidth: 36 }}>
+                  {chartType.icon}
+                </ListItemIcon>
+                <ListItemText 
+                  primary={chartType.name}
+                  primaryTypographyProps={{ fontSize: '0.875rem' }}
+                />
+              </ListItemButton>
+            ))}
+          </List>
+        </Collapse>
+      </React.Fragment>
+    ));
+  };
+
+  const renderChart = (chart: Chart) => (
+    <Paper 
+      key={chart.id}
+      sx={{ 
+        height: '100%', 
+        p: 1,
+        position: 'relative',
+        '&:hover .chart-actions': {
+          opacity: 1
+        }
+      }}
+    >
+      {/* Chart Actions */}
+      <Box
+        className="chart-actions"
+        sx={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          zIndex: 10,
+          opacity: 0,
+          transition: 'opacity 0.2s',
+          display: 'flex',
+          gap: 1
+        }}
+      >
+        <IconButton
+          size="small"
+          onClick={() => setSelectedChart(chart)}
+          sx={{ bgcolor: 'background.paper', boxShadow: 1 }}
+        >
+          <EditIcon fontSize="small" />
+        </IconButton>
+        <IconButton
+          size="small"
+          onClick={() => deleteChart(chart.id)}
+          sx={{ bgcolor: 'background.paper', boxShadow: 1 }}
+        >
+          <DeleteIcon fontSize="small" />
+        </IconButton>
+      </Box>
+
+      {/* Chart Content */}
+      <ChartContainer
+        chart={chart}
+        workspaceId={currentWorkspace?.id}
+        preview={true}
+      />
+    </Paper>
+  );
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+      <Box display="flex" justifyContent="center" alignItems="center" height="100vh">
         <CircularProgress />
       </Box>
     );
@@ -455,7 +487,16 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
   return (
     <Box sx={{ display: 'flex', height: '100vh' }}>
       {/* App Bar */}
-      <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
+      <AppBar
+        position="fixed"
+        sx={{
+          width: { md: `calc(100% - ${drawerOpen ? drawerWidth : 0}px)` },
+          ml: { md: drawerOpen ? `${drawerWidth}px` : 0 },
+          bgcolor: 'background.paper',
+          color: 'text.primary',
+          boxShadow: 1
+        }}
+      >
         <Toolbar>
           <IconButton
             color="inherit"
@@ -465,89 +506,67 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
           >
             <MenuIcon />
           </IconButton>
+          
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-            {dashboard?.name || 'Dashboard Builder'}
+            {dashboard ? `Editing: ${dashboard.name}` : 'New Dashboard'}
           </Typography>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={previewMode}
-                onChange={togglePreview}
-                color="default"
-              />
-            }
-            label="Preview"
-            sx={{ color: 'white', mr: 2 }}
-          />
-          <Button
-            color="inherit"
-            startIcon={<SaveIcon />}
-            onClick={saveDashboard}
-            disabled={saving}
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </Button>
+
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={previewMode}
+                  onChange={(e) => setPreviewMode(e.target.checked)}
+                />
+              }
+              label="Preview"
+            />
+            
+            <Button
+              variant="outlined"
+              startIcon={<VisibilityIcon />}
+              onClick={() => setPreviewMode(!previewMode)}
+            >
+              {previewMode ? 'Edit' : 'Preview'}
+            </Button>
+
+            <Button
+              variant="contained"
+              startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+              onClick={saveDashboard}
+              disabled={saving}
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </Button>
+          </Box>
         </Toolbar>
       </AppBar>
 
-      {/* Chart Types Drawer */}
+      {/* Sidebar Drawer */}
       <Drawer
-        variant="persistent"
-        anchor="left"
-        open={drawerOpen && !previewMode}
         sx={{
-          width: 280,
+          width: drawerWidth,
           flexShrink: 0,
           '& .MuiDrawer-paper': {
-            width: 280,
+            width: drawerWidth,
             boxSizing: 'border-box',
-            top: 64,
-            height: 'calc(100vh - 64px)'
-          }
+          },
         }}
+        variant={isMobile ? 'temporary' : 'persistent'}
+        anchor="left"
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
       >
-        <Box sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>
+        <Toolbar />
+        <Divider />
+        
+        <Box sx={{ overflow: 'auto', p: 1 }}>
+          <Typography variant="h6" sx={{ p: 2, pb: 1 }}>
             Chart Types
           </Typography>
-          <Divider sx={{ mb: 2 }} />
-          
-          {Object.keys(expandedCategories).map(category => (
-            <Box key={category}>
-              <ListItemButton onClick={() => handleCategoryToggle(category)}>
-                <ListItemText 
-                  primary={category.charAt(0).toUpperCase() + category.slice(1)} 
-                  sx={{ textTransform: 'capitalize' }}
-                />
-                {expandedCategories[category] ? <ExpandLess /> : <ExpandMore />}
-              </ListItemButton>
-              
-              <Collapse in={expandedCategories[category]} timeout="auto" unmountOnExit>
-                <List component="div" disablePadding>
-                  {getChartsByCategory(category).map(chartType => (
-                    <ListItem key={chartType.type} sx={{ pl: 4 }}>
-                      <ListItemButton
-                        onClick={() => handleChartTypeSelect(chartType.type)}
-                        sx={{
-                          border: '1px dashed #ddd',
-                          borderRadius: 1,
-                          mb: 1
-                        }}
-                      >
-                        <ListItemIcon sx={{ minWidth: 36 }}>
-                          {chartType.icon}
-                        </ListItemIcon>
-                        <ListItemText 
-                          primary={chartType.name}
-                          primaryTypographyProps={{ variant: 'body2' }}
-                        />
-                      </ListItemButton>
-                    </ListItem>
-                  ))}
-                </List>
-              </Collapse>
-            </Box>
-          ))}
+          <List>
+            {renderChartTypesByCategory()}
+          </List>
         </Box>
       </Drawer>
 
@@ -556,89 +575,52 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
         component="main"
         sx={{
           flexGrow: 1,
+          bgcolor: 'background.default',
           p: 3,
-          mt: 8,
-          ml: drawerOpen && !previewMode ? 0 : 0,
-          transition: 'margin 0.2s'
+          width: { md: `calc(100% - ${drawerOpen ? drawerWidth : 0}px)` },
+          ml: { md: drawerOpen ? `${drawerWidth}px` : 0 },
         }}
       >
-        {dashboard && (
+        <Toolbar />
+        
+        {charts.length > 0 ? (
           <ResponsiveGridLayout
             className="layout"
             layouts={layouts}
-            onLayoutChange={handleLayoutChange}
+            onLayoutChange={onLayoutChange}
             breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480 }}
             cols={{ lg: 12, md: 10, sm: 6, xs: 4 }}
             rowHeight={60}
             isDraggable={!previewMode}
             isResizable={!previewMode}
-            margin={[16, 16]}
-            containerPadding={[16, 16]}
+            compactType="vertical"
+            preventCollision={false}
           >
-            {charts.map(chart => (
-              <Paper
-                key={chart.id}
-                sx={{
-                  p: 2,
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  position: 'relative'
-                }}
-              >
-                {!previewMode && (
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: 8,
-                      right: 8,
-                      zIndex: 1,
-                      opacity: 0.7,
-                      '&:hover': { opacity: 1 }
-                    }}
-                  >
-                    <IconButton
-                      size="small"
-                      onClick={() => setSelectedChart(chart)}
-                    >
-                      <SettingsIcon fontSize="small" />
-                    </IconButton>
-                    <IconButton
-                      size="small"
-                      onClick={() => duplicateChart(chart.id)}
-                    >
-                      <FileCopyIcon fontSize="small" />
-                    </IconButton>
-                    <IconButton
-                      size="small"
-                      onClick={() => deleteChart(chart.id)}
-                      color="error"
-                    >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                )}
-                
-                <ChartContainer
-                  chart={chart}
-                  workspaceId={currentWorkspace?.id}
-                  preview={previewMode}
-                />
-              </Paper>
-            ))}
+            {charts.map(renderChart)}
           </ResponsiveGridLayout>
+        ) : (
+          <Box
+            display="flex"
+            flexDirection="column"
+            alignItems="center"
+            justifyContent="center"
+            height="60vh"
+            textAlign="center"
+          >
+            <Typography variant="h4" color="text.secondary" gutterBottom>
+              Start Building Your Dashboard
+            </Typography>
+            <Typography variant="body1" color="text.secondary" paragraph>
+              Select chart types from the sidebar to add visualizations to your dashboard.
+            </Typography>
+          </Box>
         )}
       </Box>
 
       {/* Chart Creation Dialog */}
-      <Dialog
-        open={chartDialog.open}
-        onClose={() => setChartDialog({ open: false })}
-        maxWidth="md"
-        fullWidth
-      >
+      <Dialog open={chartDialog.open} onClose={() => setChartDialog({ open: false })} maxWidth="sm" fullWidth>
         <DialogTitle>
-          Create New Chart
+          Add New Chart
           {chartDialog.type && (
             <Chip 
               label={chartTypes.find(t => t.type === chartDialog.type)?.name} 
@@ -647,48 +629,40 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
           )}
         </DialogTitle>
         <DialogContent>
-          <Typography variant="subtitle1" gutterBottom sx={{ mt: 2 }}>
-            Select Dataset:
-          </Typography>
-          <Grid container spacing={2}>
-            {datasets.map(dataset => (
-              <Grid item xs={12} sm={6} md={4} key={dataset.id}>
-                <Paper
-                  sx={{
-                    p: 2,
-                    cursor: 'pointer',
-                    border: chartDialog.dataset?.id === dataset.id ? 2 : 1,
-                    borderColor: chartDialog.dataset?.id === dataset.id ? 'primary.main' : 'divider',
-                    '&:hover': {
-                      borderColor: 'primary.main'
-                    }
-                  }}
-                  onClick={() => handleDatasetSelect(dataset)}
-                >
-                  <Typography variant="h6" noWrap>
-                    {dataset.name}
-                  </Typography>
-                  {dataset.description && (
-                    <Typography variant="body2" color="text.secondary" noWrap>
-                      {dataset.description}
-                    </Typography>
-                  )}
-                </Paper>
-              </Grid>
-            ))}
-          </Grid>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Chart Name"
+            fullWidth
+            variant="outlined"
+            value={newChartName}
+            onChange={(e) => setNewChartName(e.target.value)}
+            sx={{ mb: 2 }}
+          />
+          
+          <FormControl fullWidth variant="outlined">
+            <InputLabel>Dataset</InputLabel>
+            <Select
+              value={selectedDataset}
+              onChange={(e) => setSelectedDataset(e.target.value)}
+              label="Dataset"
+            >
+              {datasets.map((dataset) => (
+                <MenuItem key={dataset.id} value={dataset.id}>
+                  {dataset.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setChartDialog({ open: false })}>
-            Cancel
-          </Button>
-          <Button
-            onClick={createChart}
+          <Button onClick={() => setChartDialog({ open: false })}>Cancel</Button>
+          <Button 
+            onClick={createChart} 
             variant="contained"
-            disabled={!chartDialog.type || !chartDialog.dataset || saving}
-            startIcon={saving ? <CircularProgress size={16} /> : <AddIcon />}
+            disabled={!newChartName.trim() || !selectedDataset}
           >
-            {saving ? 'Creating...' : 'Create Chart'}
+            Add Chart
           </Button>
         </DialogActions>
       </Dialog>
@@ -697,10 +671,11 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
       <Snackbar
         open={snackbar.open}
         autoHideDuration={6000}
-        onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+        onClose={handleSnackbarClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       >
-        <Alert
-          onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+        <Alert 
+          onClose={handleSnackbarClose} 
           severity={snackbar.severity}
           sx={{ width: '100%' }}
         >
