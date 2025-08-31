@@ -1,4 +1,10 @@
 // File: web-application/src/components/builder/ChartBuilder.tsx
+// 
+// ✅ Fixed TypeScript conversion error by properly extracting nested properties 
+// from API responses instead of treating the entire response as the target type.
+// API responses have structure: { success: boolean, dataset: Dataset, message?: string }
+// but we need to extract the `dataset` property, not use the whole response.
+//
 'use client';
 import React, { useState, useEffect } from 'react';
 import { 
@@ -21,7 +27,10 @@ import { ColumnDefinition } from '@/types/chart.types';
 import { Dataset } from '../../types/dataset.types';
 import { datasetAPI } from '../../services/api';
 
-// Additional types for API responses
+// ============================================================================
+// Type Definitions
+// ============================================================================
+
 interface DatasetColumn {
   name: string;
   type: string;
@@ -37,6 +46,7 @@ interface DatasetSchema {
   sample_data?: any[];
 }
 
+// Define possible response structures
 interface DatasetQueryResponse {
   data: any[];
   columns: Array<{ name: string; type: string }>;
@@ -44,6 +54,32 @@ interface DatasetQueryResponse {
   execution_time: number;
   cached: boolean;
 }
+
+interface NestedDatasetResponse {
+  data: {
+    data: any[];
+    columns: Array<{ name: string; type: string }>;
+    total_rows: number;
+    execution_time: number;
+    cached: boolean;
+  };
+}
+
+interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
+  errors?: any[];
+}
+
+// Union type for all possible response structures
+type QueryResponseType = 
+  | DatasetQueryResponse 
+  | NestedDatasetResponse 
+  | ApiResponse<DatasetQueryResponse>
+  | ApiResponse<any[]>
+  | { data: any[] }
+  | any[];
 
 interface ChartBuilderProps {
   onChartSelect?: (chartType: string, chartLibrary: string) => void;
@@ -53,19 +89,190 @@ interface ChartBuilderProps {
   datasetId?: string;
 }
 
-// Available chart types (simplified registry)
-const AVAILABLE_CHARTS = [
-  { type: 'bar', library: 'echarts', displayName: 'Bar Chart', category: 'basic' },
-  { type: 'line', library: 'echarts', displayName: 'Line Chart', category: 'basic' },
-  { type: 'pie', library: 'echarts', displayName: 'Pie Chart', category: 'basic' },
-  { type: 'scatter', library: 'echarts', displayName: 'Scatter Plot', category: 'statistical' },
-  { type: 'area', library: 'echarts', displayName: 'Area Chart', category: 'basic' },
-  { type: 'donut', library: 'chartjs', displayName: 'Donut Chart', category: 'basic' },
-  { type: 'radar', library: 'chartjs', displayName: 'Radar Chart', category: 'basic' },
-  { type: 'polar', library: 'chartjs', displayName: 'Polar Area', category: 'basic' },
-];
+// ============================================================================
+// Dynamic Chart Configuration
+// ============================================================================
 
-const CHART_CATEGORIES = ['basic', 'statistical', 'advanced', 'geographic', 'financial'];
+// Get available chart types dynamically from ChartFactory
+const getAvailableCharts = () => {
+  try {
+    return ChartFactory.getAllCharts().map(chart => ({
+      type: chart.name,
+      library: chart.library,
+      displayName: chart.displayName,
+      category: chart.category,
+      description: chart.description
+    }));
+  } catch (error) {
+    console.warn('Could not load dynamic charts, using fallback:', error);
+    // Fallback to static list if dynamic loading fails
+    return [
+      { type: 'bar', library: 'echarts', displayName: 'Bar Chart', category: 'basic' },
+      { type: 'line', library: 'echarts', displayName: 'Line Chart', category: 'basic' },
+      { type: 'pie', library: 'echarts', displayName: 'Pie Chart', category: 'basic' },
+      { type: 'scatter', library: 'echarts', displayName: 'Scatter Plot', category: 'statistical' },
+      { type: 'area', library: 'echarts', displayName: 'Area Chart', category: 'basic' },
+      { type: 'donut', library: 'chartjs', displayName: 'Donut Chart', category: 'basic' },
+      { type: 'radar', library: 'chartjs', displayName: 'Radar Chart', category: 'basic' },
+      { type: 'polar', library: 'chartjs', displayName: 'Polar Area', category: 'basic' },
+    ];
+  }
+};
+
+// Get available categories dynamically
+const getAvailableCategories = () => {
+  try {
+    return ChartFactory.getCategories();
+  } catch (error) {
+    console.warn('Could not load dynamic categories, using fallback:', error);
+    return ['basic', 'statistical', 'advanced', 'geographic', 'financial'];
+  }
+};
+
+// ============================================================================
+// Main Component
+// ============================================================================
+
+// ============================================================================
+// Type-Safe API Response Helpers
+// ============================================================================
+
+/**
+ * Safely extract dataset from API response
+ */
+function extractDatasetFromResponse(response: any): Dataset {
+  if (!response || typeof response !== 'object') {
+    throw new Error('Invalid API response format');
+  }
+  
+  if (!response.success) {
+    throw new Error(response.message || 'API request failed');
+  }
+  
+  if (!response.dataset) {
+    throw new Error('Dataset not found in response');
+  }
+  
+  return response.dataset as Dataset;
+}
+
+/**
+ * Safely extract schema from API response
+ */
+function extractSchemaFromResponse(response: any): DatasetSchema {
+  if (!response || typeof response !== 'object') {
+    throw new Error('Invalid API response format');
+  }
+  
+  if (!response.success) {
+    throw new Error(response.message || 'API request failed');
+  }
+  
+  if (!response.schema) {
+    throw new Error('Schema not found in response');
+  }
+  
+  return response.schema as DatasetSchema;
+}
+
+/**
+ * Safely extract query data from API response
+ */
+function extractQueryDataFromResponse(response: any): any[] {
+  if (!response || typeof response !== 'object') {
+    throw new Error('Invalid API response format');
+  }
+  
+  if ('success' in response && !response.success) {
+    throw new Error(response.message || 'Query failed');
+  }
+  
+  if ('data' in response && Array.isArray(response.data)) {
+    return response.data;
+  }
+  
+  // For backward compatibility with other response formats
+  return extractDataFromResponse(response);
+}
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+/**
+ * Type guard to check if response has nested data structure
+ */
+function hasNestedData(response: any): response is NestedDatasetResponse {
+  return response?.data && 
+         typeof response.data === 'object' && 
+         !Array.isArray(response.data) &&
+         Array.isArray(response.data.data);
+}
+
+/**
+ * Type guard to check if response has direct data array
+ */
+function hasDirectData(response: any): response is DatasetQueryResponse {
+  return response?.data && Array.isArray(response.data);
+}
+
+/**
+ * Type guard to check if response is wrapped in ApiResponse structure
+ */
+function isApiResponse(response: any): response is ApiResponse<any> {
+  return response && 
+         typeof response === 'object' && 
+         'success' in response && 
+         'data' in response;
+}
+
+/**
+ * Extract data array from various response structures
+ */
+function extractDataFromResponse(response: QueryResponseType): any[] {
+  // Handle direct array response
+  if (Array.isArray(response)) {
+    return response;
+  }
+
+  // Handle ApiResponse wrapper
+  if (isApiResponse(response)) {
+    if (Array.isArray(response.data)) {
+      return response.data;
+    }
+    // Check if wrapped data has nested structure
+    if (hasNestedData({ data: response.data })) {
+      return response.data.data;
+    }
+    // If data is an object with data property
+    if (response.data && typeof response.data === 'object' && Array.isArray(response.data.data)) {
+      return response.data.data;
+    }
+  }
+
+  // Handle nested data structure
+  if (hasNestedData(response)) {
+    return response.data.data;
+  }
+
+  // Handle direct data structure
+  if (hasDirectData(response)) {
+    return response.data;
+  }
+
+  // Handle object with data property
+  if (response && typeof response === 'object' && Array.isArray(response.data)) {
+    return response.data;
+  }
+
+  // Fallback to empty array
+  console.warn('Could not extract data from response structure:', response);
+  return [];
+}
+
+// ============================================================================
+// Main Component
+// ============================================================================
 
 export const ChartBuilder: React.FC<ChartBuilderProps> = ({
   onChartSelect,
@@ -74,6 +281,10 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
   height = 400,
   datasetId
 }) => {
+  // ============================================================================
+  // State Management
+  // ============================================================================
+  
   const [selectedChart, setSelectedChart] = useState<string>('');
   const [selectedLibrary, setSelectedLibrary] = useState<string>('echarts');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -86,6 +297,14 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
   const [columns, setColumns] = useState<ColumnDefinition[]>([]);
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [loadingData, setLoadingData] = useState(false);
+  
+  // Dynamic chart configuration
+  const [availableCharts, setAvailableCharts] = useState(() => getAvailableCharts());
+  const [availableCategories, setAvailableCategories] = useState(() => getAvailableCategories());
+
+  // ============================================================================
+  // Effects
+  // ============================================================================
 
   // Load dataset data if datasetId is provided
   useEffect(() => {
@@ -94,6 +313,28 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
     }
   }, [datasetId, initialData]);
 
+  // Refresh available charts when component mounts or chart library changes
+  useEffect(() => {
+    const refreshCharts = async () => {
+      try {
+        // Ensure ChartFactory is initialized
+        await ChartFactory.initialize?.();
+        
+        // Get updated chart list
+        setAvailableCharts(getAvailableCharts());
+        setAvailableCategories(getAvailableCategories());
+      } catch (error) {
+        console.warn('Could not refresh chart plugins:', error);
+      }
+    };
+
+    refreshCharts();
+  }, []); // Run once on mount
+
+  // ============================================================================
+  // Data Loading Functions
+  // ============================================================================
+
   const loadDatasetData = async () => {
     if (!datasetId) return;
 
@@ -101,13 +342,14 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
       setLoadingData(true);
       setError(null);
       
-      // Fetch dataset metadata
+      // Fetch dataset metadata with type-safe extraction
       const datasetResponse = await datasetAPI.getDataset(datasetId);
-      setDataset(datasetResponse.dataset);
+      const datasetData = extractDatasetFromResponse(datasetResponse);
+      setDataset(datasetData);
       
-      // Fetch dataset schema for column definitions
+      // Fetch dataset schema with type-safe extraction
       const schemaResponse = await datasetAPI.getDatasetSchema(datasetId);
-      const schemaData: DatasetSchema = schemaResponse.schema;
+      const schemaData = extractSchemaFromResponse(schemaResponse);
       
       // Convert to ColumnDefinition format
       const columnDefinitions: ColumnDefinition[] = schemaData.columns.map((col: DatasetColumn) => ({
@@ -125,27 +367,22 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
         offset: 0
       });
       
-      // Handle different response structures
-      let queryData: any[];
-      if (Array.isArray(queryResponse.data)) {
-        // Direct array response
-        queryData = queryResponse.data;
-      } else if (queryResponse.data && Array.isArray(queryResponse.data.data)) {
-        // Nested response structure
-        queryData = queryResponse.data.data;
-      } else {
-        // Fallback - use empty array
-        queryData = [];
-      }
-      
+      // Extract data with type-safe helper
+      const queryData = extractQueryDataFromResponse(queryResponse);
       setChartData(queryData);
       
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load dataset data');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load dataset data';
+      setError(errorMessage);
+      console.error('Dataset loading error:', err);
     } finally {
       setLoadingData(false);
     }
   };
+
+  // ============================================================================
+  // Event Handlers
+  // ============================================================================
 
   const handleChartSelect = (chartType: string, library: string) => {
     setSelectedChart(chartType);
@@ -159,6 +396,29 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
     
     onChartSelect?.(chartType, library);
   };
+
+  const handleRefreshCharts = async () => {
+    setLoading(true);
+    try {
+      // Re-initialize chart factory to pick up any new plugins
+      await ChartFactory.initialize?.();
+      
+      // Refresh available charts
+      setAvailableCharts(getAvailableCharts());
+      setAvailableCategories(getAvailableCategories());
+      
+      console.log('Chart plugins refreshed successfully');
+    } catch (error) {
+      console.error('Failed to refresh chart plugins:', error);
+      setError('Failed to refresh chart plugins');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ============================================================================
+  // Configuration Generation
+  // ============================================================================
 
   const generateDefaultConfig = (chartType: string, availableColumns: ColumnDefinition[]) => {
     const numericColumns = availableColumns.filter(col => col.type === 'number');
@@ -225,44 +485,133 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
     }
   };
 
-  const filteredCharts = selectedCategory === 'all' 
-    ? AVAILABLE_CHARTS 
-    : AVAILABLE_CHARTS.filter(chart => chart.category === selectedCategory);
+  const renderChart = () => {
+    if (!selectedChart || chartData.length === 0) {
+      return (
+        <Box 
+          display="flex" 
+          alignItems="center" 
+          justifyContent="center" 
+          height={300}
+          bgcolor="grey.50"
+          borderRadius={1}
+        >
+          <Typography variant="body2" color="text.secondary">
+            Select a chart type and ensure data is loaded to see preview
+          </Typography>
+        </Box>
+      );
+    }
 
-  if (loading) {
+    try {
+      // ✅ Use dynamic ChartFactory.createChart() method
+      // The factory will automatically choose between static and dynamic plugins
+      return ChartFactory.createChart(selectedChart, selectedLibrary, {
+        data: chartData,
+        config: chartConfig,
+        dimensions: { width: '100%', height: height },
+        onError: (error) => {
+          console.error('Chart rendering error:', error);
+          setError(`Chart error: ${error.message}`);
+        },
+        onInteraction: (event) => {
+          console.log('Chart interaction:', event);
+          // Handle chart interactions here (zoom, click, etc.)
+        }
+      });
+    } catch (err) {
+      console.error('Chart factory error:', err);
+      return (
+        <Alert severity="error">
+          Failed to create chart: {err instanceof Error ? err.message : 'Unknown error'}
+        </Alert>
+      );
+    }
+  };
+
+  // ============================================================================
+  // Computed Values
+  // ============================================================================
+
+  const filteredCharts = selectedCategory === 'all' 
+    ? availableCharts 
+    : availableCharts.filter(chart => chart.category === selectedCategory);
+
+  // ============================================================================
+  // Render
+  // ============================================================================
+
+  if (loadingData) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+      <Box display="flex" flexDirection="column" alignItems="center" p={4}>
         <CircularProgress />
-        <Typography variant="body2" sx={{ ml: 2 }}>Loading chart builder...</Typography>
+        <Typography variant="body2" color="text.secondary" mt={2}>
+          Loading dataset data...
+        </Typography>
       </Box>
     );
   }
 
   return (
-    <Box sx={{ height: '100%' }}>
-      <Grid container spacing={3} sx={{ height: '100%' }}>
+    <Box>
+      {/* Error Display */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
+      {/* Data Info */}
+      {dataset && (
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Typography variant="h6" gutterBottom>
+            Dataset: {dataset.display_name || dataset.name}
+          </Typography>
+          <Box display="flex" gap={1} flexWrap="wrap">
+            <Chip 
+              label={`${chartData.length} rows`} 
+              size="small" 
+              color="primary" 
+            />
+            <Chip 
+              label={`${columns.length} columns`} 
+              size="small" 
+              color="secondary" 
+            />
+            {dataset.description && (
+              <Typography variant="body2" color="text.secondary" mt={1}>
+                {dataset.description}
+              </Typography>
+            )}
+          </Box>
+        </Paper>
+      )}
+
+      <Grid container spacing={3}>
         {/* Chart Selection Panel */}
         <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 2, height: '100%' }}>
-            <Typography variant="h6" gutterBottom>
-              Select Chart Type
-            </Typography>
+          <Paper sx={{ p: 2, height: 'fit-content' }}>
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+              <Typography variant="h6">
+                Chart Type
+              </Typography>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={handleRefreshCharts}
+                disabled={loading}
+                sx={{ minWidth: 'auto', px: 1 }}
+              >
+                🔄
+              </Button>
+            </Box>
             
-            {dataset && (
-              <Box sx={{ mb: 2 }}>
-                <Chip 
-                  label={`Dataset: ${dataset.display_name}`} 
-                  size="small" 
-                  color="primary" 
-                  variant="outlined"
-                />
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  {columns.length} columns, {chartData.length} rows
-                </Typography>
-              </Box>
-            )}
-            
-            <Divider sx={{ mb: 2 }} />
+            {/* Chart Plugin Info */}
+            <Box sx={{ mb: 2, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                {availableCharts.length} chart types available across {availableCategories.length} categories
+              </Typography>
+            </Box>
             
             {/* Category Filter */}
             <FormControl fullWidth sx={{ mb: 2 }}>
@@ -273,104 +622,152 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
                 onChange={(e) => setSelectedCategory(e.target.value)}
               >
                 <MenuItem value="all">All Categories</MenuItem>
-                {CHART_CATEGORIES.map((category) => (
+                {availableCategories.map(category => (
                   <MenuItem key={category} value={category}>
                     {category.charAt(0).toUpperCase() + category.slice(1)}
                   </MenuItem>
                 ))}
               </Select>
             </FormControl>
-            
+
             {/* Chart Type Grid */}
-            <Grid container spacing={2}>
+            <Grid container spacing={1}>
               {filteredCharts.map((chart) => (
-                <Grid item xs={6} key={`${chart.library}-${chart.type}`}>
+                <Grid item xs={12} sm={6} key={`${chart.type}-${chart.library}`}>
                   <Paper
                     sx={{
-                      p: 1,
-                      textAlign: 'center',
+                      p: 1.5,
                       cursor: 'pointer',
-                      border: selectedChart === chart.type && selectedLibrary === chart.library ? '2px solid' : '1px solid',
-                      borderColor: selectedChart === chart.type && selectedLibrary === chart.library ? 'primary.main' : 'divider',
-                      '&:hover': { borderColor: 'primary.main' },
+                      border: selectedChart === chart.type && selectedLibrary === chart.library ? 2 : 1,
+                      borderColor: selectedChart === chart.type && selectedLibrary === chart.library ? 'primary.main' : 'grey.300',
+                      '&:hover': { 
+                        borderColor: 'primary.light',
+                        bgcolor: 'grey.50' 
+                      },
+                      transition: 'all 0.2s'
                     }}
                     onClick={() => handleChartSelect(chart.type, chart.library)}
                   >
-                    <Typography variant="body2" sx={{ fontWeight: selectedChart === chart.type ? 'bold' : 'normal' }}>
+                    <Typography variant="body2" fontWeight="medium" gutterBottom>
                       {chart.displayName}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {chart.library}
-                    </Typography>
+                    
+                    <Box display="flex" justifyContent="space-between" alignItems="center">
+                      <Typography variant="caption" color="text.secondary">
+                        {chart.library}
+                      </Typography>
+                      <Chip 
+                        label={chart.category} 
+                        size="small" 
+                        variant="outlined"
+                        sx={{ fontSize: '0.65rem', height: 18 }}
+                      />
+                    </Box>
+                    
+                    {chart.description && (
+                      <Typography 
+                        variant="caption" 
+                        color="text.secondary" 
+                        sx={{ 
+                          display: 'block', 
+                          mt: 0.5,
+                          fontSize: '0.7rem',
+                          lineHeight: 1.2 
+                        }}
+                      >
+                        {chart.description}
+                      </Typography>
+                    )}
+                    
+                    {/* Plugin Status Indicator */}
+                    <Box sx={{ mt: 1, display: 'flex', justifyContent: 'flex-end' }}>
+                      <Box
+                        sx={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: '50%',
+                          bgcolor: ChartFactory.isChartSupported?.(chart.type, chart.library) ? 'success.main' : 'warning.main'
+                        }}
+                      />
+                    </Box>
                   </Paper>
                 </Grid>
               ))}
             </Grid>
-            
-            {filteredCharts.length === 0 && (
-              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 2 }}>
-                No charts available in this category
-              </Typography>
-            )}
           </Paper>
         </Grid>
 
-        {/* Chart Preview Panel */}
+        {/* Chart Preview */}
         <Grid item xs={12} md={8}>
-          <Paper sx={{ p: 2, height: '100%' }}>
-            <Typography variant="h6" gutterBottom>
-              Chart Preview
-            </Typography>
-            
-            {error && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {error}
-              </Alert>
-            )}
-            
-            <Box sx={{ 
-              height: typeof height === 'string' ? height : `${height}px`,
-              minHeight: 300,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              {loadingData ? (
-                <Box sx={{ textAlign: 'center' }}>
-                  <CircularProgress />
-                  <Typography variant="body2" sx={{ mt: 1 }}>Loading data...</Typography>
-                </Box>
-              ) : selectedChart && chartData.length > 0 ? (
-                <ChartFactory
-                  chartType={selectedChart}
-                  chartLibrary={selectedLibrary}
-                  data={chartData}
-                  config={chartConfig}
-                  dimensions={{
-                    width: typeof height === 'string' ? 600 : height,
-                    height: typeof height === 'string' ? 400 : height * 0.7
-                  }}
-                  onError={(err) => setError(err.message)}
+          <Paper sx={{ p: 2 }}>
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+              <Typography variant="h6">
+                Chart Preview
+              </Typography>
+              {selectedChart && (
+                <Chip 
+                  label={`${selectedChart} (${selectedLibrary})`}
+                  color="primary"
+                  size="small"
                 />
-              ) : (
-                <Box sx={{ textAlign: 'center', color: 'text.secondary' }}>
-                  <Typography variant="body1">
-                    {!selectedChart 
-                      ? 'Select a chart type to preview'
-                      : 'No data available for preview'
-                    }
-                  </Typography>
-                  {!datasetId && !initialData && (
-                    <Button variant="outlined" sx={{ mt: 2 }} onClick={() => {}}>
-                      Load Sample Data
-                    </Button>
-                  )}
-                </Box>
               )}
+            </Box>
+            
+            <Divider sx={{ mb: 2 }} />
+            
+            {/* Chart Render Area */}
+            <Box sx={{ minHeight: height, position: 'relative' }}>
+              {renderChart()}
             </Box>
           </Paper>
         </Grid>
       </Grid>
+
+      {/* Column Information */}
+      {columns.length > 0 && (
+        <Paper sx={{ p: 2, mt: 2 }}>
+          <Typography variant="h6" gutterBottom>
+            Available Columns
+          </Typography>
+          <Box display="flex" gap={1} flexWrap="wrap">
+            {columns.map((column) => (
+              <Chip
+                key={column.name}
+                label={`${column.displayName || column.name} (${column.type})`}
+                variant="outlined"
+                size="small"
+                color={column.type === 'number' ? 'primary' : 
+                       column.type === 'date' ? 'secondary' : 'default'}
+              />
+            ))}
+          </Box>
+        </Paper>
+      )}
+
+      {/* Debug Information (Development Only) */}
+      {process.env.NODE_ENV === 'development' && (
+        <Paper sx={{ p: 2, mt: 2, bgcolor: 'grey.100' }}>
+          <Typography variant="subtitle2" gutterBottom>
+            🔧 Debug Information
+          </Typography>
+          <Typography variant="caption" component="div" color="text.secondary">
+            • Available Charts: {availableCharts.length}
+          </Typography>
+          <Typography variant="caption" component="div" color="text.secondary">
+            • Available Categories: {availableCategories.join(', ')}
+          </Typography>
+          <Typography variant="caption" component="div" color="text.secondary">
+            • Selected: {selectedChart ? `${selectedLibrary}.${selectedChart}` : 'None'}
+          </Typography>
+          <Typography variant="caption" component="div" color="text.secondary">
+            • Chart Data Rows: {chartData.length}
+          </Typography>
+          <Typography variant="caption" component="div" color="text.secondary">
+            • Chart Supported: {selectedChart && selectedLibrary ? 
+              (ChartFactory.isChartSupported?.(selectedChart, selectedLibrary) ? '✅' : '❌') : 'N/A'}
+          </Typography>
+        </Paper>
+      )}
     </Box>
   );
 };

@@ -1,4 +1,4 @@
-// File: bi_platform/web-application/src/hooks/index.ts
+// File: web-application/src/hooks/index.ts
 
 // Redux hooks
 export { useAppDispatch, useAppSelector } from './redux';
@@ -18,17 +18,31 @@ export { useDatasets } from './useDatasets';
 export { useCharts } from './useCharts';
 export { useRLS } from './useRLS';
 
-// Plugin System
-export { usePlugins } from './usePlugins';
+// Plugin System - Clean export using new API
+export { 
+  usePlugins,
+  // Export types for convenience
+  type DataSourcePlugin,
+  type ChartPlugin,
+  type PluginConfiguration,
+  type SchemaProperty,
+  type DataSourceCapabilities,
+  type ConnectionTestResult,
+  type ValidationResult,
+  type PluginStatistics,
+  type UsePluginsResult,
+  type DataType
+} from './usePlugins';
 
 // Performance & Caching
 export { useCache } from './useCache';
+export { useOptimisticState } from './useOptimisticState';
 
 // Real-time & Communication
 export { useWebSocket } from './useWebSocket';
 export { useWebview } from './useWebview';
 
-// Re-export types for convenience
+// Re-export types for convenience from other hooks
 export type { 
   UseDataSourcesResult,
   User,

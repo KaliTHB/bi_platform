@@ -29,8 +29,8 @@ import {
   Refresh 
 } from '@mui/icons-material';
 import { FixedSizeList as VirtualList } from 'react-window';
-import { usePluginConfiguration } from '../../hooks/usePluginConfiguration';
-import { usePerformanceTracker } from '../../hooks/usePerformanceTracker';
+// ✅ Updated import - using the consolidated usePlugins hook
+import { usePlugins } from '../../hooks/usePlugins';
 
 // Lazy load the configuration dialog
 const PluginConfigDialog = React.lazy(() => import('./PluginConfigDialog'));
@@ -51,133 +51,30 @@ interface PluginConfigurationProps {
   workspaceId: string;
 }
 
-// Plugin Card Component (Memoized for performance)
-const PluginCard = React.memo<{ plugin: PluginConfig; onToggle: (name: string, type: string, enabled: boolean) => void; onConfigure: (plugin: PluginConfig) => void; onTest: (plugin: PluginConfig, config: any) => void; testResults: Record<string, { success: boolean; message: string }> }>(({
-  plugin,
-  onToggle,
-  onConfigure,
-  onTest,
-  testResults
-}) => {
-  const handleToggle = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    onToggle(plugin.plugin_name, plugin.plugin_type, event.target.checked);
-  }, [plugin.plugin_name, plugin.plugin_type, onToggle]);
-
-  const handleConfigure = useCallback(() => {
-    onConfigure(plugin);
-  }, [plugin, onConfigure]);
-
-  const handleTest = useCallback(() => {
-    onTest(plugin, plugin.configuration);
-  }, [plugin, onTest]);
-
-  return (
-    <Card 
-      variant="outlined"
-      sx={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        transition: 'elevation 0.2s',
-        '&:hover': { elevation: 2 }
-      }}
-    >
-      <CardContent sx={{ flexGrow: 1 }}>
-        <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1}>
-          <Typography variant="h6" component="h3" noWrap>
-            {plugin.display_name || plugin.plugin_name}
-          </Typography>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={plugin.is_enabled}
-                onChange={handleToggle}
-                size="small"
-              />
-            }
-            label=""
-          />
-        </Box>
-        
-        <Typography variant="body2" color="textSecondary" gutterBottom>
-          {plugin.description || 'No description available'}
-        </Typography>
-        
-        <Box display="flex" gap={1} alignItems="center" flexWrap="wrap">
-          <Chip label={plugin.category} size="small" color="primary" variant="outlined" />
-          <Chip label={`v${plugin.version}`} size="small" />
-          
-          {testResults[plugin.plugin_name] && (
-            <Tooltip title={testResults[plugin.plugin_name].message}>
-              <IconButton size="small">
-                {testResults[plugin.plugin_name].success ? (
-                  <CheckCircle color="success" />
-                ) : (
-                  <Error color="error" />
-                )}
-              </IconButton>
-            </Tooltip>
-          )}
-        </Box>
-      </CardContent>
-      
-      <CardActions>
-        <Button
-          size="small"
-          startIcon={<Settings />}
-          onClick={handleConfigure}
-          disabled={!plugin.is_enabled}
-        >
-          Configure
-        </Button>
-        
-        {plugin.plugin_type === 'datasource' && (
-          <Button
-            size="small"
-            onClick={handleTest}
-            disabled={!plugin.is_enabled}
-          >
-            Test
-          </Button>
-        )}
-      </CardActions>
-    </Card>
-  );
-});
-
-PluginCard.displayName = 'PluginCard';
-
-// Skeleton loader for better UX
-const PluginCardSkeleton: React.FC = () => (
-  <Card variant="outlined">
-    <CardContent>
-      <Skeleton variant="text" width="80%" height={32} />
-      <Skeleton variant="text" width="60%" height={20} />
-      <Box display="flex" gap={1} mt={1}>
-        <Skeleton variant="rounded" width={60} height={24} />
-        <Skeleton variant="rounded" width={40} height={24} />
-      </Box>
-    </CardContent>
-    <CardActions>
-      <Skeleton variant="rounded" width={80} height={32} />
-      <Skeleton variant="rounded" width={60} height={32} />
-    </CardActions>
-  </Card>
-);
-
-// Main Component
 export const PluginConfiguration: React.FC<PluginConfigurationProps> = ({ workspaceId }) => {
-  usePerformanceTracker('PluginConfiguration');
-  
+  // ✅ Updated hook usage - using the consolidated usePlugins hook
   const {
-    availablePlugins,
-    workspaceConfigs,
+    dataSourcePlugins,
+    chartPlugins,
+    dataSourceConfigs,
+    chartConfigs,
     loading,
     error,
-    loadConfigurations,
     updatePluginConfig,
-    testConnection
-  } = usePluginConfiguration(workspaceId);
+    testDataSourceConnection,
+    loadConfigurations
+  } = usePlugins(workspaceId);
+
+  // Combine all plugins for easier processing
+  const availablePlugins = useMemo(() => [
+    ...dataSourcePlugins.map(p => ({ ...p, plugin_type: 'datasource' as const })),
+    ...chartPlugins.map(p => ({ ...p, plugin_type: 'chart' as const }))
+  ], [dataSourcePlugins, chartPlugins]);
+
+  const workspaceConfigs = useMemo(() => [
+    ...dataSourceConfigs,
+    ...chartConfigs
+  ], [dataSourceConfigs, chartConfigs]);
 
   const [configDialog, setConfigDialog] = useState<{
     open: boolean;
@@ -252,7 +149,7 @@ export const PluginConfiguration: React.FC<PluginConfigurationProps> = ({ worksp
     if (plugin.plugin_type !== 'datasource') return;
 
     try {
-      const result = await testConnection(plugin.plugin_name, configuration);
+      const result = await testDataSourceConnection(plugin.plugin_name, configuration);
       setTestResults(prev => ({
         ...prev,
         [plugin.plugin_name]: {
@@ -265,30 +162,32 @@ export const PluginConfiguration: React.FC<PluginConfigurationProps> = ({ worksp
         ...prev,
         [plugin.plugin_name]: {
           success: false,
-          message: error instanceof Error ? (error as Error).message : 'Connection test failed'
+          message: error instanceof Error ? (error as any).message : 'Connection test failed'
         }
       }));
     }
-  }, [testConnection]);
+  }, [testDataSourceConnection]);
 
-  const handleRefresh = useCallback(() => {
-    loadConfigurations();
+  const handleRefresh = useCallback(async () => {
+    try {
+      await loadConfigurations();
+    } catch (error) {
+      console.error('Failed to refresh plugins:', error);
+    }
   }, [loadConfigurations]);
 
   // Loading state
-  if (loading && !availablePlugins.length) {
+  if (loading) {
     return (
-      <Box>
+      <Box p={3}>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-          <Typography variant="h5">Plugin Configuration</Typography>
-          <Button startIcon={<CircularProgress size={16} />} disabled>
-            Loading...
-          </Button>
+          <Typography variant="h4">Plugin Configuration</Typography>
+          <Skeleton variant="rectangular" width={120} height={36} />
         </Box>
         <Grid container spacing={2}>
-          {Array.from({ length: 6 }, (_, index) => (
-            <Grid item xs={12} sm={6} md={4} key={index}>
-              <PluginCardSkeleton />
+          {[1, 2, 3, 4].map((i) => (
+            <Grid item xs={12} sm={6} md={4} key={i}>
+              <Skeleton variant="rectangular" height={200} />
             </Grid>
           ))}
         </Grid>
@@ -299,22 +198,27 @@ export const PluginConfiguration: React.FC<PluginConfigurationProps> = ({ worksp
   // Error state
   if (error) {
     return (
-      <Alert severity="error" action={
-        <IconButton color="inherit" size="small" onClick={handleRefresh}>
-          <Refresh />
-        </IconButton>
-      }>
-        {error}
-      </Alert>
+      <Box p={3}>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+        <Button variant="contained" onClick={handleRefresh}>
+          Retry
+        </Button>
+      </Box>
     );
   }
 
   return (
-    <Box>
+    <Box p={3}>
       {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h5">Plugin Configuration</Typography>
-        <Button startIcon={<Refresh />} onClick={handleRefresh}>
+        <Typography variant="h4">Plugin Configuration</Typography>
+        <Button
+          variant="outlined"
+          startIcon={<Refresh />}
+          onClick={handleRefresh}
+        >
           Refresh
         </Button>
       </Box>
@@ -323,28 +227,87 @@ export const PluginConfiguration: React.FC<PluginConfigurationProps> = ({ worksp
       {Object.entries(groupedPlugins).map(([category, plugins]) => (
         <Accordion key={category} defaultExpanded>
           <AccordionSummary expandIcon={<ExpandMore />}>
-            <Box display="flex" alignItems="center" gap={2}>
-              <Typography variant="h6">{category}</Typography>
-              <Chip 
-                label={`${plugins.length} plugins`} 
-                size="small" 
-                color="primary" 
-                variant="outlined" 
-              />
-            </Box>
+            <Typography variant="h6" sx={{ textTransform: 'capitalize' }}>
+              {category} ({plugins.length})
+            </Typography>
           </AccordionSummary>
-          
           <AccordionDetails>
             <Grid container spacing={2}>
               {plugins.map((plugin) => (
                 <Grid item xs={12} sm={6} md={4} key={`${plugin.plugin_type}-${plugin.plugin_name}`}>
-                  <PluginCard
-                    plugin={plugin}
-                    onToggle={handleTogglePlugin}
-                    onConfigure={handleConfigurePlugin}
-                    onTest={handleTestConnection}
-                    testResults={testResults}
-                  />
+                  <Card>
+                    <CardContent>
+                      <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1}>
+                        <Typography variant="h6" component="div">
+                          {plugin.display_name}
+                        </Typography>
+                        <Chip
+                          label={plugin.plugin_type}
+                          size="small"
+                          color={plugin.plugin_type === 'datasource' ? 'primary' : 'secondary'}
+                        />
+                      </Box>
+                      
+                      {plugin.description && (
+                        <Typography variant="body2" color="text.secondary" mb={1}>
+                          {plugin.description}
+                        </Typography>
+                      )}
+                      
+                      <Typography variant="caption" color="text.secondary">
+                        Version: {plugin.version}
+                      </Typography>
+
+                      {/* Connection Test Results */}
+                      {testResults[plugin.plugin_name] && (
+                        <Alert 
+                          severity={testResults[plugin.plugin_name].success ? 'success' : 'error'}
+                          sx={{ mt: 1, fontSize: '0.75rem' }}
+                        >
+                          {testResults[plugin.plugin_name].message}
+                        </Alert>
+                      )}
+                    </CardContent>
+                    
+                    <CardActions>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={plugin.is_enabled}
+                            onChange={(e) => handleTogglePlugin(
+                              plugin.plugin_name, 
+                              plugin.plugin_type, 
+                              e.target.checked
+                            )}
+                          />
+                        }
+                        label="Enabled"
+                      />
+                      
+                      <Box sx={{ flexGrow: 1 }} />
+                      
+                      <Tooltip title="Configure Plugin">
+                        <IconButton 
+                          size="small" 
+                          onClick={() => handleConfigurePlugin(plugin)}
+                          disabled={!plugin.is_enabled}
+                        >
+                          <Settings />
+                        </IconButton>
+                      </Tooltip>
+                      
+                      {plugin.plugin_type === 'datasource' && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => handleTestConnection(plugin, plugin.configuration)}
+                          disabled={!plugin.is_enabled}
+                        >
+                          Test
+                        </Button>
+                      )}
+                    </CardActions>
+                  </Card>
                 </Grid>
               ))}
             </Grid>
@@ -352,18 +315,18 @@ export const PluginConfiguration: React.FC<PluginConfigurationProps> = ({ worksp
         </Accordion>
       ))}
 
-      {/* Configuration Dialog - Lazy loaded */}
-      <Suspense fallback={<CircularProgress />}>
-        <PluginConfigDialog
-          open={configDialog.open}
-          plugin={configDialog.plugin}
-          onClose={() => setConfigDialog({ open: false })}
-          onSave={handleSaveConfig}
-          onTest={handleTestConnection}
-        />
-      </Suspense>
+      {/* Configuration Dialog */}
+      {configDialog.open && configDialog.plugin && (
+        <Suspense fallback={<CircularProgress />}>
+          <PluginConfigDialog
+            open={configDialog.open}
+            plugin={configDialog.plugin}
+            onClose={() => setConfigDialog({ open: false })}
+            onSave={(config) => handleSaveConfig(configDialog.plugin!, config)}
+            onTest={(config) => handleTestConnection(configDialog.plugin!, config)}
+          />
+        </Suspense>
+      )}
     </Box>
   );
 };
-
-export default PluginConfiguration;
