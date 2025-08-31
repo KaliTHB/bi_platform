@@ -1,110 +1,25 @@
-// web-application/src/types/index.ts
+// File: bi_platform/web-application/src/types/index.ts
 
-// User related types
+// =============================================================================
+// API Types
+// =============================================================================
 export type {
-  User,
-  Role,
-  Permission,
-  CreateUserRequest,
-  UpdateUserRequest,
-  UserRoleAssignment,
-} from './user.types';
+  ApiResponse,
+  ApiError,
+  PaginatedResponse,
+  PaginationParams,
+  SortParams,
+  FilterParams,
+  HttpMethod,
+  ApiEndpoint,
+  RequestConfig,
+  ErrorResponse,
+  SuccessResponse,
+} from './api.types';
 
-// Workspace related types
-export type {
-  Workspace,
-  WorkspaceSettings,
-  WorkspaceRole,
-  CreateWorkspaceRequest,
-  UpdateWorkspaceRequest,
-} from './workspace.types';
-
-// Dashboard related types
-export type {
-  Dashboard,
-  DashboardLayout,
-  DashboardComponent,
-  DashboardFilter,
-  Chart,
-  ChartConfiguration,
-  Dataset,
-  TransformationConfig,
-  TransformationStep,
-  DataSource,
-  QueryFilter,
-  QueryResult,
-  ColumnInfo,
-} from './dashboard.types';
-
-// Category related types
-export type {
-  DashboardCategory,
-  CategoryWithDashboards,
-  CategoryTreeNode,
-  CreateCategoryRequest,
-  UpdateCategoryRequest,
-  CategoryStats,
-} from './category.types';
-
-// Plugin related types
-export type {
-  DataSourcePlugin,
-  ChartPlugin,
-  PluginConfigSchema,
-  SchemaProperty,
-  DataSourceCapabilities,
-  DataRequirements,
-  PluginConfiguration,
-  ConnectionTestResult,
-  PluginRegistry,
-  PluginManifest,
-} from './plugin.types';
-
-// System monitoring types
-export type {
-  SystemHealthData,
-  SystemMetrics,
-  ServiceStatus,
-  HealthAlert,
-  DatabaseHealth,
-  CacheHealth,
-  AuditLog,
-  ExportRequest,
-  ExportOptions,
-  ExportJob,
-  SystemConfiguration,
-  PerformanceMetric,
-  QueryPerformance,
-} from './system.types';
-
-// UI and form types
-export type {
-  TableColumn,
-  TablePagination,
-  TableProps,
-  FormField,
-  FormValidation,
-  FormSchema,
-  FilterOption,
-  ActiveFilter,
-  FilterProps,
-  SortOption,
-  SortState,
-  ModalProps,
-  Notification,
-  NotificationAction,
-  BreadcrumbItem,
-  MenuItem,
-  NavigationProps,
-  LoadingState,
-  AsyncState,
-  ThemeConfig,
-  LayoutProps,
-  SearchProps,
-  CardProps,
-} from './ui.types';
-
-// Common shared types
+// =============================================================================
+// Common Base Types
+// =============================================================================
 export type {
   Status,
   Theme,
@@ -141,72 +56,181 @@ export type {
   FeatureFlag,
 } from './common.types';
 
-// Webview related types (includes re-exported category and dashboard types)
+// =============================================================================
+// User Management Types
+// =============================================================================
+export type {
+  User,
+  Role,
+  Permission,
+  CreateUserRequest,
+  UpdateUserRequest,
+  UserRoleAssignment,
+  LoginRequest,
+  LoginResponse,
+  RefreshTokenRequest,
+  PasswordResetRequest,
+  InviteUserRequest,
+} from './user.types';
+
+// =============================================================================
+// Workspace Types
+// =============================================================================
+export type {
+  Workspace,
+  WorkspaceSettings,
+  WorkspaceRole,
+  CreateWorkspaceRequest,
+  UpdateWorkspaceRequest,
+  WorkspaceMember,
+  WorkspaceInvitation,
+} from './workspace.types';
+
+// =============================================================================
+// Dashboard System Types
+// =============================================================================
+export type {
+  Dashboard,
+  DashboardLayout,
+  DashboardComponent,
+  DashboardFilter,
+  Chart,
+  ChartConfiguration,
+  ChartType,
+  Dataset,
+  DatasetColumn,
+  TransformationConfig,
+  TransformationStep,
+  DataSource,
+  QueryFilter,
+  QueryResult,
+  ColumnInfo,
+  SqlQuery,
+  QueryExecution,
+  CreateDashboardRequest,
+  UpdateDashboardRequest,
+  DuplicateDashboardRequest,
+} from './dashboard.types';
+
+// =============================================================================
+// Category Management Types
+// =============================================================================
+export type {
+  DashboardCategory,
+  CategoryWithDashboards,
+  CategoryTreeNode,
+  CreateCategoryRequest,
+  UpdateCategoryRequest,
+  CategoryStats,
+} from './category.types';
+
+// =============================================================================
+// Plugin System Types
+// =============================================================================
+export type {
+  DataSourcePlugin,
+  ChartPlugin,
+  PluginConfigSchema,
+  SchemaProperty,
+  DataSourceCapabilities,
+  DataRequirements,
+  PluginConfiguration,
+  ConnectionTestResult,
+  PluginRegistry,
+  PluginManifest,
+  PluginType,
+  PluginStatus,
+} from './plugin.types';
+
+// =============================================================================
+// System Monitoring Types
+// =============================================================================
+export type {
+  SystemHealthData,
+  SystemMetrics,
+  ServiceStatus,
+  HealthAlert,
+  DatabaseHealth,
+  CacheHealth,
+  AuditLog,
+  AuditAction,
+  ExportRequest,
+  ExportOptions,
+  ExportJob,
+  ExportFormat,
+  SystemConfiguration,
+  PerformanceMetric,
+  QueryPerformance,
+} from './system.types';
+
+// =============================================================================
+// UI Component Types
+// =============================================================================
+export type {
+  TableColumn,
+  TablePagination,
+  TableProps,
+  FormField,
+  FormValidation,
+  FormSchema,
+  FilterOption,
+  ActiveFilter,
+  FilterProps,
+  SortOption,
+  SortState,
+  ModalProps,
+  Notification,
+  NotificationAction,
+  NotificationType,
+  BreadcrumbItem,
+  MenuItem,
+  NavigationProps,
+  LoadingState,
+  AsyncState,
+  ThemeConfig,
+  LayoutProps,
+  SearchProps,
+  CardProps,
+  ButtonProps,
+  InputProps,
+} from './ui.types';
+
+// =============================================================================
+// Webview System Types
+// =============================================================================
 export type {
   WebviewConfig,
   WebviewTheme,
   NavigationConfig,
   BrandingConfig,
-  NavigationState,
-  WebviewAnalyticsEvent,
-  //WebviewAccessControl,
-  //WebviewSession,
-  //WebviewUsageStats,
-  //CreateWebviewRequest,
-  //UpdateWebviewRequest,
-  // Re-exported from category.types for convenience
-  //CategoryWithDashboards,
-  //DashboardCategory,
+  EmbedOptions,
+  IframeProps,
+  WebviewPanel,
+  WebviewMessage,
+  WebviewEvent,
 } from './webview.types';
 
-// API related types
-export type {
-  ApiResponse,
-  PaginatedResponse,
-  ResponseMetadata,
-  ApiError,
-  ValidationError as ApiValidationError,
-  HttpMethod,
-  RequestConfig,
-  RetryConfig,
-  CacheConfig,
-  ApiClientConfig,
-  AuthConfig,
-  ListQueryParams,
-  BulkOperation,
-  BulkOperationResult,
-  UploadConfig,
-  UploadResult,
-  UploadProgress,
-  WebhookEvent,
-  WebhookSubscription,
-  RateLimit,
-  HealthCheck,
-  ComponentHealth,
-  ApiVersion,
-  RequestLog,
-  ResponseLog,
-  ApiQuota,
-  ApiUsage,
-} from './api.types';
-
-// Re-export specific types that are commonly used
-export type { User as IUser } from './user.types';
-export type { Workspace as IWorkspace } from './workspace.types';
-export type { Dashboard as IDashboard } from './dashboard.types';
-
-// Utility type helpers
-export type Optional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
-export type RequiredFields<T, K extends keyof T> = T & Required<Pick<T, K>>;
+// =============================================================================
+// Re-export commonly used type utilities
+// =============================================================================
+export type ID = string;
+export type Timestamp = string;
+export type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue };
 export type DeepPartial<T> = {
   [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
 };
+export type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>;
+export type RequireAtLeastOne<T, Keys extends keyof T = keyof T> = 
+  Pick<T, Exclude<keyof T, Keys>> 
+  & {
+    [K in Keys]-?: Required<Pick<T, K>> & Partial<Pick<T, Exclude<Keys, K>>>
+  }[Keys];
 
-// Generic CRUD operations
-export interface CrudOperations<T, CreateT = Partial<T>, UpdateT = Partial<T>> {
-  create: (data: CreateT) => Promise<T>;
-  getById: (id: string) => Promise<T>;
-  update: (id: string, data: UpdateT) => Promise<T>;
-  delete: (id: string) => Promise<void>;
-  list: (params?: ListQueryParams) => Promise<PaginatedResponse<T>>;
-}
+// =============================================================================
+// Legacy/Backwards compatibility exports (if needed)
+// =============================================================================
+// Re-export with different names for backwards compatibility
+export type { User as UserType } from './user.types';
+export type { Dashboard as DashboardType } from './dashboard.types';
+export type { Workspace as WorkspaceType } from './workspace.types';
+export type { DashboardCategory as Category } from './category.types';
