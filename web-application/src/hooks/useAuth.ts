@@ -1,4 +1,4 @@
-// web-application/src/hooks/useAuth.ts
+// ./src/hooks/useAuth.ts
 import { useRouter } from 'next/router';
 import { useAppDispatch, useAppSelector } from './redux';
 import { logout } from '../store/slices/authSlice';
@@ -44,18 +44,26 @@ export const useAuth = () => {
     return permissions.every(permission => auth.permissions.includes(permission));
   };
 
+  // Updated to use permissions instead of roles since roles aren't stored in user object
   const hasRole = (role: string): boolean => {
-    if (!auth.user?.roles) return false;
-    return auth.user.roles.some((userRole: any) => userRole.role_name === role);
+    if (!auth.permissions) return false;
+    // Check if user has admin permission or role-specific permission
+    return auth.permissions.includes(`role.${role}`) || 
+           auth.permissions.includes('workspace.admin') ||
+           auth.permissions.includes('user.admin');
   };
 
   const hasAnyRole = (roles: string[]): boolean => {
-    if (!auth.user?.roles) return false;
-    return roles.some(role => auth.user.roles.some((userRole: any) => userRole.role_name === role));
+    if (!auth.permissions) return false;
+    return roles.some(role => 
+      auth.permissions.includes(`role.${role}`) || 
+      auth.permissions.includes('workspace.admin') ||
+      auth.permissions.includes('user.admin')
+    );
   };
 
   const isWorkspaceAdmin = (): boolean => {
-    return hasRole('admin') || hasPermission('workspace.admin');
+    return hasPermission('workspace.admin') || hasPermission('user.admin');
   };
 
   const canManageUsers = (): boolean => {
@@ -70,6 +78,18 @@ export const useAuth = () => {
     return hasAnyPermission(['dashboard.create', 'dashboard.update', 'dashboard.delete']);
   };
 
+  const canManageCategories = (): boolean => {
+    return hasAnyPermission(['category.create', 'category.update', 'category.delete']);
+  };
+
+  const canManageWebviews = (): boolean => {
+    return hasAnyPermission(['webview.create', 'webview.update', 'webview.delete']);
+  };
+
+  const canExportData = (): boolean => {
+    return hasPermission('data.export');
+  };
+
   return {
     ...auth,
     signOut,
@@ -82,5 +102,8 @@ export const useAuth = () => {
     canManageUsers,
     canManageDatasets,
     canManageDashboards,
+    canManageCategories,
+    canManageWebviews,
+    canExportData,
   };
 };

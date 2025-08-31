@@ -6,6 +6,7 @@ export interface User {
   first_name?: string;
   last_name?: string;
   avatar_url?: string;
+  roles?: string[]; // Add this if you need role information
   is_active: boolean;
   last_login_at?: Date;
   created_at: Date;

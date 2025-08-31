@@ -7,37 +7,53 @@ interface CacheEntry<T> {
   ttl: number;
 }
 
+// Improved useCache hook with better type safety
 export const useCache = () => {
-  const cache = useRef<Map<string, CacheEntry<any>>>(new Map());
-
-  const getCached = useCallback(<T>(key: string): T | null => {
-    const entry = cache.current.get(key);
-    if (!entry) return null;
-
-    const now = Date.now();
-    if (now - entry.timestamp > entry.ttl * 1000) {
-      cache.current.delete(key);
+  const getCached = useCallback(<T = any>(key: string): T | null => {
+    try {
+      const cached = localStorage.getItem(`cache_${key}`);
+      if (!cached) return null;
+      
+      const parsed = JSON.parse(cached);
+      
+      // Check if cache has expired
+      if (parsed.expiresAt && Date.now() > parsed.expiresAt) {
+        localStorage.removeItem(`cache_${key}`);
+        return null;
+      }
+      
+      // Ensure we return the actual data, not an empty object
+      return parsed.data || null;
+    } catch (error) {
+      console.error(`Cache get error for key ${key}:`, error);
       return null;
     }
-
-    return entry.data;
   }, []);
 
-  const setCached = useCallback(<T>(key: string, data: T, ttlSeconds: number = 300) => {
-    cache.current.set(key, {
-      data,
-      timestamp: Date.now(),
-      ttl: ttlSeconds
-    });
-  }, []);
-
-  const invalidateCache = useCallback((key?: string) => {
-    if (key) {
-      cache.current.delete(key);
-    } else {
-      cache.current.clear();
+  const setCached = useCallback((key: string, data: any, ttlSeconds?: number) => {
+    try {
+      const cacheData = {
+        data,
+        expiresAt: ttlSeconds ? Date.now() + (ttlSeconds * 1000) : null,
+        timestamp: Date.now()
+      };
+      localStorage.setItem(`cache_${key}`, JSON.stringify(cacheData));
+    } catch (error) {
+      console.error(`Cache set error for key ${key}:`, error);
     }
   }, []);
 
-  return { getCached, setCached, invalidateCache };
+  const invalidateCache = useCallback((key: string) => {
+    try {
+      localStorage.removeItem(`cache_${key}`);
+    } catch (error) {
+      console.error(`Cache invalidate error for key ${key}:`, error);
+    }
+  }, []);
+
+  return {
+    getCached,
+    setCached,
+    invalidateCache
+  };
 };

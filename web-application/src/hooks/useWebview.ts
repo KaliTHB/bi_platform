@@ -3,7 +3,11 @@ import { useState, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '@/hooks/redux';
 import { RootState } from '../store';
 import { webviewApi } from '../store/api/webviewApi';
-import { setExpandedCategories, selectDashboard as selectDashboardAction } from '../store/slices/webviewSlice';
+import { 
+  setExpandedCategories, 
+  selectDashboardAction,
+  setSearchQuery 
+} from '../store/slices/webviewSlice';
 
 export interface NavigationState {
   expandedCategories: Set<string>;
@@ -13,7 +17,7 @@ export interface NavigationState {
 
 export const useWebview = (webviewName: string) => {
   const dispatch = useAppDispatch();
-  const navigationState = useAppSelector((state: RootState) => state.webview);
+  const webviewState = useAppSelector((state: RootState) => state.webview);
 
   // RTK Query hooks
   const {
@@ -30,7 +34,7 @@ export const useWebview = (webviewName: string) => {
   const [trackAnalytics] = webviewApi.useTrackWebviewAnalyticsMutation();
 
   const toggleCategory = (categoryId: string) => {
-    const newExpanded = new Set(navigationState.expandedCategories);
+    const newExpanded = new Set(webviewState.expandedCategories);
     if (newExpanded.has(categoryId)) {
       newExpanded.delete(categoryId);
       trackAnalytics({
@@ -90,16 +94,21 @@ export const useWebview = (webviewName: string) => {
     });
   };
 
+  const handleSearchChange = (query: string) => {
+    dispatch(setSearchQuery(query));
+  };
+
   return {
     webviewConfig: webviewData?.webview_config,
     categories: categoriesData || [],
     navigationState: {
-      expandedCategories: new Set(navigationState.expandedCategories),
-      selectedDashboard: navigationState.selectedDashboard,
-      searchQuery: navigationState.searchQuery
+      expandedCategories: new Set(webviewState.expandedCategories),
+      selectedDashboard: webviewState.selectedDashboard,
+      searchQuery: webviewState.searchQuery
     },
     toggleCategory,
     selectDashboard,
+    handleSearchChange,
     loading: loading || categoriesLoading,
     error: error ? 'Failed to load webview configuration' : null
   };

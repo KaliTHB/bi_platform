@@ -1,3 +1,4 @@
+// ./src/store/index.ts
 import { configureStore } from '@reduxjs/toolkit';
 import { persistStore, persistReducer } from 'redux-persist';
 import storage from 'redux-persist/lib/storage';
@@ -7,6 +8,7 @@ import { combineReducers } from '@reduxjs/toolkit';
 import authReducer from './slices/authSlice';
 import workspaceReducer from './slices/workspaceSlice';
 import uiReducer from './slices/uiSlice';
+import webviewReducer from './slices/webviewSlice';
 
 // Import API slices
 import { authApi } from './api/authApi';
@@ -18,7 +20,7 @@ const persistConfig = {
   key: 'root',
   storage,
   whitelist: ['auth', 'workspace'], // Only persist auth and workspace state
-  blacklist: ['ui', 'authApi', 'userApi', 'webviewApi'] // Don't persist UI state or API cache
+  blacklist: ['ui', 'webview', 'authApi', 'userApi', 'webviewApi'] // Don't persist UI state or API cache
 };
 
 // Root reducer
@@ -26,6 +28,7 @@ const rootReducer = combineReducers({
   auth: authReducer,
   workspace: workspaceReducer,
   ui: uiReducer,
+  webview: webviewReducer, // Add webview reducer
   [authApi.reducerPath]: authApi.reducer,
   [userApi.reducerPath]: userApi.reducer,
   [webviewApi.reducerPath]: webviewApi.reducer,

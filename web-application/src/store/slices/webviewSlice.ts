@@ -1,78 +1,55 @@
+// File: web-application/src/store/slices/webviewSlice.ts
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
-interface Notification {
-  id: string;
-  type: 'success' | 'error' | 'warning' | 'info';
-  title: string;
-  message?: string;
-  timestamp: number;
-  read: boolean;
-  autoHide?: boolean;
+export interface WebviewNavigationState {
+  expandedCategories: string[];
+  selectedDashboard?: string;
+  searchQuery: string;
 }
 
-interface UIState {
-  sidebarOpen: boolean;
-  theme: 'light' | 'dark';
-  notifications: Notification[];
-  loading: {
-    [key: string]: boolean;
-  };
-}
-
-const initialState: UIState = {
-  sidebarOpen: true,
-  theme: 'light',
-  notifications: [],
-  loading: {},
+const initialState: WebviewNavigationState = {
+  expandedCategories: [],
+  selectedDashboard: undefined,
+  searchQuery: '',
 };
 
-const uiSlice = createSlice({
-  name: 'ui',
+const webviewSlice = createSlice({
+  name: 'webview',
   initialState,
   reducers: {
-    toggleSidebar: (state) => {
-      state.sidebarOpen = !state.sidebarOpen;
+    setExpandedCategories: (state, action: PayloadAction<string[]>) => {
+      state.expandedCategories = action.payload;
     },
-    setSidebarOpen: (state, action: PayloadAction<boolean>) => {
-      state.sidebarOpen = action.payload;
-    },
-    setTheme: (state, action: PayloadAction<'light' | 'dark'>) => {
-      state.theme = action.payload;
-    },
-    addNotification: (state, action: PayloadAction<Omit<Notification, 'id' | 'timestamp' | 'read'>>) => {
-      const notification: Notification = {
-        ...action.payload,
-        id: Date.now().toString(),
-        timestamp: Date.now(),
-        read: false,
-      };
-      state.notifications.unshift(notification);
+    toggleCategory: (state, action: PayloadAction<string>) => {
+      const categoryId = action.payload;
+      const index = state.expandedCategories.indexOf(categoryId);
       
-      // Keep only last 50 notifications
-      if (state.notifications.length > 50) {
-        state.notifications = state.notifications.slice(0, 50);
+      if (index >= 0) {
+        state.expandedCategories.splice(index, 1);
+      } else {
+        state.expandedCategories.push(categoryId);
       }
     },
-    removeNotification: (state, action: PayloadAction<string>) => {
-      state.notifications = state.notifications.filter(n => n.id !== action.payload);
+    selectDashboard: (state, action: PayloadAction<string>) => {
+      state.selectedDashboard = action.payload;
     },
-    clearNotifications: (state) => {
-      state.notifications = [];
+    setSearchQuery: (state, action: PayloadAction<string>) => {
+      state.searchQuery = action.payload;
     },
-    setLoading: (state, action: PayloadAction<{ key: string; loading: boolean }>) => {
-      state.loading[action.payload.key] = action.payload.loading;
+    clearNavigation: (state) => {
+      state.expandedCategories = [];
+      state.selectedDashboard = undefined;
+      state.searchQuery = '';
     },
   },
 });
 
 export const {
-  toggleSidebar,
-  setSidebarOpen,
-  setTheme,
-  addNotification,
-  removeNotification,
-  clearNotifications,
-  setLoading,
-} = uiSlice.actions;
+  setExpandedCategories,
+  toggleCategory,
+  selectDashboard: selectDashboardAction,
+  setSearchQuery,
+  clearNavigation,
+} = webviewSlice.actions;
 
-export default uiSlice.reducer;
+export default webviewSlice.reducer;

@@ -152,6 +152,7 @@ export const useSystemHealth = (workspaceId?: string) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  type MetricWithThreshold = 'cpu_usage' | 'memory_usage' | 'disk_usage' | 'cache_hit_rate' | 'response_time' | 'active_connections';
 
   // Helper function to get auth headers
   const getAuthHeaders = () => {
@@ -273,39 +274,39 @@ export const useSystemHealth = (workspaceId?: string) => {
   }, [healthData]);
 
   // Check if metric is in warning/critical state
-  const getMetricStatus = useCallback((metricName: keyof SystemMetrics, value: number) => {
-    const thresholds = {
-      cpu_usage: { warning: 70, critical: 90 },
-      memory_usage: { warning: 70, critical: 90 },
-      disk_usage: { warning: 80, critical: 95 },
-      cache_hit_rate: { warning: 80, critical: 70 }, // Lower is worse for cache
-      response_time: { warning: 1000, critical: 2000 },
-      active_connections: { warning: 80, critical: 95 }
-    };
+  const getMetricStatus = useCallback((metricName: MetricWithThreshold, value: number) => {
+  const thresholds: Record<MetricWithThreshold, { warning: number; critical: number }> = {
+    cpu_usage: { warning: 70, critical: 90 },
+    memory_usage: { warning: 70, critical: 90 },
+    disk_usage: { warning: 80, critical: 95 },
+    cache_hit_rate: { warning: 80, critical: 70 }, // Lower is worse for cache
+    response_time: { warning: 1000, critical: 2000 },
+    active_connections: { warning: 80, critical: 95 }
+  };
 
-    const threshold = thresholds[metricName];
-    if (!threshold) return 'healthy';
+  const threshold = thresholds[metricName];
+  if (!threshold) return 'healthy';
 
-    // Special handling for cache hit rate (lower is worse)
-    if (metricName === 'cache_hit_rate') {
-      if (value < threshold.critical) return 'critical';
-      if (value < threshold.warning) return 'warning';
-      return 'healthy';
-    }
-
-    // For connection percentage
-    if (metricName === 'active_connections' && healthData) {
-      const percentage = (value / healthData.metrics.max_connections) * 100;
-      if (percentage > threshold.critical) return 'critical';
-      if (percentage > threshold.warning) return 'warning';
-      return 'healthy';
-    }
-
-    // Standard thresholds (higher is worse)
-    if (value > threshold.critical) return 'critical';
-    if (value > threshold.warning) return 'warning';
+  // Special handling for cache hit rate (lower is worse)
+  if (metricName === 'cache_hit_rate') {
+    if (value < threshold.critical) return 'critical';
+    if (value < threshold.warning) return 'warning';
     return 'healthy';
-  }, [healthData]);
+  }
+
+  // For connection percentage
+  if (metricName === 'active_connections' && healthData) {
+    const percentage = (value / healthData.metrics.max_connections) * 100;
+    if (percentage > threshold.critical) return 'critical';
+    if (percentage > threshold.warning) return 'warning';
+    return 'healthy';
+  }
+
+  // Standard thresholds (higher is worse)
+  if (value > threshold.critical) return 'critical';
+  if (value > threshold.warning) return 'warning';
+  return 'healthy';
+}, [healthData]);
 
   return {
     // State

@@ -35,7 +35,7 @@ export interface CategorySidebarProps {
   error?: string | null;
   onCategoryToggle: (categoryId: string) => void;
   onDashboardSelect: (dashboardId: string) => void;
-  onSearchChange?: (query: string) => void;
+  onSearchChange?: (query: string) => void; // Add this prop
   onRetry?: () => void;
 }
 
@@ -79,7 +79,7 @@ export const CategorySidebar: React.FC<CategorySidebarProps> = ({
       
       // Check if any dashboard in category matches
       const dashboardMatches = category.dashboards?.some(dashboard =>
-        dashboard.display_name.toLowerCase().includes(query) ||
+        dashboard.display_name?.toLowerCase().includes(query) ||
         (dashboard.description && dashboard.description.toLowerCase().includes(query))
       );
       
@@ -87,7 +87,7 @@ export const CategorySidebar: React.FC<CategorySidebarProps> = ({
     }).map(category => ({
       ...category,
       dashboards: category.dashboards?.filter(dashboard =>
-        dashboard.display_name.toLowerCase().includes(query) ||
+        dashboard.display_name?.toLowerCase().includes(query) ||
         (dashboard.description && dashboard.description.toLowerCase().includes(query)) ||
         category.display_name.toLowerCase().includes(query)
       )
@@ -378,7 +378,7 @@ const CategoryItem: React.FC<CategoryItemProps> = ({
                     primary={
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Typography variant="body2" component="div" sx={{ flexGrow: 1 }}>
-                          {highlightText(dashboard.display_name, searchQuery)}
+                          {highlightText(dashboard.display_name ?? '', searchQuery)}
                         </Typography>
                         {dashboard.is_featured && (
                           <StarIcon 

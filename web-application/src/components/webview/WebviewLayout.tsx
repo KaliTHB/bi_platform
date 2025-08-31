@@ -29,6 +29,7 @@ export const WebviewLayout: React.FC<WebviewLayoutProps> = ({
     navigationState,
     toggleCategory,
     selectDashboard,
+    handleSearchChange, // Add this line
     loading,
     error
   } = useWebview(webviewName);
@@ -46,16 +47,18 @@ export const WebviewLayout: React.FC<WebviewLayoutProps> = ({
   };
 
   const sidebarContent = showSidebar ? (
-    <CategorySidebar
-      categories={categories}
-      expandedCategories={navigationState.expandedCategories}
-      selectedDashboard={navigationState.selectedDashboard}
-      onCategoryToggle={toggleCategory}
-      onDashboardSelect={selectDashboard}
-      searchQuery={navigationState.searchQuery}
-      loading={loading}
-    />
-  ) : null;
+  <CategorySidebar
+    categories={categories}
+    expandedCategories={navigationState.expandedCategories}
+    selectedDashboard={navigationState.selectedDashboard}
+    searchQuery={navigationState.searchQuery}
+    loading={loading}
+    error={error}
+    onCategoryToggle={toggleCategory}
+    onDashboardSelect={selectDashboard}
+    onSearchChange={handleSearchChange} // Add this line
+  />
+) : null;
 
   if (error) {
     return (
