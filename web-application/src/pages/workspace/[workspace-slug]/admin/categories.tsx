@@ -21,10 +21,10 @@ import {
   IconButton,
 } from '@mui/material';
 import { Add, Edit, Delete, Category as CategoryIcon } from '@mui/icons-material';
-import Navigation from '../../../../components/shared/Navigation';
-import PermissionGate from '../../../../components/shared/PermissionGate';
-import { useCategories } from '../../../../hooks/useCategories';
-import { useNotification } from '../../../../components/providers/NotificationProvider';
+import Navigation from '@/components/shared/Navigation';
+import PermissionGate from '@/components/shared/PermissionGate';
+import { useCategories, Category } from '@/hooks/useCategories';
+import { useNotification } from '@/components/providers/NotificationProvider';
 
 export default function CategoriesPage() {
   const router = useRouter();
@@ -32,7 +32,7 @@ export default function CategoriesPage() {
   const { showNotification } = useNotification();
   
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingCategory, setEditingCategory] = useState(null);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     display_name: '',
@@ -42,7 +42,7 @@ export default function CategoriesPage() {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  const handleOpenDialog = (category = null) => {
+  const handleOpenDialog = (category: Category | null = null) => {
     if (category) {
       setEditingCategory(category);
       setFormData({
@@ -90,7 +90,7 @@ export default function CategoriesPage() {
     }
   };
 
-  const handleDelete = async (category: any) => {
+  const handleDelete = async (category: Category) => {
     if (window.confirm(`Are you sure you want to delete "${category.display_name}"?`)) {
       try {
         await deleteCategory(category.id);
@@ -137,61 +137,76 @@ export default function CategoriesPage() {
         {categories.length === 0 ? (
           <Paper sx={{ p: 4, textAlign: 'center' }}>
             <CategoryIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-            <Typography variant="h6" color="textSecondary">
-              No categories found
+            <Typography variant="h6" gutterBottom>
+              No Categories Found
             </Typography>
-            <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-              Create your first category to organize dashboards
+            <Typography variant="body2" color="text.secondary" paragraph>
+              Create your first category to organize your dashboards.
             </Typography>
+            <PermissionGate permissions={['category.create']}>
+              <Button
+                variant="contained"
+                startIcon={<Add />}
+                onClick={() => handleOpenDialog()}
+              >
+                Create Category
+              </Button>
+            </PermissionGate>
           </Paper>
         ) : (
           <Grid container spacing={3}>
             {categories.map((category) => (
               <Grid item xs={12} sm={6} md={4} key={category.id}>
-                <Card elevation={2}>
+                <Card>
                   <CardContent>
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                      <Box 
-                        sx={{ 
-                          width: 40, 
-                          height: 40, 
-                          borderRadius: 1, 
+                      <Box
+                        sx={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 1,
                           backgroundColor: category.color || '#1976d2',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          mr: 2
+                          mr: 2,
+                          color: 'white',
+                          fontSize: '1.2rem',
                         }}
                       >
-                        <CategoryIcon sx={{ color: 'white' }} />
+                        {category.icon || '📁'}
                       </Box>
-                      <Box>
-                        <Typography variant="h6" component="h2">
+                      <Box sx={{ flexGrow: 1 }}>
+                        <Typography variant="h6">
                           {category.display_name}
                         </Typography>
-                        <Typography variant="caption" color="textSecondary">
-                          {category.dashboard_count} dashboards
+                        <Typography variant="body2" color="text.secondary">
+                          {category.name}
                         </Typography>
                       </Box>
                     </Box>
-                    <Typography variant="body2" color="textSecondary">
-                      {category.description || 'No description'}
-                    </Typography>
+                    
+                    {category.description && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        {category.description}
+                      </Typography>
+                    )}
                   </CardContent>
-                  <CardActions>
+                  
+                  <CardActions sx={{ justifyContent: 'flex-end' }}>
                     <PermissionGate permissions={['category.update']}>
-                      <IconButton 
-                        size="small" 
+                      <IconButton
+                        size="small"
                         onClick={() => handleOpenDialog(category)}
                       >
                         <Edit />
                       </IconButton>
                     </PermissionGate>
                     <PermissionGate permissions={['category.delete']}>
-                      <IconButton 
-                        size="small" 
+                      <IconButton
+                        size="small"
+                        color="error"
                         onClick={() => handleDelete(category)}
-                        disabled={category.dashboard_count > 0}
                       >
                         <Delete />
                       </IconButton>
@@ -203,6 +218,7 @@ export default function CategoriesPage() {
           </Grid>
         )}
 
+        {/* Category Form Dialog */}
         <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
           <DialogTitle>
             {editingCategory ? 'Edit Category' : 'Create Category'}
@@ -236,6 +252,15 @@ export default function CategoriesPage() {
               variant="outlined"
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              sx={{ mb: 2 }}
+            />
+            <TextField
+              margin="dense"
+              label="Icon (Emoji)"
+              fullWidth
+              variant="outlined"
+              value={formData.icon}
+              onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
               sx={{ mb: 2 }}
             />
             <TextField

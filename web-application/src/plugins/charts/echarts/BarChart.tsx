@@ -1,7 +1,7 @@
 // File: web-application/src/plugins/charts/echarts/BarChart.tsx
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
-import { ChartProps } from '../interfaces/ChartPlugin';
+import { ChartProps } from 'src/types/chart.types';
 
 interface BarChartProps extends ChartProps {
   config: {

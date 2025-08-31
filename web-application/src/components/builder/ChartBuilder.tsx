@@ -1,3 +1,4 @@
+// File: web-application/src/components/builder/ChartBuilder.tsx
 'use client';
 import React, { useState, useEffect } from 'react';
 import { 
@@ -6,14 +7,17 @@ import {
   Paper, 
   Grid, 
   Alert, 
-  Snackbar, 
   CircularProgress,
   Divider,
-  Chip
+  Chip,
+  Button,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
-import { ChartSelector } from './ChartSelector';
-import { ChartFactory, EnhancedChartPluginService } from '../../plugins/charts/factory/ChartFactory';
-import { ColumnDefinition } from '../../plugins/charts/interfaces';
+import { ChartFactory } from '../../plugins/charts/factory/ChartFactory';
+import { ColumnDefinition } from '@/types/chart.types';
 import { Dataset } from '../../types/dataset.types';
 import { datasetAPI } from '../../services/api';
 
@@ -46,8 +50,22 @@ interface ChartBuilderProps {
   initialData?: any[];
   initialConfig?: any;
   height?: number | string;
-  datasetId?: string; // Add dataset ID prop
+  datasetId?: string;
 }
+
+// Available chart types (simplified registry)
+const AVAILABLE_CHARTS = [
+  { type: 'bar', library: 'echarts', displayName: 'Bar Chart', category: 'basic' },
+  { type: 'line', library: 'echarts', displayName: 'Line Chart', category: 'basic' },
+  { type: 'pie', library: 'echarts', displayName: 'Pie Chart', category: 'basic' },
+  { type: 'scatter', library: 'echarts', displayName: 'Scatter Plot', category: 'statistical' },
+  { type: 'area', library: 'echarts', displayName: 'Area Chart', category: 'basic' },
+  { type: 'donut', library: 'chartjs', displayName: 'Donut Chart', category: 'basic' },
+  { type: 'radar', library: 'chartjs', displayName: 'Radar Chart', category: 'basic' },
+  { type: 'polar', library: 'chartjs', displayName: 'Polar Area', category: 'basic' },
+];
+
+const CHART_CATEGORIES = ['basic', 'statistical', 'advanced', 'geographic', 'financial'];
 
 export const ChartBuilder: React.FC<ChartBuilderProps> = ({
   onChartSelect,
@@ -58,454 +76,301 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
 }) => {
   const [selectedChart, setSelectedChart] = useState<string>('');
   const [selectedLibrary, setSelectedLibrary] = useState<string>('echarts');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [chartData, setChartData] = useState<any[]>(initialData || []);
   const [chartConfig, setChartConfig] = useState<any>(initialConfig || {});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pluginService, setPluginService] = useState<EnhancedChartPluginService | null>(null);
   
   // New state for live data
   const [columns, setColumns] = useState<ColumnDefinition[]>([]);
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [loadingData, setLoadingData] = useState(false);
 
-  // Initialize plugin service
+  // Load dataset data if datasetId is provided
   useEffect(() => {
-    const initializePlugins = async () => {
-      try {
-        setLoading(true);
-        const service = EnhancedChartPluginService.getInstance();
-        await service.initialize();
-        setPluginService(service);
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to initialize chart plugins');
-        console.error('Plugin initialization error:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    initializePlugins();
-  }, []);
-
-  // Load dataset and its data when datasetId is provided
-  useEffect(() => {
-    if (datasetId) {
-      loadDatasetData(datasetId);
+    if (datasetId && !initialData) {
+      loadDatasetData();
     }
-  }, [datasetId]);
+  }, [datasetId, initialData]);
 
-  // Function to load data from live dataset connection
-  const loadDatasetData = async (id: string) => {
+  const loadDatasetData = async () => {
+    if (!datasetId) return;
+
     try {
       setLoadingData(true);
       setError(null);
-
-      // Fetch dataset metadata first
-      const datasetResponse = await datasetAPI.getDataset(id);
-      if (datasetResponse?.dataset) {
-        setDataset(datasetResponse.dataset);
-      }
-
-      // Fetch dataset schema to get columns
-      try {
-        const schemaResponse = await datasetAPI.getDatasetSchema(id);
-        if (schemaResponse?.schema?.columns && Array.isArray(schemaResponse.schema.columns)) {
-          const chartColumns: ColumnDefinition[] = schemaResponse.schema.columns.map((col: DatasetColumn) => ({
-            name: col.name,
-            type: mapDataTypeToChartType(col.type || 'string'),
-            displayName: col.display_name || col.name,
-            format: col.format_hint
-          }));
-          setColumns(chartColumns);
-        }
-      } catch (schemaError) {
-        console.warn('Failed to load dataset schema:', schemaError);
-        // Continue without schema - we'll still try to get data
-      }
-
-      // Fetch actual data preview (limited rows for preview)
-      try {
-        const dataResponse = await datasetAPI.queryDataset(id, { 
-          limit: 50,
-          offset: 0 
-        });
-        
-        if (dataResponse?.data && Array.isArray(dataResponse.data) && dataResponse.data.length > 0) {
-          setChartData(dataResponse.data);
-          
-          // If we don't have schema columns, infer them from data
-          if (columns.length === 0 && dataResponse.columns) {
-            const inferredColumns: ColumnDefinition[] = dataResponse.columns.map((col: { name: string; type: string }) => ({
-              name: col.name,
-              type: mapDataTypeToChartType(col.type || 'string'),
-              displayName: col.name
-            }));
-            setColumns(inferredColumns);
-          }
-        }
-      } catch (dataError) {
-        console.warn('Failed to load dataset data:', dataError);
-        // This is not critical if we have schema at least
-        if (columns.length === 0) {
-          throw dataError; // Re-throw if we have no useful data at all
-        }
-      }
-
-    } catch (err) {
-      console.error('Failed to load dataset data:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
-      setError(`Failed to load dataset: ${errorMessage}`);
       
-      // Reset data states on error
-      setColumns([]);
-      setChartData([]);
-      setDataset(null);
+      // Fetch dataset metadata
+      const datasetResponse = await datasetAPI.getDataset(datasetId);
+      setDataset(datasetResponse.dataset);
+      
+      // Fetch dataset schema for column definitions
+      const schemaResponse = await datasetAPI.getDatasetSchema(datasetId);
+      const schemaData: DatasetSchema = schemaResponse.schema;
+      
+      // Convert to ColumnDefinition format
+      const columnDefinitions: ColumnDefinition[] = schemaData.columns.map((col: DatasetColumn) => ({
+        name: col.name,
+        type: col.type as 'string' | 'number' | 'date' | 'boolean',
+        displayName: col.display_name || col.name,
+        format: col.format_hint,
+      }));
+      
+      setColumns(columnDefinitions);
+      
+      // Fetch sample data for preview (limit to 1000 rows)
+      const queryResponse = await datasetAPI.queryDataset(datasetId, {
+        limit: 1000,
+        offset: 0
+      });
+      
+      // Handle different response structures
+      let queryData: any[];
+      if (Array.isArray(queryResponse.data)) {
+        // Direct array response
+        queryData = queryResponse.data;
+      } else if (queryResponse.data && Array.isArray(queryResponse.data.data)) {
+        // Nested response structure
+        queryData = queryResponse.data.data;
+      } else {
+        // Fallback - use empty array
+        queryData = [];
+      }
+      
+      setChartData(queryData);
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load dataset data');
     } finally {
       setLoadingData(false);
     }
   };
 
-  // Helper function to map dataset data types to chart types
-  const mapDataTypeToChartType = (dataType: string): 'string' | 'number' | 'date' | 'boolean' => {
-    if (!dataType) return 'string';
-    
-    const lowercaseType = dataType.toLowerCase();
-    
-    // Handle numeric types
-    if (lowercaseType.includes('int') || 
-        lowercaseType.includes('float') || 
-        lowercaseType.includes('double') ||
-        lowercaseType.includes('decimal') || 
-        lowercaseType.includes('numeric') ||
-        lowercaseType.includes('number') ||
-        lowercaseType === 'bigint' ||
-        lowercaseType === 'smallint') {
-      return 'number';
-    }
-    
-    // Handle date/time types
-    if (lowercaseType.includes('date') || 
-        lowercaseType.includes('time') ||
-        lowercaseType.includes('timestamp')) {
-      return 'date';
-    }
-    
-    // Handle boolean types
-    if (lowercaseType.includes('bool') ||
-        lowercaseType === 'bit') {
-      return 'boolean';
-    }
-    
-    // Default to string for text types
-    return 'string';
-  };
-
-  // Fallback empty data for when no dataset is connected
-  const fallbackData: ColumnDefinition[] = [];
-  const fallbackRows: any[] = [];
-
-  // Use live data if available, otherwise use fallback
-  const activeColumns = columns.length > 0 ? columns : fallbackData;
-  const activeData = chartData.length > 0 ? chartData : fallbackRows;
-
-  // Handle chart selection
-  const handleChartSelect = (chartType: string, library?: string) => {
+  const handleChartSelect = (chartType: string, library: string) => {
     setSelectedChart(chartType);
+    setSelectedLibrary(library);
     
-    if (library) {
-      setSelectedLibrary(library);
-    } else {
-      // Try to determine library from plugin service
-      const plugin = pluginService?.getChart(chartType);
-      if (plugin?.library) {
-        setSelectedLibrary(plugin.library);
-      }
+    // Generate default config based on available data
+    if (chartData.length > 0) {
+      const defaultConfig = generateDefaultConfig(chartType, columns || []);
+      setChartConfig(defaultConfig);
     }
-
-    // Initialize default config from plugin schema
-    if (pluginService) {
-      const plugin = pluginService.getChart(chartType);
-      if (plugin?.configSchema) {
-        const defaultConfig: any = {};
-        
-        // Extract defaults from schema
-        if (plugin.configSchema.properties) {
-          Object.entries(plugin.configSchema.properties).forEach(([key, schema]: [string, any]) => {
-            if (schema.default !== undefined) {
-              defaultConfig[key] = schema.default;
-            }
-          });
-        }
-        
-        setChartConfig({
-          title: dataset ? `${plugin.displayName || chartType} - ${dataset.display_name}` : `Sample ${plugin.displayName || chartType}`,
-          ...defaultConfig,
-          ...initialConfig
-        });
-      }
-    }
-
-    // Notify parent component
-    onChartSelect?.(chartType, selectedLibrary);
+    
+    onChartSelect?.(chartType, library);
   };
 
-  // Handle plugin loading errors
-  const handlePluginError = (error: Error) => {
-    console.error('Chart plugin error:', error);
-    setError(`Plugin Error: ${error.message}`);
+  const generateDefaultConfig = (chartType: string, availableColumns: ColumnDefinition[]) => {
+    const numericColumns = availableColumns.filter(col => col.type === 'number');
+    const stringColumns = availableColumns.filter(col => col.type === 'string');
+    const dateColumns = availableColumns.filter(col => col.type === 'date');
+    
+    // Basic default configuration
+    const baseConfig = {
+      title: dataset?.display_name || `${chartType} Chart`,
+      colors: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6'],
+      animation: true,
+      showGrid: true,
+      showLegend: true,
+    };
+
+    // Chart-specific defaults
+    switch (chartType) {
+      case 'bar':
+      case 'line':
+        return {
+          ...baseConfig,
+          xAxis: {
+            field: stringColumns[0]?.name || dateColumns[0]?.name || availableColumns[0]?.name,
+            label: stringColumns[0]?.displayName || dateColumns[0]?.displayName || 'Category',
+          },
+          yAxis: {
+            field: numericColumns[0]?.name || availableColumns[1]?.name,
+            label: numericColumns[0]?.displayName || 'Value',
+            format: numericColumns[0]?.format || 'number',
+          },
+        };
+      
+      case 'pie':
+        return {
+          ...baseConfig,
+          category: {
+            field: stringColumns[0]?.name || availableColumns[0]?.name,
+            label: stringColumns[0]?.displayName || 'Category',
+          },
+          value: {
+            field: numericColumns[0]?.name || availableColumns[1]?.name,
+            label: numericColumns[0]?.displayName || 'Value',
+            format: numericColumns[0]?.format || 'number',
+          },
+        };
+      
+      case 'scatter':
+        return {
+          ...baseConfig,
+          xAxis: {
+            field: numericColumns[0]?.name || availableColumns[0]?.name,
+            label: numericColumns[0]?.displayName || 'X Value',
+            format: numericColumns[0]?.format || 'number',
+          },
+          yAxis: {
+            field: numericColumns[1]?.name || availableColumns[1]?.name,
+            label: numericColumns[1]?.displayName || 'Y Value',
+            format: numericColumns[1]?.format || 'number',
+          },
+        };
+      
+      default:
+        return baseConfig;
+    }
   };
 
-  // Get current chart plugin info
-  const currentPlugin = selectedChart && pluginService ? 
-    pluginService.getChart(selectedChart) || pluginService.getChart(`${selectedLibrary}-${selectedChart}`) : 
-    null;
+  const filteredCharts = selectedCategory === 'all' 
+    ? AVAILABLE_CHARTS 
+    : AVAILABLE_CHARTS.filter(chart => chart.category === selectedCategory);
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <Box textAlign="center">
-          <CircularProgress size={60} />
-          <Typography variant="h6" mt={2}>
-            Loading Chart Plugins...
-          </Typography>
-        </Box>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+        <CircularProgress />
+        <Typography variant="body2" sx={{ ml: 2 }}>Loading chart builder...</Typography>
       </Box>
     );
   }
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Error Snackbar */}
-      <Snackbar
-        open={!!error}
-        autoHideDuration={6000}
-        onClose={() => setError(null)}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Alert severity="error" onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      </Snackbar>
-
-      <Grid container spacing={2} sx={{ flexGrow: 1 }}>
-        {/* Left Panel - Chart Selector */}
-        <Grid item xs={12} md={4} lg={3}>
+    <Box sx={{ height: '100%' }}>
+      <Grid container spacing={3} sx={{ height: '100%' }}>
+        {/* Chart Selection Panel */}
+        <Grid item xs={12} md={4}>
           <Paper sx={{ p: 2, height: '100%' }}>
             <Typography variant="h6" gutterBottom>
-              Chart Library
+              Select Chart Type
             </Typography>
             
-            {pluginService && (
-              <ChartSelector
-                pluginService={pluginService}
-                onSelectChart={handleChartSelect}
-                selectedChart={selectedChart}
-                selectedLibrary={selectedLibrary}
-              />
+            {dataset && (
+              <Box sx={{ mb: 2 }}>
+                <Chip 
+                  label={`Dataset: ${dataset.display_name}`} 
+                  size="small" 
+                  color="primary" 
+                  variant="outlined"
+                />
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  {columns.length} columns, {chartData.length} rows
+                </Typography>
+              </Box>
+            )}
+            
+            <Divider sx={{ mb: 2 }} />
+            
+            {/* Category Filter */}
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Category</InputLabel>
+              <Select
+                value={selectedCategory}
+                label="Category"
+                onChange={(e) => setSelectedCategory(e.target.value)}
+              >
+                <MenuItem value="all">All Categories</MenuItem>
+                {CHART_CATEGORIES.map((category) => (
+                  <MenuItem key={category} value={category}>
+                    {category.charAt(0).toUpperCase() + category.slice(1)}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            
+            {/* Chart Type Grid */}
+            <Grid container spacing={2}>
+              {filteredCharts.map((chart) => (
+                <Grid item xs={6} key={`${chart.library}-${chart.type}`}>
+                  <Paper
+                    sx={{
+                      p: 1,
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                      border: selectedChart === chart.type && selectedLibrary === chart.library ? '2px solid' : '1px solid',
+                      borderColor: selectedChart === chart.type && selectedLibrary === chart.library ? 'primary.main' : 'divider',
+                      '&:hover': { borderColor: 'primary.main' },
+                    }}
+                    onClick={() => handleChartSelect(chart.type, chart.library)}
+                  >
+                    <Typography variant="body2" sx={{ fontWeight: selectedChart === chart.type ? 'bold' : 'normal' }}>
+                      {chart.displayName}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {chart.library}
+                    </Typography>
+                  </Paper>
+                </Grid>
+              ))}
+            </Grid>
+            
+            {filteredCharts.length === 0 && (
+              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 2 }}>
+                No charts available in this category
+              </Typography>
             )}
           </Paper>
         </Grid>
 
-        {/* Main Panel - Chart Preview */}
-        <Grid item xs={12} md={8} lg={9}>
-          <Paper sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
-            {selectedChart ? (
-              <>
-                {/* Chart Header */}
-                <Box mb={2}>
-                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-                    <Typography variant="h5">Chart Preview</Typography>
-                    <Box display="flex" gap={1}>
-                      <Chip 
-                        label={selectedLibrary} 
-                        color="primary" 
-                        size="small" 
-                        variant="outlined"
-                      />
-                      {currentPlugin?.category && (
-                        <Chip 
-                          label={currentPlugin.category} 
-                          color="secondary" 
-                          size="small" 
-                          variant="outlined"
-                        />
-                      )}
-                      {dataset && (
-                        <Chip 
-                          label="Live Data" 
-                          color="success" 
-                          size="small" 
-                        />
-                      )}
-                    </Box>
-                  </Box>
-                  
-                  <Typography variant="body1" color="textSecondary">
-                    {currentPlugin?.displayName || selectedChart}
-                    {currentPlugin?.description && ` - ${currentPlugin.description}`}
-                  </Typography>
-                  
-                  {dataset && (
-                    <Typography variant="body2" color="textSecondary" mt={1}>
-                      Connected to: {dataset.display_name}
-                    </Typography>
-                  )}
-                  
-                  <Divider sx={{ mt: 2 }} />
-                </Box>
-
-                {/* Loading indicator for data */}
-                {loadingData && (
-                  <Box display="flex" justifyContent="center" alignItems="center" my={4}>
-                    <CircularProgress size={40} />
-                    <Typography variant="body2" ml={2}>Loading dataset...</Typography>
-                  </Box>
-                )}
-
-                {/* Data connection warning */}
-                {!datasetId && !loadingData && (
-                  <Alert severity="warning" sx={{ mb: 2 }}>
-                    No dataset connected. Connect a dataset to see live data visualization.
-                  </Alert>
-                )}
-
-                {/* Chart Container */}
-                <Box 
-                  flexGrow={1} 
-                  sx={{ 
-                    border: 1, 
-                    borderColor: 'divider', 
-                    borderRadius: 1, 
-                    p: 2,
-                    minHeight: height,
-                    display: 'flex',
-                    flexDirection: 'column'
-                  }}
-                >
-                  {activeColumns.length > 0 || activeData.length > 0 ? (
-                    <ChartFactory
-                      chartType={selectedChart}
-                      chartLibrary={selectedLibrary}
-                      data={{
-                        rows: activeData,
-                        columns: activeColumns,
-                        metadata: {
-                          totalRows: activeData.length,
-                          source: dataset ? dataset.display_name : 'No Data Source',
-                          datasetId: dataset?.id
-                        }
-                      }}
-                      config={{
-                        title: chartConfig.title || (dataset ? `${dataset.display_name} Chart` : 'Chart Preview'),
-                        subtitle: dataset ? `From dataset: ${dataset.name}` : 'Connect a dataset for live data',
-                        ...chartConfig
-                      }}
-                      height={typeof height === 'number' ? height : 400}
-                      onError={handlePluginError}
-                    />
-                  ) : (
-                    <Box 
-                      display="flex" 
-                      flexDirection="column" 
-                      alignItems="center" 
-                      justifyContent="center" 
-                      flexGrow={1}
-                      textAlign="center"
-                      color="text.secondary"
-                    >
-                      <Box fontSize="3rem" mb={2}>📊</Box>
-                      <Typography variant="h6" gutterBottom>
-                        No Data Available
-                      </Typography>
-                      <Typography variant="body2">
-                        Connect a dataset to visualize your data
-                      </Typography>
-                    </Box>
-                  )}
-                </Box>
-
-                {/* Data Information Panel */}
-                {(activeColumns.length > 0 || dataset) && !loadingData && (
-                  <Box mt={2}>
-                    <Divider sx={{ mb: 2 }} />
-                    <Typography variant="subtitle2" gutterBottom>
-                      Data Information
-                    </Typography>
-                    <Grid container spacing={2}>
-                      <Grid item xs={6} sm={3}>
-                        <Typography variant="body2" color="textSecondary">
-                          Source
-                        </Typography>
-                        <Typography variant="body2">
-                          {dataset?.display_name || 'No Dataset'}
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={6} sm={3}>
-                        <Typography variant="body2" color="textSecondary">
-                          Plugin Version
-                        </Typography>
-                        <Typography variant="body2">
-                          {currentPlugin?.version || 'N/A'}
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={6} sm={3}>
-                        <Typography variant="body2" color="textSecondary">
-                          Data Columns
-                        </Typography>
-                        <Typography variant="body2">
-                          {activeColumns.length} available
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={6} sm={3}>
-                        <Typography variant="body2" color="textSecondary">
-                          Data Rows
-                        </Typography>
-                        <Typography variant="body2">
-                          {activeData.length} records
-                        </Typography>
-                      </Grid>
-                    </Grid>
-                  </Box>
-                )}
-              </>
-            ) : (
-              /* Empty State */
-              <Box 
-                display="flex" 
-                flexDirection="column" 
-                alignItems="center" 
-                justifyContent="center" 
-                flexGrow={1}
-                textAlign="center"
-                color="text.secondary"
-              >
-                <Box fontSize="4rem" mb={2}>📊</Box>
-                <Typography variant="h4" gutterBottom>
-                  Select a Chart Type
-                </Typography>
-                <Typography variant="body1" mb={3}>
-                  Choose from the available chart types in the library panel to preview your visualization
-                </Typography>
-                
-                {pluginService && (
-                  <Box>
-                    <Typography variant="body2">
-                      {pluginService.getAllCharts().length} chart types available
-                    </Typography>
-                    <Typography variant="body2">
-                      Libraries: {pluginService.getChartLibraries().join(', ')}
-                    </Typography>
-                  </Box>
-                )}
-              </Box>
+        {/* Chart Preview Panel */}
+        <Grid item xs={12} md={8}>
+          <Paper sx={{ p: 2, height: '100%' }}>
+            <Typography variant="h6" gutterBottom>
+              Chart Preview
+            </Typography>
+            
+            {error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {error}
+              </Alert>
             )}
+            
+            <Box sx={{ 
+              height: typeof height === 'string' ? height : `${height}px`,
+              minHeight: 300,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              {loadingData ? (
+                <Box sx={{ textAlign: 'center' }}>
+                  <CircularProgress />
+                  <Typography variant="body2" sx={{ mt: 1 }}>Loading data...</Typography>
+                </Box>
+              ) : selectedChart && chartData.length > 0 ? (
+                <ChartFactory
+                  chartType={selectedChart}
+                  chartLibrary={selectedLibrary}
+                  data={chartData}
+                  config={chartConfig}
+                  dimensions={{
+                    width: typeof height === 'string' ? 600 : height,
+                    height: typeof height === 'string' ? 400 : height * 0.7
+                  }}
+                  onError={(err) => setError(err.message)}
+                />
+              ) : (
+                <Box sx={{ textAlign: 'center', color: 'text.secondary' }}>
+                  <Typography variant="body1">
+                    {!selectedChart 
+                      ? 'Select a chart type to preview'
+                      : 'No data available for preview'
+                    }
+                  </Typography>
+                  {!datasetId && !initialData && (
+                    <Button variant="outlined" sx={{ mt: 2 }} onClick={() => {}}>
+                      Load Sample Data
+                    </Button>
+                  )}
+                </Box>
+              )}
+            </Box>
           </Paper>
         </Grid>
       </Grid>
     </Box>
   );
 };
-
-export default ChartBuilder;

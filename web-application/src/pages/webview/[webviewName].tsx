@@ -88,7 +88,7 @@ export default function WebviewPage({ webviewConfig, error }: WebviewPageProps) 
   }
 
   return (
-    <WebviewLayout webviewConfig={webviewConfig}>
+    <WebviewLayout webviewName={webviewConfig?.webview_name || ''}>
       <Box>
         {/* Welcome Section */}
         <Box sx={{ mb: 4 }}>

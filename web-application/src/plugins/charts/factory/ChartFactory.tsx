@@ -3,9 +3,8 @@
 
 import React, { Suspense, useState, useEffect } from 'react';
 import { CircularProgress, Alert, Box, Typography } from '@mui/material';
-import { ChartProps } from '../interfaces';
+import { ChartProps } from '@/types/chart.types';
 import { ChartRegistry } from '../registry/ChartRegistry';
-import { ChartPluginService } from '../services/ChartPluginService';
 
 // Import all chart components statically for reliability
 import { BarChart as EChartsBarChart } from '../echarts/BarChart';
@@ -43,225 +42,183 @@ export interface ChartFactoryProps extends ChartProps {
   chartLibrary?: string;
   fallbackComponent?: React.ComponentType<ChartProps>;
   onPluginLoadError?: (error: Error) => void;
+  enableDynamicLoading?: boolean;
 }
 
-// Chart component registry for static imports
-const CHART_COMPONENTS: Record<string, React.ComponentType<ChartProps>> = {
+interface ChartRegistration {
+  component: React.ComponentType<ChartProps>;
+  library: string;
+  category: string;
+}
+
+// Static chart registry with all available components
+const STATIC_CHART_REGISTRY: Record<string, ChartRegistration> = {
   // ECharts components
-  'echarts-bar': EChartsBarChart,
-  'echarts-pie': EChartsPieChart,
-  'echarts-line': EChartsLineChart,
-  'echarts-scatter': EChartsScatterChart,
-  'echarts-heatmap': EChartsHeatmapChart,
-  'echarts-gauge': EChartsGaugeChart,
-  'echarts-treemap': EChartsTreemapChart,
-  'echarts-sankey': EChartsSankeyChart,
-  'echarts-candlestick': EChartsCandlestickChart,
-  'echarts-waterfall': WaterfallChart,
+  'echarts-bar': { component: EChartsBarChart, library: 'echarts', category: 'basic' },
+  'echarts-pie': { component: EChartsPieChart, library: 'echarts', category: 'basic' },
+  'echarts-line': { component: EChartsLineChart, library: 'echarts', category: 'basic' },
+  'echarts-scatter': { component: EChartsScatterChart, library: 'echarts', category: 'statistical' },
+  'echarts-heatmap': { component: EChartsHeatmapChart, library: 'echarts', category: 'advanced' },
+  'echarts-gauge': { component: EChartsGaugeChart, library: 'echarts', category: 'basic' },
+  'echarts-treemap': { component: EChartsTreemapChart, library: 'echarts', category: 'advanced' },
+  'echarts-sankey': { component: EChartsSankeyChart, library: 'echarts', category: 'advanced' },
+  'echarts-candlestick': { component: EChartsCandlestickChart, library: 'echarts', category: 'financial' },
+  'echarts-waterfall': { component: WaterfallChart, library: 'echarts', category: 'financial' },
   
   // D3.js components
-  'd3js-calendar': CalendarHeatmap,
-  'd3js-chord': ChordDiagram,
-  'd3js-force': ForceDirectedGraph,
-  'd3js-map': GeographicMap,
+  'd3js-calendar-heatmap': { component: CalendarHeatmap, library: 'd3js', category: 'advanced' },
+  'd3js-chord': { component: ChordDiagram, library: 'd3js', category: 'advanced' },
+  'd3js-force-graph': { component: ForceDirectedGraph, library: 'd3js', category: 'advanced' },
+  'd3js-geographic-map': { component: GeographicMap, library: 'd3js', category: 'geographic' },
   
   // Chart.js components
-  'chartjs-donut': DonutChart,
-  'chartjs-radar': RadarChart,
-  'chartjs-polar': PolarAreaChart,
+  'chartjs-donut': { component: DonutChart, library: 'chartjs', category: 'basic' },
+  'chartjs-radar': { component: RadarChart, library: 'chartjs', category: 'basic' },
+  'chartjs-polar': { component: PolarAreaChart, library: 'chartjs', category: 'basic' },
   
   // Plotly components
-  'plotly-surface': SurfaceChart,
-  'plotly-contour': ContourChart,
+  'plotly-surface': { component: SurfaceChart, library: 'plotly', category: 'statistical' },
+  'plotly-contour': { component: ContourChart, library: 'plotly', category: 'statistical' },
   
   // Drilldown components
-  'drilldown-bar': DrilldownBar,
-  'drilldown-pie': DrilldownPie,
+  'drilldown-bar': { component: DrilldownBar, library: 'drilldown', category: 'advanced' },
+  'drilldown-pie': { component: DrilldownPie, library: 'drilldown', category: 'advanced' },
 };
 
-// Loading placeholder component
-const ChartLoadingPlaceholder: React.FC<{ chartType: string }> = ({ chartType }) => (
+const ChartLoadingFallback: React.FC = () => (
   <Box
-    display="flex"
-    flexDirection="column"
-    alignItems="center"
-    justifyContent="center"
-    minHeight="200px"
-    p={3}
+    sx={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '100%',
+      minHeight: 200,
+      gap: 2,
+    }}
   >
     <CircularProgress size={40} />
-    <Typography variant="body2" color="textSecondary" mt={2}>
-      Loading {chartType} chart...
+    <Typography variant="body2" color="text.secondary">
+      Loading chart...
     </Typography>
   </Box>
 );
 
-// Error fallback component
-const ChartErrorFallback: React.FC<{ error: string; chartType: string; onRetry?: () => void }> = ({ 
+const ChartErrorFallback: React.FC<{ error: string; chartType: string }> = ({ 
   error, 
-  chartType, 
-  onRetry 
+  chartType 
 }) => (
   <Alert 
     severity="error" 
-    action={
-      onRetry && (
-        <button onClick={onRetry} style={{ marginLeft: '8px' }}>
-          Retry
-        </button>
-      )
-    }
+    sx={{ 
+      height: '100%', 
+      display: 'flex', 
+      alignItems: 'center',
+      minHeight: 200 
+    }}
   >
-    <Typography variant="body2">
-      Failed to load {chartType} chart: {error}
-    </Typography>
+    <Box>
+      <Typography variant="h6" gutterBottom>
+        Chart Load Error
+      </Typography>
+      <Typography variant="body2">
+        Failed to load chart type: <strong>{chartType}</strong>
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+        {error}
+      </Typography>
+    </Box>
   </Alert>
 );
 
-// Dynamic component loader with error handling
-const useDynamicChartComponent = (chartKey: string, chartType: string) => {
-  const [Component, setComponent] = useState<React.ComponentType<ChartProps> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-
-    const loadComponent = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        // Try static import first
-        if (CHART_COMPONENTS[chartKey]) {
-          if (mounted) {
-            setComponent(() => CHART_COMPONENTS[chartKey]);
-            setLoading(false);
-          }
-          return;
-        }
-
-        // Try plugin registry
-        const pluginConfig = ChartRegistry.getPlugin(chartKey);
-        if (pluginConfig?.component) {
-          if (mounted) {
-            setComponent(() => pluginConfig.component);
-            setLoading(false);
-          }
-          return;
-        }
-
-        // Try service lookup
-        const chartService = ChartPluginService.getInstance?.();
-        if (chartService) {
-          const plugin = chartService.getChart?.(chartType);
-          if (plugin?.component) {
-            if (mounted) {
-              setComponent(() => plugin.component);
-              setLoading(false);
-            }
-            return;
-          }
-        }
-
-        // Attempt dynamic import as fallback
-        try {
-          const [library, type] = chartKey.split('-');
-          const modulePath = `../plugins/charts/${library}/${type.charAt(0).toUpperCase() + type.slice(1)}Chart`;
-          
-          const dynamicImport = await import(modulePath);
-          const DynamicComponent = dynamicImport.default || dynamicImport[Object.keys(dynamicImport)[0]];
-          
-          if (DynamicComponent && mounted) {
-            setComponent(() => DynamicComponent);
-            setLoading(false);
-            return;
-          }
-        } catch (importError) {
-          console.warn(`Failed to dynamically import ${chartKey}:`, importError);
-        }
-
-        // If all fails
-        if (mounted) {
-          setError(`Chart type "${chartType}" not found`);
-          setLoading(false);
-        }
-
-      } catch (err) {
-        if (mounted) {
-          setError(err instanceof Error ? err.message : 'Unknown error occurred');
-          setLoading(false);
-        }
-      }
-    };
-
-    loadComponent();
-
-    return () => {
-      mounted = false;
-    };
-  }, [chartKey, chartType]);
-
-  return { Component, loading, error };
-};
-
 export const ChartFactory: React.FC<ChartFactoryProps> = ({
   chartType,
-  chartLibrary = 'echarts',
+  chartLibrary,
   fallbackComponent: FallbackComponent,
   onPluginLoadError,
-  ...props
+  enableDynamicLoading = false,
+  ...chartProps
 }) => {
-  // Create chart key for component lookup
-  const chartKey = chartLibrary ? `${chartLibrary}-${chartType}` : chartType;
-  
-  // Use dynamic component loading hook
-  const { Component, loading, error } = useDynamicChartComponent(chartKey, chartType);
+  const [dynamicComponent, setDynamicComponent] = useState<React.ComponentType<ChartProps> | null>(null);
+  const [loadingError, setLoadingError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Handle plugin load errors
+  // Try to get component from static registry first
+  const staticChartConfig = STATIC_CHART_REGISTRY[chartType];
+  
   useEffect(() => {
-    if (error && onPluginLoadError) {
-      onPluginLoadError(new Error(error));
+    // If we have a static component, use it
+    if (staticChartConfig) {
+      setDynamicComponent(null);
+      setLoadingError(null);
+      return;
     }
-  }, [error, onPluginLoadError]);
+
+    // Only attempt dynamic loading if enabled and no static component found
+    if (enableDynamicLoading && !staticChartConfig) {
+      setIsLoading(true);
+      setLoadingError(null);
+      
+      // Attempt dynamic import
+      const loadDynamicChart = async () => {
+        try {
+          const chartConfig = await ChartRegistry.getChartConfig(chartType);
+          if (chartConfig?.component) {
+            setDynamicComponent(() => chartConfig.component);
+          } else {
+            throw new Error(`Chart configuration not found for type: ${chartType}`);
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          setLoadingError(errorMessage);
+          onPluginLoadError?.(error instanceof Error ? error : new Error(errorMessage));
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      loadDynamicChart();
+    } else if (!staticChartConfig) {
+      // No static component and dynamic loading disabled
+      setLoadingError(`Chart type '${chartType}' is not available in static registry`);
+    }
+  }, [chartType, enableDynamicLoading, staticChartConfig, onPluginLoadError]);
 
   // Show loading state
-  if (loading) {
-    return <ChartLoadingPlaceholder chartType={chartType} />;
+  if (isLoading) {
+    return <ChartLoadingFallback />;
   }
 
-  // Show error state with retry option
-  if (error) {
-    if (FallbackComponent) {
-      return (
-        <Suspense fallback={<ChartLoadingPlaceholder chartType={chartType} />}>
-          <FallbackComponent {...props} />
-        </Suspense>
-      );
-    }
-    
+  // Show error if component not found and no fallback
+  if (loadingError && !FallbackComponent && !staticChartConfig) {
+    return <ChartErrorFallback error={loadingError} chartType={chartType} />;
+  }
+
+  // Determine which component to render
+  let ComponentToRender: React.ComponentType<ChartProps> | null = null;
+
+  if (staticChartConfig) {
+    ComponentToRender = staticChartConfig.component;
+  } else if (dynamicComponent) {
+    ComponentToRender = dynamicComponent;
+  } else if (FallbackComponent) {
+    ComponentToRender = FallbackComponent;
+  }
+
+  // Final fallback if no component available
+  if (!ComponentToRender) {
     return (
       <ChartErrorFallback 
-        error={error} 
-        chartType={chartType}
-        onRetry={() => window.location.reload()}
+        error={loadingError || `No component available for chart type: ${chartType}`} 
+        chartType={chartType} 
       />
     );
   }
 
-  // Render the chart component
-  if (!Component) {
-    return (
-      <ChartErrorFallback 
-        error="Component not available" 
-        chartType={chartType}
-      />
-    );
-  }
-
+  // Render the chart component with error boundary
   return (
-    <Suspense fallback={<ChartLoadingPlaceholder chartType={chartType} />}>
-      <Component {...props} />
+    <Suspense fallback={<ChartLoadingFallback />}>
+      <ComponentToRender {...chartProps} />
     </Suspense>
   );
 };
@@ -284,20 +241,29 @@ export class EnhancedChartPluginService {
 
     try {
       // Load plugins from registry
-      const registryPlugins = ChartRegistry.getAllPlugins();
-      registryPlugins.forEach(plugin => {
-        this.plugins.set(plugin.name, plugin);
+      const registryPlugins = ChartRegistry.getAvailableCharts();
+      registryPlugins.forEach(chartType => {
+        const registration = STATIC_CHART_REGISTRY[chartType];
+        if (registration) {
+          this.plugins.set(chartType, {
+            name: chartType,
+            displayName: chartType.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()),
+            component: registration.component,
+            library: registration.library,
+            category: registration.category
+          });
+        }
       });
 
-      // Load plugins from static components
-      Object.entries(CHART_COMPONENTS).forEach(([key, component]) => {
+      // Load additional plugins from static components
+      Object.entries(STATIC_CHART_REGISTRY).forEach(([key, registration]) => {
         if (!this.plugins.has(key)) {
           this.plugins.set(key, {
             name: key,
             displayName: key.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()),
-            component,
-            library: key.split('-')[0],
-            category: 'basic'
+            component: registration.component,
+            library: registration.library,
+            category: registration.category
           });
         }
       });
@@ -370,4 +336,5 @@ export class EnhancedChartPluginService {
   }
 }
 
+export { EnhancedChartPluginService };
 export default ChartFactory;

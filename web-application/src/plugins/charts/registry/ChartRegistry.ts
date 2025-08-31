@@ -1,5 +1,5 @@
-// File: web-application/src/components/charts/registry/ChartRegistry.ts
-import { ChartPluginConfig } from '../interfaces';
+// File: web-application/src/plugins/charts/registry/ChartRegistry.ts
+import { ChartPluginConfig } from '@/types/chart.types';
 import { EChartsBarChartConfig } from '../echarts/BarChart';
 
 export class ChartRegistry {
@@ -21,6 +21,10 @@ export class ChartRegistry {
   }
   
   static getPlugin(name: string): ChartPluginConfig | undefined {
+    return this.plugins.get(name);
+  }
+  
+  static getChartConfig(name: string): ChartPluginConfig | undefined {
     return this.plugins.get(name);
   }
   
@@ -46,5 +50,17 @@ export class ChartRegistry {
     const libraries = new Set<string>();
     this.plugins.forEach(plugin => libraries.add(plugin.library));
     return Array.from(libraries);
+  }
+  
+  static getAvailableCharts(): string[] {
+    return Array.from(this.plugins.keys());
+  }
+  
+  static validateChartConfig(chartType: string, config: any): boolean {
+    const plugin = this.getPlugin(chartType);
+    if (!plugin) return false;
+    
+    // Basic validation - can be extended with JSON schema validation
+    return typeof config === 'object' && config !== null;
   }
 }
