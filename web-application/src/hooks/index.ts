@@ -30,21 +30,6 @@ export type {
   UseRLSResult
 } from './useRLS';
 
-// Plugin System - Clean export using new API
-export { 
-  usePlugins,
-  // Export types for convenience
-  type DataSourcePlugin,
-  type ChartPlugin,
-  type PluginConfiguration,
-  type SchemaProperty,
-  type DataSourceCapabilities,
-  type ConnectionTestResult,
-  type ValidationResult,
-  type PluginStatistics,
-  type UsePluginsResult,
-  type DataType
-} from './usePlugins';
 
 // Performance & Caching
 export { useCache } from './useCache';
