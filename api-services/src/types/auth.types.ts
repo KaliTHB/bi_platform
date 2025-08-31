@@ -1,10 +1,16 @@
+// File: api-services/src/types/auth.types.ts
 export interface User {
   id: string;
   username: string;
   email: string;
-  display_name: string;
+  workspace_id: string;
+  workspace_slug: string;
+  role_id: string;
+  role_name: string;
+  permissions: string[];
   first_name?: string;
   last_name?: string;
+  display_name?: string;
   avatar_url?: string;
   is_active: boolean;
   last_login_at?: Date;
@@ -75,7 +81,7 @@ export interface UpdateUserRequest {
   last_name?: string;
   avatar_url?: string;
   is_active?: boolean;
-  password?: string; // Added password field for user updates
+  password?: string;
 }
 
 export interface CreateWorkspaceRequest {

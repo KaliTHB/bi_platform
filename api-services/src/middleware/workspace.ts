@@ -1,166 +1,165 @@
-// api-services/src/middleware/workspace.ts
-import { Request, Response, NextFunction } from 'express';
-import { DatabaseConfig } from '../config/database';
-import { CacheService } from '../config/redis';
+// File: api-services/src/middleware/workspace.ts
+import { Request, Response, NextFunction, RequestHandler } from 'express';
+import { db } from '../config/database';
+import { cache } from '../config/redis';
 import { logger } from '../utils/logger';
-import { User, Workspace } from '../types/auth.types';
+import { AuthenticatedRequest } from './authentication';
 
-interface WorkspaceRequest extends Request {
-  user?: User;
-  workspace?: Workspace;
+export interface WorkspaceRequest extends AuthenticatedRequest {
+  workspace?: any;
 }
 
-export const workspaceContext = async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
+export const validateWorkspaceAccess: RequestHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ error: 'User not authenticated' });
-    }
+    const authReq = req as AuthenticatedRequest;
+    const { workspaceId } = req.params;
 
-    const workspaceId = req.params.workspaceId || req.body.workspaceId || req.query.workspaceId;
-    
-    if (!workspaceId) {
-      return res.status(400).json({ error: 'Workspace ID is required' });
-    }
-
-    // Try to get workspace from cache first
-    let workspace = await CacheService.get(`workspace:${workspaceId}`);
-    
-    if (!workspace) {
-      // Get workspace from database
-      const result = await DatabaseConfig.query(
-        `SELECT w.*, 
-                COUNT(DISTINCT uw.user_id) as user_count,
-                COUNT(DISTINCT d.id) as dashboard_count,
-                COUNT(DISTINCT ds.id) as dataset_count
-         FROM workspaces w
-         LEFT JOIN user_workspaces uw ON w.id = uw.workspace_id
-         LEFT JOIN dashboards d ON w.id = d.workspace_id AND d.is_active = true
-         LEFT JOIN datasets ds ON w.id = ds.workspace_id AND ds.is_active = true
-         WHERE w.id = $1 AND w.is_active = true
-         GROUP BY w.id`,
-        [workspaceId]
-      );
-
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Workspace not found' });
-      }
-
-      workspace = result.rows[0];
-      
-      // Cache workspace for 30 minutes
-      await CacheService.set(`workspace:${workspaceId}`, workspace, 1800);
+    if (!authReq.user) {
+      res.status(401).json({
+        success: false,
+        error: { code: 'AUTHENTICATION_REQUIRED', message: 'Authentication required' }
+      });
+      return;
     }
 
     // Check if user has access to this workspace
-    const accessResult = await DatabaseConfig.query(
-      `SELECT uwr.role_id, r.name as role_name, r.level
-       FROM user_workspace_roles uwr
-       JOIN roles r ON uwr.role_id = r.id
-       WHERE uwr.user_id = $1 AND uwr.workspace_id = $2`,
-      [req.user.id, workspaceId]
+    const result = await db.query(
+      `SELECT w.*, uw.status, r.name as role_name, r.level as role_level
+       FROM workspaces w
+       JOIN user_workspaces uw ON w.id = uw.workspace_id
+       LEFT JOIN user_workspace_roles uwr ON w.id = uwr.workspace_id AND uwr.user_id = uw.user_id
+       LEFT JOIN roles r ON uwr.role_id = r.id
+       WHERE w.id = $1 AND uw.user_id = $2 AND w.is_active = true`,
+      [workspaceId, authReq.user.id]
     );
 
-    if (accessResult.rows.length === 0 && req.user.role !== 'SUPER_ADMIN') {
-      return res.status(403).json({ error: 'No access to this workspace' });
+    if (result.rows.length === 0) {
+      res.status(403).json({
+        success: false,
+        error: { code: 'WORKSPACE_ACCESS_DENIED', message: 'Access to workspace denied' }
+      });
+      return;
     }
 
-    // Add workspace roles to request
-    if (accessResult.rows.length > 0) {
-      workspace.user_roles = accessResult.rows;
-      workspace.highest_role_level = Math.max(...accessResult.rows.map(r => r.level));
-    } else if (req.user.role === 'SUPER_ADMIN') {
-      workspace.user_roles = [{ role_id: null, role_name: 'SUPER_ADMIN', level: 100 }];
-      workspace.highest_role_level = 100;
+    const workspace = result.rows[0];
+    
+    if (workspace.status !== 'ACTIVE') {
+      res.status(403).json({
+        success: false,
+        error: { code: 'WORKSPACE_INACTIVE', message: 'Workspace is not active' }
+      });
+      return;
     }
 
-    req.workspace = workspace;
+    (req as WorkspaceRequest).workspace = workspace;
     next();
   } catch (error) {
-    logger.error('Workspace context error:', error);
-    return res.status(500).json({ error: 'Failed to load workspace context' });
+    logger.error('Workspace validation error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'WORKSPACE_VALIDATION_ERROR', message: 'Error validating workspace access' }
+    });
+    return;
   }
 };
 
-export const validateWorkspaceAccess = (requiredLevel: number = 1) => {
-  return async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
+export const requireWorkspaceRole = (allowedRoles: string[]): RequestHandler => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      if (!req.workspace) {
-        return res.status(400).json({ error: 'Workspace context not available' });
-      }
-
-      if (req.user?.role === 'SUPER_ADMIN') {
-        return next();
-      }
-
-      if (!req.workspace.highest_role_level || req.workspace.highest_role_level < requiredLevel) {
-        return res.status(403).json({ error: 'Insufficient workspace access level' });
-      }
-
-      next();
-    } catch (error) {
-      logger.error('Workspace access validation error:', error);
-      return res.status(500).json({ error: 'Access validation failed' });
-    }
-  };
-};
-
-export const requireWorkspaceRole = (roleNames: string[]) => {
-  return async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
-    try {
-      if (!req.workspace) {
-        return res.status(400).json({ error: 'Workspace context not available' });
-      }
-
-      if (req.user?.role === 'SUPER_ADMIN') {
-        return next();
-      }
-
-      const userRoles = req.workspace.user_roles?.map(r => r.role_name) || [];
-      const hasRequiredRole = roleNames.some(role => userRoles.includes(role));
-
-      if (!hasRequiredRole) {
-        return res.status(403).json({ 
-          error: `Requires one of the following workspace roles: ${roleNames.join(', ')}` 
+      const workspaceReq = req as WorkspaceRequest;
+      
+      if (!workspaceReq.user) {
+        res.status(401).json({
+          success: false,
+          error: { code: 'AUTHENTICATION_REQUIRED', message: 'Authentication required' }
         });
+        return;
+      }
+
+      if (!workspaceReq.workspace) {
+        res.status(403).json({
+          success: false,
+          error: { code: 'WORKSPACE_REQUIRED', message: 'Workspace context required' }
+        });
+        return;
+      }
+
+      const userRole = workspaceReq.workspace.role_name;
+      
+      if (!userRole || !allowedRoles.includes(userRole)) {
+        res.status(403).json({
+          success: false,
+          error: { 
+            code: 'INSUFFICIENT_WORKSPACE_ROLE', 
+            message: `Workspace role must be one of: ${allowedRoles.join(', ')}` 
+          }
+        });
+        return;
       }
 
       next();
     } catch (error) {
       logger.error('Workspace role check error:', error);
-      return res.status(500).json({ error: 'Role check failed' });
+      res.status(500).json({
+        success: false,
+        error: { code: 'ROLE_CHECK_ERROR', message: 'Error checking workspace role' }
+      });
+      return;
     }
   };
 };
 
-export const checkDatasetAccess = async (req: WorkspaceRequest, res: Response, next: NextFunction) => {
+export const checkDatasetAccess: RequestHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const datasetId = req.params.datasetId || req.body.datasetId;
-    
-    if (!datasetId) {
-      return next();
-    }
+    const authReq = req as AuthenticatedRequest;
+    const { datasetId } = req.params;
 
-    if (req.user?.role === 'SUPER_ADMIN') {
-      return next();
+    if (!authReq.user) {
+      res.status(401).json({
+        success: false,
+        error: { code: 'AUTHENTICATION_REQUIRED', message: 'Authentication required' }
+      });
+      return;
     }
 
     // Check if user has access to the dataset
-    const result = await DatabaseConfig.query(
-      `SELECT COUNT(*) as count
+    const result = await db.query(
+      `SELECT d.*, 
+              CASE WHEN da.user_id IS NOT NULL THEN true ELSE false END as has_direct_access,
+              CASE WHEN uw.user_id IS NOT NULL THEN true ELSE false END as has_workspace_access
        FROM datasets d
-       JOIN dataset_permissions dp ON d.id = dp.dataset_id
-       JOIN user_workspace_roles uwr ON dp.role_id = uwr.role_id
-       WHERE d.id = $1 AND uwr.user_id = $2 AND uwr.workspace_id = $3 AND d.is_active = true`,
-      [datasetId, req.user!.id, req.workspace!.id]
+       LEFT JOIN dataset_access da ON d.id = da.dataset_id AND da.user_id = $2
+       LEFT JOIN user_workspaces uw ON d.workspace_id = uw.workspace_id AND uw.user_id = $2
+       WHERE d.id = $1 AND d.is_active = true`,
+      [datasetId, authReq.user.id]
     );
 
-    if (parseInt(result.rows[0].count) === 0) {
-      return res.status(403).json({ error: 'No access to this dataset' });
+    if (result.rows.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: { code: 'DATASET_NOT_FOUND', message: 'Dataset not found' }
+      });
+      return;
     }
 
+    const dataset = result.rows[0];
+    
+    if (!dataset.has_direct_access && !dataset.has_workspace_access) {
+      res.status(403).json({
+        success: false,
+        error: { code: 'DATASET_ACCESS_DENIED', message: 'Access to dataset denied' }
+      });
+      return;
+    }
+
+    (req as any).dataset = dataset;
     next();
   } catch (error) {
     logger.error('Dataset access check error:', error);
-    return res.status(500).json({ error: 'Dataset access check failed' });
+    res.status(500).json({
+      success: false,
+      error: { code: 'DATASET_ACCESS_ERROR', message: 'Error checking dataset access' }
+    });
+    return;
   }
 };

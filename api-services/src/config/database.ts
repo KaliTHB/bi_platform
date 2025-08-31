@@ -1,85 +1,75 @@
-// api-services/src/config/database.ts
+// File: api-services/src/config/database.ts
 import { Pool, PoolClient, QueryResult } from 'pg';
 import { logger } from '../utils/logger';
 
-interface DatabaseConfig {
-  host: string;
-  port: number;
-  database: string;
-  user: string;
-  password: string;
-  ssl?: boolean;
-  max?: number;
-  idleTimeoutMillis?: number;
-  connectionTimeoutMillis?: number;
-}
+const config = {
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT || '5432'),
+  database: process.env.DB_NAME || 'bi_platform',
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || 'password',
+  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+  max: parseInt(process.env.DB_POOL_MAX || '20'),
+  min: parseInt(process.env.DB_POOL_MIN || '5'),
+  idleTimeoutMillis: parseInt(process.env.DB_IDLE_TIMEOUT || '30000'),
+  connectionTimeoutMillis: parseInt(process.env.DB_CONNECTION_TIMEOUT || '2000'),
+};
 
-class Database {
-  private pool: Pool | null = null;
-  private config: DatabaseConfig;
+const pool = new Pool(config);
 
-  constructor() {
-    this.config = {
-      host: process.env.POSTGRES_HOST || 'localhost',
-      port: parseInt(process.env.POSTGRES_PORT || '5432'),
-      database: process.env.POSTGRES_DB || 'bi_platform',
-      user: process.env.POSTGRES_USER || 'postgres',
-      password: process.env.POSTGRES_PASSWORD || 'password',
-      ssl: process.env.NODE_ENV === 'production',
-      max: 20, // maximum number of clients in the pool
-      idleTimeoutMillis: 30000, // how long a client is allowed to remain idle before being closed
-      connectionTimeoutMillis: 2000, // how long to wait for a connection
-    };
-  }
+// Handle pool errors
+pool.on('error', (err) => {
+  logger.error('Unexpected error on idle client', err);
+});
 
-  async initialize(): Promise<void> {
-    try {
-      this.pool = new Pool(this.config);
+pool.on('connect', (client) => {
+  logger.info('Database client connected');
+});
 
-      // Test connection
-      const client = await this.pool.connect();
-      await client.query('SELECT NOW()');
-      client.release();
+pool.on('remove', (client) => {
+  logger.info('Database client removed');
+});
 
-      logger.info('Database pool initialized successfully');
-    } catch (error) {
-      logger.error('Database initialization failed:', error);
-      throw error;
-    }
+// Database class with common operations
+export class DatabaseService {
+  private pool: Pool;
+
+  constructor(poolInstance?: Pool) {
+    this.pool = poolInstance || pool;
   }
 
   async query<T = any>(text: string, params?: any[]): Promise<QueryResult<T>> {
-    if (!this.pool) {
-      throw new Error('Database not initialized');
-    }
-
     const start = Date.now();
     try {
       const result = await this.pool.query<T>(text, params);
       const duration = Date.now() - start;
       
-      logger.debug('Query executed', {
+      logger.debug('Database query executed', {
         query: text,
-        duration: `${duration}ms`,
+        duration,
         rows: result.rowCount
       });
-
+      
       return result;
     } catch (error) {
-      logger.error('Query error:', { query: text, error });
+      const duration = Date.now() - start;
+      logger.error('Database query error', {
+        query: text,
+        params,
+        duration,
+        error: error instanceof Error ? error.message : error
+      });
       throw error;
     }
   }
 
   async getClient(): Promise<PoolClient> {
-    if (!this.pool) {
-      throw new Error('Database not initialized');
-    }
-    return this.pool.connect();
+    return await this.pool.connect();
   }
 
   async transaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.getClient();
+    
     try {
       await client.query('BEGIN');
       const result = await callback(client);
@@ -93,17 +83,29 @@ class Database {
     }
   }
 
-  async close(): Promise<void> {
-    if (this.pool) {
-      await this.pool.end();
-      this.pool = null;
-      logger.info('Database pool closed');
+  async healthCheck(): Promise<boolean> {
+    try {
+      const result = await this.query('SELECT 1 as health');
+      return result.rows.length > 0;
+    } catch (error) {
+      logger.error('Database health check failed:', error);
+      return false;
     }
   }
 
-  getPool(): Pool | null {
+  async close(): Promise<void> {
+    await this.pool.end();
+  }
+
+  getPool(): Pool {
     return this.pool;
   }
 }
 
-export const DatabaseConfig = new Database();
+// Create default instance
+const db = new DatabaseService(pool);
+
+// Export both the class and instance
+export { DatabaseService as DatabaseConfig };
+export { db };
+export default db;

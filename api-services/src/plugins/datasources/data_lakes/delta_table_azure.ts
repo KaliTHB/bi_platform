@@ -1,7 +1,7 @@
-/ ====== DATA LAKES PLUGINS ======
+// ====== DATA LAKES PLUGINS ======
 
 // File: api-services/src/plugins/datasources/data_lakes/delta_table_azure.ts
-import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
+import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces';
 
 export const deltaTableAzurePlugin: DataSourcePlugin = {
   name: 'delta_table_azure',
@@ -11,7 +11,6 @@ export const deltaTableAzurePlugin: DataSourcePlugin = {
   description: 'Connect to Delta Lake on Azure',
   
   configSchema: {
-    type: 'object',
     properties: {
       storageAccount: { type: 'string', title: 'Storage Account Name' },
       containerName: { type: 'string', title: 'Container Name' },
@@ -23,13 +22,6 @@ export const deltaTableAzurePlugin: DataSourcePlugin = {
     additionalProperties: false
   },
 
-  capabilities: {
-    supportsBulkInsert: false,
-    supportsTransactions: false,
-    supportsStoredProcedures: false,
-    maxConcurrentConnections: 10
-  },
-
   async connect(config: ConnectionConfig): Promise<Connection> {
     // In a real implementation, this would set up Delta Lake connection
     return {
@@ -37,7 +29,7 @@ export const deltaTableAzurePlugin: DataSourcePlugin = {
       config,
       client: { deltaPath: config.deltaTablePath },
       isConnected: true,
-      lastActivity: new Date()
+      lastUsed: new Date()
     };
   },
 

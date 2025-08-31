@@ -1,21 +1,49 @@
-// Chart.js Mixed Chart Component  
-// File: web-application/src/plugins/charts/chartjs/MixedChart.tsx
 'use client';
 
 import React, { useEffect, useRef } from 'react';
 import Chart from 'chart.js/auto';
-import { ChartProps } from '@/types/chart.types';
+import { ChartProps, ChartData } from '@/types/chart.types';
 
 export interface ChartJSMixedConfig {
   xField: string;
   series: Array<{
-    yField: string;
-    type: 'bar' | 'line';
+    field: string;
+    type: 'line' | 'bar';
     label: string;
+    color?: string;
     yAxisID?: string;
   }>;
-  dualAxis?: boolean;
+  yAxes?: Array<{
+    id: string;
+    position: 'left' | 'right';
+    title?: string;
+    min?: number;
+    max?: number;
+  }>;
 }
+
+// Type guard to check if data is an array
+const isDataArray = (data: any[] | ChartData): data is any[] => {
+  return Array.isArray(data);
+};
+
+// Helper function to extract array data from either format
+const getDataArray = (data: any[] | ChartData): any[] => {
+  if (isDataArray(data)) {
+    return data;
+  }
+  // If data is ChartData object, return the rows array
+  return data.rows || [];
+};
+
+// Helper function to check if we have valid data
+const hasValidData = (data: any[] | ChartData): boolean => {
+  if (isDataArray(data)) {
+    return data.length > 0;
+  }
+  // For ChartData object, check if rows exist and have length
+  return data.rows && data.rows.length > 0;
+};
 
 export const ChartJSMixedChart: React.FC<ChartProps> = ({
   data,
@@ -29,78 +57,107 @@ export const ChartJSMixedChart: React.FC<ChartProps> = ({
   const chartInstance = useRef<Chart>();
 
   useEffect(() => {
-    if (!canvasRef.current || !data?.length) return;
+    if (!canvasRef.current || !data || !hasValidData(data)) {
+      return;
+    }
 
     try {
+      // Destroy existing chart
       if (chartInstance.current) {
         chartInstance.current.destroy();
       }
 
-      const { xField, series, dualAxis = false } = config as ChartJSMixedConfig;
+      const { xField, series, yAxes = [] } = config as ChartJSMixedConfig;
 
-      const labels = data.map(item => item[xField]);
+      // Get data array regardless of input format
+      const dataArray = getDataArray(data);
+
+      // Process data for mixed chart
+      const labels = Array.from(new Set(dataArray.map(item => item[xField])));
       
-      const datasets = series.map((s, index) => {
-        const baseConfig = {
+      // Define dataset interface for Chart.js
+      interface MixedDataset {
+        type: 'line' | 'bar';
+        label: string;
+        data: number[];
+        backgroundColor?: string | string[];
+        borderColor?: string | string[];
+        borderWidth?: number;
+        fill?: boolean;
+        tension?: number;
+        yAxisID?: string;
+        [key: string]: any; // Allow additional properties
+      }
+
+      const datasets: MixedDataset[] = series.map((s, index) => {
+        const seriesData = labels.map(label => {
+          const item = dataArray.find(d => d[xField] === label);
+          return item ? parseFloat(item[s.field]) || 0 : 0;
+        });
+
+        const baseColor = s.color || `hsl(${index * 360 / series.length}, 70%, 50%)`;
+        
+        const dataset: MixedDataset = {
+          type: s.type,
           label: s.label,
-          data: data.map(item => parseFloat(item[s.yField]) || 0),
-          borderColor: `hsl(${index * 360 / series.length}, 70%, 50%)`,
-          backgroundColor: `hsla(${index * 360 / series.length}, 70%, 60%, 0.6)`,
-          yAxisID: dualAxis && index > 0 ? 'y1' : 'y'
+          data: seriesData,
+          borderColor: baseColor,
+          borderWidth: 2,
+          yAxisID: s.yAxisID || 'y'
         };
 
+        // Configure based on chart type
         if (s.type === 'line') {
-          return {
-            ...baseConfig,
-            type: 'line' as const,
-            borderWidth: 2,
-            fill: false,
-            tension: 0.4
-          };
-        } else {
-          return {
-            ...baseConfig,
-            type: 'bar' as const,
-            borderWidth: 1
-          };
+          dataset.fill = false;
+          dataset.tension = 0.1;
+          dataset.backgroundColor = baseColor;
+        } else if (s.type === 'bar') {
+          dataset.backgroundColor = baseColor + '80'; // Add transparency
         }
+
+        return dataset;
       });
 
-      const scales: any = {
+      // Build scales configuration
+      const scales: Record<string, any> = {
         x: {
           title: {
             display: true,
             text: xField
           }
-        },
-        y: {
-          type: 'linear',
-          display: true,
-          position: 'left',
-          title: {
-            display: true,
-            text: series[0]?.label || 'Value'
-          }
         }
       };
 
-      if (dualAxis && series.length > 1) {
-        scales.y1 = {
-          type: 'linear',
-          display: true,
-          position: 'right',
+      // Add Y axes
+      if (yAxes.length > 0) {
+        yAxes.forEach(axis => {
+          scales[axis.id] = {
+            type: 'linear' as const,
+            display: true,
+            position: axis.position,
+            title: {
+              display: !!axis.title,
+              text: axis.title
+            },
+            min: axis.min,
+            max: axis.max,
+            grid: {
+              drawOnChartArea: axis.id === 'y', // Only draw grid for primary axis
+            },
+          };
+        });
+      } else {
+        // Default Y axis
+        scales.y = {
           title: {
             display: true,
-            text: series[1]?.label || 'Value 2'
-          },
-          grid: {
-            drawOnChartArea: false,
-          },
+            text: 'Values'
+          }
         };
       }
 
-      const chartConfig = {
-        type: 'bar' as const,
+      const chartConfig: any = {
+        type: 'line', // Mixed charts use 'line' as base type
         data: {
           labels,
           datasets
@@ -108,6 +165,10 @@ export const ChartJSMixedChart: React.FC<ChartProps> = ({
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false,
+          },
           scales,
           plugins: {
             title: {
@@ -115,46 +176,206 @@ export const ChartJSMixedChart: React.FC<ChartProps> = ({
               text: config.title
             },
             legend: {
-              display: true
+              display: true,
+              position: 'top'
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: function(context: any) {
+                  const datasetLabel = context.dataset.label || '';
+                  const value = context.parsed.y;
+                  const seriesConfig = series[context.datasetIndex];
+                  return `${datasetLabel}: ${value} (${seriesConfig.type})`;
+                }
+              }
             }
           },
           onClick: (event: any, elements: any[]) => {
-            if (elements.length > 0) {
+            if (elements.length > 0 && onInteraction) {
               const element = elements[0];
               const datasetIndex = element.datasetIndex;
               const index = element.index;
               
-              onInteraction?.({
+              const clickedData = {
+                datasetIndex,
+                index,
+                label: labels[index],
+                value: datasets[datasetIndex].data[index],
+                dataset: datasets[datasetIndex].label,
+                chartType: datasets[datasetIndex].type
+              };
+
+              onInteraction({
                 type: 'click',
-                data: {
-                  label: labels[index],
-                  value: datasets[datasetIndex].data[index],
-                  series: datasets[datasetIndex].label
-                },
-                event
+                data: clickedData,
+                dataIndex: index,
+                seriesIndex: datasetIndex
               });
             }
           }
         }
       };
 
+      // Create new chart
       chartInstance.current = new Chart(canvasRef.current, chartConfig);
 
     } catch (error) {
-      console.error('Chart.js Mixed chart error:', error);
-      onError?.(error as Error);
+      console.error('Error creating Chart.js mixed chart:', error);
+      onError?.(error instanceof Error ? error : new Error('Failed to create mixed chart'));
     }
+  }, [data, config, width, height, onInteraction, onError]);
 
+  // Cleanup on unmount
+  useEffect(() => {
     return () => {
       if (chartInstance.current) {
         chartInstance.current.destroy();
       }
     };
-  }, [data, config, width, height]);
+  }, []);
 
   return (
-    <div style={{ width, height }}>
-      <canvas ref={canvasRef} />
+    <div style={{ width, height, position: 'relative' }}>
+      <canvas
+        ref={canvasRef}
+        style={{
+          width: '100%',
+          height: '100%'
+        }}
+      />
     </div>
   );
 };
+
+// Chart plugin configuration
+export const ChartJSMixedConfig = {
+  name: 'chartjs-mixed',
+  displayName: 'Mixed Chart (Chart.js)',
+  category: 'advanced' as const,
+  library: 'chartjs' as const,
+  version: '1.0.0',
+  description: 'A combination chart that can display multiple series with different chart types (line, bar) on the same canvas',
+  tags: ['mixed', 'combination', 'line', 'bar', 'multi-axis'],
+  
+  configSchema: {
+    type: 'object' as const,
+    properties: {
+      title: {
+        type: 'string' as const,
+        title: 'Chart Title',
+        description: 'The main title for the chart'
+      },
+      xField: {
+        type: 'string' as const,
+        title: 'X-Axis Field',
+        description: 'Field to use for x-axis categories',
+        required: true
+      },
+      series: {
+        type: 'array' as const,
+        title: 'Data Series',
+        description: 'Configuration for each data series',
+        required: true,
+        items: {
+          type: 'object',
+          properties: {
+            field: {
+              type: 'string',
+              title: 'Data Field',
+              required: true
+            },
+            type: {
+              type: 'select',
+              title: 'Chart Type',
+              options: [
+                { label: 'Line', value: 'line' },
+                { label: 'Bar', value: 'bar' }
+              ],
+              default: 'line',
+              required: true
+            },
+            label: {
+              type: 'string',
+              title: 'Series Label',
+              required: true
+            },
+            color: {
+              type: 'color',
+              title: 'Color'
+            },
+            yAxisID: {
+              type: 'string',
+              title: 'Y-Axis ID',
+              description: 'Which Y-axis to use (y, y1, y2, etc.)'
+            }
+          }
+        }
+      },
+      yAxes: {
+        type: 'array' as const,
+        title: 'Y-Axes Configuration',
+        description: 'Configuration for multiple Y-axes',
+        items: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              title: 'Axis ID',
+              required: true
+            },
+            position: {
+              type: 'select',
+              title: 'Position',
+              options: [
+                { label: 'Left', value: 'left' },
+                { label: 'Right', value: 'right' }
+              ],
+              default: 'left'
+            },
+            title: {
+              type: 'string',
+              title: 'Axis Title'
+            },
+            min: {
+              type: 'number',
+              title: 'Minimum Value'
+            },
+            max: {
+              type: 'number',
+              title: 'Maximum Value'
+            }
+          }
+        }
+      }
+    },
+    required: ['xField', 'series']
+  },
+  
+  dataRequirements: {
+    minColumns: 2,
+    maxColumns: undefined,
+    requiredFields: ['xField'],
+    optionalFields: [],
+    supportedTypes: ['string', 'number', 'date'],
+    aggregationSupport: true,
+    pivotSupport: true
+  },
+  
+  exportFormats: ['png', 'jpg', 'svg'],
+  
+  interactionSupport: {
+    zoom: true,
+    pan: true,
+    selection: true,
+    brush: false,
+    drilldown: true,
+    tooltip: true,
+    crossFilter: true
+  },
+  
+  component: ChartJSMixedChart
+};
+
+export default ChartJSMixedChart;

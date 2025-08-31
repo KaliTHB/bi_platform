@@ -1,64 +1,170 @@
-// api-services/src/middleware/authentication.ts
-import { Request, Response, NextFunction } from 'express';
+// File: api-services/src/middleware/authentication.ts
+import { Request, Response, NextFunction, RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
-import { DatabaseConfig } from '../config/database';
-import { CacheService } from '../config/redis';
+import { db } from '../config/database';
+import { cache } from '../config/redis';
 import { logger } from '../utils/logger';
 import { User } from '../types/auth.types';
 
-interface AuthenticatedRequest extends Request {
-  user?: User;
+export interface AuthenticatedRequest extends Request {
+  user: {
+    id: string;
+    username: string;
+    email: string;
+    workspace_id: string;
+    workspace_slug: string;
+    role_id: string;
+    role_name: string;
+    permissions: string[];
+  };
+}
+
+export interface WorkspaceRequest extends Request {
+  user: {
+    id: string;
+    username: string;
+    email: string;
+    workspace_id: string;
+    workspace_slug: string;
+    role_id: string;
+    role_name: string;
+    permissions: string[];
+  };
+  workspace?: any;
 }
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 
-export const authenticate = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+export const authenticate: RequestHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No token provided' });
+      res.status(401).json({ 
+        success: false,
+        error: { code: 'NO_TOKEN', message: 'No token provided' } 
+      });
+      return;
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET) as any;
-
-    // Check if token is blacklisted
-    const isBlacklisted = await CacheService.exists(`blacklist:${token}`);
-    if (isBlacklisted) {
-      return res.status(401).json({ error: 'Token has been revoked' });
-    }
-
-    // Try to get user from cache first
-    let user = await CacheService.get(`user:${decoded.userId}`);
     
-    if (!user) {
-      // Get user from database
-      const result = await DatabaseConfig.query(
-        `SELECT u.*, array_agg(DISTINCT uw.workspace_id) as workspace_ids
-         FROM users u
-         LEFT JOIN user_workspaces uw ON u.id = uw.user_id
-         WHERE u.id = $1 AND u.is_active = true
-         GROUP BY u.id`,
-        [decoded.userId]
-      );
-
-      if (result.rows.length === 0) {
-        return res.status(401).json({ error: 'User not found' });
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      
+      // Check if token is blacklisted
+      const isBlacklisted = await cache.exists(`blacklist:${token}`);
+      if (isBlacklisted) {
+        res.status(401).json({ 
+          success: false,
+          error: { code: 'TOKEN_REVOKED', message: 'Token has been revoked' } 
+        });
+        return;
       }
 
-      user = result.rows[0];
+      // Try to get user from cache first
+      let user = await cache.get(`user:${decoded.userId}`);
       
-      // Cache user for 15 minutes
-      await CacheService.set(`user:${decoded.userId}`, user, 900);
-    }
+      if (!user) {
+        // Get user from database
+        const result = await db.query(
+          `SELECT u.*, 
+                  w.id as workspace_id,
+                  w.slug as workspace_slug,
+                  r.id as role_id,
+                  r.name as role_name,
+                  array_agg(DISTINCT p.name) as permissions
+           FROM users u
+           LEFT JOIN user_workspaces uw ON u.id = uw.user_id
+           LEFT JOIN workspaces w ON uw.workspace_id = w.id
+           LEFT JOIN user_workspace_roles uwr ON u.id = uwr.user_id AND w.id = uwr.workspace_id
+           LEFT JOIN roles r ON uwr.role_id = r.id
+           LEFT JOIN role_permissions rp ON r.id = rp.role_id
+           LEFT JOIN permissions p ON rp.permission_id = p.id
+           WHERE u.id = $1 AND u.is_active = true
+           GROUP BY u.id, w.id, w.slug, r.id, r.name`,
+          [decoded.userId]
+        );
 
-    req.user = user;
-    next();
+        if (result.rows.length === 0) {
+          res.status(401).json({ 
+            success: false,
+            error: { code: 'USER_NOT_FOUND', message: 'User not found' } 
+          });
+          return;
+        }
+
+        user = result.rows[0];
+        
+        // Cache user for 15 minutes
+        await cache.set(`user:${decoded.userId}`, user, 900);
+      }
+
+      (req as AuthenticatedRequest).user = user;
+      next();
+    } catch (jwtError) {
+      res.status(401).json({ 
+        success: false,
+        error: { code: 'INVALID_TOKEN', message: 'Invalid token' } 
+      });
+      return;
+    }
   } catch (error) {
     logger.error('Authentication error:', error);
-    return res.status(401).json({ error: 'Invalid token' });
+    res.status(500).json({ 
+      success: false,
+      error: { code: 'AUTH_ERROR', message: 'Authentication error' } 
+    });
+    return;
   }
+};
+
+export const requirePermission = (permission: string): RequestHandler => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const authReq = req as AuthenticatedRequest;
+    
+    if (!authReq.user) {
+      res.status(401).json({
+        success: false,
+        error: { code: 'AUTHENTICATION_REQUIRED', message: 'Authentication required' }
+      });
+      return;
+    }
+
+    // Check if user has the required permission or wildcard permission
+    if (!authReq.user.permissions.includes(permission) && !authReq.user.permissions.includes('*')) {
+      res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_PERMISSIONS', message: `Permission '${permission}' required` }
+      });
+      return;
+    }
+
+    next();
+  };
+};
+
+export const requireRole = (roles: string[]): RequestHandler => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const authReq = req as AuthenticatedRequest;
+    
+    if (!authReq.user) {
+      res.status(401).json({
+        success: false,
+        error: { code: 'AUTHENTICATION_REQUIRED', message: 'Authentication required' }
+      });
+      return;
+    }
+
+    if (!roles.includes(authReq.user.role_name)) {
+      res.status(403).json({
+        success: false,
+        error: { code: 'INSUFFICIENT_ROLE', message: 'Insufficient role permissions' }
+      });
+      return;
+    }
+
+    next();
+  };
 };
 
 export const generateToken = (user: User): string => {
@@ -66,10 +172,10 @@ export const generateToken = (user: User): string => {
     { 
       userId: user.id,
       email: user.email,
-      role: user.role
+      workspaceId: user.workspace_id
     },
     JWT_SECRET,
-    { expiresIn: JWT_EXPIRES_IN }
+    { expiresIn: '24h' }
   );
 };
 
@@ -79,68 +185,10 @@ export const blacklistToken = async (token: string): Promise<void> => {
     if (decoded && decoded.exp) {
       const ttl = decoded.exp - Math.floor(Date.now() / 1000);
       if (ttl > 0) {
-        await CacheService.set(`blacklist:${token}`, true, ttl);
+        await cache.set(`blacklist:${token}`, '1', ttl);
       }
     }
   } catch (error) {
     logger.error('Error blacklisting token:', error);
   }
-};
-
-export const requirePermission = (permission: string) => {
-  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    try {
-      if (!req.user) {
-        return res.status(401).json({ error: 'User not authenticated' });
-      }
-
-      // Super admin has all permissions
-      if (req.user.role === 'SUPER_ADMIN') {
-        return next();
-      }
-
-      const workspaceId = req.params.workspaceId || req.body.workspaceId || req.query.workspaceId;
-      if (!workspaceId) {
-        return res.status(400).json({ error: 'Workspace ID required' });
-      }
-
-      // Check user permissions in workspace
-      const result = await DatabaseConfig.query(
-        `SELECT p.name 
-         FROM permissions p
-         JOIN role_permissions rp ON p.id = rp.permission_id
-         JOIN user_workspace_roles uwr ON rp.role_id = uwr.role_id
-         WHERE uwr.user_id = $1 AND uwr.workspace_id = $2 AND p.name = $3`,
-        [req.user.id, workspaceId, permission]
-      );
-
-      if (result.rows.length === 0) {
-        return res.status(403).json({ error: 'Insufficient permissions' });
-      }
-
-      next();
-    } catch (error) {
-      logger.error('Permission check error:', error);
-      return res.status(500).json({ error: 'Permission check failed' });
-    }
-  };
-};
-
-export const requireRole = (roles: string[]) => {
-  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    try {
-      if (!req.user) {
-        return res.status(401).json({ error: 'User not authenticated' });
-      }
-
-      if (roles.includes(req.user.role)) {
-        return next();
-      }
-
-      return res.status(403).json({ error: 'Insufficient role' });
-    } catch (error) {
-      logger.error('Role check error:', error);
-      return res.status(500).json({ error: 'Role check failed' });
-    }
-  };
 };

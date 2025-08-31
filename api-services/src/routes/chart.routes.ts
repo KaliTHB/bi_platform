@@ -1,13 +1,13 @@
 // api-services/src/routes/chart.routes.ts
 import express from 'express';
-import { DatabaseConfig } from '../config/database';
-import { logger, logAudit } from '../utils/logger';
-import { asyncHandler } from '../middleware/errorHandler';
-import { authenticate, AuthenticatedRequest } from '../middleware/authentication';
-import { requireWorkspaceRole } from '../middleware/workspace';
-import { validateRequest } from '../middleware/validation';
-import { ChartRenderer } from '../services/ChartRenderer';
-import { PluginManager } from '../services/PluginManager';
+import { DatabaseConfig } from '@/config/database';
+import { logger, logAudit } from '@/utils/logger';
+import { asyncHandler } from '@/middleware/errorHandler';
+import { authenticate, AuthenticatedRequest } from '@/middleware/authentication';
+import { requireWorkspaceRole } from '@/middleware/workspace';
+import { validateRequest } from '@/middleware/validation';
+import { ChartRenderer } from '@/services/ChartRenderer';
+import { PluginManager } from '@/services/PluginManager';
 
 const router = express.Router();
 
@@ -210,7 +210,7 @@ router.post('/',
     );
 
     // Log audit event
-    logAudit('CHART_CREATE', userId, workspaceId, {
+    logAudit('CHART_CREATE', 'chart', userId, workspaceId, {
       chart_id: result.rows[0].id,
       chart_name: result.rows[0].name,
       chart_type: result.rows[0].type,
@@ -287,7 +287,7 @@ router.put('/:chartId',
     );
 
     // Log audit event
-    logAudit('CHART_UPDATE', userId, workspaceId, {
+    logAudit('CHART_UPDATE','chart', userId, workspaceId, {
       chart_id: chartId,
       chart_name: result.rows[0].name,
       changes: { name, type, config: !!config, position: !!position }
@@ -329,7 +329,7 @@ router.delete('/:chartId',
     );
 
     // Log audit event
-    logAudit('CHART_DELETE', userId, workspaceId, {
+    logAudit('CHART_DELETE','chart', userId, workspaceId, {
       chart_id: chartId,
       chart_name: existingResult.rows[0].name
     });
@@ -378,7 +378,7 @@ router.post('/:chartId/export',
       const exportData = await ChartRenderer.exportChart(chartId, workspaceId, format);
 
       // Log audit event
-      logAudit('CHART_EXPORT', userId, workspaceId, {
+      logAudit('CHART_EXPORT','chart', userId, workspaceId, {
         chart_id: chartId,
         export_format: format
       });
@@ -465,7 +465,7 @@ router.post('/:chartId/duplicate',
     );
 
     // Log audit event
-    logAudit('CHART_DUPLICATE', userId, workspaceId, {
+    logAudit('CHART_DUPLICATE','chart', userId, workspaceId, {
       original_chart_id: chartId,
       new_chart_id: result.rows[0].id,
       chart_name: newName

@@ -1,43 +1,122 @@
-
 // File: api-services/src/utils/logger.ts
 import winston from 'winston';
 import path from 'path';
 
-const logFormat = winston.format.combine(
-  winston.format.timestamp({
-    format: 'YYYY-MM-DD HH:mm:ss'
-  }),
-  winston.format.errors({ stack: true }),
-  winston.format.printf(({ timestamp, level, message, stack }) => {
-    return `${timestamp} [${level.toUpperCase()}]: ${stack || message}`;
-  })
-);
+const logLevel = process.env.LOG_LEVEL || 'info';
+const logDir = process.env.LOG_DIR || 'logs';
 
-export const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: logFormat,
+// Create logger instance
+const logger = winston.createLogger({
+  level: logLevel,
+  format: winston.format.combine(
+    winston.format.timestamp({
+      format: 'YYYY-MM-DD HH:mm:ss'
+    }),
+    winston.format.errors({ stack: true }),
+    winston.format.json(),
+    winston.format.printf(({ timestamp, level, message, ...meta }) => {
+      return JSON.stringify({
+        timestamp,
+        level,
+        message,
+        ...meta
+      });
+    })
+  ),
+  defaultMeta: { service: 'bi-platform-api' },
   transports: [
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        logFormat
-      )
+    // Write to all logs with level `info` and below to `combined.log`
+    new winston.transports.File({ 
+      filename: path.join(logDir, 'error.log'), 
+      level: 'error' 
     }),
-    new winston.transports.File({
-      filename: path.join(process.cwd(), 'logs', 'error.log'),
-      level: 'error',
-      maxsize: 5242880, // 5MB
-      maxFiles: 5,
+    new winston.transports.File({ 
+      filename: path.join(logDir, 'combined.log') 
     }),
-    new winston.transports.File({
-      filename: path.join(process.cwd(), 'logs', 'combined.log'),
-      maxsize: 5242880, // 5MB
-      maxFiles: 10,
-    })
   ],
-  exceptionHandlers: [
-    new winston.transports.File({
-      filename: path.join(process.cwd(), 'logs', 'exceptions.log')
-    })
-  ]
 });
+
+// If we're not in production, log to the console with simple format
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({
+    format: winston.format.combine(
+      winston.format.colorize(),
+      winston.format.simple(),
+      winston.format.printf(({ timestamp, level, message, ...meta }) => {
+        const metaString = Object.keys(meta).length ? JSON.stringify(meta, null, 2) : '';
+        return `${timestamp} [${level}]: ${message} ${metaString}`;
+      })
+    )
+  }));
+}
+
+// Audit logging function
+export const logAudit = (action: string, resourceType: string, resourceId: string, userId: string, details?: any) => {
+  logger.info('AUDIT_LOG', {
+    action,
+    resource_type: resourceType,
+    resource_id: resourceId,
+    user_id: userId,
+    details,
+    timestamp: new Date().toISOString()
+  });
+};
+
+// Performance logging function
+export const logPerformance = (operation: string, duration: number, details?: any) => {
+  logger.info('PERFORMANCE_LOG', {
+    operation,
+    duration,
+    details,
+    timestamp: new Date().toISOString()
+  });
+};
+
+// Security event logging
+export const logSecurity = (event: string, severity: 'low' | 'medium' | 'high' | 'critical', details?: any) => {
+  logger.warn('SECURITY_EVENT', {
+    event,
+    severity,
+    details,
+    timestamp: new Date().toISOString()
+  });
+};
+
+// Error logging with context
+export const logError = (error: Error | string, context?: any) => {
+  if (error instanceof Error) {
+    logger.error(error.message, {
+      stack: error.stack,
+      context,
+      timestamp: new Date().toISOString()
+    });
+  } else {
+    logger.error(error, {
+      context,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+// API request logging middleware
+export const logRequest = (req: any, res: any, next: any) => {
+  const start = Date.now();
+  
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    logger.info('HTTP_REQUEST', {
+      method: req.method,
+      url: req.url,
+      status: res.statusCode,
+      duration,
+      user_agent: req.get('User-Agent'),
+      ip: req.ip,
+      user_id: req.user?.id
+    });
+  });
+  
+  next();
+};
+
+export { logger };
+export default logger;

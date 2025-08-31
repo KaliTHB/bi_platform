@@ -1,4 +1,4 @@
-// File: web-application/src/types/auth.types.ts
+// File: src/types/auth.types.ts
 
 export interface User {
   id: string;
@@ -13,6 +13,18 @@ export interface User {
   last_login?: string;
   created_at: string;
   updated_at: string;
+  
+  // RLS-related fields for Row Level Security policies
+  department?: string;
+  region?: string;
+  level?: string;
+  location?: string;
+  team?: string;
+  cost_center?: string;
+  manager_id?: string;
+  
+  // Generic profile data for extensibility
+  profile_data?: Record<string, any>;
 }
 
 export interface Workspace {

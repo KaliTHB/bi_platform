@@ -1,4 +1,4 @@
-// File: web-application/src/hooks/useWebSocket.ts
+// File: src/hooks/useWebSocket.ts
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSelector } from 'react-redux';
@@ -42,7 +42,13 @@ export type WebSocketEventType =
   | 'category_updated'
   | 'plugin_status_changed'
   | 'audit_event'
-  | 'custom';
+  | 'custom'
+  // System/heartbeat messages
+  | 'ping'
+  | 'pong'
+  | 'join_channel'
+  | 'leave_channel'
+  | 'error';
 
 export interface WebSocketConfig {
   url?: string;
@@ -113,26 +119,10 @@ const DEFAULT_CONFIG: Required<WebSocketConfig> = {
 // ============================================================================
 
 export const useWebSocket = (config: WebSocketConfig = {}): UseWebSocketResult => {
-  // ============================================================================
-  // Configuration
-  // ============================================================================
-  
-  const finalConfig = useMemo(() => ({
-    ...DEFAULT_CONFIG,
-    ...config
-  }), [config]);
+  // Merge with default config
+  const finalConfig = useMemo(() => ({ ...DEFAULT_CONFIG, ...config }), [config]);
 
-  // ============================================================================
-  // Redux State
-  // ============================================================================
-  
-  const auth = useSelector((state: RootState) => state.auth);
-  const { currentWorkspace } = useSelector((state: RootState) => state.workspace);
-
-  // ============================================================================
-  // Local State
-  // ============================================================================
-  
+  // State management
   const [status, setStatus] = useState<WebSocketStatus>('disconnected');
   const [lastError, setLastError] = useState<string | null>(null);
   const [connectionAttempts, setConnectionAttempts] = useState(0);
@@ -140,45 +130,47 @@ export const useWebSocket = (config: WebSocketConfig = {}): UseWebSocketResult =
   const [messagesSent, setMessagesSent] = useState(0);
   const [uptime, setUptime] = useState(0);
 
-  // ============================================================================
-  // Refs for Managing Connection State
-  // ============================================================================
-  
+  // Redux selectors
+  const auth = useSelector((state: RootState) => state.auth);
+  const currentWorkspace = useSelector((state: RootState) => state.workspace.currentWorkspace);
+
+  // Refs for persistent data
   const wsRef = useRef<WebSocket | null>(null);
   const subscriptionsRef = useRef<Map<string, WebSocketSubscription>>(new Map());
   const activeChannelsRef = useRef<Set<string>>(new Set());
+  const messageQueueRef = useRef<WebSocketMessage[]>([]);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const connectTimeRef = useRef<number | null>(null);
   const uptimeIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const messageQueueRef = useRef<WebSocketMessage[]>([]);
+  const connectionStartTimeRef = useRef<number>(0);
 
   // ============================================================================
-  // Helper Functions
+  // Utility Functions
   // ============================================================================
 
   const log = useCallback((message: string, data?: any) => {
     if (finalConfig.enableLogging) {
-      console.log(`[WebSocket] ${message}`, data || '');
+      console.log(`[WebSocket] ${message}`, data ? data : '');
     }
   }, [finalConfig.enableLogging]);
-
-  const getAuthHeaders = useCallback(() => {
-    if (!finalConfig.enableAuthentication) return {};
-    
-    const token = auth.token || localStorage.getItem('authToken');
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  }, [auth.token, finalConfig.enableAuthentication]);
-
-  const buildWebSocketUrl = useCallback(() => {
-    const baseUrl = finalConfig.url.replace(/^http/, 'ws');
-    const workspaceParam = currentWorkspace?.id ? `?workspace=${currentWorkspace.id}` : '';
-    return `${baseUrl}/ws${workspaceParam}`;
-  }, [finalConfig.url, currentWorkspace?.id]);
 
   const generateSubscriptionId = useCallback(() => {
     return `sub_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }, []);
+
+  const buildWebSocketUrl = useCallback((baseUrl: string): string => {
+    const url = new URL(baseUrl);
+    
+    if (finalConfig.enableAuthentication && auth.token) {
+      url.searchParams.set('token', auth.token);
+    }
+    
+    if (currentWorkspace?.id) {
+      url.searchParams.set('workspace', currentWorkspace.id);
+    }
+    
+    return url.toString();
+  }, [finalConfig.enableAuthentication, auth.token, currentWorkspace?.id]);
 
   // ============================================================================
   // Connection Management
@@ -187,18 +179,15 @@ export const useWebSocket = (config: WebSocketConfig = {}): UseWebSocketResult =
   const startHeartbeat = useCallback(() => {
     if (!finalConfig.enableHeartbeat) return;
 
-    const sendHeartbeat = () => {
+    stopHeartbeat();
+    heartbeatTimeoutRef.current = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({
-          type: 'heartbeat',
-          payload: { timestamp: Date.now() },
+          type: 'ping',
           timestamp: Date.now()
         }));
       }
-    };
-
-    sendHeartbeat();
-    heartbeatTimeoutRef.current = setInterval(sendHeartbeat, finalConfig.heartbeatInterval);
+    }, finalConfig.heartbeatInterval);
   }, [finalConfig.enableHeartbeat, finalConfig.heartbeatInterval]);
 
   const stopHeartbeat = useCallback(() => {
@@ -209,11 +198,9 @@ export const useWebSocket = (config: WebSocketConfig = {}): UseWebSocketResult =
   }, []);
 
   const startUptimeTracking = useCallback(() => {
-    connectTimeRef.current = Date.now();
+    connectionStartTimeRef.current = Date.now();
     uptimeIntervalRef.current = setInterval(() => {
-      if (connectTimeRef.current) {
-        setUptime(Math.floor((Date.now() - connectTimeRef.current) / 1000));
-      }
+      setUptime(Date.now() - connectionStartTimeRef.current);
     }, 1000);
   }, []);
 
@@ -222,78 +209,100 @@ export const useWebSocket = (config: WebSocketConfig = {}): UseWebSocketResult =
       clearInterval(uptimeIntervalRef.current);
       uptimeIntervalRef.current = null;
     }
-    connectTimeRef.current = null;
     setUptime(0);
   }, []);
 
   const processMessageQueue = useCallback(() => {
-    while (messageQueueRef.current.length > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+    while (messageQueueRef.current.length > 0) {
       const message = messageQueueRef.current.shift();
-      if (message) {
+      if (message && wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify(message));
         setMessagesSent(prev => prev + 1);
+        log('Queued message sent', message);
       }
     }
-  }, []);
+  }, [log]);
 
   const handleMessage = useCallback((event: MessageEvent) => {
     try {
       const message: WebSocketEvent = JSON.parse(event.data);
       setMessagesReceived(prev => prev + 1);
       
-      log('Message received:', message);
+      // Handle system messages
+      if (message.type === 'pong') {
+        // Heartbeat response - no action needed
+        return;
+      }
 
-      // Notify all relevant subscriptions
+      // Process subscriptions
       subscriptionsRef.current.forEach((subscription) => {
-        try {
-          // Check if message matches subscription filter
-          if (subscription.filter && !subscription.filter(message)) {
-            return;
+        // Check if message is for this channel (simple channel matching)
+        const messageChannel = message.data?.channel || 'global';
+        if (subscription.channel === messageChannel || subscription.channel === 'global') {
+          // Apply filter if provided
+          if (!subscription.filter || subscription.filter(message)) {
+            try {
+              subscription.callback(message);
+            } catch (error) {
+              console.error('[WebSocket] Error in subscription callback:', error);
+            }
           }
-
-          // Call subscription callback
-          subscription.callback(message);
-        } catch (error) {
-          console.error(`[WebSocket] Error in subscription callback:`, error);
         }
       });
+
+      log('Message received', message);
     } catch (error) {
-      console.error('[WebSocket] Failed to parse message:', event.data, error);
+      console.error('[WebSocket] Failed to parse message:', error);
+      log('Invalid message received', event.data);
     }
   }, [log]);
+
+  const scheduleReconnect = useCallback(() => {
+    if (connectionAttempts >= finalConfig.reconnectAttempts) {
+      log('Max reconnection attempts reached');
+      setStatus('error');
+      setLastError('Max reconnection attempts reached');
+      return;
+    }
+
+    const delay = Math.min(
+      finalConfig.reconnectInterval * Math.pow(finalConfig.reconnectMultiplier, connectionAttempts),
+      finalConfig.maxReconnectInterval
+    );
+
+    log(`Scheduling reconnection in ${delay}ms (attempt ${connectionAttempts + 1}/${finalConfig.reconnectAttempts})`);
+
+    reconnectTimeoutRef.current = setTimeout(() => {
+      setConnectionAttempts(prev => prev + 1);
+      connect();
+    }, delay);
+  }, [connectionAttempts, finalConfig, log]);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.CONNECTING || 
         wsRef.current?.readyState === WebSocket.OPEN) {
+      log('WebSocket already connecting or connected');
       return;
     }
 
     try {
+      const url = buildWebSocketUrl(finalConfig.url);
+      log('Connecting to WebSocket', { url: finalConfig.url, attempts: connectionAttempts });
+      
       setStatus('connecting');
       setLastError(null);
-      log('Connecting to WebSocket...', { url: buildWebSocketUrl() });
 
-      const ws = new WebSocket(buildWebSocketUrl());
-      wsRef.current = ws;
+      wsRef.current = new WebSocket(url);
 
-      ws.onopen = () => {
-        log('WebSocket connected successfully');
+      wsRef.current.onopen = () => {
+        log('WebSocket connected');
         setStatus('connected');
         setConnectionAttempts(0);
         setLastError(null);
-
-        // Send authentication if enabled
-        if (finalConfig.enableAuthentication && auth.token) {
-          ws.send(JSON.stringify({
-            type: 'authenticate',
-            payload: { token: auth.token },
-            timestamp: Date.now()
-          }));
-        }
-
-        // Rejoin all active channels
+        
+        // Re-join active channels
         activeChannelsRef.current.forEach(channel => {
-          ws.send(JSON.stringify({
+          wsRef.current?.send(JSON.stringify({
             type: 'join_channel',
             payload: { channel },
             timestamp: Date.now()
@@ -302,48 +311,33 @@ export const useWebSocket = (config: WebSocketConfig = {}): UseWebSocketResult =
 
         // Process queued messages
         processMessageQueue();
-
+        
         // Start heartbeat and uptime tracking
         startHeartbeat();
         startUptimeTracking();
       };
 
-      ws.onmessage = handleMessage;
+      wsRef.current.onmessage = handleMessage;
 
-      ws.onclose = (event) => {
-        log('WebSocket disconnected', { code: event.code, reason: event.reason });
+      wsRef.current.onerror = (error) => {
+        log('WebSocket error', error);
+        setLastError('Connection error occurred');
+      };
+
+      wsRef.current.onclose = (event) => {
+        log('WebSocket closed', { code: event.code, reason: event.reason });
         setStatus('disconnected');
         stopHeartbeat();
         stopUptimeTracking();
-
-        // Attempt reconnection if not manually closed
+        
         if (event.code !== 1000 && connectionAttempts < finalConfig.reconnectAttempts) {
-          const delay = Math.min(
-            finalConfig.reconnectInterval * Math.pow(finalConfig.reconnectMultiplier, connectionAttempts),
-            finalConfig.maxReconnectInterval
-          );
-
-          log(`Attempting reconnection in ${delay}ms (attempt ${connectionAttempts + 1}/${finalConfig.reconnectAttempts})`);
           setStatus('reconnecting');
-          setConnectionAttempts(prev => prev + 1);
-
-          reconnectTimeoutRef.current = setTimeout(() => {
-            connect();
-          }, delay);
-        } else if (connectionAttempts >= finalConfig.reconnectAttempts) {
-          setLastError('Max reconnection attempts reached');
-          setStatus('error');
+          scheduleReconnect();
         }
       };
 
-      ws.onerror = (error) => {
-        console.error('[WebSocket] Connection error:', error);
-        setLastError('Connection error occurred');
-        setStatus('error');
-      };
-
     } catch (error) {
-      console.error('[WebSocket] Failed to create connection:', error);
+      console.error('[WebSocket] Connection error:', error);
       setStatus('error');
       setLastError(error instanceof Error ? error.message : 'Unknown connection error');
     }
@@ -355,6 +349,7 @@ export const useWebSocket = (config: WebSocketConfig = {}): UseWebSocketResult =
     handleMessage, 
     log, 
     processMessageQueue, 
+    scheduleReconnect,
     startHeartbeat, 
     startUptimeTracking, 
     stopHeartbeat, 
@@ -586,6 +581,10 @@ export const useDashboardWebSocket = (dashboardId: string) => {
       webSocket.joinChannel(`dashboard:${dashboardId}`);
       return () => webSocket.leaveChannel(`dashboard:${dashboardId}`);
     }
+    // FIXED: Return a no-op cleanup function to ensure consistent return behavior
+    return () => {
+      // No cleanup needed when dashboardId is empty
+    };
   }, [dashboardId, webSocket]);
   
   return webSocket;
@@ -602,6 +601,10 @@ export const useWorkspaceWebSocket = (workspaceId: string) => {
       webSocket.joinChannel(`workspace:${workspaceId}`);
       return () => webSocket.leaveChannel(`workspace:${workspaceId}`);
     }
+    // FIXED: Return a no-op cleanup function to ensure consistent return behavior
+    return () => {
+      // No cleanup needed when workspaceId is empty
+    };
   }, [workspaceId, webSocket]);
   
   return webSocket;

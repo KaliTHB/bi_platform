@@ -1,9 +1,29 @@
 // File: api-services/src/plugins/datasources/interfaces.ts
+
+export interface QueryContext {
+  datasource_id: string;
+  user_id: string;
+  workspace_id: string;
+  dataset_id?: string;
+  timeout?: number;
+  cache_ttl?: number;
+  optimize?: boolean;
+}
+
+export interface QueryCost {
+  estimated_execution_time: number;
+  estimated_rows: number;
+  estimated_data_size: number;
+  complexity_score: number;
+  recommendations?: string[];
+}
+
 export interface DataSourcePlugin {
   name: string;
   displayName: string;
   category: 'relational' | 'cloud_databases' | 'storage_services' | 'data_lakes';
   version: string;
+  description?: string; // Added optional description property
   configSchema: ConfigurationSchema;
   
   connect(config: ConnectionConfig): Promise<Connection>;
@@ -15,6 +35,8 @@ export interface DataSourcePlugin {
   // Optional methods
   generateOptimizedQuery?(query: string, context: QueryContext): Promise<string>;
   estimateQueryCost?(query: string, context: QueryContext): Promise<QueryCost>;
+  getTables?(connection: Connection, database?: string): Promise<TableInfo[]>;
+  getColumns?(connection: Connection, table: string): Promise<ColumnInfo[]>;
 }
 
 export interface ConnectionConfig {

@@ -1,4 +1,4 @@
-// File: ./src/types/user.ts
+// File: src/types/user.types.ts
 
 export interface User {
   id: string;
@@ -12,6 +12,18 @@ export interface User {
   last_login?: string;
   created_at: string;
   updated_at: string;
+  
+  // RLS-related fields for Row Level Security policies
+  department?: string;
+  region?: string;
+  level?: string;
+  location?: string;
+  team?: string;
+  cost_center?: string;
+  manager_id?: string;
+  
+  // Generic profile data for extensibility
+  profile_data?: Record<string, any>;
 }
 
 export interface Role {
@@ -45,6 +57,16 @@ export interface CreateUserRequest {
   last_name: string;
   role_ids?: string[];
   is_active?: boolean;
+  
+  // RLS-related fields for user creation
+  department?: string;
+  region?: string;
+  level?: string;
+  location?: string;
+  team?: string;
+  cost_center?: string;
+  manager_id?: string;
+  profile_data?: Record<string, any>;
 }
 
 export interface UpdateUserRequest {
@@ -56,6 +78,16 @@ export interface UpdateUserRequest {
   role_ids?: string[];
   is_active?: boolean;
   password?: string;
+  
+  // RLS-related fields for user updates
+  department?: string;
+  region?: string;
+  level?: string;
+  location?: string;
+  team?: string;
+  cost_center?: string;
+  manager_id?: string;
+  profile_data?: Record<string, any>;
 }
 
 export interface UserRoleAssignment {

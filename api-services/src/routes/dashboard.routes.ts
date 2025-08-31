@@ -222,7 +222,7 @@ router.post('/',
     );
 
     // Log audit event
-    logAudit('DASHBOARD_CREATE', userId, workspaceId, {
+    logAudit('DASHBOARD_CREATE','dashboard', userId, workspaceId, {
       dashboard_id: result.rows[0].id,
       dashboard_name: result.rows[0].name,
       dashboard_slug: result.rows[0].slug
@@ -317,11 +317,12 @@ router.put('/:dashboardId',
     );
 
     // Log audit event
-    logAudit('DASHBOARD_UPDATE', userId, workspaceId, {
+    logAudit('DASHBOARD_UPDATE','dashboard', userId, workspaceId, {
       dashboard_id: dashboardId,
       dashboard_name: result.rows[0].name,
       changes: { name, slug, description, is_public, is_featured }
     });
+
 
     res.json({
       success: true,
@@ -363,11 +364,10 @@ router.delete('/:dashboardId',
       [dashboardId]
     );
 
-    // Log audit event
-    logAudit('DASHBOARD_DELETE', userId, workspaceId, {
+    logAudit('DASHBOARD_DELETE', 'dashboard', dashboardId, userId, {
       dashboard_id: dashboardId,
       dashboard_name: existingResult.rows[0].name
-    });
+    })
 
     res.json({
       success: true,

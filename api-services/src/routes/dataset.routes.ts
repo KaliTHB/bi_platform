@@ -265,7 +265,7 @@ router.post('/',
     }
 
     // Log audit event
-    logAudit('DATASET_CREATE', userId, workspaceId, {
+    logAudit('DATASET_CREATE', 'dataset',userId, workspaceId, {
       dataset_id: result.id,
       dataset_name: result.name,
       dataset_type: result.type
@@ -381,7 +381,7 @@ router.put('/:datasetId',
     }
 
     // Log audit event
-    logAudit('DATASET_UPDATE', userId, workspaceId, {
+    logAudit('DATASET_UPDATE','dataset', userId, workspaceId, {
       dataset_id: datasetId,
       updated_fields: Object.keys(req.body)
     });
@@ -440,7 +440,7 @@ router.delete('/:datasetId',
     }
 
     // Log audit event
-    logAudit('DATASET_DELETE', userId, workspaceId, {
+    logAudit('DATASET_DELETE','dataset', userId, workspaceId, {
       dataset_id: datasetId
     });
 

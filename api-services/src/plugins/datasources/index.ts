@@ -1,79 +1,60 @@
-/ File: api-services/src/plugins/datasources/index.ts
-import { DataSourcePlugin } from '../interfaces/DataSourcePlugin';
+// File: api-services/src/plugins/datasources/index.ts
+import { DataSourceRegistry } from './registry/DataSourceRegistry';
+import { DataSourcePlugin } from './interfaces';
 
-// Relational Database Plugins
-import { postgresPlugin } from './relational/postgres';
-import { mysqlPlugin } from './relational/mysql';
-import { mariadbPlugin } from './relational/mariadb';
-import { mssqlPlugin } from './relational/mssql';
-import { oraclePlugin } from './relational/oracle';
-import { sqlitePlugin } from './relational/sqlite';
-
-// Cloud Database Plugins
-import { mongodbPlugin } from './cloud_databases/mongodb';
-import { bigqueryPlugin } from './cloud_databases/bigquery';
-import { snowflakePlugin } from './cloud_databases/snowflake';
-import { athenaPlugin } from './cloud_databases/athena';
-import { dynamodbPlugin } from './cloud_databases/dynamodb';
-import { cosmosdbPlugin } from './cloud_databases/cosmosdb';
-
-// Storage Service Plugins
-import { s3Plugin } from './storage_services/s3';
-import { azureStoragePlugin } from './storage_services/azure_storage';
-
-// Data Lake Plugins
-import { deltaTableAWSPlugin } from './data_lakes/delta_table_aws';
-import { deltaTableAzurePlugin } from './data_lakes/delta_table_azure';
-import { deltaTableGCPPlugin } from './data_lakes/delta_table_gcp';
-import { icebergPlugin } from './data_lakes/iceberg';
-
-// Complete Data Source Plugin Registry
-export const DataSourcePlugins: Record<string, DataSourcePlugin> = {
-  // Relational Databases
-  postgres: postgresPlugin,
-  mysql: mysqlPlugin,
-  mariadb: mariadbPlugin,
-  mssql: mssqlPlugin,
-  oracle: oraclePlugin,
-  sqlite: sqlitePlugin,
+/**
+ * Main DataSource Plugin API
+ * This is the public interface that other parts of the application should use
+ */
+export const DataSourcePlugins = {
+  // Get plugin by name
+  get: (name: string) => DataSourceRegistry.getPlugin(name),
   
-  // Cloud Databases
-  mongodb: mongodbPlugin,
-  bigquery: bigqueryPlugin,
-  snowflake: snowflakePlugin,
-  athena: athenaPlugin,
-  dynamodb: dynamodbPlugin,
-  cosmosdb: cosmosdbPlugin,
+  // Get all plugins
+  getAll: () => DataSourceRegistry.getAllPlugins(),
   
-  // Storage Services
-  s3: s3Plugin,
-  azure_storage: azureStoragePlugin,
+  // Get plugins by category
+  getByCategory: (category: string) => DataSourceRegistry.getPluginsByCategory(category),
   
-  // Data Lakes
-  delta_table_aws: deltaTableAWSPlugin,
-  delta_table_azure: deltaTableAzurePlugin,
-  delta_table_gcp: deltaTableGCPPlugin,
-  iceberg: icebergPlugin
+  // Get all categories
+  getCategories: () => DataSourceRegistry.getCategories(),
+  
+  // Check if plugin exists
+  has: (name: string) => DataSourceRegistry.hasPlugin(name),
+  
+  // Search plugins
+  search: (searchTerm: string) => DataSourceRegistry.searchPlugins(searchTerm),
+  
+  // Get statistics
+  getStatistics: () => DataSourceRegistry.getStatistics(),
+  
+  // Validate plugin configuration
+  validateConfig: (pluginName: string, config: any) => 
+    DataSourceRegistry.validatePluginConfiguration(pluginName, config),
+
+  // Compatibility methods for existing API
+  getAvailablePlugins: () => DataSourceRegistry.getAllPlugins().map(plugin => ({
+    name: plugin.name,
+    displayName: plugin.displayName,
+    category: plugin.category,
+    version: plugin.version,
+    description: plugin.description
+  })),
+
+  getDataSourcePlugin: (name: string) => DataSourceRegistry.getPlugin(name),
+  
+  getDataSourcePluginsByCategory: (category: string) => DataSourceRegistry.getPluginsByCategory(category),
+  
+  getPluginStatistics: () => DataSourceRegistry.getStatistics()
 };
 
-export const getDataSourcePlugin = (name: string): DataSourcePlugin | null => {
-  return DataSourcePlugins[name] || null;
-};
+// For backward compatibility, also export the individual functions
+export const getDataSourcePlugin = DataSourcePlugins.getDataSourcePlugin;
+export const getAvailableDataSourcePlugins = DataSourcePlugins.getAvailablePlugins;
+export const getDataSourcePluginsByCategory = DataSourcePlugins.getDataSourcePluginsByCategory;
+export const getPluginStatistics = DataSourcePlugins.getPluginStatistics;
 
-export const getAvailableDataSourcePlugins = () => {
-  return Object.keys(DataSourcePlugins).map(key => ({
-    name: key,
-    displayName: DataSourcePlugins[key].displayName,
-    category: DataSourcePlugins[key].category,
-    version: DataSourcePlugins[key].version,
-    configSchema: DataSourcePlugins[key].configSchema
-  }));
-};
-
-export const getDataSourcePluginsByCategory = (category: string) => {
-  return Object.values(DataSourcePlugins).filter(plugin => plugin.category === category);
-};
-
+// Validate plugin interface helper
 export const validatePluginInterface = (plugin: any): plugin is DataSourcePlugin => {
   const requiredMethods = [
     'connect', 'testConnection', 'executeQuery', 
@@ -88,15 +69,8 @@ export const validatePluginInterface = (plugin: any): plugin is DataSourcePlugin
          typeof plugin.configSchema === 'object';
 };
 
-export const getPluginStatistics = () => {
-  const categories = Object.values(DataSourcePlugins).reduce((acc, plugin) => {
-    acc[plugin.category] = (acc[plugin.category] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-  
-  return {
-    total: Object.keys(DataSourcePlugins).length,
-    categories,
-    plugins: Object.keys(DataSourcePlugins)
-  };
-};
+// Export the registry for direct access if needed
+export { DataSourceRegistry };
+
+// Export types
+export * from './interfaces';
