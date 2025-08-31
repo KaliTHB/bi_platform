@@ -1,61 +1,17 @@
 // web-application/src/services/api.ts
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
-import {
-  LoginRequest,
-  LoginResponse,
-  User,
-  Workspace,
-  CreateWorkspaceRequest,
-  UpdateWorkspaceRequest
-} from '@/types/auth.types';
+import { apiClient } from '../utils/apiUtils';
+import type { 
+  LoginRequest, 
+  LoginResponse, 
+  User, 
+  Workspace, 
+  CreateWorkspaceRequest, 
+  UpdateWorkspaceRequest 
+} from '../types';
 
-// API Configuration
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
-
-// Create axios instance
-const apiClient: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 30000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-// Request interceptor to add auth token
-apiClient.interceptors.request.use(
-  (config) => {
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('auth_token');
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
-
-// Response interceptor to handle common errors
-apiClient.interceptors.response.use(
-  (response) => {
-    return response;
-  },
-  (error) => {
-    if (error.response?.status === 401) {
-      // Token expired or invalid
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('auth_token');
-        window.location.href = '/login';
-      }
-    }
-    return Promise.reject(error);
-  }
-);
-
-// Generic API response type
-interface ApiResponse<T = any> {
+// Standard API response interface for consistency
+export interface StandardApiResponse<T = any> {
+  success: boolean;
   data?: T;
   message?: string;
   error?: string;
@@ -80,16 +36,17 @@ export const authAPI = {
     first_name: string;
     last_name: string;
     invitation_token?: string;
-  }): Promise<{ message: string; user: User }> => {
+  }): Promise<{ success: boolean; user: User; message: string }> => {
     const response = await apiClient.post('/auth/register', data);
     return response.data;
   },
 
-  logout: async (): Promise<void> => {
-    await apiClient.post('/auth/logout');
+  logout: async (): Promise<{ success: boolean; message: string }> => {
+    const response = await apiClient.post('/auth/logout');
+    return response.data;
   },
 
-  verifyToken: async (): Promise<{ success: boolean; valid: boolean; user: User }> => {
+  verifyToken: async (): Promise<{ success: boolean; valid: boolean; user: User; message?: string }> => {
     const response = await apiClient.get('/auth/verify');
     return response.data;
   },
@@ -107,12 +64,12 @@ export const authAPI = {
 
 // Workspace API
 export const workspaceAPI = {
-  getWorkspaces: async (): Promise<{ success: boolean; workspaces: Workspace[] }> => {
+  getWorkspaces: async (): Promise<{ success: boolean; workspaces: Workspace[]; message?: string }> => {
     const response = await apiClient.get('/workspaces');
     return response.data;
   },
 
-  getWorkspace: async (workspaceId: string): Promise<{ success: boolean; workspace: Workspace }> => {
+  getWorkspace: async (workspaceId: string): Promise<{ success: boolean; workspace: Workspace; message?: string }> => {
     const response = await apiClient.get(`/workspaces/${workspaceId}`);
     return response.data;
   },
@@ -132,17 +89,17 @@ export const workspaceAPI = {
     return response.data;
   },
 
-  getWorkspaceMembers: async (workspaceId: string): Promise<{ success: boolean; members: any[] }> => {
+  getWorkspaceMembers: async (workspaceId: string): Promise<{ success: boolean; members: any[]; message?: string }> => {
     const response = await apiClient.get(`/workspaces/${workspaceId}/members`);
     return response.data;
   },
 
-  getWorkspaceActivity: async (workspaceId: string, params?: any): Promise<{ success: boolean; activity: any[] }> => {
+  getWorkspaceActivity: async (workspaceId: string, params?: any): Promise<{ success: boolean; activity: any[]; message?: string }> => {
     const response = await apiClient.get(`/workspaces/${workspaceId}/activity`, { params });
     return response.data;
   },
 
-  inviteUser: async (workspaceId: string, userData: any): Promise<{success: boolean;  message: string }> => {
+  inviteUser: async (workspaceId: string, userData: any): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.post(`/workspaces/${workspaceId}/members`, userData);
     return response.data;
   },
@@ -160,14 +117,14 @@ export const workspaceAPI = {
 
 // Dataset API
 export const datasetAPI = {
-  getDatasets: async (workspaceId: string, params?: any): Promise<ApiResponse<{ success: boolean; datasets: any[] }>> => {
+  getDatasets: async (workspaceId: string, params?: any): Promise<{ success: boolean; datasets: any[]; message?: string }> => {
     const response = await apiClient.get(`/datasets`, {
       params: { ...params, workspaceId }
     });
     return response.data;
   },
 
-  getDataset: async (datasetId: string): Promise<{ success: boolean; dataset: any }> => {
+  getDataset: async (datasetId: string): Promise<{ success: boolean; dataset: any; message?: string }> => {
     const response = await apiClient.get(`/datasets/${datasetId}`);
     return response.data;
   },
@@ -194,12 +151,13 @@ export const datasetAPI = {
     total_rows: number;
     execution_time: number;
     cached: boolean;
+    message?: string;
   }> => {
     const response = await apiClient.post(`/datasets/${datasetId}/query`, queryOptions);
     return response.data;
   },
 
-  getDatasetSchema: async (datasetId: string): Promise<{ success: boolean; schema: any }> => {
+  getDatasetSchema: async (datasetId: string): Promise<{ success: boolean; schema: any; message?: string }> => {
     const response = await apiClient.get(`/datasets/${datasetId}/schema`);
     return response.data;
   },
@@ -210,6 +168,7 @@ export const datasetAPI = {
     columns?: Array<{ name: string; type: string }>;
     execution_time?: number;
     error?: string;
+    message?: string;
   }> => {
     const response = await apiClient.post(`/datasets/${datasetId}/test`);
     return response.data;
@@ -218,14 +177,14 @@ export const datasetAPI = {
 
 // Dashboard API
 export const dashboardAPI = {
-  getDashboards: async (workspaceId: string, params?: any): Promise<ApiResponse<{ success: boolean; dashboards: any[] }>> => {
+  getDashboards: async (workspaceId: string, params?: any): Promise<{ success: boolean; dashboards: any[]; message?: string }> => {
     const response = await apiClient.get('/dashboards', {
       params: { ...params, workspaceId }
     });
     return response.data;
   },
 
-  getDashboard: async (dashboardId: string): Promise<{ success: boolean; dashboard: any }> => {
+  getDashboard: async (dashboardId: string): Promise<{ success: boolean; dashboard: any; message?: string }> => {
     const response = await apiClient.get(`/dashboards/${dashboardId}`);
     return response.data;
   },
@@ -240,7 +199,7 @@ export const dashboardAPI = {
     return response.data;
   },
 
-  deleteDashboard: async (dashboardId: string): Promise<{ message: string }> => {
+  deleteDashboard: async (dashboardId: string): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.delete(`/dashboards/${dashboardId}`);
     return response.data;
   },
@@ -250,21 +209,20 @@ export const dashboardAPI = {
     return response.data;
   },
 
-  getDashboardAnalytics: async (dashboardId: string, params?: any): Promise<{ success: boolean; analytics: any }> => {
+  getDashboardAnalytics: async (dashboardId: string, params?: any): Promise<{ success: boolean; analytics: any; message?: string }> => {
     const response = await apiClient.get(`/dashboards/${dashboardId}/analytics`, { params });
     return response.data;
   },
 };
 
 // Chart API
-// Complete chartAPI object for web-application/src/services/api.ts
 export const chartAPI = {
-  getCharts: async (dashboardId: string): Promise<{ success: boolean; charts: any[] }> => {
+  getCharts: async (dashboardId: string): Promise<{ success: boolean; charts: any[]; message?: string }> => {
     const response = await apiClient.get(`/charts?dashboardId=${dashboardId}`);
     return response.data;
   },
 
-  getChart: async (chartId: string): Promise<{ success: boolean; chart: any }> => {
+  getChart: async (chartId: string): Promise<{ success: boolean; chart: any; message?: string }> => {
     const response = await apiClient.get(`/charts/${chartId}`);
     return response.data;
   },
@@ -294,54 +252,59 @@ export const chartAPI = {
     data: any[];
     columns: Array<{ name: string; type: string }>;
     execution_time: number;
+    message?: string;
   }> => {
     const response = await apiClient.post(`/charts/${chartId}/data`, { filters });
     return response.data;
   },
 
-  // ADD THIS MISSING METHOD:
   exportChart: async (chartId: string, options: { format: 'json' | 'csv' | 'excel' | 'png' | 'svg' | 'pdf'; [key: string]: any }): Promise<{ 
+    success: boolean;
     export: { 
       data: string | Blob; 
       filename: string;
       format: string; 
-    } 
+    };
+    message?: string;
   }> => {
     const response = await apiClient.post(`/charts/${chartId}/export`, options);
     
     // For image formats (png, svg) and PDF, the response might be a blob
     if (options.format === 'png' || options.format === 'svg' || options.format === 'pdf') {
-      // If the backend returns raw data for images, wrap it appropriately
       return {
+        success: response.data.success || true,
         export: {
-          data: response.data,
-          filename: `chart_${chartId}.${options.format}`,
+          data: response.data.export?.data || response.data.data,
+          filename: response.data.export?.filename || `chart_${chartId}.${options.format}`,
           format: options.format
-        }
+        },
+        message: response.data.message
       };
     }
     
     // For data formats (json, csv, excel), return the structured response
     return {
+      success: response.data.success || true,
       export: {
-        data: response.data.data.data,
-        filename: response.data.data.filename,
-        format: response.data.data.format
-      }
+        data: response.data.export?.data || response.data.data,
+        filename: response.data.export?.filename || `chart_${chartId}.${options.format}`,
+        format: response.data.export?.format || options.format
+      },
+      message: response.data.message
     };
   },
 };
 
 // User API
 export const userAPI = {
-  getUsers: async (workspaceId: string, params?: any): Promise<ApiResponse<{ success: boolean; users: any[] }>> => {
+  getUsers: async (workspaceId: string, params?: any): Promise<{ success: boolean; users: any[]; message?: string }> => {
     const response = await apiClient.get('/users', {
       params: { ...params, workspaceId }
     });
     return response.data;
   },
 
-  getUser: async (userId: string): Promise<{ success: boolean; user: any }> => {
+  getUser: async (userId: string): Promise<{ success: boolean; user: any; message?: string }> => {
     const response = await apiClient.get(`/users/${userId}`);
     return response.data;
   },
@@ -366,7 +329,7 @@ export const userAPI = {
     return response.data;
   },
 
-  changePassword: async (data: { success: boolean; current_password: string; new_password: string }): Promise<{ message: string }> => {
+  changePassword: async (data: { current_password: string; new_password: string }): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.put('/users/change-password', data);
     return response.data;
   },
@@ -378,104 +341,44 @@ export const pluginAPI = {
     success: boolean; 
     dataSourcePlugins: any[];
     chartPlugins: any[];
+    message?: string;
   }> => {
     const response = await apiClient.get('/plugins');
     return response.data;
   },
 
-  getDataSourcePlugins: async (): Promise<{ success: boolean;  plugins: any[] }> => {
+  getDataSourcePlugins: async (): Promise<{ success: boolean; plugins: any[]; message?: string }> => {
     const response = await apiClient.get('/plugins/data-sources');
     return response.data;
   },
 
-  getChartPlugins: async (): Promise<{ success: boolean; plugins: any[] }> => {
+  getChartPlugins: async (): Promise<{ success: boolean; plugins: any[]; message?: string }> => {
     const response = await apiClient.get('/plugins/charts');
     return response.data;
   },
 
-  testDataSourceConnection: async (data: { type: string; connection_config: any }): Promise<{ success: boolean; error?: string }> => {
-    const response = await apiClient.post('/plugins/data-sources/test', data);
+  testDataSourceConnection: async (data: { type: string; connection_config: any }): Promise<{ success: boolean; connection_valid?: boolean; message?: string; error?: string }> => {
+    const response = await apiClient.post('/plugins/test-connection', data);
     return response.data;
   },
 
-  validateChartConfig: async (data: { chart_type: string; config: any }): Promise<{ valid: boolean; errors: string[] }> => {
-    const response = await apiClient.post('/plugins/charts/validate', data);
-    return response.data;
-  },
-};
-
-// Export API
-export const exportAPI = {
-  exportDashboard: async (dashboardId: string, format: 'pdf' | 'png' | 'jpg'): Promise<Blob> => {
-    const response = await apiClient.get(`/exports/dashboard/${dashboardId}`, {
-      params: { format },
-      responseType: 'blob'
-    });
+  getPluginConfiguration: async (workspaceId: string, pluginType: string, pluginName: string): Promise<{ success: boolean; configuration: any; message?: string }> => {
+    const response = await apiClient.get(`/plugins/configuration/${pluginType}/${pluginName}`, undefined, workspaceId);
     return response.data;
   },
 
-  exportChart: async (chartId: string, format: 'pdf' | 'png' | 'jpg' | 'svg'): Promise<Blob> => {
-    const response = await apiClient.get(`/exports/chart/${chartId}`, {
-      params: { format },
-      responseType: 'blob'
-    });
-    return response.data;
-  },
-
-  exportData: async (datasetId: string, format: 'csv' | 'xlsx', filters?: any): Promise<Blob> => {
-    const response = await apiClient.post(`/exports/data/${datasetId}`, 
-      { filters },
-      {
-        params: { format },
-        responseType: 'blob'
-      }
-    );
+  updatePluginConfiguration: async (workspaceId: string, pluginType: string, pluginName: string, configuration: any): Promise<{ success: boolean; configuration: any; message: string }> => {
+    const response = await apiClient.put(`/plugins/configuration/${pluginType}/${pluginName}`, configuration, undefined, workspaceId);
     return response.data;
   },
 };
 
-// Health API
-export const healthAPI = {
-  getHealth: async (): Promise<any> => {
-    const response = await apiClient.get('/health');
-    return response.data;
-  },
-
-  getDetailedHealth: async (): Promise<any> => {
-    const response = await apiClient.get('/health/detailed');
-    return response.data;
-  },
-
-  getMetrics: async (): Promise<any> => {
-    const response = await apiClient.get('/health/metrics');
-    return response.data;
-  },
+export default {
+  authAPI,
+  workspaceAPI,
+  datasetAPI,
+  dashboardAPI,
+  chartAPI,
+  userAPI,
+  pluginAPI,
 };
-
-
-// Utility functions
-export const downloadFile = (blob: Blob, filename: string): void => {
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  window.URL.revokeObjectURL(url);
-};
-
-export const handleApiError = (error: any): string => {
-  if (error.response?.data?.error) {
-    return error.response.data.error;
-  }
-  if (error.response?.data?.message) {
-    return error.response.data.message;
-  }
-  if (error.message) {
-    return error.message;
-  }
-  return 'An unexpected error occurred';
-};
-
-export default apiClient;

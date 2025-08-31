@@ -225,8 +225,8 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
     try {
       const response = await datasetAPI.getDatasets(currentWorkspace.id);
       
-      if (response.success && response.data?.datasets) {
-        setDatasets(response.data.datasets);
+      if (response.success && response.datasets) {  // Access datasets directly
+        setDatasets(response.datasets);
       } else {
         console.warn('Failed to load datasets:', response.message || 'Unknown error');
         showSnackbar(response.message || 'Failed to load datasets', 'error');
