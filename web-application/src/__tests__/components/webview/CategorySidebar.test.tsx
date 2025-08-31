@@ -2,7 +2,7 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { CategorySidebar } from '../../../components/webview/CategorySidebar';
-import { CategoryWithDashboards, NavigationConfig } from '../../../types/webview.types';
+import { CategoryWithDashboards, NavigationConfig } from '../../../types/index';
 
 const mockCategories: CategoryWithDashboards[] = [
   {

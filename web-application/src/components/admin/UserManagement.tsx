@@ -127,7 +127,7 @@ export const UserManagement: React.FC = () => {
       )
     },
     {
-      id: 'last_login_at',
+      id: 'last_login',
       label: 'Last Login',
       sortable: true,
       format: (last_login) => 

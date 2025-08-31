@@ -373,6 +373,164 @@ export const pluginAPI = {
   },
 };
 
+export const categoryAPI = {
+  getCategories: async (workspaceId: string, params?: {
+    webview_id?: string;
+    include_dashboards?: boolean;
+    include_inactive?: boolean;
+    search?: string;
+  }): Promise<{
+    success: boolean;
+    categories: any[];
+    total_count: number;
+    message?: string;
+  }> => {
+    const queryParams = new URLSearchParams({
+      workspace_id: workspaceId,
+      include_dashboards: 'true',  // Default to true for webview usage
+      include_inactive: 'false'    // Default to false
+    });
+
+    if (params?.webview_id) queryParams.append('webview_id', params.webview_id);
+    if (params?.include_dashboards !== undefined) queryParams.set('include_dashboards', params.include_dashboards.toString());
+    if (params?.include_inactive !== undefined) queryParams.set('include_inactive', params.include_inactive.toString());
+    if (params?.search) queryParams.append('search', params.search);
+
+    const response = await apiClient.get(`/categories?${queryParams.toString()}`);
+    return response.data;
+  },
+
+  getCategory: async (categoryId: string, includeDashboards: boolean = false): Promise<{
+    success: boolean;
+    category: any;
+    message?: string;
+  }> => {
+    const params = includeDashboards ? '?include_dashboards=true' : '';
+    const response = await apiClient.get(`/categories/${categoryId}${params}`);
+    return response.data;
+  },
+
+  createCategory: async (data: {
+    workspace_id: string;
+    name: string;
+    display_name: string;
+    description?: string;
+    icon?: string;
+    color?: string;
+    parent_category_id?: string;
+    sort_order?: number;
+  }): Promise<{
+    success: boolean;
+    category: any;
+    message: string;
+  }> => {
+    const response = await apiClient.post('/categories', data);
+    return response.data;
+  },
+
+  updateCategory: async (categoryId: string, data: {
+    name?: string;
+    display_name?: string;
+    description?: string;
+    icon?: string;
+    color?: string;
+    parent_category_id?: string;
+    sort_order?: number;
+    is_active?: boolean;
+  }): Promise<{
+    success: boolean;
+    category: any;
+    message: string;
+  }> => {
+    const response = await apiClient.put(`/categories/${categoryId}`, data);
+    return response.data;
+  },
+
+  deleteCategory: async (categoryId: string): Promise<{
+    success: boolean;
+    message: string;
+  }> => {
+    const response = await apiClient.delete(`/categories/${categoryId}`);
+    return response.data;
+  },
+
+  reorderCategories: async (workspaceId: string, categoryIds: string[]): Promise<{
+    success: boolean;
+    message: string;
+  }> => {
+    const response = await apiClient.post('/categories/reorder', {
+      workspace_id: workspaceId,
+      category_ids: categoryIds
+    });
+    return response.data;
+  }
+};
+
+// Webview API - Add this section as well
+export const webviewAPI = {
+  getWebviewByName: async (webviewName: string): Promise<{
+    success: boolean;
+    webview_config: any;
+    message?: string;
+  }> => {
+    const response = await apiClient.get(`/webviews/by-name/${webviewName}`);
+    return response.data;
+  },
+
+  getWebviewCategories: async (webviewId: string, searchQuery?: string): Promise<{
+    success: boolean;
+    categories: any[];
+    message?: string;
+  }> => {
+    const params = new URLSearchParams({
+      include_dashboards: 'true',
+      include_inactive: 'false'
+    });
+
+    if (searchQuery) {
+      params.append('search', searchQuery);
+    }
+
+    const response = await apiClient.get(`/webviews/${webviewId}/categories?${params.toString()}`);
+    return response.data;
+  },
+
+  getWebviewStats: async (webviewId: string): Promise<{
+    success: boolean;
+    stats: {
+      total: number;
+      featured: number;
+      totalViews: number;
+    };
+    message?: string;
+  }> => {
+    const response = await apiClient.get(`/webviews/${webviewId}/stats`);
+    return response.data;
+  },
+
+  logWebviewActivity: async (webviewId: string, activity: {
+    event_type: string;
+    category_id?: string;
+    dashboard_id?: string;
+    search_query?: string;
+    navigation_path: string[];
+    device_info: {
+      type: string;
+      screen_resolution: string;
+      browser: string;
+    };
+  }): Promise<{
+    success: boolean;
+    message?: string;
+  }> => {
+    const response = await apiClient.post(`/webviews/${webviewId}/activity`, {
+      ...activity,
+      timestamp: new Date().toISOString()
+    });
+    return response.data;
+  }
+};
+
 export default {
   authAPI,
   workspaceAPI,
@@ -381,4 +539,6 @@ export default {
   chartAPI,
   userAPI,
   pluginAPI,
+  categoryAPI,  // Add this
+  webviewAPI,   // Add this
 };

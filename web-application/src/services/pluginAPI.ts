@@ -1,4 +1,4 @@
-/ File: web-application/src/services/pluginAPI.ts
+// File: web-application/src/services/pluginAPI.ts
 import { apiClient } from '../utils/apiUtils';
 import type { Plugin, PluginConfiguration, ConnectionTestResult } from '../hooks/usePluginConfiguration';
 

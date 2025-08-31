@@ -1,4 +1,4 @@
-// File: ./src/types/index.ts
+// web-application/src/types/index.ts
 
 // User related types
 export type {
@@ -8,7 +8,7 @@ export type {
   CreateUserRequest,
   UpdateUserRequest,
   UserRoleAssignment,
-} from './user';
+} from './user.types';
 
 // Workspace related types
 export type {
@@ -31,11 +31,20 @@ export type {
   TransformationConfig,
   TransformationStep,
   DataSource,
-  Category,
   QueryFilter,
   QueryResult,
   ColumnInfo,
 } from './dashboard.types';
+
+// Category related types
+export type {
+  DashboardCategory,
+  CategoryWithDashboards,
+  CategoryTreeNode,
+  CreateCategoryRequest,
+  UpdateCategoryRequest,
+  CategoryStats,
+} from './category.types';
 
 // Plugin related types
 export type {
@@ -132,21 +141,22 @@ export type {
   FeatureFlag,
 } from './common.types';
 
-// Webview related types
+// Webview related types (includes re-exported category and dashboard types)
 export type {
-  //Webview,
-  WebviewTheme,
   WebviewConfig,
-  //WebviewNavigation,
-  //WebviewCategory,
-  //WebviewLink,
-  //WebviewAnalytics,
+  WebviewTheme,
+  NavigationConfig,
+  BrandingConfig,
+  NavigationState,
+  WebviewAnalyticsEvent,
   //WebviewAccessControl,
-  //WebviewDashboard,
   //WebviewSession,
   //WebviewUsageStats,
   //CreateWebviewRequest,
   //UpdateWebviewRequest,
+  // Re-exported from category.types for convenience
+  //CategoryWithDashboards,
+  //DashboardCategory,
 } from './webview.types';
 
 // API related types

@@ -3,14 +3,12 @@
 
 import React from 'react';
 import { useSelector } from 'react-redux';
-import { RootState } from '@/store/store';
+import { RootState } from '@/store/index';
 import { User, Workspace } from '@/types/auth.types';
 
 interface PermissionGateProps {
   permission?: string;
   permissions?: string[];
-  role?: string;
-  roles?: string[];
   workspaceRole?: string;
   workspaceRoles?: string[];
   minLevel?: number;
@@ -39,14 +37,14 @@ interface PermissionGateProps {
  *   <AdminDashboardActions />
  * </PermissionGate>
  * 
- * // System role check
- * <PermissionGate role="SUPER_ADMIN">
- *   <SystemSettings />
- * </PermissionGate>
- * 
  * // Workspace role check
  * <PermissionGate workspaceRole="admin">
  *   <WorkspaceSettings />
+ * </PermissionGate>
+ * 
+ * // Multiple workspace roles (any one required)
+ * <PermissionGate workspaceRoles={['admin', 'owner']}>
+ *   <AdminFeatures />
  * </PermissionGate>
  * 
  * // Minimum role level
@@ -65,8 +63,6 @@ interface PermissionGateProps {
 export const PermissionGate: React.FC<PermissionGateProps> = ({
   permission,
   permissions,
-  role,
-  roles,
   workspaceRole,
   workspaceRoles,
   minLevel,
@@ -74,25 +70,11 @@ export const PermissionGate: React.FC<PermissionGateProps> = ({
   fallback = null,
   children
 }) => {
-  const { user } = useSelector((state: RootState) => state.auth);
+  const { user, permissions: userPermissions } = useSelector((state: RootState) => state.auth);
   const { currentWorkspace } = useSelector((state: RootState) => state.workspace);
 
   // If user is not authenticated, deny access
   if (!user) {
-    return <>{fallback}</>;
-  }
-
-  // Super admin has access to everything
-  if (user.role === 'SUPER_ADMIN') {
-    return <>{children}</>;
-  }
-
-  // Check system role
-  if (role && user.role !== role) {
-    return <>{fallback}</>;
-  }
-
-  if (roles && !roles.includes(user.role)) {
     return <>{fallback}</>;
   }
 
@@ -101,6 +83,7 @@ export const PermissionGate: React.FC<PermissionGateProps> = ({
     const hasAccess = checkWorkspacePermissions({
       user,
       workspace: currentWorkspace,
+      userPermissions: userPermissions || [],
       permission,
       permissions,
       workspaceRole,
@@ -121,87 +104,41 @@ export const PermissionGate: React.FC<PermissionGateProps> = ({
  * Hook to check permissions programmatically
  */
 export const usePermissions = () => {
-  const { user } = useSelector((state: RootState) => state.auth);
+  const { user, permissions: userPermissions } = useSelector((state: RootState) => state.auth);
   const { currentWorkspace } = useSelector((state: RootState) => state.workspace);
 
   const hasPermission = (permission: string): boolean => {
     if (!user) return false;
-    if (user.role === 'SUPER_ADMIN') return true;
-    if (!currentWorkspace) return false;
-
-    return checkWorkspacePermissions({
-      user,
-      workspace: currentWorkspace,
-      permission
-    });
+    return (userPermissions || []).includes(permission);
   };
 
   const hasAnyPermission = (permissions: string[]): boolean => {
     if (!user) return false;
-    if (user.role === 'SUPER_ADMIN') return true;
-    if (!currentWorkspace) return false;
-
-    return checkWorkspacePermissions({
-      user,
-      workspace: currentWorkspace,
-      permissions,
-      requireAll: false
-    });
+    return permissions.some(permission => (userPermissions || []).includes(permission));
   };
 
   const hasAllPermissions = (permissions: string[]): boolean => {
     if (!user) return false;
-    if (user.role === 'SUPER_ADMIN') return true;
-    if (!currentWorkspace) return false;
-
-    return checkWorkspacePermissions({
-      user,
-      workspace: currentWorkspace,
-      permissions,
-      requireAll: true
-    });
-  };
-
-  const hasRole = (role: string): boolean => {
-    if (!user) return false;
-    return user.role === role;
-  };
-
-  const hasAnyRole = (roles: string[]): boolean => {
-    if (!user) return false;
-    return roles.includes(user.role);
+    return permissions.every(permission => (userPermissions || []).includes(permission));
   };
 
   const hasWorkspaceRole = (roleName: string): boolean => {
     if (!user) return false;
-    if (user.role === 'SUPER_ADMIN') return true;
     if (!currentWorkspace) return false;
 
-    return checkWorkspacePermissions({
-      user,
-      workspace: currentWorkspace,
-      workspaceRole: roleName
-    });
+    return checkRoleByPermissions(userPermissions || [], roleName);
   };
 
   const hasAnyWorkspaceRole = (roleNames: string[]): boolean => {
     if (!user) return false;
-    if (user.role === 'SUPER_ADMIN') return true;
     if (!currentWorkspace) return false;
 
-    return checkWorkspacePermissions({
-      user,
-      workspace: currentWorkspace,
-      workspaceRoles: roleNames
-    });
+    return roleNames.some(role => checkRoleByPermissions(userPermissions || [], role));
   };
 
   const getHighestRoleLevel = (): number => {
     if (!user) return 0;
-    if (user.role === 'SUPER_ADMIN') return 100;
-    if (!currentWorkspace) return 0;
-
-    return currentWorkspace.highest_role_level || 0;
+    return getRoleLevelByPermissions(userPermissions || []);
   };
 
   const hasMinLevel = (level: number): boolean => {
@@ -209,32 +146,41 @@ export const usePermissions = () => {
   };
 
   const getUserRoles = (): string[] => {
-    if (!currentWorkspace || !currentWorkspace.user_roles) return [];
-    return currentWorkspace.user_roles.map(r => r.role_name);
+    // Extract roles from permissions (simplified approach)
+    if (!userPermissions) return [];
+    
+    const roles: string[] = [];
+    if (hasAllPermissions(['workspace.admin', 'user.admin', 'role.admin'])) roles.push('owner');
+    else if (hasAnyPermission(['workspace.admin', 'user.create', 'role.create'])) roles.push('admin');
+    else if (hasAllPermissions(['dashboard.write', 'dataset.write'])) roles.push('editor');
+    else if (hasAnyPermission(['dashboard.write', 'dataset.query'])) roles.push('analyst');
+    else if (hasPermission('dashboard.read')) roles.push('viewer');
+    
+    return roles;
   };
 
   return {
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,
-    hasRole,
-    hasAnyRole,
     hasWorkspaceRole,
     hasAnyWorkspaceRole,
     hasMinLevel,
     getHighestRoleLevel,
     getUserRoles,
     user,
-    currentWorkspace
+    currentWorkspace,
+    permissions: userPermissions
   };
 };
 
 /**
- * Check workspace-specific permissions
+ * Check workspace-specific permissions using auth state
  */
 function checkWorkspacePermissions({
   user,
   workspace,
+  userPermissions,
   permission,
   permissions,
   workspaceRole,
@@ -244,6 +190,7 @@ function checkWorkspacePermissions({
 }: {
   user: User;
   workspace: Workspace;
+  userPermissions: string[];
   permission?: string;
   permissions?: string[];
   workspaceRole?: string;
@@ -251,125 +198,116 @@ function checkWorkspacePermissions({
   minLevel?: number;
   requireAll?: boolean;
 }): boolean {
-  // Get user roles in workspace
-  const userRoles = workspace.user_roles || [];
-  const userRoleNames = userRoles.map(r => r.role_name);
-  const highestLevel = workspace.highest_role_level || 0;
+  // For workspace role and level checks, we'd need additional data
+  // For now, we'll focus on permission-based checks using the auth state
 
-  // Check minimum level
-  if (minLevel !== undefined && highestLevel < minLevel) {
-    return false;
-  }
-
-  // Check workspace role
-  if (workspaceRole && !userRoleNames.includes(workspaceRole)) {
-    return false;
-  }
-
-  if (workspaceRoles) {
-    const hasAnyRole = workspaceRoles.some(role => userRoleNames.includes(role));
-    if (!hasAnyRole) {
-      return false;
-    }
-  }
-
-  // For permission checks, we would need to fetch user permissions
-  // In a real implementation, you would have permission data available
-  // For now, we'll use role-based permission mapping
+  // Direct permission checks using auth state permissions
   if (permission) {
-    return hasPermissionByRole(userRoleNames, permission);
+    return userPermissions.includes(permission);
   }
 
   if (permissions) {
     if (requireAll) {
-      return permissions.every(perm => hasPermissionByRole(userRoleNames, perm));
+      return permissions.every(perm => userPermissions.includes(perm));
     } else {
-      return permissions.some(perm => hasPermissionByRole(userRoleNames, perm));
+      return permissions.some(perm => userPermissions.includes(perm));
     }
+  }
+
+  // For workspace role checks, we'll use a simplified mapping
+  // In a real implementation, you'd have this data from the backend
+  if (workspaceRole) {
+    return checkRoleByPermissions(userPermissions, workspaceRole);
+  }
+
+  if (workspaceRoles) {
+    return workspaceRoles.some(role => checkRoleByPermissions(userPermissions, role));
+  }
+
+  // For minimum level checks, we'll use permission-based approximation
+  if (minLevel !== undefined) {
+    return hasMinimumLevelByPermissions(userPermissions, minLevel);
   }
 
   return true;
 }
 
 /**
- * Simple role-based permission mapping
- * In a real implementation, this would be more sophisticated
+ * Check if user has a specific role based on their permissions
  */
-function hasPermissionByRole(roles: string[], permission: string): boolean {
-  // Owner has all permissions
-  if (roles.includes('owner')) {
-    return true;
+function checkRoleByPermissions(userPermissions: string[], roleName: string): boolean {
+  switch (roleName.toLowerCase()) {
+    case 'owner':
+      return userPermissions.includes('workspace.admin') && 
+             userPermissions.includes('user.admin') && 
+             userPermissions.includes('role.admin');
+    
+    case 'admin':
+      return userPermissions.includes('workspace.admin') || 
+             userPermissions.includes('user.create') || 
+             userPermissions.includes('role.create');
+    
+    case 'editor':
+      return userPermissions.includes('dashboard.write') && 
+             userPermissions.includes('dataset.write');
+    
+    case 'analyst':
+      return userPermissions.includes('dashboard.write') || 
+             userPermissions.includes('dataset.query');
+    
+    case 'viewer':
+      return userPermissions.includes('dashboard.read');
+    
+    default:
+      return false;
   }
+}
 
-  // Admin has most permissions
-  if (roles.includes('admin')) {
-    const adminDeniedPermissions = []; // Define permissions that even admins don't have
-    return !adminDeniedPermissions.includes(permission);
+/**
+ * Check if user has minimum level based on permissions
+ */
+function hasMinimumLevelByPermissions(userPermissions: string[], minLevel: number): boolean {
+  const currentLevel = getRoleLevelByPermissions(userPermissions);
+  return currentLevel >= minLevel;
+}
+
+/**
+ * Get user's role level based on permissions
+ */
+function getRoleLevelByPermissions(userPermissions: string[]): number {
+  // Owner level (100)
+  if (userPermissions.includes('workspace.admin') && 
+      userPermissions.includes('user.admin') && 
+      userPermissions.includes('role.admin')) {
+    return 100;
   }
-
-  // Editor permissions
-  if (roles.includes('editor')) {
-    const editorPermissions = [
-      'workspace.read',
-      'user.read',
-      'dataset.read',
-      'dataset.query',
-      'dataset.write',
-      'dataset.transform',
-      'dashboard.read',
-      'dashboard.write',
-      'dashboard.share',
-      'dashboard.publish',
-      'data_source.read',
-      'data_source.write',
-      'data_source.test',
-      'export.data',
-      'export.dashboard',
-      'plugin.read',
-      'plugin.configure',
-      'webview.read',
-      'webview.write',
-      'webview.access',
-      'analytics.read'
-    ];
-    return editorPermissions.includes(permission);
+  
+  // Admin level (80)
+  if (userPermissions.includes('workspace.admin') || 
+      userPermissions.includes('user.create') || 
+      userPermissions.includes('role.create')) {
+    return 80;
   }
-
-  // Analyst permissions
-  if (roles.includes('analyst')) {
-    const analystPermissions = [
-      'workspace.read',
-      'dataset.read',
-      'dataset.query',
-      'dataset.write',
-      'dataset.transform',
-      'dashboard.read',
-      'dashboard.write',
-      'data_source.read',
-      'data_source.test',
-      'export.data',
-      'export.dashboard',
-      'plugin.read',
-      'webview.access'
-    ];
-    return analystPermissions.includes(permission);
+  
+  // Editor level (60)
+  if (userPermissions.includes('dashboard.write') && 
+      userPermissions.includes('dataset.write')) {
+    return 60;
   }
-
-  // Viewer permissions
-  if (roles.includes('viewer')) {
-    const viewerPermissions = [
-      'workspace.read',
-      'dataset.read',
-      'dataset.query',
-      'dashboard.read',
-      'export.data',
-      'export.dashboard',
-      'webview.access'
-    ];
-    return viewerPermissions.includes(permission);
+  
+  // Analyst level (40)
+  if (userPermissions.includes('dashboard.write') || 
+      userPermissions.includes('dataset.query')) {
+    return 40;
   }
-
-  return false;
+  
+  // Viewer level (20)
+  if (userPermissions.includes('dashboard.read')) {
+    return 20;
+  }
+  
+  // No permissions (0)
+  return 0;
 }
 
 /**

@@ -26,7 +26,7 @@ import {
 } from '@mui/icons-material';
 import { useSelector, useDispatch } from 'react-redux';
 import { useRouter } from 'next/navigation';
-import { RootState } from '@/store/store';
+import { RootState } from '@/store/index';
 import { setWorkspace } from '@/store/slices/workspaceSlice';
 import { Workspace } from '@/types/auth.types';
 
@@ -39,7 +39,7 @@ export const WorkspaceSwitcher: React.FC = () => {
   const open = Boolean(anchorEl);
   
   const { currentWorkspace, workspaces } = useSelector((state: RootState) => state.workspace);
-  const { user } = useSelector((state: RootState) => state.auth);
+  const { user, permissions } = useSelector((state: RootState) => state.auth);
 
   const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     setAnchorEl(event.currentTarget);
@@ -67,33 +67,55 @@ export const WorkspaceSwitcher: React.FC = () => {
     handleClose();
   };
 
+  // Get user role based on permissions
   const getRoleLabel = (workspace: Workspace) => {
-    const roles = workspace.user_roles || [];
-    if (roles.length === 0) return 'Member';
+    if (!permissions) return 'Member';
     
-    // Get the highest role level
-    const highestRole = roles.reduce((prev, current) => 
-      (prev.level > current.level) ? prev : current
-    );
+    // Check permissions to determine role level
+    if (permissions.includes('workspace.admin') && 
+        permissions.includes('user.admin') && 
+        permissions.includes('role.admin')) {
+      return 'Owner';
+    }
     
-    return highestRole.role_name;
+    if (permissions.includes('workspace.admin') || 
+        permissions.includes('user.create') || 
+        permissions.includes('role.create')) {
+      return 'Admin';
+    }
+    
+    if (permissions.includes('dashboard.write') && 
+        permissions.includes('dataset.write')) {
+      return 'Editor';
+    }
+    
+    if (permissions.includes('dashboard.write') || 
+        permissions.includes('dataset.query')) {
+      return 'Analyst';
+    }
+    
+    if (permissions.includes('dashboard.read')) {
+      return 'Viewer';
+    }
+    
+    return 'Member';
   };
 
-  const getRoleColor = (workspace: Workspace) => {
-    const roles = workspace.user_roles || [];
-    if (roles.length === 0) return 'default';
+  const getRoleColor = (workspace: Workspace): 'error' | 'warning' | 'info' | 'success' | 'default' => {
+    const roleLabel = getRoleLabel(workspace);
     
-    const highestRole = roles.reduce((prev, current) => 
-      (prev.level > current.level) ? prev : current
-    );
-    
-    switch (highestRole.role_name) {
-      case 'owner': return 'error';
-      case 'admin': return 'warning';
-      case 'editor': return 'info';
-      case 'analyst': return 'success';
+    switch (roleLabel) {
+      case 'Owner': return 'error';
+      case 'Admin': return 'warning';
+      case 'Editor': return 'info';
+      case 'Analyst': return 'success';
       default: return 'default';
     }
+  };
+
+  // Check if user can create workspaces based on permissions
+  const canCreateWorkspace = () => {
+    return permissions?.includes('workspace.create') || false;
   };
 
   if (!currentWorkspace) {
@@ -204,114 +226,80 @@ export const WorkspaceSwitcher: React.FC = () => {
                   color={getRoleColor(currentWorkspace)}
                   variant="outlined"
                 />
-                {currentWorkspace.stats && (
+                {currentWorkspace.user_count !== undefined && (
                   <Typography variant="caption" color="text.secondary">
-                    {currentWorkspace.stats.dashboard_count} dashboards
+                    {currentWorkspace.user_count} users
                   </Typography>
                 )}
               </Box>
             </Box>
           </Box>
-        </Box>
-
-        <Divider />
-
-        {/* Quick actions for current workspace */}
-        <MenuItem 
-          onClick={() => {
-            router.push(`/workspace/${currentWorkspace.slug}/dashboards`);
-            handleClose();
-          }}
-        >
-          <ListItemIcon>
-            <Badge 
-              badgeContent={currentWorkspace.stats?.dashboard_count || 0} 
-              color="primary"
-              max={99}
-            >
-              <Dashboard />
-            </Badge>
-          </ListItemIcon>
-          <ListItemText primary="Dashboards" />
-        </MenuItem>
-
-        <MenuItem 
-          onClick={() => {
-            router.push(`/workspace/${currentWorkspace.slug}/admin/users`);
-            handleClose();
-          }}
-        >
-          <ListItemIcon>
-            <Badge 
-              badgeContent={currentWorkspace.stats?.active_users || 0} 
-              color="primary"
-              max={99}
-            >
-              <People />
-            </Badge>
-          </ListItemIcon>
-          <ListItemText primary="Members" />
-        </MenuItem>
-
-        <MenuItem onClick={handleWorkspaceSettings}>
-          <ListItemIcon>
-            <Settings />
-          </ListItemIcon>
-          <ListItemText primary="Workspace Settings" />
-        </MenuItem>
-
-        <Divider />
-
-        {/* Other workspaces */}
-        <Box sx={{ maxHeight: 200, overflowY: 'auto' }}>
-          <Typography 
-            variant="caption" 
-            sx={{ 
-              px: 2, 
-              py: 1, 
-              display: 'block',
-              color: theme.palette.text.secondary,
-              fontWeight: 600
-            }}
-          >
-            SWITCH WORKSPACE
-          </Typography>
           
-          {workspaces
-            .filter(workspace => workspace.id !== currentWorkspace.id)
-            .map((workspace) => (
-              <MenuItem 
-                key={workspace.id}
-                onClick={() => handleWorkspaceSwitch(workspace)}
-                sx={{ py: 1 }}
-              >
-                <ListItemIcon>
-                  <Avatar
-                    src={workspace.logo_url}
-                    sx={{ 
-                      width: 24, 
-                      height: 24,
-                      bgcolor: theme.palette.secondary.main 
-                    }}
-                  >
-                    {workspace.name[0]}
-                  </Avatar>
-                </ListItemIcon>
-                <ListItemText 
-                  primary={workspace.name}
-                  secondary={getRoleLabel(workspace)}
-                />
-                <Chip 
-                  label={getRoleLabel(workspace)}
-                  size="small"
-                  color={getRoleColor(workspace)}
-                  variant="outlined"
-                />
-              </MenuItem>
-            ))}
+          {/* Workspace stats */}
+          <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
+            {currentWorkspace.dashboard_count !== undefined && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Dashboard fontSize="small" color="action" />
+                <Typography variant="caption" color="text.secondary">
+                  {currentWorkspace.dashboard_count} dashboards
+                </Typography>
+              </Box>
+            )}
+          </Box>
         </Box>
 
-        {user?.role === 'SUPER_ADMIN' && (
+        {workspaces && workspaces.length > 1 && (
+          <>
+            <Divider />
+            <Typography 
+              variant="overline" 
+              sx={{ 
+                px: 2, 
+                py: 1, 
+                display: 'block',
+                color: theme.palette.text.secondary,
+                fontWeight: 600
+              }}
+            >
+              SWITCH WORKSPACE
+            </Typography>
+            
+            {workspaces
+              .filter(workspace => workspace.id !== currentWorkspace.id)
+              .map((workspace) => (
+                <MenuItem 
+                  key={workspace.id}
+                  onClick={() => handleWorkspaceSwitch(workspace)}
+                  sx={{ py: 1 }}
+                >
+                  <ListItemIcon>
+                    <Avatar
+                      src={workspace.logo_url}
+                      sx={{ 
+                        width: 24, 
+                        height: 24,
+                        bgcolor: theme.palette.secondary.main 
+                      }}
+                    >
+                      {workspace.name[0]}
+                    </Avatar>
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary={workspace.name}
+                    secondary={workspace.description || 'Workspace'}
+                  />
+                  <Chip 
+                    label={getRoleLabel(workspace)}
+                    size="small"
+                    color={getRoleColor(workspace)}
+                    variant="outlined"
+                  />
+                </MenuItem>
+              ))}
+          </>
+        )}
+
+        {canCreateWorkspace() && (
           <>
             <Divider />
             <MenuItem onClick={handleCreateWorkspace}>
@@ -321,6 +309,15 @@ export const WorkspaceSwitcher: React.FC = () => {
               <ListItemText primary="Create New Workspace" />
             </MenuItem>
           </>
+        )}
+
+        {permissions?.includes('workspace.admin') && (
+          <MenuItem onClick={handleWorkspaceSettings}>
+            <ListItemIcon>
+              <Settings />
+            </ListItemIcon>
+            <ListItemText primary="Workspace Settings" />
+          </MenuItem>
         )}
       </Menu>
     </Box>

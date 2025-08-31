@@ -30,21 +30,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     // Check if user is authenticated on app load
     const token = localStorage.getItem('auth_token');
-    if (token && !auth.isAuthenticated && !auth.loading) {
+    if (token && !auth.isAuthenticated && !auth.isLoading) {
       // Validate token
       dispatch(validateToken());
     }
-  }, [dispatch, auth.isAuthenticated, auth.loading]);
+  }, [dispatch, auth.isAuthenticated, auth.isLoading]);
 
   useEffect(() => {
     // Redirect to login if not authenticated and not on public pages
     const publicPaths = ['/login', '/register', '/forgot-password', '/reset-password'];
     const isPublicPath = publicPaths.some(path => router.pathname.startsWith(path));
     
-    if (!auth.isAuthenticated && !auth.loading && !isPublicPath) {
+    if (!auth.isAuthenticated && !auth.isLoading && !isPublicPath) {
       router.push('/login');
     }
-  }, [auth.isAuthenticated, auth.loading, router]);
+  }, [auth.isAuthenticated, auth.isLoading, router]);
 
   const hasPermission = (permission: string): boolean => {
     if (!auth.permissions) return false;
@@ -86,7 +86,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     user: auth.user,
     workspace: auth.workspace,
     permissions: auth.permissions || [],
-    loading: auth.loading,
+    loading: auth.isLoading, // Fixed: changed from auth.loading to auth.isLoading
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,
