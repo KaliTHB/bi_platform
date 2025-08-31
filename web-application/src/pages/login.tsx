@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
-import { useDispatch } from 'react-redux';
 import {
   Container,
   Paper,
@@ -12,19 +11,19 @@ import {
   CircularProgress,
 } from '@mui/material';
 import { useAuth } from '../hooks/useAuth';
-import { login } from '../store/slices/authSlice';
+import { setCredentials } from '../store/slices/authSlice';
+import { useAppDispatch } from '../hooks/redux';
 
 export default function LoginPage() {
-  const [credentials, setCredentials] = useState({
+  const [credentials, setCredentialsState] = useState({
     username: '',
     password: '',
-    workspace_slug: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
   const router = useRouter();
-  const dispatch = useDispatch();
+  const dispatch = useAppDispatch();
   const { isAuthenticated } = useAuth();
 
   // Redirect if already authenticated
@@ -50,16 +49,28 @@ export default function LoginPage() {
       const data = await response.json();
 
       if (data.success) {
+        // Store token in localStorage
+        localStorage.setItem('auth_token', data.data.token);
+        
         // Store auth data in Redux
-        dispatch(login({
+        dispatch(setCredentials({
           user: data.data.user,
           token: data.data.token,
-          workspace: data.data.workspace,
-          permissions: data.data.permissions,
+          workspace: data.data.workspace || null,
+          permissions: data.data.permissions || [],
         }));
 
-        // Redirect to workspace
-        router.push(`/workspace/${data.data.workspace.slug}`);
+        // Handle different scenarios after login
+        if (data.data.workspace) {
+          // User has a default workspace, redirect there
+          router.push(`/workspace/${data.data.workspace.slug}`);
+        } else if (data.data.workspaces?.length === 1) {
+          // User has only one workspace, redirect there
+          router.push(`/workspace/${data.data.workspaces[0].slug}`);
+        } else {
+          // User has multiple workspaces or none, show workspace selector
+          router.push('/workspace-selector');
+        }
       } else {
         setError(data.message || 'Login failed');
       }
@@ -71,7 +82,7 @@ export default function LoginPage() {
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setCredentials(prev => ({
+    setCredentialsState(prev => ({
       ...prev,
       [e.target.name]: e.target.value,
     }));
@@ -92,7 +103,7 @@ export default function LoginPage() {
             BI Platform
           </Typography>
           <Typography variant="h6" align="center" color="textSecondary" gutterBottom>
-            Sign in to your workspace
+            Sign in to your account
           </Typography>
 
           {error && (
@@ -107,7 +118,7 @@ export default function LoginPage() {
               required
               fullWidth
               id="username"
-              label="Username"
+              label="Username or Email"
               name="username"
               autoComplete="username"
               autoFocus
@@ -126,18 +137,6 @@ export default function LoginPage() {
               value={credentials.password}
               onChange={handleChange}
             />
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              name="workspace_slug"
-              label="Workspace"
-              id="workspace_slug"
-              autoComplete="organization"
-              value={credentials.workspace_slug}
-              onChange={handleChange}
-              helperText="Enter your workspace identifier"
-            />
             <Button
               type="submit"
               fullWidth
@@ -147,6 +146,13 @@ export default function LoginPage() {
             >
               {loading ? <CircularProgress size={24} /> : 'Sign In'}
             </Button>
+            
+            {/* Optional: Add forgot password link */}
+            <Box sx={{ textAlign: 'center', mt: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                Forgot your password? <a href="/forgot-password">Reset it here</a>
+              </Typography>
+            </Box>
           </Box>
         </Paper>
       </Box>

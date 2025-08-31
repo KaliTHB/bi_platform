@@ -1,16 +1,18 @@
+// File: web-application/src/types/auth.types.ts
+
 export interface User {
   id: string;
   username: string;
   email: string;
-  display_name: string;
   first_name?: string;
   last_name?: string;
+  display_name?: string;
   avatar_url?: string;
-  roles?: string[]; // Add this if you need role information
+  roles?: string[];
   is_active: boolean;
-  last_login_at?: Date;
-  created_at: Date;
-  updated_at: Date;
+  last_login?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Workspace {
@@ -19,60 +21,96 @@ export interface Workspace {
   slug: string;
   description?: string;
   logo_url?: string;
-  settings?: WorkspaceSettings;
-  is_active: boolean;
-  created_at: Date;
-  updated_at: Date;
-  user_count?: number;
-  dashboard_count?: number;
-  dataset_count?: number;
-}
-
-export interface WorkspaceSettings {
-  theme: 'light' | 'dark' | 'auto';
-  timezone: string;
-  date_format: string;
-  number_format: string;
-  language: string;
-  max_query_timeout: number;
-  max_export_rows: number;
-  features: {
-    sql_editor: boolean;
-    dashboard_builder: boolean;
-    data_exports: boolean;
-    api_access: boolean;
-    webhooks: boolean;
+  member_count?: number;
+  role?: string;
+  is_default?: boolean;
+  created_at: string;
+  updated_at: string;
+  last_accessed?: string;
+  settings?: {
+    timezone?: string;
+    date_format?: string;
+    currency?: string;
+    [key: string]: any;
   };
 }
 
+// Updated LoginRequest - removed workspace_slug
 export interface LoginRequest {
-  username: string;
+  username: string;  // Can be username or email
   password: string;
-  workspace_slug?: string;
 }
 
+// Updated LoginResponse to include workspaces array
 export interface LoginResponse {
-  success: boolean;
-  data: {
-    user: User;
-    token: string;
-    workspace: Workspace;
-    permissions: string[];
-    expires_in: number;
-  };
-  message?: string;
+  user: User;
+  token: string;
+  workspace?: Workspace | null;  // Current/default workspace
+  permissions: string[];
+  workspaces: Workspace[];  // All accessible workspaces
+}
+
+export interface SwitchWorkspaceRequest {
+  workspace_slug: string;
+}
+
+export interface SwitchWorkspaceResponse {
+  user: User;
+  token: string;
+  workspace: Workspace;
+  permissions: string[];
+}
+
+export interface WorkspaceListResponse {
+  workspaces: Workspace[];
+  total: number;
 }
 
 export interface CreateWorkspaceRequest {
   name: string;
-  slug: string;
+  slug?: string;
   description?: string;
-  settings?: Partial<WorkspaceSettings>;
+  settings?: {
+    timezone?: string;
+    date_format?: string;
+    currency?: string;
+  };
 }
 
 export interface UpdateWorkspaceRequest {
   name?: string;
   description?: string;
   logo_url?: string;
-  settings?: Partial<WorkspaceSettings>;
+  settings?: {
+    timezone?: string;
+    date_format?: string;
+    currency?: string;
+    [key: string]: any;
+  };
+}
+
+export interface ValidateTokenResponse {
+  user: User;
+  workspace?: Workspace | null;
+  permissions: string[];
+}
+
+// Auth state interface for Redux
+export interface AuthState {
+  user: User | null;
+  token: string | null;
+  workspace: Workspace | null;
+  permissions: string[];
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  error: string | null;
+  lastActivity: number;
+}
+
+// API Error Response
+export interface AuthApiError {
+  success: false;
+  message: string;
+  error_code?: string;
+  details?: Record<string, any>;
 }

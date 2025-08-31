@@ -1,6 +1,6 @@
 // File: web-application/src/hooks/useWebview.ts
 import { useState, useEffect } from 'react';
-import { useAppDispatch, useAppSelector } from '@/hooks/redux';
+import { useAppDispatch, useAppSelector } from './redux'; // Fixed import path
 import { RootState } from '../store';
 import { webviewApi } from '../store/api/webviewApi';
 import { 
@@ -18,89 +18,126 @@ export interface NavigationState {
 export const useWebview = (webviewName: string) => {
   const dispatch = useAppDispatch();
   const webviewState = useAppSelector((state: RootState) => state.webview);
+  
+  // Get workspace from Redux state (it's stored in auth slice)
+  const workspace = useAppSelector((state: RootState) => state.auth.workspace);
+  const workspaceId = workspace?.id || '';
 
-  // RTK Query hooks
+  // RTK Query hooks with correct names and parameters
   const {
     data: webviewData,
-    isLoading: loading,
-    error
-  } = webviewApi.useGetWebviewConfigQuery(webviewName);
+    isLoading: webviewLoading,
+    error: webviewError
+  } = webviewApi.useGetWebviewByNameQuery({
+    workspaceId,
+    webviewName
+  }, {
+    skip: !workspaceId || !webviewName
+  });
 
+  // Get navigation data (includes categories, favorites, recent dashboards)
   const {
-    data: categoriesData,
-    isLoading: categoriesLoading
-  } = webviewApi.useGetWebviewCategoriesQuery(webviewName);
+    data: navigationData,
+    isLoading: navigationLoading,
+    error: navigationError
+  } = webviewApi.useGetWebviewNavigationQuery({
+    webviewId: webviewData?.data?.id || '',
+    workspaceId
+  }, {
+    skip: !webviewData?.data?.id || !workspaceId
+  });
 
-  const [trackAnalytics] = webviewApi.useTrackWebviewAnalyticsMutation();
+  // Correct hook name for tracking events
+  const [trackWebviewEvent] = webviewApi.useTrackWebviewEventMutation();
 
   const toggleCategory = (categoryId: string) => {
     const newExpanded = new Set(webviewState.expandedCategories);
-    if (newExpanded.has(categoryId)) {
-      newExpanded.delete(categoryId);
-      trackAnalytics({
-        webviewName,
-        event: {
-          event_type: 'category_collapse',
-          category_id: categoryId,
-          navigation_path: [],
-          session_id: sessionStorage.getItem('sessionId') || '',
-          device_info: {
-            type: window.innerWidth < 768 ? 'mobile' : 'desktop',
-            screen_resolution: `${window.screen.width}x${window.screen.height}`,
-            browser: navigator.userAgent
-          },
-          timestamp: new Date()
-        }
-      });
-    } else {
+    const isExpanding = !newExpanded.has(categoryId);
+    
+    if (isExpanding) {
       newExpanded.add(categoryId);
-      trackAnalytics({
-        webviewName,
-        event: {
-          event_type: 'category_expand',
-          category_id: categoryId,
-          navigation_path: [],
-          session_id: sessionStorage.getItem('sessionId') || '',
-          device_info: {
-            type: window.innerWidth < 768 ? 'mobile' : 'desktop',
-            screen_resolution: `${window.screen.width}x${window.screen.height}`,
-            browser: navigator.userAgent
-          },
-          timestamp: new Date()
-        }
-      });
+    } else {
+      newExpanded.delete(categoryId);
     }
     
     dispatch(setExpandedCategories(Array.from(newExpanded)));
+
+    // Track analytics with correct parameter structure
+    if (webviewData?.data?.id) {
+      trackWebviewEvent({
+        webview_id: webviewData.data.id,
+        event_type: isExpanding ? 'category_expand' : 'category_collapse',
+        category_id: categoryId,
+        metadata: {
+          session_id: sessionStorage.getItem('sessionId') || '',
+          device_info: {
+            type: window.innerWidth < 768 ? 'mobile' : 'desktop',
+            screen_resolution: `${window.screen.width}x${window.screen.height}`,
+            browser: navigator.userAgent
+          },
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
   };
 
   const selectDashboard = (dashboardId: string) => {
     dispatch(selectDashboardAction(dashboardId));
     
-    trackAnalytics({
-      webviewName,
-      event: {
+    // Track analytics
+    if (webviewData?.data?.id) {
+      trackWebviewEvent({
+        webview_id: webviewData.data.id,
         event_type: 'dashboard_select',
         dashboard_id: dashboardId,
-        navigation_path: [],
-        session_id: sessionStorage.getItem('sessionId') || '',
-        device_info: {
-          type: window.innerWidth < 768 ? 'mobile' : 'desktop',
-          screen_resolution: `${window.screen.width}x${window.screen.height}`,
-          browser: navigator.userAgent
-        },
-        timestamp: new Date()
-      }
-    });
+        metadata: {
+          session_id: sessionStorage.getItem('sessionId') || '',
+          device_info: {
+            type: window.innerWidth < 768 ? 'mobile' : 'desktop',
+            screen_resolution: `${window.screen.width}x${window.screen.height}`,
+            browser: navigator.userAgent
+          },
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
   };
 
   const handleSearchChange = (query: string) => {
     dispatch(setSearchQuery(query));
+    
+    // Track search analytics if query is not empty
+    if (query.trim() && webviewData?.data?.id) {
+      trackWebviewEvent({
+        webview_id: webviewData.data.id,
+        event_type: 'search',
+        search_query: query,
+        metadata: {
+          session_id: sessionStorage.getItem('sessionId') || '',
+          device_info: {
+            type: window.innerWidth < 768 ? 'mobile' : 'desktop',
+            screen_resolution: `${window.screen.width}x${window.screen.height}`,
+            browser: navigator.userAgent
+          },
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
   };
 
+  const loading = webviewLoading || navigationLoading;
+  const error = webviewError || navigationError;
+  
+  // Format error message
+  const errorMessage = error 
+    ? 'Failed to load webview configuration' 
+    : null;
+
   return {
-    webviewConfig: webviewData?.webview_config,
-    categories: categoriesData || [],
+    webviewConfig: webviewData?.data || navigationData?.webview_config,
+    categories: navigationData?.categories || [],
+    userFavorites: navigationData?.user_favorites || [],
+    recentDashboards: navigationData?.recent_dashboards || [],
     navigationState: {
       expandedCategories: new Set(webviewState.expandedCategories),
       selectedDashboard: webviewState.selectedDashboard,
@@ -109,7 +146,7 @@ export const useWebview = (webviewName: string) => {
     toggleCategory,
     selectDashboard,
     handleSearchChange,
-    loading: loading || categoriesLoading,
-    error: error ? 'Failed to load webview configuration' : null
+    loading,
+    error: errorMessage
   };
 };
