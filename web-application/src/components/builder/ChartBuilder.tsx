@@ -5,6 +5,13 @@
 // API responses have structure: { success: boolean, dataset: Dataset, message?: string }
 // but we need to extract the `dataset` property, not use the whole response.
 //
+// ✅ Updated to work exclusively with LIVE DATA ONLY:
+// - Removed all sample/mock data support
+// - Made datasetId required prop
+// - Loads full live dataset (no row limits)
+// - Clear error messaging when no live data available
+// - Enhanced UI to indicate live data status
+//
 'use client';
 import React, { useState, useEffect } from 'react';
 import { 
@@ -25,7 +32,7 @@ import {
 import { ChartFactory } from '../../plugins/charts/factory/ChartFactory';
 import { ColumnDefinition } from '@/types/chart.types';
 import { Dataset } from '../../types/dataset.types';
-import { datasetAPI } from '../../services/api';
+import { datasetAPI, extractDataset, extractQueryData } from '../../services/datasetAPI';
 
 // ============================================================================
 // Type Definitions
@@ -83,192 +90,39 @@ type QueryResponseType =
 
 interface ChartBuilderProps {
   onChartSelect?: (chartType: string, chartLibrary: string) => void;
-  initialData?: any[];
   initialConfig?: any;
   height?: number | string;
-  datasetId?: string;
+  datasetId: string; // Make required since we need live data
+}
+
+// Chart info interface with description
+interface ChartInfo {
+  type: string;
+  library: string;
+  displayName: string;
+  category: string;
+  description?: string;
 }
 
 // ============================================================================
 // Dynamic Chart Configuration
 // ============================================================================
 
-// Get available chart types dynamically from ChartFactory
-const getAvailableCharts = () => {
-  try {
-    return ChartFactory.getAllCharts().map(chart => ({
-      type: chart.name,
-      library: chart.library,
-      displayName: chart.displayName,
-      category: chart.category,
-      description: chart.description
-    }));
-  } catch (error) {
-    console.warn('Could not load dynamic charts, using fallback:', error);
-    // Fallback to static list if dynamic loading fails
-    return [
-      { type: 'bar', library: 'echarts', displayName: 'Bar Chart', category: 'basic' },
-      { type: 'line', library: 'echarts', displayName: 'Line Chart', category: 'basic' },
-      { type: 'pie', library: 'echarts', displayName: 'Pie Chart', category: 'basic' },
-      { type: 'scatter', library: 'echarts', displayName: 'Scatter Plot', category: 'statistical' },
-      { type: 'area', library: 'echarts', displayName: 'Area Chart', category: 'basic' },
-      { type: 'donut', library: 'chartjs', displayName: 'Donut Chart', category: 'basic' },
-      { type: 'radar', library: 'chartjs', displayName: 'Radar Chart', category: 'basic' },
-      { type: 'polar', library: 'chartjs', displayName: 'Polar Area', category: 'basic' },
-    ];
-  }
+// Remove fallback and let errors bubble up to UI
+const getAvailableCharts = (): ChartInfo[] => {
+  return ChartFactory.getAllCharts().map(chart => ({
+    type: chart.name,
+    library: chart.library,
+    displayName: chart.displayName,
+    category: chart.category,
+    description: chart.description
+  }));
 };
 
 // Get available categories dynamically
-const getAvailableCategories = () => {
-  try {
-    return ChartFactory.getCategories();
-  } catch (error) {
-    console.warn('Could not load dynamic categories, using fallback:', error);
-    return ['basic', 'statistical', 'advanced', 'geographic', 'financial'];
-  }
+const getAvailableCategories = (): string[] => {
+  return ChartFactory.getCategories();
 };
-
-// ============================================================================
-// Main Component
-// ============================================================================
-
-// ============================================================================
-// Type-Safe API Response Helpers
-// ============================================================================
-
-/**
- * Safely extract dataset from API response
- */
-function extractDatasetFromResponse(response: any): Dataset {
-  if (!response || typeof response !== 'object') {
-    throw new Error('Invalid API response format');
-  }
-  
-  if (!response.success) {
-    throw new Error(response.message || 'API request failed');
-  }
-  
-  if (!response.dataset) {
-    throw new Error('Dataset not found in response');
-  }
-  
-  return response.dataset as Dataset;
-}
-
-/**
- * Safely extract schema from API response
- */
-function extractSchemaFromResponse(response: any): DatasetSchema {
-  if (!response || typeof response !== 'object') {
-    throw new Error('Invalid API response format');
-  }
-  
-  if (!response.success) {
-    throw new Error(response.message || 'API request failed');
-  }
-  
-  if (!response.schema) {
-    throw new Error('Schema not found in response');
-  }
-  
-  return response.schema as DatasetSchema;
-}
-
-/**
- * Safely extract query data from API response
- */
-function extractQueryDataFromResponse(response: any): any[] {
-  if (!response || typeof response !== 'object') {
-    throw new Error('Invalid API response format');
-  }
-  
-  if ('success' in response && !response.success) {
-    throw new Error(response.message || 'Query failed');
-  }
-  
-  if ('data' in response && Array.isArray(response.data)) {
-    return response.data;
-  }
-  
-  // For backward compatibility with other response formats
-  return extractDataFromResponse(response);
-}
-
-// ============================================================================
-// Utility Functions
-// ============================================================================
-
-/**
- * Type guard to check if response has nested data structure
- */
-function hasNestedData(response: any): response is NestedDatasetResponse {
-  return response?.data && 
-         typeof response.data === 'object' && 
-         !Array.isArray(response.data) &&
-         Array.isArray(response.data.data);
-}
-
-/**
- * Type guard to check if response has direct data array
- */
-function hasDirectData(response: any): response is DatasetQueryResponse {
-  return response?.data && Array.isArray(response.data);
-}
-
-/**
- * Type guard to check if response is wrapped in ApiResponse structure
- */
-function isApiResponse(response: any): response is ApiResponse<any> {
-  return response && 
-         typeof response === 'object' && 
-         'success' in response && 
-         'data' in response;
-}
-
-/**
- * Extract data array from various response structures
- */
-function extractDataFromResponse(response: QueryResponseType): any[] {
-  // Handle direct array response
-  if (Array.isArray(response)) {
-    return response;
-  }
-
-  // Handle ApiResponse wrapper
-  if (isApiResponse(response)) {
-    if (Array.isArray(response.data)) {
-      return response.data;
-    }
-    // Check if wrapped data has nested structure
-    if (hasNestedData({ data: response.data })) {
-      return response.data.data;
-    }
-    // If data is an object with data property
-    if (response.data && typeof response.data === 'object' && Array.isArray(response.data.data)) {
-      return response.data.data;
-    }
-  }
-
-  // Handle nested data structure
-  if (hasNestedData(response)) {
-    return response.data.data;
-  }
-
-  // Handle direct data structure
-  if (hasDirectData(response)) {
-    return response.data;
-  }
-
-  // Handle object with data property
-  if (response && typeof response === 'object' && Array.isArray(response.data)) {
-    return response.data;
-  }
-
-  // Fallback to empty array
-  console.warn('Could not extract data from response structure:', response);
-  return [];
-}
 
 // ============================================================================
 // Main Component
@@ -276,108 +130,158 @@ function extractDataFromResponse(response: QueryResponseType): any[] {
 
 export const ChartBuilder: React.FC<ChartBuilderProps> = ({
   onChartSelect,
-  initialData,
-  initialConfig,
+  initialConfig = {},
   height = 400,
   datasetId
 }) => {
   // ============================================================================
   // State Management
   // ============================================================================
-  
+
   const [selectedChart, setSelectedChart] = useState<string>('');
-  const [selectedLibrary, setSelectedLibrary] = useState<string>('echarts');
+  const [selectedLibrary, setSelectedLibrary] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [chartData, setChartData] = useState<any[]>(initialData || []);
-  const [chartConfig, setChartConfig] = useState<any>(initialConfig || {});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  // New state for live data
+  const [availableCharts, setAvailableCharts] = useState<ChartInfo[]>([]);
+  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [chartConfig, setChartConfig] = useState<any>(initialConfig);
   const [columns, setColumns] = useState<ColumnDefinition[]>([]);
   const [dataset, setDataset] = useState<Dataset | null>(null);
-  const [loadingData, setLoadingData] = useState(false);
-  
-  // Dynamic chart configuration
-  const [availableCharts, setAvailableCharts] = useState(() => getAvailableCharts());
-  const [availableCategories, setAvailableCategories] = useState(() => getAvailableCategories());
+  const [loading, setLoading] = useState<boolean>(false);
+  const [loadingData, setLoadingData] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
   // ============================================================================
-  // Effects
+  // Initialization
   // ============================================================================
 
-  // Load dataset data if datasetId is provided
-  useEffect(() => {
-    if (datasetId && !initialData) {
-      loadDatasetData();
+  // Add error handling in component initialization
+  const initializeCharts = () => {
+    try {
+      const charts = getAvailableCharts();
+      setAvailableCharts(charts);
+      setAvailableCategories(getAvailableCategories());
+    } catch (error) {
+      console.error('Failed to load chart plugins:', error);
+      setError(`Chart factory initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setAvailableCharts([]);
+      setAvailableCategories([]);
     }
-  }, [datasetId, initialData]);
+  };
 
-  // Refresh available charts when component mounts or chart library changes
+  // Initialize charts on component mount
   useEffect(() => {
-    const refreshCharts = async () => {
-      try {
-        // Ensure ChartFactory is initialized
-        await ChartFactory.initialize?.();
-        
-        // Get updated chart list
-        setAvailableCharts(getAvailableCharts());
-        setAvailableCategories(getAvailableCategories());
-      } catch (error) {
-        console.warn('Could not refresh chart plugins:', error);
-      }
-    };
+    initializeCharts();
+  }, []);
 
-    refreshCharts();
-  }, []); // Run once on mount
+  // ============================================================================
+  // Data Loading Effects - Live Data Only
+  // ============================================================================
+
+  useEffect(() => {
+    if (!datasetId) {
+      setError('Dataset ID is required for live data');
+      return;
+    }
+    loadDatasetData(datasetId);
+  }, [datasetId]);
+
+  useEffect(() => {
+    if (chartData.length > 0) {
+      generateColumnsFromData(chartData);
+    }
+  }, [chartData]);
+
+  useEffect(() => {
+    if (selectedChart && columns.length > 0) {
+      setChartConfig(generateDefaultConfig(selectedChart, columns));
+    }
+  }, [selectedChart, columns, dataset]);
 
   // ============================================================================
   // Data Loading Functions
   // ============================================================================
 
-  const loadDatasetData = async () => {
-    if (!datasetId) return;
+  const loadDatasetData = async (datasetId: string) => {
+    if (!datasetId) {
+      setError('No dataset ID provided - live data required');
+      return;
+    }
 
+    setLoadingData(true);
+    setError(null);
+    
     try {
-      setLoadingData(true);
-      setError(null);
-      
-      // Fetch dataset metadata with type-safe extraction
+      // Load dataset metadata using type-safe helper
       const datasetResponse = await datasetAPI.getDataset(datasetId);
-      const datasetData = extractDatasetFromResponse(datasetResponse);
+      const datasetData = extractDataset(datasetResponse);
+      
+      if (!datasetData) {
+        throw new Error('Dataset not found or inactive');
+      }
+      
       setDataset(datasetData);
       
-      // Fetch dataset schema with type-safe extraction
-      const schemaResponse = await datasetAPI.getDatasetSchema(datasetId);
-      const schemaData = extractSchemaFromResponse(schemaResponse);
-      
-      // Convert to ColumnDefinition format
-      const columnDefinitions: ColumnDefinition[] = schemaData.columns.map((col: DatasetColumn) => ({
-        name: col.name,
-        type: col.type as 'string' | 'number' | 'date' | 'boolean',
-        displayName: col.display_name || col.name,
-        format: col.format_hint,
-      }));
-      
-      setColumns(columnDefinitions);
-      
-      // Fetch sample data for preview (limit to 1000 rows)
+      // Load live dataset data (no limit - get all data for production charts)
       const queryResponse = await datasetAPI.queryDataset(datasetId, {
-        limit: 1000,
-        offset: 0
+        // No limit - get all live data
       });
       
-      // Extract data with type-safe helper
-      const queryData = extractQueryDataFromResponse(queryResponse);
-      setChartData(queryData);
+      const queryData = extractQueryData(queryResponse);
+      
+      if (!queryData.data || queryData.data.length === 0) {
+        throw new Error('No live data available in this dataset');
+      }
+      
+      setChartData(queryData.data);
+      
+      console.log('Live dataset loaded:', {
+        dataset: datasetData.name,
+        rows: queryData.data.length,
+        columns: queryData.columns.length,
+        executionTime: queryData.executionTime,
+        cached: queryData.cached
+      });
       
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load dataset data';
-      setError(errorMessage);
-      console.error('Dataset loading error:', err);
+      console.error('Failed to load dataset:', err);
+      setError(`Failed to load dataset: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setChartData([]);
+      setDataset(null);
     } finally {
       setLoadingData(false);
     }
+  };
+
+  const generateColumnsFromData = (data: any[]) => {
+    if (!data || data.length === 0) {
+      setColumns([]);
+      return;
+    }
+
+    const firstRow = data[0];
+    const generatedColumns: ColumnDefinition[] = Object.keys(firstRow).map(key => {
+      const value = firstRow[key];
+      let type: 'string' | 'number' | 'date' | 'boolean' = 'string';
+      
+      // Infer column type from first non-null value
+      if (typeof value === 'number') {
+        type = 'number';
+      } else if (value instanceof Date || (typeof value === 'string' && !isNaN(Date.parse(value)))) {
+        type = 'date';
+      } else if (typeof value === 'boolean') {
+        type = 'boolean';
+      }
+
+      return {
+        name: key,
+        displayName: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        type: type,
+        format: type === 'number' ? 'number' : type === 'date' ? 'date' : 'string'
+      };
+    });
+
+    setColumns(generatedColumns);
   };
 
   // ============================================================================
@@ -387,14 +291,11 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
   const handleChartSelect = (chartType: string, library: string) => {
     setSelectedChart(chartType);
     setSelectedLibrary(library);
+    setError(null); // Clear any previous errors
     
-    // Generate default config based on available data
-    if (chartData.length > 0) {
-      const defaultConfig = generateDefaultConfig(chartType, columns || []);
-      setChartConfig(defaultConfig);
+    if (onChartSelect) {
+      onChartSelect(chartType, library);
     }
-    
-    onChartSelect?.(chartType, library);
   };
 
   const handleRefreshCharts = async () => {
@@ -404,8 +305,7 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
       await ChartFactory.initialize?.();
       
       // Refresh available charts
-      setAvailableCharts(getAvailableCharts());
-      setAvailableCategories(getAvailableCategories());
+      initializeCharts();
       
       console.log('Chart plugins refreshed successfully');
     } catch (error) {
@@ -486,7 +386,7 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
   };
 
   const renderChart = () => {
-    if (!selectedChart || chartData.length === 0) {
+    if (!selectedChart) {
       return (
         <Box 
           display="flex" 
@@ -497,15 +397,31 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
           borderRadius={1}
         >
           <Typography variant="body2" color="text.secondary">
-            Select a chart type and ensure data is loaded to see preview
+            Select a chart type to visualize your live data
+          </Typography>
+        </Box>
+      );
+    }
+
+    if (chartData.length === 0) {
+      return (
+        <Box 
+          display="flex" 
+          alignItems="center" 
+          justifyContent="center" 
+          height={300}
+          bgcolor="grey.50"
+          borderRadius={1}
+        >
+          <Typography variant="body2" color="text.secondary">
+            No live data available in dataset: {dataset?.name || 'Unknown'}
           </Typography>
         </Box>
       );
     }
 
     try {
-      // ✅ Use dynamic ChartFactory.createChart() method
-      // The factory will automatically choose between static and dynamic plugins
+      // ✅ Use dynamic ChartFactory.createChart() method with live data
       return ChartFactory.createChart(selectedChart, selectedLibrary, {
         data: chartData,
         config: chartConfig,
@@ -538,15 +454,31 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
     : availableCharts.filter(chart => chart.category === selectedCategory);
 
   // ============================================================================
-  // Render
+  // Render - Early validation for live data requirements
   // ============================================================================
+
+  // Validate that we have a datasetId for live data
+  if (!datasetId) {
+    return (
+      <Box display="flex" flexDirection="column" alignItems="center" p={4}>
+        <Alert severity="error" sx={{ width: '100%' }}>
+          <Typography variant="body2" gutterBottom>
+            <strong>Dataset Required:</strong>
+          </Typography>
+          <Typography variant="body2">
+            ChartBuilder requires a live dataset ID to function. No sample or mock data is supported.
+          </Typography>
+        </Alert>
+      </Box>
+    );
+  }
 
   if (loadingData) {
     return (
       <Box display="flex" flexDirection="column" alignItems="center" p={4}>
         <CircularProgress />
         <Typography variant="body2" color="text.secondary" mt={2}>
-          Loading dataset data...
+          Loading live dataset data...
         </Typography>
       </Box>
     );
@@ -561,25 +493,43 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
         </Alert>
       )}
 
-      {/* Data Info */}
-      {dataset && (
+      {/* Chart Factory Error Display */}
+      {availableCharts.length === 0 && !loadingData && error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          <Typography variant="body2" gutterBottom>
+            <strong>Chart Factory Error:</strong>
+          </Typography>
+          <Typography variant="body2">
+            {error}
+          </Typography>
+        </Alert>
+      )}
+
+      {/* Live Data Info */}
+      {dataset && chartData.length > 0 && (
         <Paper sx={{ p: 2, mb: 2 }}>
           <Typography variant="h6" gutterBottom>
-            Dataset: {dataset.display_name || dataset.name}
+            Live Dataset: {dataset.display_name || dataset.name}
           </Typography>
-          <Box display="flex" gap={1} flexWrap="wrap">
+          <Box display="flex" gap={1} flexWrap="wrap" alignItems="center">
             <Chip 
-              label={`${chartData.length} rows`} 
+              label={`${chartData.length} live rows`} 
               size="small" 
-              color="primary" 
+              color="success"
             />
             <Chip 
               label={`${columns.length} columns`} 
               size="small" 
-              color="secondary" 
+              color="primary" 
+            />
+            <Chip 
+              label="Live Data" 
+              size="small" 
+              color="info" 
+              variant="outlined"
             />
             {dataset.description && (
-              <Typography variant="body2" color="text.secondary" mt={1}>
+              <Typography variant="body2" color="text.secondary" mt={1} sx={{ width: '100%' }}>
                 {dataset.description}
               </Typography>
             )}
@@ -609,12 +559,12 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
             {/* Chart Plugin Info */}
             <Box sx={{ mb: 2, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
               <Typography variant="caption" color="text.secondary">
-                {availableCharts.length} chart types available across {availableCategories.length} categories
+                {availableCharts.length} chart types available
               </Typography>
             </Box>
             
             {/* Category Filter */}
-            <FormControl fullWidth sx={{ mb: 2 }}>
+            <FormControl fullWidth size="small" sx={{ mb: 2 }}>
               <InputLabel>Category</InputLabel>
               <Select
                 value={selectedCategory}
@@ -629,16 +579,20 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
                 ))}
               </Select>
             </FormControl>
-
+            
+            <Divider sx={{ my: 2 }} />
+            
             {/* Chart Type Grid */}
             <Grid container spacing={1}>
               {filteredCharts.map((chart) => (
-                <Grid item xs={12} sm={6} key={`${chart.type}-${chart.library}`}>
-                  <Paper
+                <Grid item xs={12} key={`${chart.type}-${chart.library}`}>
+                  <Box
                     sx={{
                       p: 1.5,
+                      border: 1,
+                      borderRadius: 1,
                       cursor: 'pointer',
-                      border: selectedChart === chart.type && selectedLibrary === chart.library ? 2 : 1,
+                      bgcolor: selectedChart === chart.type && selectedLibrary === chart.library ? 'primary.50' : 'background.paper',
                       borderColor: selectedChart === chart.type && selectedLibrary === chart.library ? 'primary.main' : 'grey.300',
                       '&:hover': { 
                         borderColor: 'primary.light',
@@ -686,88 +640,32 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
                           width: 8,
                           height: 8,
                           borderRadius: '50%',
-                          bgcolor: ChartFactory.isChartSupported?.(chart.type, chart.library) ? 'success.main' : 'warning.main'
+                          bgcolor: 'success.main'
                         }}
                       />
                     </Box>
-                  </Paper>
+                  </Box>
                 </Grid>
               ))}
             </Grid>
           </Paper>
         </Grid>
 
-        {/* Chart Preview */}
+        {/* Live Chart Preview Panel */}
         <Grid item xs={12} md={8}>
           <Paper sx={{ p: 2 }}>
-            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-              <Typography variant="h6">
-                Chart Preview
-              </Typography>
-              {selectedChart && (
-                <Chip 
-                  label={`${selectedChart} (${selectedLibrary})`}
-                  color="primary"
-                  size="small"
-                />
-              )}
-            </Box>
+            <Typography variant="h6" gutterBottom>
+              Live Data Chart Preview
+            </Typography>
             
-            <Divider sx={{ mb: 2 }} />
-            
-            {/* Chart Render Area */}
-            <Box sx={{ minHeight: height, position: 'relative' }}>
+            <Box sx={{ minHeight: height, display: 'flex', flexDirection: 'column' }}>
               {renderChart()}
             </Box>
           </Paper>
         </Grid>
       </Grid>
-
-      {/* Column Information */}
-      {columns.length > 0 && (
-        <Paper sx={{ p: 2, mt: 2 }}>
-          <Typography variant="h6" gutterBottom>
-            Available Columns
-          </Typography>
-          <Box display="flex" gap={1} flexWrap="wrap">
-            {columns.map((column) => (
-              <Chip
-                key={column.name}
-                label={`${column.displayName || column.name} (${column.type})`}
-                variant="outlined"
-                size="small"
-                color={column.type === 'number' ? 'primary' : 
-                       column.type === 'date' ? 'secondary' : 'default'}
-              />
-            ))}
-          </Box>
-        </Paper>
-      )}
-
-      {/* Debug Information (Development Only) */}
-      {process.env.NODE_ENV === 'development' && (
-        <Paper sx={{ p: 2, mt: 2, bgcolor: 'grey.100' }}>
-          <Typography variant="subtitle2" gutterBottom>
-            🔧 Debug Information
-          </Typography>
-          <Typography variant="caption" component="div" color="text.secondary">
-            • Available Charts: {availableCharts.length}
-          </Typography>
-          <Typography variant="caption" component="div" color="text.secondary">
-            • Available Categories: {availableCategories.join(', ')}
-          </Typography>
-          <Typography variant="caption" component="div" color="text.secondary">
-            • Selected: {selectedChart ? `${selectedLibrary}.${selectedChart}` : 'None'}
-          </Typography>
-          <Typography variant="caption" component="div" color="text.secondary">
-            • Chart Data Rows: {chartData.length}
-          </Typography>
-          <Typography variant="caption" component="div" color="text.secondary">
-            • Chart Supported: {selectedChart && selectedLibrary ? 
-              (ChartFactory.isChartSupported?.(selectedChart, selectedLibrary) ? '✅' : '❌') : 'N/A'}
-          </Typography>
-        </Paper>
-      )}
     </Box>
   );
 };
+
+export default ChartBuilder;

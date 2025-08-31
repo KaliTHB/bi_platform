@@ -1,11 +1,12 @@
-// File: ./src/hooks/useDataSources.ts
+// File: web-application/src/hooks/useDataSources.ts
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSelector } from 'react-redux';
 import { RootState } from '@/store';
 import { DataSource, CreateDataSourceRequest, UpdateDataSourceRequest, ConnectionTestResult } from '@/types/datasource.types';
 
-interface UseDataSourcesResult {
+// Export the interface so it can be imported by other files
+export interface UseDataSourcesResult {
   dataSources: DataSource[];
   loading: boolean;
   error: string | null;
@@ -53,9 +54,8 @@ const useDataSources = (): UseDataSourcesResult => {
       const data = await response.json();
       setDataSources(data.data || data);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An error occurred';
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load data sources';
       setError(errorMessage);
-      console.error('Error loading data sources:', err);
     } finally {
       setLoading(false);
     }
@@ -67,59 +67,48 @@ const useDataSources = (): UseDataSourcesResult => {
       throw new Error('No workspace selected');
     }
 
-    setLoading(true);
-    setError(null);
-
     try {
-      const response = await fetch(`/api/workspaces/${currentWorkspace.id}/datasources`, {
+      const response = await fetch('/api/datasources', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
           ...data,
-          workspace_id: currentWorkspace.id,
+          workspace_id: currentWorkspace.id
         }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to create data source');
+        throw new Error('Failed to create data source');
       }
 
-      const newDataSource = await response.json();
-      setDataSources(prev => [...prev, newDataSource]);
+      const result = await response.json();
+      const newDataSource = result.data || result;
       
+      setDataSources(prev => [...prev, newDataSource]);
       return newDataSource;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to create data source';
       setError(errorMessage);
       throw err;
-    } finally {
-      setLoading(false);
     }
   }, [currentWorkspace?.id, auth.token]);
 
   // Update an existing data source
   const updateDataSource = useCallback(async (id: string, data: UpdateDataSourceRequest): Promise<DataSource> => {
-    if (!currentWorkspace?.id) {
-      throw new Error('No workspace selected');
-    }
-
-    setLoading(true);
-    setError(null);
-
     try {
-      const response = await fetch(`/api/workspaces/${currentWorkspace.id}/datasources/${id}`, {
+      const response = await fetch(`/api/datasources/${id}`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify(data),
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to update data source');
+        throw new Error('Failed to update data source');
       }
 
-      const updatedDataSource = await response.json();
+      const result = await response.json();
+      const updatedDataSource = result.data || result;
+      
       setDataSources(prev => 
         prev.map(dataSource => 
           dataSource.id === id ? updatedDataSource : dataSource
@@ -131,29 +120,19 @@ const useDataSources = (): UseDataSourcesResult => {
       const errorMessage = err instanceof Error ? err.message : 'Failed to update data source';
       setError(errorMessage);
       throw err;
-    } finally {
-      setLoading(false);
     }
-  }, [currentWorkspace?.id, auth.token]);
+  }, [auth.token]);
 
   // Delete a data source
   const deleteDataSource = useCallback(async (id: string): Promise<void> => {
-    if (!currentWorkspace?.id) {
-      throw new Error('No workspace selected');
-    }
-
-    setLoading(true);
-    setError(null);
-
     try {
-      const response = await fetch(`/api/workspaces/${currentWorkspace.id}/datasources/${id}`, {
+      const response = await fetch(`/api/datasources/${id}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to delete data source');
+        throw new Error('Failed to delete data source');
       }
 
       setDataSources(prev => prev.filter(dataSource => dataSource.id !== id));
@@ -161,31 +140,24 @@ const useDataSources = (): UseDataSourcesResult => {
       const errorMessage = err instanceof Error ? err.message : 'Failed to delete data source';
       setError(errorMessage);
       throw err;
-    } finally {
-      setLoading(false);
     }
-  }, [currentWorkspace?.id, auth.token]);
+  }, [auth.token]);
 
   // Test connection for a data source
   const testConnection = useCallback(async (id: string): Promise<ConnectionTestResult> => {
-    if (!currentWorkspace?.id) {
-      throw new Error('No workspace selected');
-    }
-
     try {
-      const response = await fetch(`/api/workspaces/${currentWorkspace.id}/datasources/${id}/test`, {
+      const response = await fetch(`/api/datasources/${id}/test`, {
         method: 'POST',
         headers: getAuthHeaders(),
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to test connection');
+        throw new Error('Failed to test connection');
       }
 
       const testResult = await response.json();
       
-      // Update the data source with the test result
+      // Update the data source with test results
       setDataSources(prev => 
         prev.map(dataSource => 
           dataSource.id === id ? { 

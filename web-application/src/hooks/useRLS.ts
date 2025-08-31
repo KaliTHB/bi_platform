@@ -1,8 +1,12 @@
-// File: bi_platform/web-application/src/hooks/useRLS.ts
+// File: web-application/src/hooks/useRLS.ts
 
-import { useState, useEffect, useCallback, useContext, createContext, ReactNode } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSelector } from 'react-redux';
 import { RootState } from '@/store';
+
+// ============================================================================
+// Types and Interfaces
+// ============================================================================
 
 // RLS (Row-Level Security) Types - Exported for use in other files
 export interface RLSPolicy {
@@ -43,46 +47,44 @@ export interface UseRLSResult {
   updateContext: (updates: Partial<RLSContext>) => void;
 }
 
-// RLS Context for providing RLS data throughout the app
-const RLSContextProvider = createContext<UseRLSResult | null>(null);
-
-// RLS Context Provider Component
-export const RLSProvider = ({ children }: { children: ReactNode }) => {
-  const rlsData = useRLS();
-  return (
-    <RLSContextProvider.Provider value={rlsData}>
-      {children}
-    </RLSContextProvider.Provider>
-  );
-};
-
-// Hook to use RLS context from provider
-export const useRLSContext = (): UseRLSResult => {
-  const context = useContext(RLSContextProvider);
-  if (!context) {
-    throw new Error('useRLSContext must be used within an RLSProvider');
-  }
-  return context;
-};
+// ============================================================================
+// Main RLS Hook Implementation
+// ============================================================================
 
 // Main RLS hook
 export const useRLS = (): UseRLSResult => {
+  // ============================================================================
+  // State Management
+  // ============================================================================
+  
   const [policies, setPolicies] = useState<RLSPolicy[]>([]);
   const [context, setContext] = useState<RLSContext | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ============================================================================
+  // Redux State
+  // ============================================================================
+  
   const auth = useSelector((state: RootState) => state.auth);
   const { currentWorkspace } = useSelector((state: RootState) => state.workspace);
 
+  // ============================================================================
+  // Helper Functions
+  // ============================================================================
+
   // Helper function to get auth headers
-  const getAuthHeaders = () => {
+  const getAuthHeaders = useCallback(() => {
     const token = auth.token || localStorage.getItem('authToken');
     return {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
     };
-  };
+  }, [auth.token]);
+
+  // ============================================================================
+  // Context Initialization
+  // ============================================================================
 
   // Initialize RLS context based on current user and workspace
   const initializeContext = useCallback(() => {
@@ -102,12 +104,21 @@ export const useRLS = (): UseRLSResult => {
         },
       };
       setContext(rlsContext);
+    } else {
+      setContext(null);
     }
   }, [auth.user, auth.permissions, currentWorkspace]);
 
+  // ============================================================================
+  // Policy Management
+  // ============================================================================
+
   // Load RLS policies for the current workspace
   const loadPolicies = useCallback(async () => {
-    if (!currentWorkspace?.id) return;
+    if (!currentWorkspace?.id) {
+      setPolicies([]);
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -127,10 +138,15 @@ export const useRLS = (): UseRLSResult => {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load RLS policies';
       setError(errorMessage);
       console.error('RLS policies loading error:', err);
+      setPolicies([]);
     } finally {
       setLoading(false);
     }
-  }, [currentWorkspace]);
+  }, [currentWorkspace, getAuthHeaders]);
+
+  // ============================================================================
+  // Query Application
+  // ============================================================================
 
   // Apply RLS policies to a base query
   const applyRLSToQuery = useCallback(async (baseQuery: string, datasetId: string): Promise<string> => {
@@ -160,7 +176,11 @@ export const useRLS = (): UseRLSResult => {
       // Return original query if RLS application fails
       return baseQuery;
     }
-  }, [context, currentWorkspace]);
+  }, [context, currentWorkspace, getAuthHeaders]);
+
+  // ============================================================================
+  // Access Control
+  // ============================================================================
 
   // Check if user has access to a specific dataset with RLS applied
   const checkDatasetAccess = useCallback(async (datasetId: string): Promise<boolean> => {
@@ -186,7 +206,11 @@ export const useRLS = (): UseRLSResult => {
       console.error('RLS access check error:', err);
       return false;
     }
-  }, [context, currentWorkspace]);
+  }, [context, currentWorkspace, getAuthHeaders]);
+
+  // ============================================================================
+  // Context Management
+  // ============================================================================
 
   // Get current RLS context
   const getRLSContext = useCallback((): RLSContext | null => {
@@ -212,6 +236,10 @@ export const useRLS = (): UseRLSResult => {
     await loadPolicies();
   }, [loadPolicies]);
 
+  // ============================================================================
+  // Effects
+  // ============================================================================
+
   // Initialize context when auth or workspace changes
   useEffect(() => {
     initializeContext();
@@ -221,6 +249,10 @@ export const useRLS = (): UseRLSResult => {
   useEffect(() => {
     loadPolicies();
   }, [loadPolicies]);
+
+  // ============================================================================
+  // Return Hook Interface
+  // ============================================================================
 
   return {
     policies,
@@ -234,6 +266,10 @@ export const useRLS = (): UseRLSResult => {
     updateContext,
   };
 };
+
+// ============================================================================
+// Specialized Hooks
+// ============================================================================
 
 // Helper hooks for specific RLS operations
 export const useDatasetRLS = (datasetId: string) => {
@@ -258,3 +294,33 @@ export const useDatasetRLS = (datasetId: string) => {
     hasRLS: datasetPolicies.length > 0,
   };
 };
+
+// Hook for workspace-level RLS checking
+export const useWorkspaceRLS = () => {
+  const { context, policies, checkDatasetAccess } = useRLS();
+  
+  const checkMultipleDatasets = useCallback(async (datasetIds: string[]): Promise<Record<string, boolean>> => {
+    const results: Record<string, boolean> = {};
+    
+    for (const datasetId of datasetIds) {
+      results[datasetId] = await checkDatasetAccess(datasetId);
+    }
+    
+    return results;
+  }, [checkDatasetAccess]);
+
+  const getApplicablePolicies = useCallback((datasetIds: string[]) => {
+    return policies.filter(policy => 
+      datasetIds.includes(policy.dataset_id) && policy.is_active
+    );
+  }, [policies]);
+
+  return {
+    context,
+    checkMultipleDatasets,
+    getApplicablePolicies,
+    hasAnyPolicies: policies.length > 0,
+  };
+};
+
+export default useRLS;
