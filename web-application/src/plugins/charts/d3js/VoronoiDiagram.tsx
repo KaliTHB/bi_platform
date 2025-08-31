@@ -1,10 +1,11 @@
-// D3.js Voronoi Diagram Component  
+// D3.js Voronoi Diagram Component
 // File: web-application/src/plugins/charts/d3js/VoronoiDiagram.tsx
 'use client';
 
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import { ChartProps } from '@/types/chart.types';
+import { ChartProps, ChartData } from '@/types/chart.types';
+import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
 
 export interface VoronoiDiagramConfig {
   xField: string;
@@ -25,10 +26,14 @@ export const VoronoiDiagram: React.FC<ChartProps> = ({
   const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
-    if (!svgRef.current || !data?.length) return;
+    // Use utility function to check data availability
+    if (!svgRef.current || !hasDataContent(data)) return;
 
     try {
       const { xField, yField, colorField, strokeWidth = 1, showPoints = true } = config as VoronoiDiagramConfig;
+      
+      // Get the actual data array
+      const dataArray = getDataArray(data);
       
       // Clear previous content
       d3.select(svgRef.current).selectAll('*').remove();
@@ -43,20 +48,20 @@ export const VoronoiDiagram: React.FC<ChartProps> = ({
 
       // Scales
       const xScale = d3.scaleLinear()
-        .domain(d3.extent(data, (d: any) => parseFloat(d[xField])) as [number, number])
+        .domain(d3.extent(dataArray, (d: any) => parseFloat(d[xField])) as [number, number])
         .range([0, innerWidth]);
 
       const yScale = d3.scaleLinear()
-        .domain(d3.extent(data, (d: any) => parseFloat(d[yField])) as [number, number])
+        .domain(d3.extent(dataArray, (d: any) => parseFloat(d[yField])) as [number, number])
         .range([innerHeight, 0]);
 
       const color = d3.scaleOrdinal(d3.schemeCategory10);
 
-      // Prepare points
-      const points = data.map((d: any) => [
+      // Prepare points as tuples for D3 Delaunay
+      const points: [number, number][] = dataArray.map((d: any) => [
         xScale(parseFloat(d[xField])),
         yScale(parseFloat(d[yField]))
-      ]);
+      ] as [number, number]);
 
       // Create Voronoi diagram
       const voronoi = d3.Delaunay
@@ -67,7 +72,7 @@ export const VoronoiDiagram: React.FC<ChartProps> = ({
       g.append('g')
         .attr('class', 'voronoi')
         .selectAll('path')
-        .data(data)
+        .data(dataArray)
         .enter().append('path')
         .attr('d', (d: any, i: number) => voronoi.renderCell(i))
         .attr('fill', (d: any) => colorField ? color(d[colorField]) : 'none')
@@ -76,6 +81,11 @@ export const VoronoiDiagram: React.FC<ChartProps> = ({
         .attr('fill-opacity', 0.3)
         .on('mouseover', function(event, d) {
           d3.select(this).attr('fill-opacity', 0.6);
+          onInteraction?.({
+            type: 'hover',
+            data: d,
+            dataIndex: dataArray.indexOf(d)
+          });
         })
         .on('mouseout', function(event, d) {
           d3.select(this).attr('fill-opacity', 0.3);
@@ -84,7 +94,7 @@ export const VoronoiDiagram: React.FC<ChartProps> = ({
           onInteraction?.({
             type: 'click',
             data: d,
-            event
+            dataIndex: dataArray.indexOf(d)
           });
         });
 
@@ -93,7 +103,7 @@ export const VoronoiDiagram: React.FC<ChartProps> = ({
         g.append('g')
           .attr('class', 'points')
           .selectAll('circle')
-          .data(data)
+          .data(dataArray)
           .enter().append('circle')
           .attr('cx', (d: any) => xScale(parseFloat(d[xField])))
           .attr('cy', (d: any) => yScale(parseFloat(d[yField])))
@@ -104,27 +114,47 @@ export const VoronoiDiagram: React.FC<ChartProps> = ({
       }
 
       // Add axes
+      const xAxis = d3.axisBottom(xScale);
       g.append('g')
+        .attr('class', 'x-axis')
         .attr('transform', `translate(0, ${innerHeight})`)
-        .call(d3.axisBottom(xScale));
+        .call(xAxis);
 
+      const yAxis = d3.axisLeft(yScale);
       g.append('g')
-        .call(d3.axisLeft(yScale));
+        .attr('class', 'y-axis')
+        .call(yAxis);
+
+      // Add axis labels
+      g.append('text')
+        .attr('class', 'x-axis-label')
+        .attr('text-anchor', 'middle')
+        .attr('x', innerWidth / 2)
+        .attr('y', innerHeight + margin.bottom - 5)
+        .style('font-size', '12px')
+        .text(xField);
+
+      g.append('text')
+        .attr('class', 'y-axis-label')
+        .attr('text-anchor', 'middle')
+        .attr('transform', 'rotate(-90)')
+        .attr('x', -innerHeight / 2)
+        .attr('y', -margin.left + 15)
+        .style('font-size', '12px')
+        .text(yField);
 
     } catch (error) {
-      console.error('Voronoi diagram error:', error);
+      console.error('Error rendering Voronoi diagram:', error);
       onError?.(error as Error);
     }
-  }, [data, config, width, height]);
+  }, [data, config, width, height, onInteraction, onError]);
 
   return (
     <svg
       ref={svgRef}
       width={width}
       height={height}
-      style={{ overflow: 'visible' }}
+      style={{ border: '1px solid #ccc' }}
     />
   );
 };
-
-export default VoronoiDiagramConfig;

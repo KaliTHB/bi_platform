@@ -4,7 +4,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import { ChartProps } from '@/types/chart.types';
+import { ChartProps, ChartData } from '@/types/chart.types';
 
 export interface StreamGraphConfig {
   xField: string;
@@ -13,6 +13,19 @@ export interface StreamGraphConfig {
   offset?: 'expand' | 'diverging' | 'silhouette' | 'wiggle';
   curve?: 'basis' | 'cardinal' | 'linear' | 'monotone';
 }
+
+// Type guard to check if data is ChartData
+const isChartData = (data: any[] | ChartData): data is ChartData => {
+  return data && typeof data === 'object' && 'rows' in data && Array.isArray(data.rows);
+};
+
+// Helper function to get the data array
+const getDataArray = (data: any[] | ChartData): any[] => {
+  if (isChartData(data)) {
+    return data.rows;
+  }
+  return data || [];
+};
 
 export const StreamGraph: React.FC<ChartProps> = ({
   data,
@@ -25,7 +38,9 @@ export const StreamGraph: React.FC<ChartProps> = ({
   const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
-    if (!svgRef.current || !data?.length) return;
+    // Get the actual data array and check if it has length
+    const dataArray = getDataArray(data);
+    if (!svgRef.current || !dataArray.length) return;
 
     try {
       const { xField, yField, seriesField, offset = 'wiggle', curve = 'basis' } = config as StreamGraphConfig;
@@ -42,8 +57,8 @@ export const StreamGraph: React.FC<ChartProps> = ({
         .attr('transform', `translate(${margin.left}, ${margin.top})`);
 
       // Group data by x and series
-      const grouped = d3.group(data, (d: any) => d[xField]);
-      const series = Array.from(new Set(data.map((d: any) => d[seriesField])));
+      const grouped = d3.group(dataArray, (d: any) => d[xField]);
+      const series = Array.from(new Set(dataArray.map((d: any) => d[seriesField])));
       
       // Create stacked data
       const stackedData: any[] = [];
@@ -59,59 +74,104 @@ export const StreamGraph: React.FC<ChartProps> = ({
       // Sort by x field
       stackedData.sort((a, b) => d3.ascending(a[xField], b[xField]));
 
-      // Create stack layout
+      // Create stack generator with proper D3 API functions
+      const getStackOffset = (offsetType: string) => {
+        switch (offsetType) {
+          case 'expand':
+            return d3.stackOffsetExpand;
+          case 'diverging':
+            return d3.stackOffsetDiverging;
+          case 'silhouette':
+            return d3.stackOffsetSilhouette;
+          case 'wiggle':
+            return d3.stackOffsetWiggle;
+          default:
+            return d3.stackOffsetWiggle;
+        }
+      };
+
       const stack = d3.stack()
         .keys(series)
-        .offset(d3.stackOffsetWiggle)
-        .order(d3.stackOrderInsideOut);
+        .offset(getStackOffset(offset))
+        .order(d3.stackOrderNone);
 
-      const layers = stack(stackedData);
+      const stackedSeries = stack(stackedData);
 
-      // Scales
-      const xScale = d3.scaleTime()
-        .domain(d3.extent(stackedData, (d: any) => new Date(d[xField])) as [Date, Date])
+      // Create scales
+      const xScale = d3.scaleLinear()
+        .domain(d3.extent(stackedData, d => parseFloat(d[xField])) as [number, number])
         .range([0, innerWidth]);
 
       const yScale = d3.scaleLinear()
-        .domain(d3.extent(layers.flat(2)) as [number, number])
+        .domain(d3.extent(stackedSeries.flat(), d => Math.max(Math.abs(d[0]), Math.abs(d[1]))) as [number, number])
         .range([innerHeight, 0]);
 
-      const color = d3.scaleOrdinal(d3.schemeCategory10)
+      // Create color scale
+      const colorScale = d3.scaleOrdinal(d3.schemeCategory10)
         .domain(series);
 
-      // Area generator
-      const area = d3.area<any>()
-        .x((d: any) => xScale(new Date(d.data[xField])))
-        .y0((d: any) => yScale(d[0]))
-        .y1((d: any) => yScale(d[1]))
-        .curve(d3.curveBasis);
+      // Create area generator with proper D3 curve functions
+      const getCurveType = (curveType: string) => {
+        switch (curveType) {
+          case 'basis':
+            return d3.curveBasis;
+          case 'cardinal':
+            return d3.curveCardinal;
+          case 'linear':
+            return d3.curveLinear;
+          case 'monotone':
+            return d3.curveMonotoneX;
+          default:
+            return d3.curveBasis;
+        }
+      };
 
-      // Add layers
-      g.selectAll('.layer')
-        .data(layers)
-        .enter().append('path')
-        .attr('class', 'layer')
+      const area = d3.area<any>()
+        .x((d, i) => xScale(parseFloat(stackedData[i][xField])))
+        .y0(d => yScale(d[0]))
+        .y1(d => yScale(d[1]))
+        .curve(getCurveType(curve));
+
+      // Draw areas
+      g.selectAll('.stream-layer')
+        .data(stackedSeries)
+        .enter()
+        .append('path')
+        .attr('class', 'stream-layer')
         .attr('d', area)
-        .attr('fill', (d: any) => color(d.key))
+        .style('fill', (d: any) => colorScale(d.key))
         .style('opacity', 0.8)
-        .on('mouseover', function(event, d) {
+        .on('mouseover', function(event, d: any) {
           d3.select(this).style('opacity', 1);
+          onInteraction?.({
+            type: 'hover',
+            data: d,
+            seriesIndex: series.indexOf(d.key)
+          });
         })
-        .on('mouseout', function(event, d) {
+        .on('mouseout', function(event, d: any) {
           d3.select(this).style('opacity', 0.8);
         })
-        .on('click', (event, d) => {
+        .on('click', function(event, d: any) {
           onInteraction?.({
             type: 'click',
-            data: { series: d.key, values: d },
-            event
+            data: d,
+            seriesIndex: series.indexOf(d.key)
           });
         });
 
-      // Add x axis
+      // Add x-axis
+      const xAxis = d3.axisBottom(xScale);
       g.append('g')
+        .attr('class', 'x-axis')
         .attr('transform', `translate(0, ${innerHeight})`)
-        .call(d3.axisBottom(xScale));
+        .call(xAxis);
+
+      // Add y-axis
+      const yAxis = d3.axisLeft(yScale);
+      g.append('g')
+        .attr('class', 'y-axis')
+        .call(yAxis);
 
       // Add legend
       const legend = g.append('g')
@@ -120,35 +180,34 @@ export const StreamGraph: React.FC<ChartProps> = ({
 
       const legendItems = legend.selectAll('.legend-item')
         .data(series)
-        .enter().append('g')
+        .enter()
+        .append('g')
         .attr('class', 'legend-item')
         .attr('transform', (d, i) => `translate(0, ${i * 20})`);
 
       legendItems.append('rect')
         .attr('width', 15)
         .attr('height', 15)
-        .attr('fill', color);
+        .style('fill', d => colorScale(d));
 
       legendItems.append('text')
         .attr('x', 20)
         .attr('y', 12)
-        .text((d: any) => d)
-        .style('font-size', '12px');
+        .style('font-size', '12px')
+        .text(d => d);
 
     } catch (error) {
-      console.error('Stream graph error:', error);
+      console.error('Error rendering stream graph:', error);
       onError?.(error as Error);
     }
-  }, [data, config, width, height]);
+  }, [data, config, width, height, onInteraction, onError]);
 
   return (
     <svg
       ref={svgRef}
       width={width}
       height={height}
-      style={{ overflow: 'visible' }}
+      style={{ border: '1px solid #ccc' }}
     />
   );
 };
-
-export default StreamGraph;
