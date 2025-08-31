@@ -19,7 +19,13 @@ interface DrilldownState {
   level: number;
 }
 
-export const DrilldownPie: React.FC<ChartProps> = ({
+// Define specific props for this component
+interface DrilldownPieProps extends ChartProps {
+  onDataPointClick?: (data: any, event?: any) => void;
+  onDataPointHover?: (data: any, event?: any) => void;
+}
+
+export const DrilldownPie: React.FC<DrilldownPieProps> = ({
   data,
   config,
   width = 600,
@@ -36,7 +42,11 @@ export const DrilldownPie: React.FC<ChartProps> = ({
   const svgRef = React.useRef<SVGSVGElement>(null);
 
   const handleDrillDown = useCallback((item: DrilldownPieData) => {
-    if (item.children && item.children.length > 0) {
+    const hasChildren = item.children !== undefined && 
+                       Array.isArray(item.children) && 
+                       item.children.length > 0;
+    
+    if (hasChildren) {
       setDrilldownState(prev => ({
         currentData: item.children!,
         breadcrumbs: [...prev.breadcrumbs, { name: item.name, data: item.children! }],
@@ -99,7 +109,12 @@ export const DrilldownPie: React.FC<ChartProps> = ({
       .attr('fill', (d, i) => colorScale(i.toString()))
       .attr('stroke', '#fff')
       .attr('stroke-width', 2)
-      .style('cursor', d => d.data.children && d.data.children.length > 0 ? 'pointer' : 'default')
+      .style('cursor', d => {
+        const hasChildren = d.data.children !== undefined && 
+                           Array.isArray(d.data.children) && 
+                           d.data.children.length > 0;
+        return hasChildren ? 'pointer' : 'default';
+      })
       .on('click', (event, d) => {
         handleDrillDown(d.data);
       })
@@ -107,14 +122,14 @@ export const DrilldownPie: React.FC<ChartProps> = ({
         d3.select(event.currentTarget)
           .transition()
           .duration(150)
-          .attr('d', arcHover);
+          .attr('d', arcHover(d));
         onDataPointHover?.(d.data, event);
       })
       .on('mouseout', (event, d) => {
         d3.select(event.currentTarget)
           .transition()
           .duration(150)
-          .attr('d', arc);
+          .attr('d', arc(d));
       });
 
     // Add labels
@@ -141,7 +156,11 @@ export const DrilldownPie: React.FC<ChartProps> = ({
       .text(d => d.data.value);
 
     // Add drill indicators
-    arcs.filter(d => d.data.children && d.data.children.length > 0)
+    arcs.filter(d => {
+      return d.data.children !== undefined && 
+             Array.isArray(d.data.children) && 
+             d.data.children.length > 0;
+    })
       .append('circle')
       .attr('transform', d => {
         const centroid = arc.centroid(d);
@@ -153,7 +172,11 @@ export const DrilldownPie: React.FC<ChartProps> = ({
       .attr('stroke-width', 2)
       .style('pointer-events', 'none');
 
-    arcs.filter(d => d.data.children && d.data.children.length > 0)
+    arcs.filter(d => {
+      return d.data.children !== undefined && 
+             Array.isArray(d.data.children) && 
+             d.data.children.length > 0;
+    })
       .append('text')
       .attr('transform', d => {
         const centroid = arc.centroid(d);
@@ -174,7 +197,7 @@ export const DrilldownPie: React.FC<ChartProps> = ({
       .style('fill', '#333')
       .text(`Level ${drilldownState.level}`);
 
-  }, [drilldownState.currentData, width, height, config]);
+  }, [drilldownState.currentData, width, height, handleDrillDown, onDataPointHover]);
 
   return (
     <div className="drilldown-pie-container">
@@ -188,3 +211,67 @@ export const DrilldownPie: React.FC<ChartProps> = ({
 };
 
 export default DrilldownPie;
+
+// Export the chart plugin configuration
+export const DrilldownPieChartConfig = {
+  name: 'drilldown-pie',
+  displayName: 'Drilldown Pie Chart',
+  category: 'custom' as const,
+  library: 'drilldown' as const,
+  version: '1.0.0',
+  description: 'Interactive pie chart with multi-level drill-down capabilities',
+  tags: ['interactive', 'drilldown', 'hierarchical', 'pie'],
+  
+  configSchema: {
+    type: 'object' as const,
+    properties: {
+      title: {
+        type: 'string' as const,
+        title: 'Chart Title',
+        default: 'Drilldown Pie Chart'
+      },
+      colorScheme: {
+        type: 'select' as const,
+        title: 'Color Scheme',
+        options: [
+          { label: 'Default', value: 'default' },
+          { label: 'Blues', value: 'blues' },
+          { label: 'Greens', value: 'greens' },
+          { label: 'Reds', value: 'reds' }
+        ],
+        default: 'default'
+      },
+      showLabels: {
+        type: 'boolean' as const,
+        title: 'Show Labels',
+        default: true
+      },
+      showValues: {
+        type: 'boolean' as const,
+        title: 'Show Values',
+        default: true
+      },
+      innerRadius: {
+        type: 'number' as const,
+        title: 'Inner Radius (%)',
+        default: 30,
+        minimum: 0,
+        maximum: 80
+      }
+    },
+    required: ['title']
+  },
+  
+  dataRequirements: {
+    minColumns: 2,
+    maxColumns: 100,
+    requiredFields: ['name', 'value'],
+    optionalFields: ['children'],
+    supportedTypes: ['string', 'number'] as const,
+    aggregationSupport: false,
+    pivotSupport: false
+  },
+  
+  exportFormats: ['png', 'svg', 'pdf'] as const,
+  component: DrilldownPie
+};

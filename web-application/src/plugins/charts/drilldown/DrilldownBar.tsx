@@ -19,7 +19,13 @@ interface DrilldownState {
   level: number;
 }
 
-export const DrilldownBar: React.FC<ChartProps> = ({
+// ⬇️ Local extension of ChartProps
+interface DrilldownBarProps extends ChartProps {
+  onDataPointClick?: (d: DrilldownData, event?: React.MouseEvent<SVGRectElement, MouseEvent>) => void;
+  onDataPointHover?: (d: DrilldownData, event?: React.MouseEvent<SVGRectElement, MouseEvent>) => void;
+}
+
+export const DrilldownBar: React.FC<DrilldownBarProps> = ({
   data,
   config,
   width = 800,
@@ -43,7 +49,7 @@ export const DrilldownBar: React.FC<ChartProps> = ({
         level: prev.level + 1
       }));
     }
-    onDataPointClick?.(item);
+    onDataPointClick?.(item); // ✅ now typed
   }, [onDataPointClick]);
 
   const handleBreadcrumbClick = useCallback((index: number) => {
@@ -54,8 +60,8 @@ export const DrilldownBar: React.FC<ChartProps> = ({
       level: index
     });
   }, [drilldownState.breadcrumbs]);
-
-  React.useEffect(() => {
+   
+    React.useEffect(() => {
     if (!drilldownState.currentData || !svgRef.current) return;
 
     const svg = d3.select(svgRef.current);
@@ -164,3 +170,71 @@ export const DrilldownBar: React.FC<ChartProps> = ({
 };
 
 export default DrilldownBar;
+
+// Export the chart plugin configuration
+export const DrilldownBarChartConfig = {
+  name: 'drilldown-bar',
+  displayName: 'Drilldown Bar Chart',
+  category: 'custom' as const,
+  library: 'drilldown' as const,
+  version: '1.0.0',
+  description: 'Interactive bar chart with multi-level drill-down capabilities',
+  tags: ['interactive', 'drilldown', 'hierarchical', 'bar'],
+  
+  configSchema: {
+    type: 'object' as const,
+    properties: {
+      title: {
+        type: 'string' as const,
+        title: 'Chart Title',
+        default: 'Drilldown Bar Chart'
+      },
+      colorScheme: {
+        type: 'select' as const,
+        title: 'Color Scheme',
+        options: [
+          { label: 'Default', value: 'default' },
+          { label: 'Blues', value: 'blues' },
+          { label: 'Greens', value: 'greens' },
+          { label: 'Reds', value: 'reds' }
+        ],
+        default: 'default'
+      },
+      showValues: {
+        type: 'boolean' as const,
+        title: 'Show Values',
+        default: true
+      },
+      orientation: {
+        type: 'select' as const,
+        title: 'Orientation',
+        options: [
+          { label: 'Vertical', value: 'vertical' },
+          { label: 'Horizontal', value: 'horizontal' }
+        ],
+        default: 'vertical'
+      },
+      showAxes: {
+        type: 'boolean' as const,
+        title: 'Show Axes',
+        default: true
+      }
+    },
+    required: ['title']
+  },
+  
+  dataRequirements: {
+    minColumns: 2,
+    maxColumns: 100,
+    requiredFields: ['name', 'value'],
+    optionalFields: ['children'],
+    supportedTypes: ['string', 'number'] as const,
+    aggregationSupport: false,
+    pivotSupport: false
+  },
+  
+  exportFormats: ['png', 'svg', 'pdf'] as const,
+  component: DrilldownBar
+};
+
+

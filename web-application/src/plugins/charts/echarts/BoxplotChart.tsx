@@ -24,7 +24,10 @@ export const BoxplotChart: React.FC<ChartProps> = ({
   const chartInstance = useRef<echarts.ECharts>();
 
   useEffect(() => {
-    if (!chartRef.current || !data?.length) return;
+    // Fix 1: Handle both data formats (any[] | ChartData)
+    const dataArray = Array.isArray(data) ? data : data?.rows || [];
+    
+    if (!chartRef.current || !dataArray.length) return;
 
     try {
       chartInstance.current = echarts.init(chartRef.current);
@@ -34,7 +37,7 @@ export const BoxplotChart: React.FC<ChartProps> = ({
       // Group data and calculate boxplot statistics
       const groupedData = new Map();
       
-      data.forEach(item => {
+      dataArray.forEach(item => {
         const category = item[xField];
         const value = parseFloat(item[yField]);
         const series = seriesField ? item[seriesField] : 'default';
@@ -61,8 +64,12 @@ export const BoxplotChart: React.FC<ChartProps> = ({
         return [min, q1, median, q3, max];
       };
 
-      const categories = Array.from(new Set(data.map(item => item[xField])));
-      const series = [];
+      const categories = Array.from(new Set(dataArray.map(item => item[xField])));
+      const series: Array<{
+        name: string;
+        type: 'boxplot';
+        data: number[][];
+      }> = [];
 
       groupedData.forEach((categoryData, seriesName) => {
         const boxplotData = categories.map(category => {
@@ -80,13 +87,35 @@ export const BoxplotChart: React.FC<ChartProps> = ({
       const option = {
         title: {
           text: config.title || 'Boxplot Chart',
-          left: 'center'
+          left: 'center',
+          textStyle: {
+            fontSize: 16,
+            fontWeight: 'bold'
+          }
         },
         tooltip: {
           trigger: 'item',
           axisPointer: {
             type: 'shadow'
+          },
+          formatter: (params: any) => {
+            const data = params.data;
+            return `
+              <div>
+                <strong>${params.name}</strong><br/>
+                Max: ${data[4]}<br/>
+                Q3: ${data[3]}<br/>
+                Median: ${data[2]}<br/>
+                Q1: ${data[1]}<br/>
+                Min: ${data[0]}
+              </div>
+            `;
           }
+        },
+        legend: {
+          show: series.length > 1,
+          top: 30,
+          data: series.map(s => s.name)
         },
         grid: {
           left: '10%',
@@ -115,10 +144,15 @@ export const BoxplotChart: React.FC<ChartProps> = ({
             show: true
           }
         },
-        series: series
+        series: series,
+        animation: true,
+        animationDuration: 1000,
+        // Fix 2: Type assertion for animationEasing to avoid TypeScript error
+        animationEasing: 'cubicInOut' as any,
+        animationDelayUpdate: (idx: number) => idx * 10
       };
 
-      chartInstance.current.setOption(option);
+      chartInstance.current.setOption(option, true);
 
       chartInstance.current.on('click', (params) => {
         onInteraction?.({

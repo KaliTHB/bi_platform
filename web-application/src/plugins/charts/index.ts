@@ -1,4 +1,4 @@
-import type { ChartPluginConfig } from './interfaces';
+import type { ChartPluginConfig } from '@/types/chart.types';
 
 // Import all chart plugin configurations
 import { EChartsBarChartConfig } from './echarts/BarChart';
@@ -22,6 +22,9 @@ import { ChartJSDoughnutChartConfig } from './chartjs/DoughnutChart';
 import { ChartJSRadarChartConfig } from './chartjs/RadarChart';
 
 import { DrilldownBarChartConfig } from './drilldown/DrilldownBar';
+// ADD THESE IMPORTS:
+import { DrilldownPieChartConfig } from './drilldown/DrilldownPie';
+import { HierarchicalTreemapChartConfig } from './drilldown/HierarchicalTreemap';
 
 // Complete Chart Plugin Registry
 export const ChartPlugins: Record<string, ChartPluginConfig> = {
@@ -62,7 +65,9 @@ export const ChartPlugins: Record<string, ChartPluginConfig> = {
   'chartjs-radar': ChartJSRadarChartConfig,
   
   // Drilldown Charts - Custom
-  'drilldown-bar': DrilldownBarChartConfig
+  'drilldown-bar': DrilldownBarChartConfig,
+  'drilldown-pie': DrilldownPieChartConfig,
+'drilldown-treemap': HierarchicalTreemapChartConfig,
 };
 
 // Utility functions for external use

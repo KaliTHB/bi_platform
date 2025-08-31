@@ -66,3 +66,163 @@ export const validateChartData = (data: any[] | ChartData | undefined, component
     throw new Error(`${componentName}: Data array is empty`);
   }
 };
+
+/**
+ * Normalizes chart data to array format regardless of input type
+ */
+export const normalizeChartData = (data: any[] | ChartData): any[] => {
+  // If it's already an array, return it
+  if (Array.isArray(data)) {
+    return data;
+  }
+  
+  // If it's ChartData format, return the rows
+  if (data && typeof data === 'object' && 'rows' in data) {
+    return (data as ChartData).rows;
+  }
+  
+  // Fallback to empty array
+  return [];
+};
+
+/**
+ * Checks if chart data is empty regardless of input type
+ */
+export const isChartDataEmpty = (data: any[] | ChartData | null | undefined): boolean => {
+  if (!data) return true;
+  
+  if (Array.isArray(data)) {
+    return data.length === 0;
+  }
+  
+  if (typeof data === 'object' && 'rows' in data) {
+    return !data.rows || data.rows.length === 0;
+  }
+  
+  return true;
+};
+
+/**
+ * Gets the length of chart data regardless of input type
+ */
+export const getChartDataLength = (data: any[] | ChartData | null | undefined): number => {
+  if (!data) return 0;
+  
+  if (Array.isArray(data)) {
+    return data.length;
+  }
+  
+  if (typeof data === 'object' && 'rows' in data) {
+    return data.rows ? data.rows.length : 0;
+  }
+  
+  return 0;
+};
+
+/**
+ * Gets column definitions from data (useful for ChartData format)
+ */
+export const getChartColumns = (data: any[] | ChartData): string[] => {
+  if (Array.isArray(data)) {
+    // For array data, get keys from first object
+    if (data.length > 0 && typeof data[0] === 'object') {
+      return Object.keys(data[0]);
+    }
+    return [];
+  }
+  
+  if (data && typeof data === 'object' && 'columns' in data) {
+    const chartData = data as ChartData;
+    return chartData.columns ? chartData.columns.map(col => col.name) : [];
+  }
+  
+  return [];
+};
+
+/**
+ * Safely extracts field values from normalized data
+ */
+export const extractFieldValues = (
+  data: any[], 
+  fieldName: string, 
+  defaultValue: any = null
+): any[] => {
+  return data.map(item => {
+    if (item && typeof item === 'object' && fieldName in item) {
+      return item[fieldName];
+    }
+    return defaultValue;
+  });
+};
+
+/**
+ * Safely extracts numeric field values with conversion
+ */
+export const extractNumericValues = (
+  data: any[], 
+  fieldName: string, 
+  defaultValue: number = 0
+): number[] => {
+  return data.map(item => {
+    if (item && typeof item === 'object' && fieldName in item) {
+      const value = Number(item[fieldName]);
+      return isNaN(value) ? defaultValue : value;
+    }
+    return defaultValue;
+  });
+};
+
+/**
+ * Creates a safe chart configuration with defaults
+ */
+export const createChartConfig = (
+  config: any = {}, 
+  defaults: Record<string, any> = {}
+): Record<string, any> => {
+  return {
+    ...defaults,
+    ...config
+  };
+};
+
+/**
+ * Type guard to check if data is in ChartData format
+ */
+export const isChartDataFormat = (data: any): data is ChartData => {
+  return data && 
+         typeof data === 'object' && 
+         'rows' in data && 
+         Array.isArray(data.rows);
+};
+
+/**
+ * Formats large numbers for display
+ */
+export const formatNumber = (value: number, precision: number = 1): string => {
+  if (value >= 1e9) {
+    return (value / 1e9).toFixed(precision) + 'B';
+  }
+  if (value >= 1e6) {
+    return (value / 1e6).toFixed(precision) + 'M';
+  }
+  if (value >= 1e3) {
+    return (value / 1e3).toFixed(precision) + 'K';
+  }
+  return value.toString();
+};
+
+/**
+ * Generates color palette for multiple series
+ */
+export const generateColorPalette = (count: number): string[] => {
+  const defaultColors = [
+    '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
+    '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#d4a76a'
+  ];
+  
+  const colors: string[] = [];
+  for (let i = 0; i < count; i++) {
+    colors.push(defaultColors[i % defaultColors.length]);
+  }
+  return colors;
+};

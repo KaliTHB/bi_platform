@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback } from 'react';
 import * as d3 from 'd3';
-import { ChartProps } from '@/types/chart.types';
+import { ChartProps, ChartData } from '@/types/chart.types';
 import { NavigationBreadcrumbs } from './NavigationBreadcrumbs';
 
 interface TreemapData {
@@ -13,11 +13,17 @@ interface TreemapData {
 
 interface DrilldownState {
   currentData: TreemapData;
-  breadcrumbs: Array<{ name: string; data: TreemapData }>;
+  breadcrumbs: Array<{ name: string; data: any[] }>; // Match NavigationBreadcrumbs expected interface
   level: number;
 }
 
-export const HierarchicalTreemap: React.FC<ChartProps> = ({
+// Define specific props for this component
+interface HierarchicalTreemapProps extends ChartProps {
+  onDataPointClick?: (data: any, event?: any) => void;
+  onDataPointHover?: (data: any, event?: any) => void;
+}
+
+export const HierarchicalTreemap: React.FC<HierarchicalTreemapProps> = ({
   data,
   config,
   width = 800,
@@ -25,19 +31,72 @@ export const HierarchicalTreemap: React.FC<ChartProps> = ({
   onDataPointClick,
   onDataPointHover,
 }) => {
+  // Helper function to convert data to TreemapData format
+  const convertToTreemapData = React.useCallback((inputData: any[] | ChartData): TreemapData => {
+    // If it's already in the correct format, return it
+    if (inputData && typeof inputData === 'object' && 'name' in inputData) {
+      return inputData as TreemapData;
+    }
+
+    // If it's an array, assume it's already TreemapData format
+    if (Array.isArray(inputData)) {
+      // For treemap, we expect a single root object, not an array
+      // If we get an array, wrap it in a root object
+      return {
+        name: 'Root',
+        children: inputData as TreemapData[]
+      };
+    }
+
+    // If it's ChartData format, convert it
+    if (inputData && typeof inputData === 'object' && 'rows' in inputData) {
+      const chartData = inputData as ChartData;
+      // Convert ChartData to TreemapData - this is a simple conversion
+      // You might need to adjust this based on your specific data structure
+      return {
+        name: 'Root',
+        children: chartData.rows.map(row => ({
+          name: row.name || row.label || 'Unknown',
+          value: row.value || row.count || 1
+        }))
+      };
+    }
+
+    // Fallback - return a basic structure
+    return {
+      name: 'Root',
+      value: 0,
+      children: []
+    };
+  }, []);
+
   const [drilldownState, setDrilldownState] = useState<DrilldownState>({
-    currentData: data as TreemapData,
-    breadcrumbs: [{ name: 'Root', data: data as TreemapData }],
+    currentData: convertToTreemapData(data),
+    breadcrumbs: [{ name: 'Root', data: [convertToTreemapData(data)] }], // Wrap in array
     level: 0
   });
+
+  // Update state when data changes
+  React.useEffect(() => {
+    const newData = convertToTreemapData(data);
+    setDrilldownState({
+      currentData: newData,
+      breadcrumbs: [{ name: 'Root', data: [newData] }], // Wrap in array
+      level: 0
+    });
+  }, [data, convertToTreemapData]);
 
   const svgRef = React.useRef<SVGSVGElement>(null);
 
   const handleDrillDown = useCallback((item: TreemapData) => {
-    if (item.children && item.children.length > 0) {
+    const hasChildren = item.children !== undefined && 
+                       Array.isArray(item.children) && 
+                       item.children.length > 0;
+    
+    if (hasChildren) {
       setDrilldownState(prev => ({
         currentData: item,
-        breadcrumbs: [...prev.breadcrumbs, { name: item.name, data: item }],
+        breadcrumbs: [...prev.breadcrumbs, { name: item.name, data: [item] }], // Wrap in array
         level: prev.level + 1
       }));
     }
@@ -46,8 +105,9 @@ export const HierarchicalTreemap: React.FC<ChartProps> = ({
 
   const handleBreadcrumbClick = useCallback((index: number) => {
     const newBreadcrumbs = drilldownState.breadcrumbs.slice(0, index + 1);
+    const selectedData = newBreadcrumbs[newBreadcrumbs.length - 1].data[0]; // Extract from array
     setDrilldownState({
-      currentData: newBreadcrumbs[newBreadcrumbs.length - 1].data,
+      currentData: selectedData,
       breadcrumbs: newBreadcrumbs,
       level: index
     });
@@ -77,13 +137,17 @@ export const HierarchicalTreemap: React.FC<ChartProps> = ({
       .sum(d => d.value || 0)
       .sort((a, b) => (b.value || 0) - (a.value || 0));
 
+    // Apply treemap layout - this adds x0, y0, x1, y1 properties
     treemap(root);
 
     const colorScale = d3.scaleOrdinal(d3.schemeCategory10);
 
-    // Create groups for each node
+    // Type the nodes properly after treemap layout
+    type TreemapNode = d3.HierarchyRectangularNode<TreemapData>;
+
+    // Create groups for each leaf node
     const leaf = svg.selectAll('.leaf')
-      .data(root.leaves())
+      .data(root.leaves() as TreemapNode[])
       .enter()
       .append('g')
       .attr('class', 'leaf')
@@ -96,7 +160,12 @@ export const HierarchicalTreemap: React.FC<ChartProps> = ({
       .attr('fill', (d, i) => colorScale(i.toString()))
       .attr('stroke', '#fff')
       .attr('stroke-width', 1)
-      .style('cursor', d => d.data.children && d.data.children.length > 0 ? 'pointer' : 'default')
+      .style('cursor', d => {
+        const hasChildren = d.data.children !== undefined && 
+                           Array.isArray(d.data.children) && 
+                           d.data.children.length > 0;
+        return hasChildren ? 'pointer' : 'default';
+      })
       .on('click', (event, d) => {
         handleDrillDown(d.data);
       })
@@ -135,7 +204,11 @@ export const HierarchicalTreemap: React.FC<ChartProps> = ({
       .style('pointer-events', 'none');
 
     // Add drill indicators for nodes with children
-    leaf.filter(d => d.data.children && d.data.children.length > 0)
+    leaf.filter(d => {
+      return d.data.children !== undefined && 
+             Array.isArray(d.data.children) && 
+             d.data.children.length > 0;
+    })
       .append('circle')
       .attr('cx', d => (d.x1 - d.x0) - 15)
       .attr('cy', 15)
@@ -145,7 +218,11 @@ export const HierarchicalTreemap: React.FC<ChartProps> = ({
       .attr('stroke-width', 2)
       .style('pointer-events', 'none');
 
-    leaf.filter(d => d.data.children && d.data.children.length > 0)
+    leaf.filter(d => {
+      return d.data.children !== undefined && 
+             Array.isArray(d.data.children) && 
+             d.data.children.length > 0;
+    })
       .append('text')
       .attr('x', d => (d.x1 - d.x0) - 15)
       .attr('y', 15)
@@ -156,7 +233,7 @@ export const HierarchicalTreemap: React.FC<ChartProps> = ({
       .style('pointer-events', 'none')
       .text('▼');
 
-  }, [drilldownState.currentData, width, height, config]);
+  }, [drilldownState.currentData, width, height, handleDrillDown, onDataPointHover]);
 
   return (
     <div className="hierarchical-treemap-container">

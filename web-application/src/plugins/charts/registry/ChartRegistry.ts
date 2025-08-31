@@ -7,12 +7,10 @@ export class ChartRegistry {
   
   static {
     // Register all chart plugins
-    this.registerPlugin(EChartsBarChartConfig);
-    
-    // Add more chart plugins here as they are implemented
-    // this.registerPlugin(EChartsPieChartConfig);
-    // this.registerPlugin(EChartsLineChartConfig);
-    // this.registerPlugin(D3NetworkChartConfig);
+    //this.registerPlugin(EChartsBarChartConfig);
+    //this.registerPlugin(EChartsPieChartConfig);
+    //this.registerPlugin(EChartsLineChartConfig);
+    //this.registerPlugin(D3NetworkChartConfig);
     // etc.
   }
   
