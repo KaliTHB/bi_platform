@@ -23,7 +23,7 @@ export class ChartRegistry {
       // Register successfully loaded plugins
       chartModules.forEach((result, index) => {
         if (result.status === 'fulfilled' && result.value) {
-          this.registerPlugin(result.value);
+          this.registerPlugin(result.value as ChartPluginConfig);
         } else if (result.status === 'rejected') {
           console.warn(`Failed to load chart plugin ${index}:`, result.reason);
         }

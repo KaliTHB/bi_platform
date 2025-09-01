@@ -2,10 +2,10 @@ import React, { useMemo } from 'react';
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
 import Plot from 'react-plotly.js';
 import { PlotData, Config, Layout } from 'plotly.js';
-import { ChartProps, ChartConfiguration } from '../../../types/chart.types';
 import { getDataArray, isChartDataEmpty } from '../utils/chartDataUtils';
+import { ChartProps,ChartPluginConfig,ChartConfiguration } from '@/types/chart.types';
 
-interface ContourPlotConfig extends ChartConfiguration {
+interface ContourPlotConfig extends ChartPluginConfig {
   title?: string;
   subtitle?: string;
   xField: string;

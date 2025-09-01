@@ -111,7 +111,7 @@ const ChartContainer: React.FC<ChartContainerProps> = ({
       setError(null);
       
       const response = await chartAPI.getChartData(chart.id, {
-        filters: JSON.stringify(filters)
+        filters: filters  // ✅ This passes the array directly
       });
 
       // The API service already unwraps the response, so use it directly

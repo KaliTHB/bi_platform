@@ -2,10 +2,10 @@ import React, { useMemo } from 'react';
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
 import Plot from 'react-plotly.js';
 import { PlotData, Config, Layout } from 'plotly.js';
-import { ChartProps, ChartConfiguration } from '../../../types/chart.types';
+import { ChartProps, ChartPluginConfig } from '@/types/chart.types';
 import { getDataArray, isChartDataEmpty } from '../utils/chartDataUtils';
 
-interface WaterfallChartConfig extends ChartConfiguration {
+interface WaterfallChartConfig extends ChartPluginConfig {
   title?: string;
   subtitle?: string;
   categoryField: string;

@@ -339,24 +339,6 @@ export interface ChartProps {
   error?: string;
 }
 
-// Chart preview props interface (for chart selection/preview components)
-export interface ChartPreviewProps {
-  data?: any[];
-  config?: any;
-  width?: number;
-  height?: number;
-  dimensions?: {
-    width: number;
-    height: number;
-  };
-  theme?: any;
-  isPreview?: boolean;
-  showSampleData?: boolean;
-  sampleDataCount?: number;
-  chartType?: string;
-  chartLibrary?: string;
-}
-
 // Chart configuration props interface (for chart config forms/editors)
 export interface ChartConfigProps {
   config: any;
@@ -374,21 +356,54 @@ export interface ChartConfigProps {
 // Plugin System Interfaces
 // =============================================================================
 
+export interface ChartConfigSchema {
+  type: string; // More flexible - accepts any string, not just 'object'
+  properties: {
+    [key: string]: {
+      type: string; // More flexible - accepts any string, not just specific literals
+      required?: boolean;
+      default?: any;
+      title?: string;
+      description?: string;
+      options?: Array<{ label: string; value: any }>; // No readonly requirement
+      minimum?: number;
+      maximum?: number;
+      items?: {
+        type: string;
+        title?: string;
+      };
+      enum?: any[]; // No readonly requirement
+      format?: string;
+      minItems?: number;
+      maxItems?: number;
+    };
+  };
+  required?: string[]; // No readonly requirement
+}
+
+// Alternative: Make the whole interface more permissive
+export interface ChartConfigSchemaFlexible {
+  type: string; // ✅ Just use string instead of literal type
+  properties: Record<string, any>; // ✅ More flexible properties
+  required?: string[]; // ✅ Allow mutable arrays too
+}
+
 export interface ChartPluginConfig {
   name: string;
   displayName: string;
-  category: string;
-  library: string;
+  category: string; // ✅ Change from union to string
+  library: string;  // ✅ Change from union to string 
   version: string;
   description?: string;
-  tags?: readonly string[];
-  configSchema?: ChartConfigSchema;
-  dataRequirements?: DataRequirements;
-  exportFormats?: readonly string[];
+  tags?: string[]; // ✅ Simplified from readonly string[]
+  
+  configSchema: ChartConfigSchema;
+  dataRequirements: DataRequirements;
+  exportFormats: ExportFormat[]; // ✅ Not readonly - this fixes the casting error
   component: React.ComponentType<ChartProps>;
-  previewComponent?: React.ComponentType<ChartPreviewProps>;
   configComponent?: React.ComponentType<ChartConfigProps>;
-  interactionSupport?: {           // ✅ Added
+  previewComponent?: React.ComponentType<ChartPreviewProps>; // ✅ Added missing property
+  interactionSupport?: {
     zoom?: boolean;
     pan?: boolean;
     selection?: boolean;
@@ -413,27 +428,6 @@ export interface PluginConfigSchema {
   type: string;
   properties: Record<string, SchemaProperty>;
   required?: string[];
-}
-
-export interface ChartConfigSchema {
-  type: 'object';
-  properties: {
-    [key: string]: {
-      type: 'string' | 'number' | 'boolean' | 'select' | 'color' | 'array';
-      required?: boolean;
-      default?: any;
-      title?: string;
-      description?: string;
-      options?: readonly Array<{ label: string; value: any }>;
-      minimum?: number;        // ✅ Added
-      maximum?: number;        // ✅ Added
-      items?: {
-        type: string;
-        title: string;
-      };
-    };
-  };
-  required?: readonly string[];
 }
 
 export interface SchemaProperty {
@@ -479,14 +473,6 @@ export interface DataRequest {
   limit?: number;
   offset?: number;
 }
-
-// =============================================================================
-// Export Types for External Use
-// =============================================================================
-
-// Re-export commonly used types for convenience
-export type ChartType = string;
-export type ChartLibrary = string;
 
 // =============================================================================
 // Core Data Interfaces
@@ -633,7 +619,6 @@ export interface ChartProps {
   error?: string;
 }
 
-// Chart preview props interface (for chart selection/preview components)
 export interface ChartPreviewProps {
   data?: any[];
   config?: any;
@@ -668,31 +653,6 @@ export interface ChartConfigProps {
 // Plugin System Interfaces
 // =============================================================================
 
-export interface ChartPluginConfig {
-  name: string;
-  displayName: string;
-  category: string;
-  library: string;
-  version: string;
-  description?: string;
-  tags?: readonly string[];
-  configSchema?: PluginConfigSchema;
-  dataRequirements?: DataRequirements;
-  exportFormats?: string[];
-  component: React.ComponentType<ChartProps>;
-  previewComponent?: React.ComponentType<ChartPreviewProps>;
-  configComponent?: React.ComponentType<ChartConfigProps>;
-  interactionSupport?: {           // ✅ Added
-    zoom?: boolean;
-    pan?: boolean;
-    selection?: boolean;
-    brush?: boolean;
-    drilldown?: boolean;
-    tooltip?: boolean;
-    crossFilter?: boolean;
-  };
-}
-
 
 export interface PluginConfigSchema {
   type: string;
@@ -724,33 +684,6 @@ export interface ValidationError {
   severity?: 'error' | 'warning' | 'info';
 }
 
-// Update these interfaces in your chart.types.ts file
-
-export interface ChartConfigSchema {
-  type: string; // More flexible - accepts any string, not just 'object'
-  properties: {
-    [key: string]: {
-      type: string; // More flexible - accepts any string, not just specific literals
-      required?: boolean;
-      default?: any;
-      title?: string;
-      description?: string;
-      options?: Array<{ label: string; value: any }>; // No readonly requirement
-      minimum?: number;
-      maximum?: number;
-      items?: {
-        type: string;
-        title?: string;
-      };
-      enum?: any[]; // No readonly requirement
-      format?: string;
-      minItems?: number;
-      maxItems?: number;
-    };
-  };
-  required?: string[]; // No readonly requirement
-}
-
 export interface DataRequirements {
   minColumns?: number;
   maxColumns?: number;
@@ -760,31 +693,6 @@ export interface DataRequirements {
   aggregationSupport?: boolean;
   pivotSupport?: boolean;
   specialRequirements?: string[]; // Added for additional requirements
-}
-
-export interface ChartPluginConfig {
-  name: string;
-  displayName: string;
-  category: string; // More flexible - accepts any string
-  library: string; // More flexible - accepts any string
-  version: string;
-  description?: string;
-  tags?: string[]; // No readonly requirement
-  configSchema?: ChartConfigSchema;
-  dataRequirements?: DataRequirements;
-  exportFormats?: string[]; // No readonly requirement
-  component: React.ComponentType<ChartProps>;
-  previewComponent?: React.ComponentType<ChartPreviewProps>;
-  configComponent?: React.ComponentType<ChartConfigProps>;
-  interactionSupport?: {
-    zoom?: boolean;
-    pan?: boolean;
-    selection?: boolean;
-    brush?: boolean;
-    drilldown?: boolean;
-    tooltip?: boolean;
-    crossFilter?: boolean;
-  };
 }
 
 export interface SchemaProperty {
@@ -798,4 +706,38 @@ export interface SchemaProperty {
   required?: boolean;
   options?: Array<{ label: string; value: any }>; // No readonly requirement
   properties?: Record<string, SchemaProperty>;
+}
+
+// Keep the strict types for validation if needed elsewhere:
+export type ChartCategory = 'basic' | 'advanced' | 'statistical' | 'geographic' | 'financial' | 'custom';
+export type ChartLibrary = 'echarts' | 'd3js' | 'plotly' | 'chartjs' | 'nvd3js' | 'drilldown';
+export type ExportFormat = 'png' | 'svg' | 'pdf' | 'jpg' | 'html';
+
+// Helper function to validate chart configs at runtime if needed:
+export function validateChartCategory(category: string): category is ChartCategory {
+  return ['basic', 'advanced', 'statistical', 'geographic', 'financial', 'custom'].includes(category);
+}
+
+export function validateChartLibrary(library: string): library is ChartLibrary {
+  return ['echarts', 'd3js', 'plotly', 'chartjs', 'nvd3js', 'drilldown'].includes(library);
+}
+
+export function validateExportFormat(format: string): format is ExportFormat {
+  return ['png', 'svg', 'pdf', 'jpg', 'html'].includes(format);
+}
+
+export interface ChartProps {
+  data: any[];
+  config: any;
+  width?: number;
+  height?: number;
+  dimensions?: {
+    width: number;
+    height: number;
+  };
+  theme?: any;
+  onInteraction?: (event: any) => void;
+  onError?: (error: Error) => void;
+  isLoading?: boolean;
+  error?: string;
 }

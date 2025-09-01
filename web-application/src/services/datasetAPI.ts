@@ -25,9 +25,17 @@ import {
 export const datasetAPI = {
   // Get all datasets for a workspace
   getDatasets: async (workspaceId: string, params?: any): Promise<DatasetListResponse> => {
-    const response = await apiClient.get(`/datasets`, {
-      params: { ...params, workspaceId }
+    // Fix: Build query string from params and workspaceId
+    const allParams = { workspace_id: workspaceId, ...params };
+    const queryParams = new URLSearchParams();
+    
+    Object.entries(allParams).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        queryParams.append(key, value.toString());
+      }
     });
+    
+    const response = await apiClient.get(`/datasets?${queryParams.toString()}`);
     return response.data;
   },
 
@@ -62,6 +70,8 @@ export const datasetAPI = {
     filters?: any[];
     sortBy?: string;
     sortDirection?: 'asc' | 'desc';
+    columns?: string[];
+    [key: string]: any;
   }): Promise<DatasetQueryResponse> => {
     const response = await apiClient.post(`/datasets/${datasetId}/query`, queryOptions);
     return response.data;
@@ -75,13 +85,56 @@ export const datasetAPI = {
 
   // Test dataset query
   testDataset: async (datasetId: string): Promise<DatasetTestResponse> => {
-    const response = await apiClient.post(`/datasets/${datasetId}/test`);
+    // Add empty object as body parameter for POST request
+    const response = await apiClient.post(`/datasets/${datasetId}/test`, {});
     return response.data;
   },
 
   // Refresh dataset cache
   refreshDataset: async (datasetId: string): Promise<{ success: boolean; message: string }> => {
-    const response = await apiClient.post(`/datasets/${datasetId}/refresh`);
+    const response = await apiClient.post(`/datasets/${datasetId}/refresh`, {});
+    return response.data;
+  },
+
+  // Get dataset preview
+  previewDataset: async (datasetId: string, params?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    success: boolean;
+    preview: any[];
+    columns: Array<{ name: string; type: string }>;
+    total_rows: number;
+    message?: string;
+  }> => {
+    let endpoint = `/datasets/${datasetId}/preview`;
+    
+    if (params) {
+      const queryParams = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          queryParams.append(key, value.toString());
+        }
+      });
+      
+      if (queryParams.toString()) {
+        endpoint += `?${queryParams.toString()}`;
+      }
+    }
+    
+    const response = await apiClient.get(endpoint);
+    return response.data;
+  },
+
+  // Validate dataset query
+  validateDataset: async (datasetId: string, query: string): Promise<{
+    success: boolean;
+    is_valid: boolean;
+    errors?: string[];
+    warnings?: string[];
+    message?: string;
+  }> => {
+    const response = await apiClient.post(`/datasets/${datasetId}/validate`, { query });
     return response.data;
   },
 
@@ -93,106 +146,17 @@ export const datasetAPI = {
       column_count: number;
       size_bytes: number;
       last_updated: string;
-      query_count: number;
-      avg_query_time: number;
+      cache_info: {
+        is_cached: boolean;
+        cached_at?: string;
+        expires_at?: string;
+      };
     };
     message?: string;
   }> => {
     const response = await apiClient.get(`/datasets/${datasetId}/stats`);
     return response.data;
-  },
-
-  // Export dataset
-  exportDataset: async (datasetId: string, format: 'csv' | 'excel' | 'json'): Promise<{
-    success: boolean;
-    download_url?: string;
-    file_size?: number;
-    message?: string;
-  }> => {
-    const response = await apiClient.post(`/datasets/${datasetId}/export`, { format });
-    return response.data;
-  },
-
-  // Validate dataset configuration
-  validateDataset: async (config: Partial<CreateDatasetRequest>): Promise<{
-    success: boolean;
-    valid: boolean;
-    errors?: string[];
-    warnings?: string[];
-    message?: string;
-  }> => {
-    const response = await apiClient.post('/datasets/validate', config);
-    return response.data;
   }
 };
 
-// ============================================================================
-// Type-Safe Helper Functions
-// ============================================================================
-
-/**
- * Safely extract dataset from API response with proper error handling
- */
-export function extractDataset(response: DatasetResponse): Dataset {
-  if (!response.success) {
-    throw new Error(response.message || 'Failed to fetch dataset');
-  }
-  
-  if (!response.dataset) {
-    throw new Error('Dataset not found in response');
-  }
-  
-  return response.dataset;
-}
-
-/**
- * Safely extract schema from API response with proper error handling
- */
-export function extractSchema(response: DatasetSchemaResponse): DatasetSchema {
-  if (!response.success) {
-    throw new Error(response.message || 'Failed to fetch dataset schema');
-  }
-  
-  if (!response.schema) {
-    throw new Error('Schema not found in response');
-  }
-  
-  return response.schema;
-}
-
-/**
- * Safely extract query data from API response with proper error handling
- */
-export function extractQueryData(response: DatasetQueryResponse): {
-  data: any[];
-  columns: Array<{ name: string; type: string; display_name?: string }>;
-  totalRows: number;
-  executionTime: number;
-  cached: boolean;
-} {
-  if (!response.success) {
-    throw new Error(response.message || 'Query failed');
-  }
-  
-  return {
-    data: response.data || [],
-    columns: response.columns || [],
-    totalRows: response.total_rows || 0,
-    executionTime: response.execution_time || 0,
-    cached: response.cached || false
-  };
-}
-
-/**
- * Safely extract datasets list from API response
- */
-export function extractDatasetsList(response: DatasetListResponse): Dataset[] {
-  if (!response.success) {
-    throw new Error(response.message || 'Failed to fetch datasets');
-  }
-  
-  return response.datasets || [];
-}
-
-// Export default
 export default datasetAPI;

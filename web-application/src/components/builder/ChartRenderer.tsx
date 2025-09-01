@@ -84,7 +84,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
     setError(null);
 
     try {
-      const response = await chartAPI.getChartData(chart.id, { filters });
+      const response = await chartAPI.getChartData(chart.id, { filters: filters  });
       setData(response.data);
       setColumns(response.columns);
     } catch (err) {

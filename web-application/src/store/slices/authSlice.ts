@@ -1,3 +1,4 @@
+// web-application/src/store/slices/authSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { authAPI } from '@/services/api';
 import { User, LoginRequest, LoginResponse } from '@/types/auth.types';
@@ -22,6 +23,20 @@ const initialState: AuthState = {
   lastActivity: Date.now(),
   permissions: [],
   workspace: null,
+};
+
+// Helper function to transform user object from API response to Redux state format
+const transformUserForState = (apiUser: any): User => {
+  const transformedUser = { ...apiUser };
+  
+  // Transform roles from Role[] to string[] if needed
+  if (transformedUser.roles && Array.isArray(transformedUser.roles)) {
+    transformedUser.roles = transformedUser.roles.map((role: any) => 
+      typeof role === 'string' ? role : (role.name || role.id || role)
+    );
+  }
+  
+  return transformedUser;
 };
 
 // Async thunks
@@ -111,7 +126,7 @@ const authSlice = createSlice({
   initialState,
   reducers: {
     setCredentials: (state, action: PayloadAction<{ user: User; token: string; workspace: any; permissions: string[] }>) => {
-      state.user = action.payload.user;
+      state.user = transformUserForState(action.payload.user);
       state.token = action.payload.token;
       state.workspace = action.payload.workspace;
       state.permissions = action.payload.permissions;
@@ -140,7 +155,8 @@ const authSlice = createSlice({
     },
     updateUser: (state, action: PayloadAction<Partial<User>>) => {
       if (state.user) {
-        state.user = { ...state.user, ...action.payload };
+        const updatedUser = { ...state.user, ...action.payload };
+        state.user = transformUserForState(updatedUser);
       }
     },
     setLoading: (state, action: PayloadAction<boolean>) => {
@@ -156,7 +172,7 @@ const authSlice = createSlice({
       })
       .addCase(login.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.user = action.payload.user;
+        state.user = transformUserForState(action.payload.user);
         state.token = action.payload.token;
         state.workspace = action.payload.workspace;
         state.permissions = action.payload.permissions || [];
@@ -182,10 +198,11 @@ const authSlice = createSlice({
       })
       .addCase(validateToken.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.user = action.payload.user;
+        state.user = transformUserForState(action.payload.user);
         state.token = action.payload.token;
-        state.workspace = action.payload.workspace;
-        state.permissions = action.payload.permissions || [];
+        // validateToken doesn't return workspace/permissions, preserve existing ones
+        // state.workspace = action.payload.workspace; // This property doesn't exist
+        // state.permissions = action.payload.permissions || []; // This property doesn't exist
         state.isAuthenticated = true;
         state.lastActivity = Date.now();
         state.error = null;
@@ -207,7 +224,7 @@ const authSlice = createSlice({
       })
       .addCase(switchWorkspace.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.user = action.payload.user;
+        state.user = transformUserForState(action.payload.user);
         state.token = action.payload.token;
         state.workspace = action.payload.workspace;
         state.permissions = action.payload.permissions || [];

@@ -1,13 +1,13 @@
 // Chart Data Utilities
 // File: web-application/src/plugins/charts/utils/chartDataUtils.ts
 
-import { ChartData, ChartConfigSchema, ChartConfigurationSchema, SchemaProperty } from '@/types/chart.types';
+import { ChartData, ChartConfigSchema , SchemaProperty } from '@/types/chart.types';
 
 /**
  * Type guard to check if data is ChartData format
  */
 export const isChartData = (data: any[] | ChartData | undefined): data is ChartData => {
-  return data && typeof data === 'object' && 'rows' in data && Array.isArray(data.rows);
+  return !!(data && typeof data === 'object' && 'rows' in data && Array.isArray(data.rows));
 };
 
 /**
@@ -237,18 +237,21 @@ export function ensureMutable<T>(arr: T[] | readonly T[] | undefined): T[] {
   return (arr ? [...arr] : []) as T[];
 }
 
-export function ensureValidSchema(schema: ChartConfigSchema): ChartConfigurationSchema {
-  const validatedProperties: Record<string, SchemaProperty> = {};
+/**
+ * Validate and ensure schema is properly formatted
+ */
+export function ensureValidSchema(schema: ChartConfigSchema): ChartConfigSchema {
+  const validatedProperties: Record<string, SchemaProperty> = {}; // Keep original type
   
   for (const [key, prop] of Object.entries(schema.properties)) {
     validatedProperties[key] = {
       ...prop,
-      title: prop.title || key, // Ensure title exists
+      title: prop.title || key,
     };
   }
   
   return {
     ...schema,
-    properties: validatedProperties
+    properties: validatedProperties as any // ✅ Use type assertion here instead
   };
 }

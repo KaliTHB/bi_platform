@@ -112,10 +112,6 @@ export type {
   DuplicateDashboardRequest,
 } from './dashboard.types';
 
-
-
-
-
 // =============================================================================
 // Category Management Types
 // =============================================================================
@@ -238,3 +234,5 @@ export type { User as UserType } from './user.types';
 export type { Dashboard as DashboardType } from './dashboard.types';
 export type { Workspace as WorkspaceType } from './workspace.types';
 export type { DashboardCategory as Category } from './category.types';
+
+export type { ChartPreviewProps } from './chart.types';

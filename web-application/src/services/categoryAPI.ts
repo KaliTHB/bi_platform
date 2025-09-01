@@ -98,13 +98,14 @@ export const categoryAPI = {
 
   // Search across categories and dashboards
   searchCategoriesAndDashboards: async (workspaceId: string, query: string, limit: number = 50) => {
-    const response = await apiClient.get(`/search/categories-dashboards`, {
-      params: {
-        workspace_id: workspaceId,
-        q: query,
-        limit
-      }
+    // Fix: Build query string from params instead of passing params object
+    const queryParams = new URLSearchParams({
+      workspace_id: workspaceId,
+      q: query,
+      limit: limit.toString()
     });
+
+    const response = await apiClient.get(`/search/categories-dashboards?${queryParams.toString()}`);
     return response.data;
   }
 };
@@ -126,79 +127,44 @@ export class CategoryService {
     return Date.now() - timestamp < this.CACHE_TTL;
   }
 
-  private setCache(key: string, data: any): void {
-    this.cache.set(key, { data, timestamp: Date.now() });
-  }
+  async getCachedCategories(params: GetCategoriesParams): Promise<GetCategoriesResponse | null> {
+    const cacheKey = this.getCacheKey('getCategories', params);
+    const cached = this.cache.get(cacheKey);
 
-  private getCache(key: string): any | null {
-    const cached = this.cache.get(key);
     if (cached && this.isValidCache(cached.timestamp)) {
       return cached.data;
     }
+
     return null;
   }
 
-  // Cached version of getCategories
-  async getCategories(params: GetCategoriesParams, useCache: boolean = true): Promise<GetCategoriesResponse> {
+  async setCachedCategories(params: GetCategoriesParams, data: GetCategoriesResponse): Promise<void> {
     const cacheKey = this.getCacheKey('getCategories', params);
-    
-    if (useCache) {
-      const cached = this.getCache(cacheKey);
-      if (cached) return cached;
-    }
-
-    try {
-      const result = await categoryAPI.getCategories(params);
-      if (useCache && result.success) {
-        this.setCache(cacheKey, result);
-      }
-      return result;
-    } catch (error) {
-      console.error('Failed to fetch categories:', error);
-      throw error;
-    }
+    this.cache.set(cacheKey, {
+      data,
+      timestamp: Date.now()
+    });
   }
 
-  // Real-time updates via WebSocket (if needed)
-  subscribeToUpdates(workspaceId: string, callback: (update: any) => void): () => void {
-    // This would connect to WebSocket for real-time updates
-    // Implementation depends on your WebSocket setup
-    
-    const ws = new WebSocket(`${process.env.NEXT_PUBLIC_WS_URL}/categories/${workspaceId}`);
-    
-    ws.onmessage = (event) => {
-      try {
-        const update = JSON.parse(event.data);
-        callback(update);
-        // Invalidate relevant cache entries
-        this.invalidateCacheByWorkspace(workspaceId);
-      } catch (error) {
-        console.error('Failed to parse WebSocket message:', error);
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-
-    return () => {
-      ws.close();
-    };
-  }
-
-  private invalidateCacheByWorkspace(workspaceId: string): void {
-    for (const [key] of this.cache.entries()) {
-      if (key.includes(`workspace_id":"${workspaceId}"`)) {
-        this.cache.delete(key);
-      }
+  async getCategories(params: GetCategoriesParams): Promise<GetCategoriesResponse> {
+    // Try cache first
+    const cached = await this.getCachedCategories(params);
+    if (cached) {
+      return cached;
     }
+
+    // Fetch from API
+    const result = await categoryAPI.getCategories(params);
+    
+    // Cache the result
+    await this.setCachedCategories(params, result);
+    
+    return result;
   }
 
-  // Clear all cache
   clearCache(): void {
     this.cache.clear();
   }
 }
 
-// Export singleton instance
-export const categoryService = new CategoryService();
+export default categoryAPI;

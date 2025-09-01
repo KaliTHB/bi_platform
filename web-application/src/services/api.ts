@@ -42,7 +42,8 @@ export const authAPI = {
   },
 
   logout: async (): Promise<{ success: boolean; message: string }> => {
-    const response = await apiClient.post('/auth/logout');
+    // Fix: Add empty object as body parameter
+    const response = await apiClient.post('/auth/logout', {});
     return response.data;
   },
 
@@ -95,7 +96,23 @@ export const workspaceAPI = {
   },
 
   getWorkspaceActivity: async (workspaceId: string, params?: any): Promise<{ success: boolean; activity: any[]; message?: string }> => {
-    const response = await apiClient.get(`/workspaces/${workspaceId}/activity`, { params });
+    // Fix: Build query string from params
+    let endpoint = `/workspaces/${workspaceId}/activity`;
+    
+    if (params) {
+      const queryParams = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          queryParams.append(key, value.toString());
+        }
+      });
+      
+      if (queryParams.toString()) {
+        endpoint += `?${queryParams.toString()}`;
+      }
+    }
+    
+    const response = await apiClient.get(endpoint);
     return response.data;
   },
 
@@ -118,9 +135,17 @@ export const workspaceAPI = {
 // Dataset API
 export const datasetAPI = {
   getDatasets: async (workspaceId: string, params?: any): Promise<{ success: boolean; datasets: any[]; message?: string }> => {
-    const response = await apiClient.get(`/datasets`, {
-      params: { ...params, workspaceId }
+    // Fix: Build query string from params and workspaceId
+    const allParams = { workspace_id: workspaceId, ...params };
+    const queryParams = new URLSearchParams();
+    
+    Object.entries(allParams).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        queryParams.append(key, value.toString());
+      }
     });
+    
+    const response = await apiClient.get(`/datasets?${queryParams.toString()}`);
     return response.data;
   },
 
@@ -170,7 +195,8 @@ export const datasetAPI = {
     error?: string;
     message?: string;
   }> => {
-    const response = await apiClient.post(`/datasets/${datasetId}/test`);
+    // Fix: Add empty object as body parameter
+    const response = await apiClient.post(`/datasets/${datasetId}/test`, {});
     return response.data;
   },
 };
@@ -178,9 +204,17 @@ export const datasetAPI = {
 // Dashboard API
 export const dashboardAPI = {
   getDashboards: async (workspaceId: string, params?: any): Promise<{ success: boolean; dashboards: any[]; message?: string }> => {
-    const response = await apiClient.get('/dashboards', {
-      params: { ...params, workspaceId }
+    // Fix: Build query string from params and workspaceId
+    const allParams = { workspace_id: workspaceId, ...params };
+    const queryParams = new URLSearchParams();
+    
+    Object.entries(allParams).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        queryParams.append(key, value.toString());
+      }
     });
+    
+    const response = await apiClient.get(`/dashboards?${queryParams.toString()}`);
     return response.data;
   },
 
@@ -210,7 +244,23 @@ export const dashboardAPI = {
   },
 
   getDashboardAnalytics: async (dashboardId: string, params?: any): Promise<{ success: boolean; analytics: any; message?: string }> => {
-    const response = await apiClient.get(`/dashboards/${dashboardId}/analytics`, { params });
+    // Fix: Build query string from params
+    let endpoint = `/dashboards/${dashboardId}/analytics`;
+    
+    if (params) {
+      const queryParams = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          queryParams.append(key, value.toString());
+        }
+      });
+      
+      if (queryParams.toString()) {
+        endpoint += `?${queryParams.toString()}`;
+      }
+    }
+    
+    const response = await apiClient.get(endpoint);
     return response.data;
   },
 };
@@ -242,23 +292,32 @@ export const chartAPI = {
     return response.data;
   },
 
-  duplicateChart: async (chartId: string, data: { dashboard_id: string }): Promise<{ success: boolean; chart: any; message: string }> => {
+  duplicateChart: async (chartId: string, data: { name: string }): Promise<{ success: boolean; chart: any; message: string }> => {
     const response = await apiClient.post(`/charts/${chartId}/duplicate`, data);
     return response.data;
   },
 
-  getChartData: async (chartId: string, filters?: any): Promise<{
+  executeChartQuery: async (chartId: string): Promise<{ success: boolean; data: any[]; columns: any[]; message?: string }> => {
+    // Fix: Add empty object as body parameter
+    const response = await apiClient.post(`/charts/${chartId}/execute`, {});
+    return response.data;
+  },
+
+  getChartData: async (chartId: string, options: { filters?: any[] } = {}): Promise<{
     success: boolean; 
     data: any[];
     columns: Array<{ name: string; type: string }>;
     execution_time: number;
     message?: string;
   }> => {
-    const response = await apiClient.post(`/charts/${chartId}/data`, { filters });
+    const response = await apiClient.post(`/charts/${chartId}/data`, options);
     return response.data;
   },
 
-  exportChart: async (chartId: string, options: { format: 'json' | 'csv' | 'excel' | 'png' | 'svg' | 'pdf'; [key: string]: any }): Promise<{ 
+  exportChart: async (chartId: string, options: { 
+    format: 'json' | 'csv' | 'excel' | 'png' | 'svg' | 'pdf'; 
+    [key: string]: any 
+  }): Promise<{ 
     success: boolean;
     export: { 
       data: string | Blob; 
@@ -268,49 +327,20 @@ export const chartAPI = {
     message?: string;
   }> => {
     const response = await apiClient.post(`/charts/${chartId}/export`, options);
-    
-    // For image formats (png, svg) and PDF, the response might be a blob
-    if (options.format === 'png' || options.format === 'svg' || options.format === 'pdf') {
-      return {
-        success: response.data.success || true,
-        export: {
-          data: response.data.export?.data || response.data.data,
-          filename: response.data.export?.filename || `chart_${chartId}.${options.format}`,
-          format: options.format
-        },
-        message: response.data.message
-      };
-    }
-    
-    // For data formats (json, csv, excel), return the structured response
-    return {
-      success: response.data.success || true,
-      export: {
-        data: response.data.export?.data || response.data.data,
-        filename: response.data.export?.filename || `chart_${chartId}.${options.format}`,
-        format: response.data.export?.format || options.format
-      },
-      message: response.data.message
-    };
+    return response.data;
   },
 };
 
 // User API
 export const userAPI = {
-  getUsers: async (workspaceId: string, params?: any): Promise<{ success: boolean; users: any[]; message?: string }> => {
-    const response = await apiClient.get('/users', {
-      params: { ...params, workspaceId }
-    });
+  getUsers: async (workspaceId?: string): Promise<{ success: boolean; users: any[]; message?: string }> => {
+    const endpoint = workspaceId ? `/users?workspace_id=${workspaceId}` : '/users';
+    const response = await apiClient.get(endpoint);
     return response.data;
   },
 
   getUser: async (userId: string): Promise<{ success: boolean; user: any; message?: string }> => {
     const response = await apiClient.get(`/users/${userId}`);
-    return response.data;
-  },
-
-  createUser: async (workspaceId: string, data: any): Promise<{ success: boolean; user: any; message: string }> => {
-    const response = await apiClient.post('/users', { ...data, workspaceId });
     return response.data;
   },
 
@@ -324,31 +354,21 @@ export const userAPI = {
     return response.data;
   },
 
-  updateProfile: async (data: any): Promise<{ success: boolean; user: User; message: string }> => {
+  updateUserProfile: async (data: any): Promise<{ success: boolean; user: any; message: string }> => {
     const response = await apiClient.put('/users/profile', data);
     return response.data;
   },
 
   changePassword: async (data: { current_password: string; new_password: string }): Promise<{ success: boolean; message: string }> => {
-    const response = await apiClient.put('/users/change-password', data);
+    const response = await apiClient.post('/users/change-password', data);
     return response.data;
   },
 };
 
 // Plugin API
 export const pluginAPI = {
-  getPlugins: async (): Promise<{
-    success: boolean; 
-    dataSourcePlugins: any[];
-    chartPlugins: any[];
-    message?: string;
-  }> => {
-    const response = await apiClient.get('/plugins');
-    return response.data;
-  },
-
   getDataSourcePlugins: async (): Promise<{ success: boolean; plugins: any[]; message?: string }> => {
-    const response = await apiClient.get('/plugins/data-sources');
+    const response = await apiClient.get('/plugins/datasources');
     return response.data;
   },
 
@@ -373,6 +393,7 @@ export const pluginAPI = {
   },
 };
 
+// Category API
 export const categoryAPI = {
   getCategories: async (workspaceId: string, params?: {
     webview_id?: string;
@@ -466,7 +487,7 @@ export const categoryAPI = {
   }
 };
 
-// Webview API - Add this section as well
+// Webview API
 export const webviewAPI = {
   getWebviewByName: async (webviewName: string): Promise<{
     success: boolean;
@@ -539,6 +560,6 @@ export default {
   chartAPI,
   userAPI,
   pluginAPI,
-  categoryAPI,  // Add this
-  webviewAPI,   // Add this
+  categoryAPI,
+  webviewAPI,
 };

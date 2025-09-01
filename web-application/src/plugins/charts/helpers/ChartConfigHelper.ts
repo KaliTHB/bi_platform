@@ -39,40 +39,6 @@ export type ChartLibrary = typeof CHART_LIBRARIES[number];
 export type ExportFormat = typeof EXPORT_FORMATS[number];
 export type SupportedDataType = typeof SUPPORTED_DATA_TYPES[number];
 
-// Input interface for the helper function
-export interface ChartConfigInput {
-  name: string;
-  displayName: string;
-  category: string;
-  library: string;
-  version: string;
-  description?: string;
-  tags?: string[];
-  configSchema: ChartConfigSchema;
-  dataRequirements: {
-    minColumns: number;
-    maxColumns?: number;
-    requiredFields: string[];
-    optionalFields?: string[];
-    supportedTypes: string[];
-    aggregationSupport?: boolean;
-    pivotSupport?: boolean;
-  };
-  exportFormats?: string[];
-  interactionSupport?: {
-    zoom?: boolean;
-    pan?: boolean;
-    selection?: boolean;
-    brush?: boolean;
-    drilldown?: boolean;
-    tooltip?: boolean;
-    crossFilter?: boolean;
-  };
-  component: React.ComponentType<ChartProps>;
-  previewComponent?: React.ComponentType<ChartPreviewProps>;
-  configComponent?: React.ComponentType<ChartConfigProps>;
-}
-
 // Validation error class
 export class ChartConfigValidationError extends Error {
   constructor(
@@ -91,7 +57,7 @@ export class ChartConfigHelper {
   /**
    * Creates a validated chart plugin configuration
    */
-  static createChartConfig(input: ChartConfigInput): ChartPluginConfig {
+  static createChartConfig(input: ChartPluginConfig): ChartPluginConfig {
     // Validate input
     this.validateChartConfig(input);
     
@@ -114,7 +80,7 @@ export class ChartConfigHelper {
         aggregationSupport: input.dataRequirements.aggregationSupport,
         pivotSupport: input.dataRequirements.pivotSupport
       },
-      exportFormats: (input.exportFormats || ['png', 'svg', 'pdf']) as readonly ExportFormat[],
+      exportFormats: (input.exportFormats || ['png', 'svg', 'pdf']) as ExportFormat[],
       component: input.component,
       previewComponent: input.previewComponent,
       configComponent: input.configComponent,
@@ -127,8 +93,8 @@ export class ChartConfigHelper {
   /**
    * Validates chart configuration input
    */
-  static validateChartConfig(input: ChartConfigInput): void {
-    // Validate required fields
+  static validateChartConfig(input: ChartPluginConfig): void {
+    // Required field validations
     if (!input.name) {
       throw new ChartConfigValidationError('Chart name is required', 'name', input.name);
     }
@@ -137,85 +103,52 @@ export class ChartConfigHelper {
       throw new ChartConfigValidationError('Display name is required', 'displayName', input.displayName);
     }
     
-    // Validate category
-    if (!CHART_CATEGORIES.includes(input.category as ChartCategory)) {
+    // ✅ Data requirements validation with safe access
+    const dataReqs = input.dataRequirements;
+    if (!dataReqs) {
       throw new ChartConfigValidationError(
-        `Invalid category: ${input.category}`,
-        'category',
-        input.category,
-        [...CHART_CATEGORIES]
+        'Data requirements are required',
+        'dataRequirements', 
+        dataReqs
       );
     }
     
-    // Validate library
-    if (!CHART_LIBRARIES.includes(input.library as ChartLibrary)) {
-      throw new ChartConfigValidationError(
-        `Invalid library: ${input.library}`,
-        'library',
-        input.library,
-        [...CHART_LIBRARIES]
-      );
-    }
-    
-    // Validate version format (semantic versioning)
-    const versionRegex = /^\d+\.\d+\.\d+(-[\w\.-]+)?$/;
-    if (!versionRegex.test(input.version)) {
-      throw new ChartConfigValidationError(
-        'Version must follow semantic versioning (e.g., 1.0.0)',
-        'version',
-        input.version
-      );
-    }
-    
-    // Validate data requirements
-    if (input.dataRequirements.minColumns < 1) {
+    // ✅ Use nullish coalescing to provide defaults for validation
+    const minColumns = dataReqs.minColumns ?? 0;
+    if (minColumns < 1) {
       throw new ChartConfigValidationError(
         'Minimum columns must be at least 1',
         'dataRequirements.minColumns',
-        input.dataRequirements.minColumns
+        minColumns
       );
     }
     
-    if (input.dataRequirements.maxColumns && 
-        input.dataRequirements.maxColumns < input.dataRequirements.minColumns) {
+    const maxColumns = dataReqs.maxColumns;
+    if (maxColumns !== undefined && maxColumns < minColumns) {
       throw new ChartConfigValidationError(
         'Maximum columns must be greater than minimum columns',
         'dataRequirements.maxColumns',
-        input.dataRequirements.maxColumns
+        maxColumns
       );
     }
     
-    // Validate supported types
-    const invalidTypes = input.dataRequirements.supportedTypes.filter(
-      type => !SUPPORTED_DATA_TYPES.includes(type as SupportedDataType)
-    );
-    
-    if (invalidTypes.length > 0) {
+    // ✅ Validate required arrays exist
+    if (!Array.isArray(dataReqs.requiredFields)) {
       throw new ChartConfigValidationError(
-        `Invalid supported types: ${invalidTypes.join(', ')}`,
+        'Required fields must be an array',
+        'dataRequirements.requiredFields',
+        dataReqs.requiredFields
+      );
+    }
+    
+    if (!Array.isArray(dataReqs.supportedTypes)) {
+      throw new ChartConfigValidationError(
+        'Supported types must be an array',
         'dataRequirements.supportedTypes',
-        invalidTypes,
-        [...SUPPORTED_DATA_TYPES]
+        dataReqs.supportedTypes
       );
     }
     
-    // Validate export formats
-    if (input.exportFormats) {
-      const invalidFormats = input.exportFormats.filter(
-        format => !EXPORT_FORMATS.includes(format as ExportFormat)
-      );
-      
-      if (invalidFormats.length > 0) {
-        throw new ChartConfigValidationError(
-          `Invalid export formats: ${invalidFormats.join(', ')}`,
-          'exportFormats',
-          invalidFormats,
-          [...EXPORT_FORMATS]
-        );
-      }
-    }
-    
-    // Validate component exists
     if (!input.component) {
       throw new ChartConfigValidationError(
         'Chart component is required',
@@ -224,7 +157,7 @@ export class ChartConfigHelper {
       );
     }
   }
-  
+
   /**
    * Creates a default configuration schema for common chart types
    */

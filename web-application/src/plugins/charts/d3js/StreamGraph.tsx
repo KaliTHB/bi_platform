@@ -16,7 +16,7 @@ export interface StreamGraphConfig {
 
 // Type guard to check if data is ChartData
 const isChartData = (data: any[] | ChartData): data is ChartData => {
-  return data && typeof data === 'object' && 'rows' in data && Array.isArray(data.rows);
+  return !!(data && typeof data === 'object' && 'rows' in data && Array.isArray(data.rows));
 };
 
 // Helper function to get the data array

@@ -1,7 +1,8 @@
 // web-application/src/store/slices/workspaceSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { workspaceAPI } from '@/services/api';
-import { Workspace, CreateWorkspaceRequest, UpdateWorkspaceRequest } from '@/types/auth.types';
+// Fix: Import from workspace.types.ts instead of auth.types.ts
+import { Workspace, CreateWorkspaceRequest, UpdateWorkspaceRequest } from '@/types/workspace.types';
 
 interface WorkspaceState {
   currentWorkspace: Workspace | null;
@@ -170,24 +171,9 @@ const workspaceSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
-    updateWorkspaceSettings: (state, action: PayloadAction<Partial<Workspace>>) => {
+    updateWorkspaceLocal: (state, action: PayloadAction<Partial<Workspace>>) => {
       if (state.currentWorkspace) {
         state.currentWorkspace = { ...state.currentWorkspace, ...action.payload };
-      }
-      
-      // Update in workspaces list too
-      const index = state.workspaces.findIndex(w => w.id === state.currentWorkspace?.id);
-      if (index !== -1) {
-        state.workspaces[index] = { ...state.workspaces[index], ...action.payload };
-      }
-    },
-    addWorkspace: (state, action: PayloadAction<Workspace>) => {
-      state.workspaces.push(action.payload);
-    },
-    removeWorkspaceFromList: (state, action: PayloadAction<string>) => {
-      state.workspaces = state.workspaces.filter(w => w.id !== action.payload);
-      if (state.currentWorkspace?.id === action.payload) {
-        state.currentWorkspace = null;
       }
     },
   },
@@ -201,7 +187,6 @@ const workspaceSlice = createSlice({
       .addCase(fetchWorkspaces.fulfilled, (state, action) => {
         state.isLoading = false;
         state.workspaces = action.payload;
-        state.error = null;
       })
       .addCase(fetchWorkspaces.rejected, (state, action) => {
         state.isLoading = false;
@@ -217,16 +202,6 @@ const workspaceSlice = createSlice({
       .addCase(fetchWorkspace.fulfilled, (state, action) => {
         state.isLoading = false;
         state.currentWorkspace = action.payload;
-        
-        // Update in workspaces list too
-        const index = state.workspaces.findIndex(w => w.id === action.payload.id);
-        if (index !== -1) {
-          state.workspaces[index] = action.payload;
-        } else {
-          state.workspaces.push(action.payload);
-        }
-        
-        state.error = null;
       })
       .addCase(fetchWorkspace.rejected, (state, action) => {
         state.isLoading = false;
@@ -243,7 +218,6 @@ const workspaceSlice = createSlice({
         state.isLoading = false;
         state.workspaces.push(action.payload);
         state.currentWorkspace = action.payload;
-        state.error = null;
       })
       .addCase(createWorkspace.rejected, (state, action) => {
         state.isLoading = false;
@@ -258,19 +232,12 @@ const workspaceSlice = createSlice({
       })
       .addCase(updateWorkspace.fulfilled, (state, action) => {
         state.isLoading = false;
-        
-        // Update current workspace
-        if (state.currentWorkspace?.id === action.payload.id) {
-          state.currentWorkspace = action.payload;
-        }
-        
-        // Update in workspaces list
+        state.currentWorkspace = action.payload;
+        // Update in workspaces array
         const index = state.workspaces.findIndex(w => w.id === action.payload.id);
         if (index !== -1) {
           state.workspaces[index] = action.payload;
         }
-        
-        state.error = null;
       })
       .addCase(updateWorkspace.rejected, (state, action) => {
         state.isLoading = false;
@@ -286,19 +253,16 @@ const workspaceSlice = createSlice({
       .addCase(deleteWorkspace.fulfilled, (state, action) => {
         state.isLoading = false;
         state.workspaces = state.workspaces.filter(w => w.id !== action.payload);
-        
         if (state.currentWorkspace?.id === action.payload) {
           state.currentWorkspace = null;
         }
-        
-        state.error = null;
       })
       .addCase(deleteWorkspace.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload as string;
       });
 
-    // Fetch workspace members
+    // Fetch members
     builder
       .addCase(fetchWorkspaceMembers.pending, (state) => {
         state.membersLoading = true;
@@ -307,11 +271,12 @@ const workspaceSlice = createSlice({
         state.membersLoading = false;
         state.members = action.payload;
       })
-      .addCase(fetchWorkspaceMembers.rejected, (state) => {
+      .addCase(fetchWorkspaceMembers.rejected, (state, action) => {
         state.membersLoading = false;
+        state.error = action.payload as string;
       });
 
-    // Fetch workspace activity
+    // Fetch activity
     builder
       .addCase(fetchWorkspaceActivity.pending, (state) => {
         state.activityLoading = true;
@@ -320,20 +285,21 @@ const workspaceSlice = createSlice({
         state.activityLoading = false;
         state.activity = action.payload;
       })
-      .addCase(fetchWorkspaceActivity.rejected, (state) => {
+      .addCase(fetchWorkspaceActivity.rejected, (state, action) => {
         state.activityLoading = false;
+        state.error = action.payload as string;
       });
 
     // Invite user
     builder
-      .addCase(inviteUser.fulfilled, (state) => {
-        // Refresh members list would be handled by parent component
+      .addCase(inviteUser.fulfilled, (state, action) => {
+        // Optionally update members list or show success message
       });
 
     // Update user role
     builder
-      .addCase(updateUserRole.fulfilled, (state) => {
-        // Refresh members list would be handled by parent component
+      .addCase(updateUserRole.fulfilled, (state, action) => {
+        // Optionally update members list
       });
 
     // Remove user
@@ -344,21 +310,11 @@ const workspaceSlice = createSlice({
   },
 });
 
-export const {
-  setWorkspace,
-  clearWorkspace,
-  clearError,
-  updateWorkspaceSettings,
-  addWorkspace,
-  removeWorkspaceFromList,
+export const { 
+  setWorkspace, 
+  clearWorkspace, 
+  clearError, 
+  updateWorkspaceLocal 
 } = workspaceSlice.actions;
 
 export default workspaceSlice.reducer;
-
-// Selectors
-export const selectCurrentWorkspace = (state: { workspace: WorkspaceState }) => state.workspace.currentWorkspace;
-export const selectWorkspaces = (state: { workspace: WorkspaceState }) => state.workspace.workspaces;
-export const selectWorkspaceLoading = (state: { workspace: WorkspaceState }) => state.workspace.isLoading;
-export const selectWorkspaceError = (state: { workspace: WorkspaceState }) => state.workspace.error;
-export const selectWorkspaceMembers = (state: { workspace: WorkspaceState }) => state.workspace.members;
-export const selectWorkspaceActivity = (state: { workspace: WorkspaceState }) => state.workspace.activity;

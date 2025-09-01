@@ -28,7 +28,10 @@ import { useSelector, useDispatch } from 'react-redux';
 import { useRouter } from 'next/navigation';
 import { RootState } from '@/store/index';
 import { setWorkspace } from '@/store/slices/workspaceSlice';
-import { Workspace } from '@/types/auth.types';
+// Fix: Import from workspace.types.ts to match what setWorkspace expects
+import { Workspace, WorkspaceSettings } from '@/types/workspace.types';
+// Import auth workspace type for input
+import { Workspace as AuthWorkspace } from '@/types/auth.types';
 
 export const WorkspaceSwitcher: React.FC = () => {
   const theme = useTheme();
@@ -49,9 +52,45 @@ export const WorkspaceSwitcher: React.FC = () => {
     setAnchorEl(null);
   };
 
-  const handleWorkspaceSwitch = (workspace: Workspace) => {
-    dispatch(setWorkspace(workspace));
-    router.push(`/workspace/${workspace.slug}`);
+  // Transform workspace from auth format to workspace format
+  const transformWorkspace = (authWorkspace: AuthWorkspace): Workspace => {
+    // Provide default settings if missing
+    const defaultSettings: WorkspaceSettings = {
+      theme: 'light',
+      timezone: 'UTC',
+      date_format: 'YYYY-MM-DD',
+      number_format: 'en-US',
+      language: 'en',
+      max_query_timeout: 300,
+      max_export_rows: 10000,
+      features: {
+        sql_editor: true,
+        dashboard_builder: true,
+        data_exports: true,
+        api_access: false,
+        webhooks: false,
+      },
+    };
+
+    return {
+      id: authWorkspace.id,
+      name: authWorkspace.name,
+      slug: authWorkspace.slug,
+      description: authWorkspace.description,
+      logo_url: authWorkspace.logo_url,
+      settings: authWorkspace.settings || defaultSettings,
+      is_active: authWorkspace.is_active ?? true,
+      created_at: authWorkspace.created_at,
+      updated_at: authWorkspace.updated_at,
+      user_roles: [],
+      highest_role_level: 0,
+    };
+  };
+
+  const handleWorkspaceSwitch = (authWorkspace: AuthWorkspace) => {
+    const transformedWorkspace = transformWorkspace(authWorkspace);
+    dispatch(setWorkspace(transformedWorkspace));
+    router.push(`/workspace/${authWorkspace.slug}`);
     handleClose();
   };
 
@@ -68,7 +107,7 @@ export const WorkspaceSwitcher: React.FC = () => {
   };
 
   // Get user role based on permissions
-  const getRoleLabel = (workspace: Workspace) => {
+  const getRoleLabel = (workspace: AuthWorkspace) => {
     if (!permissions) return 'Member';
     
     // Check permissions to determine role level
@@ -101,7 +140,7 @@ export const WorkspaceSwitcher: React.FC = () => {
     return 'Member';
   };
 
-  const getRoleColor = (workspace: Workspace): 'error' | 'warning' | 'info' | 'success' | 'default' => {
+  const getRoleColor = (workspace: AuthWorkspace): 'error' | 'warning' | 'info' | 'success' | 'default' => {
     const roleLabel = getRoleLabel(workspace);
     
     switch (roleLabel) {
@@ -145,17 +184,15 @@ export const WorkspaceSwitcher: React.FC = () => {
           borderColor: theme.palette.divider,
           '&:hover': {
             borderColor: theme.palette.primary.main,
-            backgroundColor: theme.palette.action.hover,
-          }
+          },
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Avatar
             src={currentWorkspace.logo_url}
             sx={{ 
-              width: 24, 
-              height: 24, 
-              mr: 1,
+              width: 32, 
+              height: 32,
               bgcolor: theme.palette.primary.main 
             }}
           >
@@ -164,102 +201,83 @@ export const WorkspaceSwitcher: React.FC = () => {
           <Box sx={{ minWidth: 0 }}>
             <Typography 
               variant="body2" 
-              fontWeight={600}
-              noWrap
-              sx={{ color: theme.palette.text.primary }}
+              fontWeight="medium"
+              sx={{ 
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}
             >
               {currentWorkspace.name}
             </Typography>
             <Typography 
               variant="caption" 
+              color="text.secondary"
               sx={{ 
-                color: theme.palette.text.secondary,
-                display: 'block',
-                lineHeight: 1
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
               }}
             >
-              {getRoleLabel(currentWorkspace)}
+              {currentWorkspace.description || 'Active Workspace'}
             </Typography>
           </Box>
         </Box>
       </Button>
 
       <Menu
+        id="workspace-switcher-menu"
         anchorEl={anchorEl}
         open={open}
         onClose={handleClose}
-        PaperProps={{
-          elevation: 8,
-          sx: {
-            overflow: 'visible',
-            filter: 'drop-shadow(0px 2px 8px rgba(0,0,0,0.32))',
-            mt: 1,
-            minWidth: 300,
-            maxHeight: 400,
-          },
+        MenuListProps={{
+          'aria-labelledby': 'workspace-switcher-button',
         }}
-        transformOrigin={{ horizontal: 'left', vertical: 'top' }}
-        anchorOrigin={{ horizontal: 'left', vertical: 'bottom' }}
+        PaperProps={{
+          sx: {
+            width: 320,
+            maxHeight: 400,
+          }
+        }}
       >
-        {/* Current workspace info */}
-        <Box sx={{ px: 2, py: 1.5, bgcolor: theme.palette.action.hover }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+        {/* Current Workspace */}
+        <MenuItem disabled>
+          <ListItemIcon>
             <Avatar
               src={currentWorkspace.logo_url}
               sx={{ 
-                width: 32, 
-                height: 32, 
-                mr: 1.5,
+                width: 24, 
+                height: 24,
                 bgcolor: theme.palette.primary.main 
               }}
             >
               {currentWorkspace.name[0]}
             </Avatar>
-            <Box>
-              <Typography variant="subtitle2" fontWeight={600}>
-                {currentWorkspace.name}
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+          </ListItemIcon>
+          <ListItemText 
+            primary={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="body2">{currentWorkspace.name}</Typography>
                 <Chip 
-                  label={getRoleLabel(currentWorkspace)}
+                  label="Current"
                   size="small"
-                  color={getRoleColor(currentWorkspace)}
-                  variant="outlined"
+                  color="primary"
+                  variant="filled"
                 />
-                {currentWorkspace.user_count !== undefined && (
-                  <Typography variant="caption" color="text.secondary">
-                    {currentWorkspace.user_count} users
-                  </Typography>
-                )}
               </Box>
-            </Box>
-          </Box>
-          
-          {/* Workspace stats */}
-          <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
-            {currentWorkspace.dashboard_count !== undefined && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Dashboard fontSize="small" color="action" />
-                <Typography variant="caption" color="text.secondary">
-                  {currentWorkspace.dashboard_count} dashboards
-                </Typography>
-              </Box>
-            )}
-          </Box>
-        </Box>
+            }
+            secondary={currentWorkspace.description || 'Active workspace'}
+          />
+        </MenuItem>
 
-        {workspaces && workspaces.length > 1 && (
+        {/* Available Workspaces */}
+        {workspaces.length > 1 && (
           <>
             <Divider />
             <Typography 
-              variant="overline" 
-              sx={{ 
-                px: 2, 
-                py: 1, 
-                display: 'block',
-                color: theme.palette.text.secondary,
-                fontWeight: 600
-              }}
+              variant="caption" 
+              color="text.secondary" 
+              sx={{ px: 2, py: 1, display: 'block' }}
             >
               SWITCH WORKSPACE
             </Typography>
