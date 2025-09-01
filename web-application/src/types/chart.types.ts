@@ -723,3 +723,79 @@ export interface ValidationError {
   code?: string;
   severity?: 'error' | 'warning' | 'info';
 }
+
+// Update these interfaces in your chart.types.ts file
+
+export interface ChartConfigSchema {
+  type: string; // More flexible - accepts any string, not just 'object'
+  properties: {
+    [key: string]: {
+      type: string; // More flexible - accepts any string, not just specific literals
+      required?: boolean;
+      default?: any;
+      title?: string;
+      description?: string;
+      options?: Array<{ label: string; value: any }>; // No readonly requirement
+      minimum?: number;
+      maximum?: number;
+      items?: {
+        type: string;
+        title?: string;
+      };
+      enum?: any[]; // No readonly requirement
+      format?: string;
+      minItems?: number;
+      maxItems?: number;
+    };
+  };
+  required?: string[]; // No readonly requirement
+}
+
+export interface DataRequirements {
+  minColumns?: number;
+  maxColumns?: number;
+  requiredFields?: string[]; // No readonly requirement
+  optionalFields?: string[]; // No readonly requirement
+  supportedTypes?: string[]; // No readonly requirement
+  aggregationSupport?: boolean;
+  pivotSupport?: boolean;
+  specialRequirements?: string[]; // Added for additional requirements
+}
+
+export interface ChartPluginConfig {
+  name: string;
+  displayName: string;
+  category: string; // More flexible - accepts any string
+  library: string; // More flexible - accepts any string
+  version: string;
+  description?: string;
+  tags?: string[]; // No readonly requirement
+  configSchema?: ChartConfigSchema;
+  dataRequirements?: DataRequirements;
+  exportFormats?: string[]; // No readonly requirement
+  component: React.ComponentType<ChartProps>;
+  previewComponent?: React.ComponentType<ChartPreviewProps>;
+  configComponent?: React.ComponentType<ChartConfigProps>;
+  interactionSupport?: {
+    zoom?: boolean;
+    pan?: boolean;
+    selection?: boolean;
+    brush?: boolean;
+    drilldown?: boolean;
+    tooltip?: boolean;
+    crossFilter?: boolean;
+  };
+}
+
+export interface SchemaProperty {
+  type: string; // More flexible
+  title: string;
+  description?: string;
+  default?: any;
+  enum?: any[]; // No readonly requirement
+  minimum?: number;
+  maximum?: number;
+  required?: boolean;
+  options?: Array<{ label: string; value: any }>; // No readonly requirement
+  properties?: Record<string, SchemaProperty>;
+}

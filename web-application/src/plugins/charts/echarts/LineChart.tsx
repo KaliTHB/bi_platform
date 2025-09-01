@@ -314,3 +314,103 @@ const LineChart: React.FC<LineChartProps> = ({
 };
 
 export default LineChart;
+
+// Chart Plugin Configuration Export
+export const EChartsLineChartConfig = {
+  name: 'echarts-line',
+  displayName: 'ECharts Line Chart',
+  category: 'basic',
+  library: 'echarts',
+  version: '1.0.0',
+  description: 'Interactive line chart with customizable styling and animations',
+  tags: ['line', 'trend', 'time-series', 'basic'],
+  
+  configSchema: {
+    type: 'object',
+    properties: {
+      title: {
+        type: 'string',
+        title: 'Chart Title',
+        default: 'Line Chart'
+      },
+      xAxisField: {
+        type: 'string',
+        title: 'X-Axis Field',
+        description: 'Field name for categories (x-axis)',
+        default: 'name'
+      },
+      yAxisField: {
+        type: 'string',
+        title: 'Y-Axis Field',
+        description: 'Field name for values (y-axis)',
+        default: 'value'
+      },
+      xAxisLabel: {
+        type: 'string',
+        title: 'X-Axis Label',
+        description: 'Label for the x-axis'
+      },
+      yAxisLabel: {
+        type: 'string',
+        title: 'Y-Axis Label',
+        description: 'Label for the y-axis'
+      },
+      smooth: {
+        type: 'boolean',
+        title: 'Smooth Lines',
+        description: 'Use smooth curves instead of straight lines',
+        default: false
+      },
+      showPoints: {
+        type: 'boolean',
+        title: 'Show Data Points',
+        default: true
+      },
+      fillArea: {
+        type: 'boolean',
+        title: 'Fill Area Under Line',
+        description: 'Create an area chart by filling under the line',
+        default: false
+      },
+      lineWidth: {
+        type: 'number',
+        title: 'Line Width',
+        default: 2,
+        minimum: 1,
+        maximum: 10
+      },
+      pointSize: {
+        type: 'number',
+        title: 'Point Size',
+        default: 6,
+        minimum: 2,
+        maximum: 20
+      },
+      color: {
+        type: 'color',
+        title: 'Line Color',
+        default: '#5470c6'
+      },
+      connectNulls: {
+        type: 'boolean',
+        title: 'Connect Null Values',
+        description: 'Connect lines across null/missing values',
+        default: false
+      }
+    },
+    required: ['xAxisField', 'yAxisField']
+  },
+  
+  dataRequirements: {
+    minColumns: 2,
+    maxColumns: 100,
+    requiredFields: ['name', 'value'],
+    optionalFields: [],
+    supportedTypes: ['string', 'number', 'date'],
+    aggregationSupport: true,
+    pivotSupport: false
+  },
+  
+  exportFormats: ['png', 'svg', 'pdf'],
+  component: LineChart
+};

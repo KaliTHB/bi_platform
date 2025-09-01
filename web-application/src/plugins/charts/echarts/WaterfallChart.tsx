@@ -417,6 +417,8 @@ export const WaterfallChart: React.FC<ChartProps> = ({
   );
 };
 
+export default WaterfallChart;
+
 // Chart Plugin Configuration Export
 export const EChartsWaterfallChartConfig = {
   name: 'echarts-waterfall',
@@ -424,8 +426,8 @@ export const EChartsWaterfallChartConfig = {
   category: 'financial',
   library: 'echarts',
   version: '1.0.0',
-  description: 'Display cumulative effect of sequentially introduced positive or negative values',
-  tags: ['waterfall', 'financial', 'cumulative', 'flow'],
+  description: 'Waterfall chart showing cumulative effects of sequential positive and negative values',
+  tags: ['waterfall', 'financial', 'cumulative', 'bridge', 'variance'],
   
   configSchema: {
     type: 'object',
@@ -435,57 +437,179 @@ export const EChartsWaterfallChartConfig = {
         title: 'Chart Title',
         default: 'Waterfall Chart'
       },
-      xField: {
+      categoryField: {
         type: 'string',
         title: 'Category Field',
-        description: 'Field name for categories',
+        description: 'Field name for x-axis categories',
         default: 'category'
       },
-      yField: {
+      valueField: {
         type: 'string',
         title: 'Value Field',
         description: 'Field name for values',
         default: 'value'
       },
-      showConnect: {
+      typeField: {
+        type: 'string',
+        title: 'Type Field',
+        description: 'Field indicating value type (positive/negative/total)',
+        default: 'type'
+      },
+      startingValue: {
+        type: 'number',
+        title: 'Starting Value',
+        description: 'Initial value for the waterfall',
+        default: 0
+      },
+      showConnectorLines: {
         type: 'boolean',
-        title: 'Show Connectors',
-        description: 'Show connecting lines between bars',
+        title: 'Show Connector Lines',
+        description: 'Show lines connecting the bars',
         default: true
+      },
+      connectorLineStyle: {
+        type: 'select',
+        title: 'Connector Line Style',
+        options: [
+          { label: 'Solid', value: 'solid' },
+          { label: 'Dashed', value: 'dashed' },
+          { label: 'Dotted', value: 'dotted' }
+        ],
+        default: 'dashed'
+      },
+      connectorLineColor: {
+        type: 'color',
+        title: 'Connector Line Color',
+        default: '#999999'
+      },
+      positiveColor: {
+        type: 'color',
+        title: 'Positive Value Color',
+        default: '#00da3c'
+      },
+      negativeColor: {
+        type: 'color',
+        title: 'Negative Value Color',
+        default: '#ec0000'
+      },
+      totalColor: {
+        type: 'color',
+        title: 'Total Value Color',
+        default: '#5470c6'
+      },
+      neutralColor: {
+        type: 'color',
+        title: 'Neutral Value Color',
+        default: '#91cc75'
       },
       showValues: {
         type: 'boolean',
-        title: 'Show Values',
-        description: 'Display values on bars',
+        title: 'Show Values on Bars',
         default: true
       },
-      valueFormat: {
+      valuePosition: {
         type: 'select',
-        title: 'Value Format',
+        title: 'Value Label Position',
         options: [
-          { label: 'Number', value: 'number' },
-          { label: 'Currency', value: 'currency' },
-          { label: 'Percentage', value: 'percentage' },
-          { label: 'Decimal (2 places)', value: 'decimal2' }
+          { label: 'Top', value: 'top' },
+          { label: 'Inside', value: 'inside' },
+          { label: 'Bottom', value: 'bottom' }
         ],
-        default: 'number'
+        default: 'top'
+      },
+      showCumulative: {
+        type: 'boolean',
+        title: 'Show Cumulative Values',
+        description: 'Display running totals',
+        default: false
+      },
+      cumulativePosition: {
+        type: 'select',
+        title: 'Cumulative Label Position',
+        options: [
+          { label: 'Top', value: 'top' },
+          { label: 'Inside', value: 'inside' },
+          { label: 'Bottom', value: 'bottom' }
+        ],
+        default: 'inside'
+      },
+      barWidth: {
+        type: 'string',
+        title: 'Bar Width',
+        description: 'Width as percentage of category width',
+        default: '60%'
+      },
+      barGap: {
+        type: 'string',
+        title: 'Bar Gap',
+        description: 'Gap between bars as percentage',
+        default: '20%'
+      },
+      showGrid: {
+        type: 'boolean',
+        title: 'Show Grid',
+        default: true
+      },
+      gridLineStyle: {
+        type: 'select',
+        title: 'Grid Line Style',
+        options: [
+          { label: 'Solid', value: 'solid' },
+          { label: 'Dashed', value: 'dashed' },
+          { label: 'Dotted', value: 'dotted' }
+        ],
+        default: 'solid'
+      },
+      xAxisLabel: {
+        type: 'string',
+        title: 'X-Axis Label'
+      },
+      yAxisLabel: {
+        type: 'string',
+        title: 'Y-Axis Label'
+      },
+      rotateLabels: {
+        type: 'number',
+        title: 'Rotate X-Axis Labels (degrees)',
+        default: 0,
+        minimum: -90,
+        maximum: 90
+      },
+      enableDataZoom: {
+        type: 'boolean',
+        title: 'Enable Data Zoom',
+        default: false
+      },
+      animation: {
+        type: 'boolean',
+        title: 'Enable Animation',
+        default: true
+      },
+      animationDelay: {
+        type: 'number',
+        title: 'Animation Delay (ms)',
+        default: 0,
+        minimum: 0,
+        maximum: 2000
       }
     },
-    required: ['xField', 'yField']
+    required: ['categoryField', 'valueField']
   },
   
   dataRequirements: {
     minColumns: 2,
-    maxColumns: 10,
+    maxColumns: 20,
     requiredFields: ['category', 'value'],
-    optionalFields: ['series', 'color'],
+    optionalFields: ['type'],
     supportedTypes: ['string', 'number'],
     aggregationSupport: true,
-    pivotSupport: false
+    pivotSupport: false,
+    specialRequirements: [
+      'Values should represent changes, not absolute amounts',
+      'Optional type field to specify positive/negative/total/neutral'
+    ]
   },
   
   exportFormats: ['png', 'svg', 'pdf'],
   component: WaterfallChart
 };
-
-export default WaterfallChart;

@@ -428,3 +428,166 @@ export const RadarChart: React.FC<RadarChartProps> = ({
 };
 
 export default RadarChart;
+
+// Chart Plugin Configuration Export
+export const EChartsRadarChartConfig = {
+  name: 'echarts-radar',
+  displayName: 'ECharts Radar Chart',
+  category: 'advanced',
+  library: 'echarts',
+  version: '1.0.0',
+  description: 'Multi-dimensional radar chart for comparing multiple variables across data points',
+  tags: ['radar', 'spider', 'multi-dimensional', 'comparison', 'advanced'],
+  
+  configSchema: {
+    type: 'object',
+    properties: {
+      title: {
+        type: 'string',
+        title: 'Chart Title',
+        default: 'Radar Chart'
+      },
+      subtitle: {
+        type: 'string',
+        title: 'Chart Subtitle'
+      },
+      nameField: {
+        type: 'string',
+        title: 'Name Field',
+        description: 'Field used for series names or item labels'
+      },
+      valueFields: {
+        type: 'array',
+        title: 'Value Fields',
+        description: 'Fields to display as radar indicators',
+        items: {
+          type: 'string',
+          title: 'Field'
+        },
+        default: []
+      },
+      radarShape: {
+        type: 'select',
+        title: 'Radar Shape',
+        options: [
+          { label: 'Polygon', value: 'polygon' },
+          { label: 'Circle', value: 'circle' }
+        ],
+        default: 'polygon'
+      },
+      radarRadius: {
+        type: 'string',
+        title: 'Radar Radius',
+        default: '75%'
+      },
+      startAngle: {
+        type: 'number',
+        title: 'Start Angle',
+        description: 'Starting angle of the radar in degrees',
+        default: 90,
+        minimum: 0,
+        maximum: 360
+      },
+      splitNumber: {
+        type: 'number',
+        title: 'Split Number',
+        description: 'Number of concentric circles',
+        default: 5,
+        minimum: 1,
+        maximum: 20
+      },
+      showLegend: {
+        type: 'boolean',
+        title: 'Show Legend',
+        default: true
+      },
+      legendPosition: {
+        type: 'select',
+        title: 'Legend Position',
+        options: [
+          { label: 'Top', value: 'top' },
+          { label: 'Bottom', value: 'bottom' },
+          { label: 'Left', value: 'left' },
+          { label: 'Right', value: 'right' }
+        ],
+        default: 'bottom'
+      },
+      legendOrientation: {
+        type: 'select',
+        title: 'Legend Orientation',
+        options: [
+          { label: 'Horizontal', value: 'horizontal' },
+          { label: 'Vertical', value: 'vertical' }
+        ],
+        default: 'horizontal'
+      },
+      fillArea: {
+        type: 'boolean',
+        title: 'Fill Area',
+        description: 'Fill the area under radar lines',
+        default: true
+      },
+      lineWidth: {
+        type: 'number',
+        title: 'Line Width',
+        default: 2,
+        minimum: 1,
+        maximum: 10
+      },
+      pointSize: {
+        type: 'number',
+        title: 'Point Size',
+        default: 6,
+        minimum: 2,
+        maximum: 20
+      },
+      pointSymbol: {
+        type: 'select',
+        title: 'Point Symbol',
+        options: [
+          { label: 'Circle', value: 'circle' },
+          { label: 'Rectangle', value: 'rect' },
+          { label: 'Round Rectangle', value: 'roundRect' },
+          { label: 'Triangle', value: 'triangle' },
+          { label: 'Diamond', value: 'diamond' },
+          { label: 'Pin', value: 'pin' },
+          { label: 'Arrow', value: 'arrow' }
+        ],
+        default: 'circle'
+      },
+      animation: {
+        type: 'boolean',
+        title: 'Enable Animation',
+        default: true
+      },
+      colors: {
+        type: 'array',
+        title: 'Color Scheme',
+        description: 'Custom colors for series',
+        items: {
+          type: 'color',
+          title: 'Color'
+        },
+        default: ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc']
+      }
+    },
+    required: []
+  },
+  
+  dataRequirements: {
+    minColumns: 3,
+    maxColumns: 50,
+    requiredFields: [],
+    optionalFields: ['name'],
+    supportedTypes: ['string', 'number'],
+    aggregationSupport: true,
+    pivotSupport: false,
+    specialRequirements: [
+      'At least 3 numeric fields required for meaningful radar visualization',
+      'Name field recommended for series identification'
+    ]
+  },
+  
+  exportFormats: ['png', 'svg', 'pdf'],
+  component: RadarChart
+};

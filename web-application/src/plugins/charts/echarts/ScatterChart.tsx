@@ -312,15 +312,18 @@ export const ScatterChart: React.FC<ChartProps> = ({
   );
 };
 
+
+export default ScatterChart;
+
 // Chart Plugin Configuration Export
 export const EChartsScatterChartConfig = {
   name: 'echarts-scatter',
   displayName: 'ECharts Scatter Plot',
-  category: 'statistical',
+  category: 'basic',
   library: 'echarts',
   version: '1.0.0',
-  description: 'Interactive scatter plot with support for multiple categories and bubble sizes',
-  tags: ['scatter', 'correlation', 'bubble', 'statistical'],
+  description: 'Interactive scatter plot for exploring relationships between variables',
+  tags: ['scatter', 'bubble', 'correlation', 'relationship', 'basic'],
   
   configSchema: {
     type: 'object',
@@ -345,12 +348,12 @@ export const EChartsScatterChartConfig = {
       sizeField: {
         type: 'string',
         title: 'Size Field',
-        description: 'Optional field for bubble sizes'
+        description: 'Field name for bubble sizes (optional)'
       },
       categoryField: {
         type: 'string',
         title: 'Category Field',
-        description: 'Optional field for grouping data by category'
+        description: 'Field for grouping data points into series'
       },
       xAxisLabel: {
         type: 'string',
@@ -360,28 +363,93 @@ export const EChartsScatterChartConfig = {
         type: 'string',
         title: 'Y-Axis Label'
       },
-      symbolSize: {
+      pointSize: {
         type: 'number',
-        title: 'Point Size',
-        default: 20,
-        minimum: 5,
+        title: 'Default Point Size',
+        default: 8,
+        minimum: 2,
+        maximum: 50
+      },
+      minPointSize: {
+        type: 'number',
+        title: 'Minimum Point Size',
+        description: 'Minimum size when using size field',
+        default: 4,
+        minimum: 1,
+        maximum: 20
+      },
+      maxPointSize: {
+        type: 'number',
+        title: 'Maximum Point Size',
+        description: 'Maximum size when using size field',
+        default: 30,
+        minimum: 10,
         maximum: 100
       },
-      showGrid: {
-        type: 'boolean',
-        title: 'Show Grid Lines',
-        default: true
-      },
-      symbol: {
+      pointSymbol: {
         type: 'select',
         title: 'Point Symbol',
         options: [
           { label: 'Circle', value: 'circle' },
           { label: 'Rectangle', value: 'rect' },
+          { label: 'Round Rectangle', value: 'roundRect' },
+          { label: 'Triangle', value: 'triangle' },
           { label: 'Diamond', value: 'diamond' },
-          { label: 'Triangle', value: 'triangle' }
+          { label: 'Pin', value: 'pin' },
+          { label: 'Arrow', value: 'arrow' }
         ],
         default: 'circle'
+      },
+      showTrendLine: {
+        type: 'boolean',
+        title: 'Show Trend Line',
+        default: false
+      },
+      trendLineType: {
+        type: 'select',
+        title: 'Trend Line Type',
+        options: [
+          { label: 'Linear', value: 'linear' },
+          { label: 'Polynomial', value: 'polynomial' },
+          { label: 'Logarithmic', value: 'logarithmic' },
+          { label: 'Exponential', value: 'exponential' }
+        ],
+        default: 'linear'
+      },
+      showGrid: {
+        type: 'boolean',
+        title: 'Show Grid',
+        default: true
+      },
+      showLegend: {
+        type: 'boolean',
+        title: 'Show Legend',
+        default: true
+      },
+      enableBrush: {
+        type: 'boolean',
+        title: 'Enable Brush Selection',
+        description: 'Allow selecting data points by brushing',
+        default: false
+      },
+      enableZoom: {
+        type: 'boolean',
+        title: 'Enable Zoom',
+        default: true
+      },
+      colors: {
+        type: 'array',
+        title: 'Color Scheme',
+        items: {
+          type: 'color',
+          title: 'Color'
+        },
+        default: ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc']
+      },
+      animation: {
+        type: 'boolean',
+        title: 'Enable Animation',
+        default: true
       }
     },
     required: ['xAxisField', 'yAxisField']
@@ -392,7 +460,7 @@ export const EChartsScatterChartConfig = {
     maxColumns: 100,
     requiredFields: ['x', 'y'],
     optionalFields: ['size', 'category'],
-    supportedTypes: ['string', 'number'],
+    supportedTypes: ['number', 'string', 'date'],
     aggregationSupport: false,
     pivotSupport: false
   },
@@ -400,5 +468,3 @@ export const EChartsScatterChartConfig = {
   exportFormats: ['png', 'svg', 'pdf'],
   component: ScatterChart
 };
-
-export default ScatterChart;

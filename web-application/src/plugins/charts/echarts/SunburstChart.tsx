@@ -288,15 +288,17 @@ export const SunburstChart: React.FC<ChartProps> = ({
   );
 };
 
+export default SunburstChart;
+
 // Chart Plugin Configuration Export
 export const EChartsSunburstChartConfig = {
   name: 'echarts-sunburst',
   displayName: 'ECharts Sunburst Chart',
-  category: 'hierarchical',
+  category: 'advanced',
   library: 'echarts',
   version: '1.0.0',
-  description: 'Interactive hierarchical sunburst chart for multi-level data visualization',
-  tags: ['sunburst', 'hierarchical', 'nested', 'radial'],
+  description: 'Hierarchical sunburst chart for visualizing multi-level categorical data',
+  tags: ['sunburst', 'hierarchy', 'multilevel', 'radial', 'advanced'],
   
   configSchema: {
     type: 'object',
@@ -309,41 +311,126 @@ export const EChartsSunburstChartConfig = {
       nameField: {
         type: 'string',
         title: 'Name Field',
-        description: 'Field name for segment names',
+        description: 'Field name for node labels',
         default: 'name'
       },
       valueField: {
         type: 'string',
         title: 'Value Field',
-        description: 'Field name for segment values',
+        description: 'Field name for node values',
         default: 'value'
       },
-      parentField: {
+      childrenField: {
         type: 'string',
-        title: 'Parent Field',
-        description: 'Optional field for hierarchical relationships'
+        title: 'Children Field',
+        description: 'Field name for nested children array',
+        default: 'children'
       },
-      colorField: {
-        type: 'string',
-        title: 'Color Field',
-        description: 'Optional field for custom colors'
+      startAngle: {
+        type: 'number',
+        title: 'Start Angle',
+        description: 'Starting angle in degrees',
+        default: 90,
+        minimum: 0,
+        maximum: 360
       },
-      radius: {
-        type: 'array',
-        title: 'Radius Range',
-        description: 'Inner and outer radius percentages',
-        items: { type: 'string' },
-        default: ['0%', '90%']
+      minAngle: {
+        type: 'number',
+        title: 'Minimum Angle',
+        description: 'Minimum angle for small segments',
+        default: 0,
+        minimum: 0,
+        maximum: 90
       },
       sort: {
         type: 'select',
         title: 'Sort Order',
         options: [
-          { label: 'None', value: null },
+          { label: 'Descending', value: 'desc' },
           { label: 'Ascending', value: 'asc' },
-          { label: 'Descending', value: 'desc' }
+          { label: 'None', value: 'null' }
         ],
-        default: null
+        default: 'desc'
+      },
+      renderLabelForZeroData: {
+        type: 'boolean',
+        title: 'Show Labels for Zero Data',
+        default: false
+      },
+      showLabels: {
+        type: 'boolean',
+        title: 'Show Labels',
+        default: true
+      },
+      labelRotate: {
+        type: 'select',
+        title: 'Label Rotation',
+        options: [
+          { label: 'Radial', value: 'radial' },
+          { label: 'Tangential', value: 'tangential' },
+          { label: 'None', value: 'none' }
+        ],
+        default: 'radial'
+      },
+      labelMinAngle: {
+        type: 'number',
+        title: 'Label Minimum Angle',
+        description: 'Hide labels for segments smaller than this angle',
+        default: 10,
+        minimum: 0,
+        maximum: 90
+      },
+      highlightPolicy: {
+        type: 'select',
+        title: 'Highlight Policy',
+        description: 'How to highlight related nodes on hover',
+        options: [
+          { label: 'Descendant', value: 'descendant' },
+          { label: 'Ancestor', value: 'ancestor' },
+          { label: 'Self', value: 'self' },
+          { label: 'None', value: 'none' }
+        ],
+        default: 'descendant'
+      },
+      downplay: {
+        type: 'boolean',
+        title: 'Downplay Unrelated',
+        description: 'Fade unrelated nodes on hover',
+        default: true
+      },
+      nodeClick: {
+        type: 'select',
+        title: 'Node Click Behavior',
+        options: [
+          { label: 'Root to Node', value: 'rootToNode' },
+          { label: 'Link', value: 'link' }
+        ],
+        default: 'rootToNode'
+      },
+      animationType: {
+        type: 'select',
+        title: 'Animation Type',
+        options: [
+          { label: 'Expansion', value: 'expansion' },
+          { label: 'Scale', value: 'scale' }
+        ],
+        default: 'expansion'
+      },
+      animationDuration: {
+        type: 'number',
+        title: 'Animation Duration (ms)',
+        default: 1000,
+        minimum: 0,
+        maximum: 5000
+      },
+      colors: {
+        type: 'array',
+        title: 'Color Scheme',
+        items: {
+          type: 'color',
+          title: 'Color'
+        },
+        default: ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc']
       }
     },
     required: ['nameField', 'valueField']
@@ -351,16 +438,18 @@ export const EChartsSunburstChartConfig = {
   
   dataRequirements: {
     minColumns: 2,
-    maxColumns: 10,
+    maxColumns: 50,
     requiredFields: ['name', 'value'],
-    optionalFields: ['parent', 'color'],
-    supportedTypes: ['string', 'number'],
+    optionalFields: ['children', 'parent', 'level'],
+    supportedTypes: ['string', 'number', 'object'],
     aggregationSupport: true,
-    pivotSupport: false
+    pivotSupport: false,
+    specialRequirements: [
+      'Data must be in hierarchical format with nested children',
+      'Each node should have name and value properties'
+    ]
   },
   
   exportFormats: ['png', 'svg', 'pdf'],
   component: SunburstChart
 };
-
-export default SunburstChart;

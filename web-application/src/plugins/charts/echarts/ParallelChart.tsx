@@ -95,3 +95,176 @@ export const ParallelChart: React.FC<ChartProps> = ({
 
   return <div ref={chartRef} style={{ width, height }} />;
 };
+
+export default ParallelChart;
+
+// Chart Plugin Configuration Export
+export const EChartsParallelChartConfig = {
+  name: 'echarts-parallel',
+  displayName: 'ECharts Parallel Coordinates',
+  category: 'advanced',
+  library: 'echarts',
+  version: '1.0.0',
+  description: 'Parallel coordinates chart for visualizing multi-dimensional data relationships',
+  tags: ['parallel', 'coordinates', 'multidimensional', 'correlation', 'advanced'],
+  
+  configSchema: {
+    type: 'object',
+    properties: {
+      title: {
+        type: 'string',
+        title: 'Chart Title',
+        default: 'Parallel Coordinates'
+      },
+      nameField: {
+        type: 'string',
+        title: 'Name Field',
+        description: 'Field for line/series identification'
+      },
+      colorField: {
+        type: 'string',
+        title: 'Color Field',
+        description: 'Field to determine line colors'
+      },
+      layout: {
+        type: 'select',
+        title: 'Layout Orientation',
+        options: [
+          { label: 'Horizontal', value: 'horizontal' },
+          { label: 'Vertical', value: 'vertical' }
+        ],
+        default: 'horizontal'
+      },
+      axisExpandable: {
+        type: 'boolean',
+        title: 'Expandable Axes',
+        description: 'Allow expanding axes on hover',
+        default: true
+      },
+      axisExpandCenter: {
+        type: 'number',
+        title: 'Expand Center',
+        description: 'Center axis for expansion',
+        minimum: 0
+      },
+      axisExpandCount: {
+        type: 'number',
+        title: 'Expand Count',
+        description: 'Number of axes to expand',
+        default: 0,
+        minimum: 0
+      },
+      axisExpandWidth: {
+        type: 'number',
+        title: 'Expand Width',
+        description: 'Width when axes are expanded',
+        default: 50,
+        minimum: 10
+      },
+      axisExpandTriggerOn: {
+        type: 'select',
+        title: 'Expand Trigger',
+        options: [
+          { label: 'Click', value: 'click' },
+          { label: 'Mouse Over', value: 'mouseover' }
+        ],
+        default: 'click'
+      },
+      lineWidth: {
+        type: 'number',
+        title: 'Line Width',
+        default: 1,
+        minimum: 1,
+        maximum: 10
+      },
+      progressive: {
+        type: 'number',
+        title: 'Progressive Rendering',
+        description: 'Render lines progressively for large datasets',
+        default: 500,
+        minimum: 0
+      },
+      progressiveThreshold: {
+        type: 'number',
+        title: 'Progressive Threshold',
+        description: 'Threshold to enable progressive rendering',
+        default: 3000,
+        minimum: 100
+      },
+      enableBrush: {
+        type: 'boolean',
+        title: 'Enable Brush Selection',
+        description: 'Allow brushing to filter data',
+        default: true
+      },
+      brushMode: {
+        type: 'select',
+        title: 'Brush Mode',
+        options: [
+          { label: 'Single', value: 'single' },
+          { label: 'Multiple', value: 'multiple' }
+        ],
+        default: 'multiple'
+      },
+      smooth: {
+        type: 'boolean',
+        title: 'Smooth Lines',
+        default: false
+      },
+      showTooltip: {
+        type: 'boolean',
+        title: 'Show Tooltip',
+        default: true
+      },
+      colors: {
+        type: 'array',
+        title: 'Color Scheme',
+        items: {
+          type: 'color',
+          title: 'Color'
+        },
+        default: ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc']
+      },
+      colorBy: {
+        type: 'select',
+        title: 'Color Strategy',
+        options: [
+          { label: 'Series', value: 'series' },
+          { label: 'Data', value: 'data' }
+        ],
+        default: 'series'
+      },
+      animation: {
+        type: 'boolean',
+        title: 'Enable Animation',
+        default: true
+      },
+      animationThreshold: {
+        type: 'number',
+        title: 'Animation Threshold',
+        description: 'Disable animation above this many data points',
+        default: 2000,
+        minimum: 100
+      }
+    },
+    required: []
+  },
+  
+  dataRequirements: {
+    minColumns: 3,
+    maxColumns: 50,
+    requiredFields: [],
+    optionalFields: ['name', 'category'],
+    supportedTypes: ['string', 'number', 'date'],
+    aggregationSupport: false,
+    pivotSupport: false,
+    specialRequirements: [
+      'At least 3 numeric dimensions recommended',
+      'Best suited for datasets with 4-20 dimensions',
+      'Large datasets may require progressive rendering'
+    ]
+  },
+  
+  exportFormats: ['png', 'svg', 'pdf'],
+  component: ParallelChart
+};

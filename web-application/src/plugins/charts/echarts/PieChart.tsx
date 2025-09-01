@@ -227,6 +227,8 @@ export const PieChart: React.FC<ChartProps> = ({
   );
 };
 
+export default PieChart;
+
 // Chart Plugin Configuration Export
 export const EChartsPieChartConfig = {
   name: 'echarts-pie',
@@ -234,8 +236,8 @@ export const EChartsPieChartConfig = {
   category: 'basic',
   library: 'echarts',
   version: '1.0.0',
-  description: 'Interactive pie chart with donut and rose type options',
-  tags: ['pie', 'proportion', 'parts-to-whole', 'basic'],
+  description: 'Interactive pie chart with customizable styling and animations',
+  tags: ['pie', 'donut', 'proportion', 'circular', 'basic'],
   
   configSchema: {
     type: 'object',
@@ -245,43 +247,81 @@ export const EChartsPieChartConfig = {
         title: 'Chart Title',
         default: 'Pie Chart'
       },
-      labelField: {
+      nameField: {
         type: 'string',
-        title: 'Label Field',
-        description: 'Field name for labels',
+        title: 'Name Field',
+        description: 'Field name for slice labels',
         default: 'name'
       },
       valueField: {
         type: 'string',
         title: 'Value Field',
-        description: 'Field name for values',
+        description: 'Field name for slice values',
         default: 'value'
+      },
+      innerRadius: {
+        type: 'number',
+        title: 'Inner Radius (%)',
+        description: 'Inner radius for donut chart (0 for pie chart)',
+        default: 0,
+        minimum: 0,
+        maximum: 80
+      },
+      outerRadius: {
+        type: 'number',
+        title: 'Outer Radius (%)',
+        default: 75,
+        minimum: 20,
+        maximum: 100
+      },
+      startAngle: {
+        type: 'number',
+        title: 'Start Angle',
+        description: 'Starting angle in degrees',
+        default: 0,
+        minimum: 0,
+        maximum: 360
+      },
+      roseType: {
+        type: 'select',
+        title: 'Rose Type',
+        description: 'Nightingale chart style',
+        options: [
+          { label: 'None', value: 'none' },
+          { label: 'Radius', value: 'radius' },
+          { label: 'Area', value: 'area' }
+        ],
+        default: 'none'
       },
       showLabels: {
         type: 'boolean',
         title: 'Show Labels',
         default: true
       },
+      labelPosition: {
+        type: 'select',
+        title: 'Label Position',
+        options: [
+          { label: 'Outside', value: 'outside' },
+          { label: 'Inside', value: 'inside' },
+          { label: 'Center', value: 'center' }
+        ],
+        default: 'outside'
+      },
+      showValues: {
+        type: 'boolean',
+        title: 'Show Values in Labels',
+        default: true
+      },
+      showPercentages: {
+        type: 'boolean',
+        title: 'Show Percentages in Labels',
+        default: true
+      },
       showLegend: {
         type: 'boolean',
         title: 'Show Legend',
         default: true
-      },
-      isDonut: {
-        type: 'boolean',
-        title: 'Donut Chart',
-        description: 'Display as donut chart with hollow center',
-        default: false
-      },
-      roseType: {
-        type: 'select',
-        title: 'Rose Type',
-        options: [
-          { label: 'None', value: false },
-          { label: 'Radius', value: 'radius' },
-          { label: 'Area', value: 'area' }
-        ],
-        default: false
       },
       legendPosition: {
         type: 'select',
@@ -293,9 +333,28 @@ export const EChartsPieChartConfig = {
           { label: 'Right', value: 'right' }
         ],
         default: 'right'
+      },
+      colors: {
+        type: 'array',
+        title: 'Color Scheme',
+        items: {
+          type: 'color',
+          title: 'Color'
+        },
+        default: ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc']
+      },
+      emphasis: {
+        type: 'boolean',
+        title: 'Enable Hover Effects',
+        default: true
+      },
+      animation: {
+        type: 'boolean',
+        title: 'Enable Animation',
+        default: true
       }
     },
-    required: ['labelField', 'valueField']
+    required: ['nameField', 'valueField']
   },
   
   dataRequirements: {
@@ -311,5 +370,3 @@ export const EChartsPieChartConfig = {
   exportFormats: ['png', 'svg', 'pdf'],
   component: PieChart
 };
-
-export default PieChart;

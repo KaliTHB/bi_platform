@@ -78,9 +78,10 @@ export const ViolinPlot: React.FC<ChartProps> = ({
       // Group data if groupField is specified
       if (violinConfig.groupField) {
         const groups: { [key: string]: number[] } = {};
+        const groupFieldName = violinConfig.groupField; // Store in variable to avoid undefined issues
         
         dataArray.forEach(item => {
-          const group = String(item[violinConfig.groupField] || 'Default');
+          const group = String(item[groupFieldName] || 'Default');
           const value = Number(item[violinConfig.yField]);
           
           if (!isNaN(value)) {
