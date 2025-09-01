@@ -1,327 +1,262 @@
-'use client';
-
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
-import type { EChartsOption } from 'echarts';
-import { ChartProps } from '@/types/chart.types';
-import { ChartPluginConfig } from '../interfaces';
+import type { 
+  EChartsOption, 
+  ECharts as EChartsInstance,
+  LineSeriesOption,
+  SeriesOption
+} from 'echarts';
 
-// Extended ChartProps with additional event handlers
-interface ExtendedChartProps extends ChartProps {
-  onDataPointClick?: (data: any, event?: any) => void;
-  onDataPointHover?: (data: any, event?: any) => void;
-  onChartReady?: (chartInstance: echarts.ECharts) => void;
+// Simple, compatible data types
+export interface LineChartDataItem {
+  name?: string;
+  value: number | number[];
+  [key: string]: any; // Allow any additional properties for flexibility
 }
 
-// Valid easing options according to ECharts
-const VALID_EASING_OPTIONS = [
-  'cubicOut', 'cubicIn', 'cubicInOut', 'quadraticIn', 'quadraticOut', 
-  'quadraticInOut', 'linear', 'bounceOut', 'elasticOut', 'sinusoidalOut',
-  'exponentialOut', 'circularOut', 'elasticIn', 'backOut'
-] as const;
-
-type ValidEasing = typeof VALID_EASING_OPTIONS[number];
-
-interface LineChartConfig {
-  title?: string;
-  xAxisField: string;
-  yAxisFields: string[];
-  colors?: string[];
-  smooth?: boolean;
-  showPoints?: boolean;
-  fillArea?: boolean;
-  animation?: {
-    enabled?: boolean;
-    easing?: string;
-    duration?: number;
-  };
-  legend?: {
-    show?: boolean;
-    position?: 'top' | 'bottom' | 'left' | 'right';
-  };
-  grid?: {
-    show?: boolean;
-    left?: string;
-    right?: string;
-    top?: string;
-    bottom?: string;
-  };
-  theme?: {
-    titleColor?: string;
-    backgroundColor?: string;
-  };
-  tooltip?: {
-    show?: boolean;
-    trigger?: 'axis' | 'item';
-  };
+export interface LineChartSeries {
+  name: string;
+  data: (number | LineChartDataItem)[];
+  // Optional properties that will be passed through to ECharts
+  [key: string]: any;
 }
 
-interface LineChartData {
-  [key: string]: string | number;
+export interface LineChartData {
+  xAxisData?: string[];
+  series: LineChartSeries[];
 }
 
-export const LineChart: React.FC<ExtendedChartProps> = ({
+export interface LineChartProps {
+  data: LineChartData;
+  options?: EChartsOption;
+  width?: number | string;
+  height?: number | string;
+  className?: string;
+  theme?: string | object;
+  showGrid?: boolean;
+  showLegend?: boolean;
+  showTooltip?: boolean;
+  onChartReady?: (chart: EChartsInstance) => void;
+  onEvents?: Record<string, (params: any) => void>;
+}
+
+const LineChart: React.FC<LineChartProps> = ({
   data,
-  config,
-  dimensions,
-  width = 800,
+  options = {},
+  width = '100%',
   height = 400,
-  onInteraction,
-  onError,
-  isLoading,
-  error: externalError,
-  onDataPointClick,
-  onDataPointHover,
+  className = '',
+  theme,
+  showGrid = true,
+  showLegend = true,
+  showTooltip = true,
   onChartReady,
+  onEvents = {}
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstance = useRef<echarts.ECharts | null>(null);
-  const [internalError, setInternalError] = useState<string | null>(null);
+  const chartInstanceRef = useRef<EChartsInstance | null>(null);
 
-  // Use dimensions if available, otherwise fallback to individual width/height
-  const chartWidth = dimensions?.width || width;
-  const chartHeight = dimensions?.height || height;
-  
-  // Combine external error with internal error
-  const currentError = externalError || internalError;
-
-  // Type-safe config with proper defaults (memoized to avoid re-processing)
-  const safeConfig = React.useMemo(() => {
-    const chartConfig = (config as LineChartConfig) || {};
-    
-    return {
-      xAxisField: chartConfig.xAxisField || '',
-      yAxisFields: chartConfig.yAxisFields || [],
-      colors: chartConfig.colors || [],
-      smooth: chartConfig.smooth ?? false,
-      showPoints: chartConfig.showPoints ?? true,
-      fillArea: chartConfig.fillArea ?? false,
-      title: chartConfig.title,
-      animation: {
-        enabled: chartConfig.animation?.enabled ?? true,
-        duration: chartConfig.animation?.duration ?? 1000,
-        easing: chartConfig.animation?.easing ?? 'cubicOut',
-      },
-      legend: {
-        show: chartConfig.legend?.show ?? true,
-        position: chartConfig.legend?.position ?? 'top',
-      },
-      grid: {
-        show: chartConfig.grid?.show ?? true,
-        left: chartConfig.grid?.left ?? '10%',
-        right: chartConfig.grid?.right ?? '10%',
-        top: chartConfig.grid?.top ?? '15%',
-        bottom: chartConfig.grid?.bottom ?? '15%',
-      },
-      tooltip: {
-        show: chartConfig.tooltip?.show ?? true,
-        trigger: chartConfig.tooltip?.trigger ?? 'axis',
-      },
-      theme: {
-        titleColor: chartConfig.theme?.titleColor ?? '#333',
-        backgroundColor: chartConfig.theme?.backgroundColor,
-      },
-    };
-  }, [config]);
-
-  // Generate default color palette
-  const generateColorPalette = (count: number): string[] => {
-    const defaultColors = [
-      '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', 
-      '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#d87a80'
-    ];
-    
-    const colors: string[] = [];
-    for (let i = 0; i < count; i++) {
-      colors.push(defaultColors[i % defaultColors.length]);
+  // Validate data function
+  const validateData = (chartData: LineChartData): { isValid: boolean; error?: string } => {
+    if (!chartData) {
+      return { isValid: false, error: 'Chart data is required' };
     }
-    return colors;
+
+    if (!chartData.series || !Array.isArray(chartData.series)) {
+      return { isValid: false, error: 'Series array is required' };
+    }
+
+    if (chartData.series.length === 0) {
+      return { isValid: false, error: 'At least one series is required' };
+    }
+
+    // Validate each series
+    for (let i = 0; i < chartData.series.length; i++) {
+      const series = chartData.series[i];
+      
+      if (!series.name || typeof series.name !== 'string') {
+        return { isValid: false, error: `Series at index ${i} must have a valid string name` };
+      }
+
+      if (!series.data || !Array.isArray(series.data)) {
+        return { isValid: false, error: `Series "${series.name}" must have a data array` };
+      }
+
+      if (series.data.length === 0) {
+        return { isValid: false, error: `Series "${series.name}" data array cannot be empty` };
+      }
+
+      // Validate data values - allow more flexibility
+      for (let j = 0; j < series.data.length; j++) {
+        const dataPoint = series.data[j];
+        if (typeof dataPoint === 'object' && dataPoint !== null) {
+          // Data item object validation - just check for value property
+          const item = dataPoint as LineChartDataItem;
+          if (item.value === undefined && item.value !== 0) {
+            return { 
+              isValid: false, 
+              error: `Data object in series "${series.name}" at index ${j} must have a 'value' property.` 
+            };
+          }
+        } else if (typeof dataPoint !== 'number') {
+          return { 
+            isValid: false, 
+            error: `Invalid data value in series "${series.name}" at index ${j}. Expected number or object with value property.` 
+          };
+        }
+      }
+    }
+
+    // Validate xAxisData if provided
+    if (chartData.xAxisData && !Array.isArray(chartData.xAxisData)) {
+      return { isValid: false, error: 'xAxisData must be an array if provided' };
+    }
+
+    return { isValid: true };
   };
 
-  // Get valid easing value
-  const getValidEasing = (easing?: string): string => {
-    if (easing && VALID_EASING_OPTIONS.includes(easing as ValidEasing)) {
-      return easing;
+  // Generate default xAxis data if not provided
+  const generateXAxisData = (data: LineChartData): string[] => {
+    if (data.xAxisData && data.xAxisData.length > 0) {
+      return data.xAxisData;
     }
-    return 'cubicOut'; // Default fallback
+
+    // Find the series with the most data points
+    let maxLength = 0;
+    data.series.forEach(series => {
+      if (series.data.length > maxLength) {
+        maxLength = series.data.length;
+      }
+    });
+
+    // Generate default labels
+    return Array.from({ length: maxLength }, (_, i) => `Point ${i + 1}`);
+  };
+
+  // Default chart options
+  const getDefaultOptions = (): EChartsOption => {
+    const xAxisData = generateXAxisData(data);
+
+    return {
+      title: {
+        text: 'Line Chart',
+        left: 'center',
+        top: 10
+      },
+      tooltip: showTooltip ? {
+        trigger: 'axis',
+        axisPointer: {
+          type: 'cross',
+          label: {
+            backgroundColor: '#6a7985'
+          }
+        }
+      } : undefined,
+      legend: showLegend ? {
+        data: data.series.map(series => series.name),
+        top: 40
+      } : undefined,
+      grid: showGrid ? {
+        left: '3%',
+        right: '4%',
+        bottom: '3%',
+        top: showLegend ? '80px' : '60px',
+        containLabel: true
+      } : undefined,
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: xAxisData,
+        axisLabel: {
+          rotate: xAxisData.length > 10 ? 45 : 0
+        }
+      },
+      yAxis: {
+        type: 'value'
+      },
+      series: data.series.map(series => {
+        // Create a basic line series that ECharts will accept
+        const echartsSeriesOption: any = {
+          name: series.name,
+          type: 'line',
+          data: series.data,
+          // Default properties
+          smooth: false,
+          symbol: 'circle',
+          symbolSize: 6,
+          showSymbol: true,
+          connectNulls: false,
+          lineStyle: {
+            width: 2
+          },
+          itemStyle: {
+            borderWidth: 1
+          },
+          emphasis: {
+            focus: 'series'
+          }
+        };
+
+        // Add any additional properties from the original series
+        // This allows for custom styling while avoiding type conflicts
+        Object.keys(series).forEach(key => {
+          if (key !== 'name' && key !== 'data') {
+            echartsSeriesOption[key] = series[key];
+          }
+        });
+
+        return echartsSeriesOption as SeriesOption;
+      })
+    };
   };
 
   useEffect(() => {
-    if (!chartRef.current || !data || data.length === 0) {
-      return; // Early return with no cleanup needed
+    if (!chartRef.current) {
+      return undefined;
     }
 
-    setInternalError(null);
+    // Validate data
+    const validation = validateData(data);
+    if (!validation.isValid) {
+      console.error('LineChart validation error:', validation.error);
+      return undefined;
+    }
+
+    // Dispose existing chart
+    if (chartInstanceRef.current) {
+      chartInstanceRef.current.dispose();
+    }
 
     try {
-      // Initialize chart instance
-      if (chartInstance.current) {
-        chartInstance.current.dispose();
-      }
-      chartInstance.current = echarts.init(chartRef.current);
+      // Initialize chart with theme support
+      chartInstanceRef.current = echarts.init(chartRef.current, theme);
 
-      // Prepare data
-      const processedData = data as LineChartData[];
-      
-      // Validate required fields
-      if (!safeConfig.xAxisField || !safeConfig.yAxisFields?.length) {
-        throw new Error('xAxisField and yAxisFields are required');
-      }
-
-      // Extract x-axis data
-      const xAxisData = processedData.map(item => item[safeConfig.xAxisField]);
-
-      // Fix for colors being possibly undefined
-      const seriesColors = safeConfig.colors.length > 0
-        ? safeConfig.colors 
-        : generateColorPalette(safeConfig.yAxisFields.length);
-
-      // Create series data
-      const series = safeConfig.yAxisFields.map((field, index) => ({
-        name: field,
-        type: 'line' as const,
-        data: processedData.map(item => item[field]),
-        smooth: safeConfig.smooth,
-        showSymbol: safeConfig.showPoints,
-        symbol: 'circle',
-        symbolSize: 4,
-        lineStyle: {
-          color: seriesColors[index % seriesColors.length],
-          width: 2,
-        },
-        itemStyle: {
-          color: seriesColors[index % seriesColors.length],
-        },
-        areaStyle: safeConfig.fillArea ? {
-          opacity: 0.3,
-          color: seriesColors[index % seriesColors.length],
-        } : undefined,
-      }));
-
-      // Chart configuration
-      const options: EChartsOption = {
-        title: safeConfig.title ? {
-          text: safeConfig.title,
-          left: 'center',
-          top: '20px',
-          textStyle: {
-            color: safeConfig.theme.titleColor,
-            fontSize: 16,
-            fontWeight: 'bold',
-          },
-        } : undefined,
-        tooltip: {
-          trigger: safeConfig.tooltip.trigger,
-          axisPointer: {
-            type: 'cross',
-          },
-          backgroundColor: 'rgba(50, 50, 50, 0.8)',
-          borderColor: '#777',
-          textStyle: {
-            color: '#fff',
-          },
-        },
-        legend: safeConfig.legend.show ? {
-          data: safeConfig.yAxisFields,
-          top: safeConfig.legend.position === 'top' ? '10%' : 'auto',
-          bottom: safeConfig.legend.position === 'bottom' ? '10%' : 'auto',
-          left: safeConfig.legend.position === 'left' ? '10%' : 'center',
-          right: safeConfig.legend.position === 'right' ? '10%' : 'auto',
-        } : undefined,
-        grid: {
-          show: safeConfig.grid.show,
-          left: safeConfig.grid.left,
-          right: safeConfig.grid.right,
-          top: safeConfig.grid.top,
-          bottom: safeConfig.grid.bottom,
-          containLabel: true,
-        },
-        xAxis: {
-          type: 'category',
-          data: xAxisData,
-          boundaryGap: false,
-          axisLine: {
-            lineStyle: {
-              color: '#ccc',
-            },
-          },
-          axisLabel: {
-            color: '#666',
-          },
-        },
-        yAxis: {
-          type: 'value',
-          axisLine: {
-            lineStyle: {
-              color: '#ccc',
-            },
-          },
-          axisLabel: {
-            color: '#666',
-          },
-          splitLine: {
-            lineStyle: {
-              color: '#f0f0f0',
-              type: 'dashed',
-            },
-          },
-        },
-        series,
-        animation: safeConfig.animation.enabled,
-        animationDuration: safeConfig.animation.duration,
-        animationEasing: getValidEasing(safeConfig.animation.easing),
+      // Merge default options with provided options
+      const chartOptions: EChartsOption = {
+        ...getDefaultOptions(),
+        ...options
       };
 
-      // Set options
-      chartInstance.current.setOption(options, true);
+      // Set chart options
+      chartInstanceRef.current.setOption(chartOptions, true);
 
-      // Add event listeners - support both specific and generic handlers
-      chartInstance.current.on('click', (params: any) => {
-        const dataPoint = processedData[params.dataIndex];
-        
-        // Call specific handler if provided
-        if (onDataPointClick) {
-          onDataPointClick(dataPoint, params.event?.event);
-        }
-        
-        // Also call generic interaction handler for backward compatibility
-        if (onInteraction) {
-          onInteraction({
-            type: 'click',
-            data: dataPoint,
-            dataIndex: params.dataIndex,
-            seriesIndex: params.seriesIndex,
-          });
+      // Register event handlers
+      Object.entries(onEvents).forEach(([eventName, handler]) => {
+        if (chartInstanceRef.current) {
+          chartInstanceRef.current.on(eventName, handler);
         }
       });
 
-      chartInstance.current.on('mouseover', (params: any) => {
-        const dataPoint = processedData[params.dataIndex];
-        
-        // Call specific handler if provided
-        if (onDataPointHover) {
-          onDataPointHover(dataPoint, params.event?.event);
-        }
-        
-        // Also call generic interaction handler for backward compatibility
-        if (onInteraction) {
-          onInteraction({
-            type: 'hover',
-            data: dataPoint,
-            dataIndex: params.dataIndex,
-            seriesIndex: params.seriesIndex,
-          });
-        }
-      });
-
-      // Call onChartReady if provided
-      if (onChartReady) {
-        onChartReady(chartInstance.current);
+      // Call onChartReady callback
+      if (onChartReady && chartInstanceRef.current) {
+        onChartReady(chartInstanceRef.current);
       }
 
       // Handle resize
       const handleResize = () => {
-        chartInstance.current?.resize();
+        if (chartInstanceRef.current && !chartInstanceRef.current.isDisposed()) {
+          chartInstanceRef.current.resize();
+        }
       };
 
       window.addEventListener('resize', handleResize);
@@ -329,135 +264,53 @@ export const LineChart: React.FC<ExtendedChartProps> = ({
       // Return cleanup function
       return () => {
         window.removeEventListener('resize', handleResize);
-        chartInstance.current?.dispose();
+        if (chartInstanceRef.current && !chartInstanceRef.current.isDisposed()) {
+          // Remove event handlers
+          Object.keys(onEvents).forEach(eventName => {
+            if (chartInstanceRef.current && !chartInstanceRef.current.isDisposed()) {
+              chartInstanceRef.current.off(eventName);
+            }
+          });
+          chartInstanceRef.current.dispose();
+          chartInstanceRef.current = null;
+        }
       };
-
-    } catch (err) {
-      console.error('LineChart render error:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to render chart';
-      setInternalError(errorMessage);
-      
-      // Call onError if provided
-      if (onError) {
-        onError(err instanceof Error ? err : new Error(errorMessage));
-      }
-      
-      // Return empty cleanup function for consistency
-      return () => {
-        // No cleanup needed in error case
-      };
+    } catch (error) {
+      console.error('Error creating line chart:', error);
+      return undefined;
     }
-  }, [data, safeConfig, chartWidth, chartHeight, onInteraction, onError, onDataPointClick, onDataPointHover, onChartReady]);
+  }, [data, options, theme, showGrid, showLegend, showTooltip, onChartReady, onEvents]);
 
-  // Handle resize when dimensions change
-  useEffect(() => {
-    if (chartInstance.current) {
-      chartInstance.current.resize();
-    }
-  }, [chartWidth, chartHeight]);
-
-  if (currentError) {
+  // Handle validation errors
+  const validation = validateData(data);
+  if (!validation.isValid) {
     return (
       <div 
-        className="flex items-center justify-center h-full text-red-500 bg-red-50 border border-red-200 rounded"
-        style={{ width: chartWidth, height: chartHeight }}
+        className={`flex items-center justify-center border border-red-300 bg-red-50 ${className}`}
+        style={{ 
+          width: typeof width === 'number' ? `${width}px` : width,
+          height: typeof height === 'number' ? `${height}px` : height
+        }}
       >
-        <div className="text-center">
-          <div className="text-lg font-semibold">Chart Error</div>
-          <div className="text-sm mt-1">{currentError}</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (isLoading) {
-    return (
-      <div 
-        className="flex items-center justify-center h-full bg-gray-50 border border-gray-200 rounded"
-        style={{ width: chartWidth, height: chartHeight }}
-      >
-        <div className="flex items-center space-x-2">
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-          <span className="text-gray-600">Loading chart...</span>
+        <div className="text-red-500 text-center p-4">
+          <p className="font-medium">Invalid Line Chart Data</p>
+          <p className="text-sm mt-1">{validation.error}</p>
+          <p className="text-xs mt-2 text-gray-500">Check console for more details</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div 
-      ref={chartRef} 
-      className="echarts-container"
-      style={{ width: chartWidth, height: chartHeight }}
+    <div
+      ref={chartRef}
+      className={className}
+      style={{ 
+        width: typeof width === 'number' ? `${width}px` : width,
+        height: typeof height === 'number' ? `${height}px` : height
+      }}
     />
   );
-};
-
-// Chart plugin configuration
-export const EChartsLineChartConfig: ChartPluginConfig = {
-  name: 'echarts-line',
-  displayName: 'Line Chart',
-  category: 'basic',
-  library: 'echarts',
-  version: '1.0.0',
-  description: 'A line chart for visualizing trends and changes over time',
-  icon: '📈',
-  configSchema: {
-    type: 'object',
-    properties: {
-      xAxisField: { 
-        type: 'string', 
-        required: true, 
-        title: 'X-Axis Field',
-        description: 'Field to use for X-axis data'
-      },
-      yAxisFields: { 
-        type: 'string', // Note: this should be array but keeping string for compatibility
-        required: true, 
-        title: 'Y-Axis Fields',
-        description: 'Fields to use for Y-axis data (multiple series supported)'
-      },
-      title: { 
-        type: 'string', 
-        title: 'Chart Title',
-        description: 'Title to display at the top of the chart'
-      },
-      smooth: { 
-        type: 'boolean', 
-        title: 'Smooth Lines', 
-        default: false,
-        description: 'Use smooth curves instead of straight lines'
-      },
-      showPoints: { 
-        type: 'boolean', 
-        title: 'Show Data Points', 
-        default: true,
-        description: 'Display data points on the line'
-      },
-      fillArea: { 
-        type: 'boolean', 
-        title: 'Fill Area', 
-        default: false,
-        description: 'Fill the area under the line'
-      },
-      colors: {
-        type: 'string', // Note: this should be array but keeping string for compatibility
-        title: 'Custom Colors',
-        description: 'Custom color palette for the series'
-      }
-    },
-    required: ['xAxisField', 'yAxisFields']
-  },
-  dataRequirements: {
-    minColumns: 2,
-    maxColumns: 20,
-    requiredColumnTypes: ['string', 'number'],
-    supportsFiltering: true,
-  },
-  exportFormats: ['png', 'svg', 'pdf'],
-  component: LineChart as React.ComponentType<ChartProps>, // Type assertion for compatibility
-  tags: ['basic', 'trend', 'time-series', 'continuous'],
-  difficulty: 'beginner',
 };
 
 export default LineChart;

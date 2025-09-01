@@ -1,292 +1,340 @@
-// File: ./src/plugins/charts/echarts/GraphChart.tsx
+import React, { useEffect, useRef } from 'react';
+import * as echarts from 'echarts';
+import type { EChartsOption, ECharts as EChartsInstance } from 'echarts';
 
-import React from 'react';
-import { ECharts, init, ECBasicOption } from 'echarts';
-import { ChartProps, ChartConfiguration, AnimationConfiguration } from '../../../types/chart.types';
-
-// Define ChartData type (import from proper location if available)
-// import { ChartData } from '../../../types/chart.types'; // Use this if ChartData is defined there
-interface ChartData {
-  rows?: any[];
-  data?: any[];
-  columns?: any[];
-  metadata?: any;
-  [key: string]: any;
+// Define the correct types for ECharts Graph
+export interface GraphNodeItemStyle {
+  color?: string;
+  borderColor?: string;
+  borderWidth?: number;
+  borderType?: 'solid' | 'dashed' | 'dotted';
+  shadowBlur?: number;
+  shadowColor?: string;
+  shadowOffsetX?: number;
+  shadowOffsetY?: number;
 }
 
-// Option 1: Use proper AnimationConfiguration type
-interface GraphChartConfig extends ChartConfiguration {
-  // Remove animation override if you want to use the parent type
-  // OR properly define it as AnimationConfiguration
-  animation?: AnimationConfiguration; // ✅ Matches parent interface
-  
-  // Graph-specific properties
-  layout?: 'force' | 'circular' | 'none';
-  roam?: boolean;
+export interface GraphNodeLabel {
+  show?: boolean;
+  position?: 'top' | 'left' | 'right' | 'bottom' | 'inside' | 'insideLeft' | 'insideRight' | 'insideTop' | 'insideBottom';
+  formatter?: string | ((params: any) => string);
+  color?: string;
+  fontSize?: number;
+  fontFamily?: string;
+}
+
+export interface GraphNode {
+  id: string;
+  name: string;
+  value?: number;
+  category?: number;
+  symbol?: 'circle' | 'rect' | 'roundRect' | 'triangle' | 'diamond' | 'pin' | 'arrow' | 'none' | string;
+  symbolSize?: number | number[];
+  x?: number;
+  y?: number;
+  fixed?: boolean;
+  itemStyle?: GraphNodeItemStyle;
+  label?: GraphNodeLabel;
+}
+
+export interface GraphLinkLineStyle {
+  color?: string;
+  width?: number;
+  type?: 'solid' | 'dashed' | 'dotted';
+  curveness?: number;
+  opacity?: number;
+}
+
+export interface GraphLinkLabel {
+  show?: boolean;
+  position?: 'start' | 'middle' | 'end';
+  formatter?: string | ((params: any) => string);
+  color?: string;
+  fontSize?: number;
+}
+
+export interface GraphLink {
+  source: string;
+  target: string;
+  value?: number;
+  lineStyle?: GraphLinkLineStyle;
+  label?: GraphLinkLabel;
+}
+
+export interface GraphCategoryItemStyle {
+  color?: string;
+  borderColor?: string;
+  borderWidth?: number;
+}
+
+export interface GraphCategory {
+  name: string;
+  itemStyle?: GraphCategoryItemStyle;
+  symbol?: 'circle' | 'rect' | 'roundRect' | 'triangle' | 'diamond' | 'pin' | 'arrow' | 'none' | string;
+  symbolSize?: number | number[];
+}
+
+export interface ForceConfig {
+  initLayout?: 'circular' | 'none';
+  repulsion?: number | number[];
+  gravity?: number;
+  edgeLength?: number | number[];
+  layoutAnimation?: boolean;
+  friction?: number;
+}
+
+export interface GraphChartData {
+  nodes: GraphNode[];
+  links: GraphLink[];
+  categories?: GraphCategory[];
+}
+
+export interface GraphChartProps {
+  data: GraphChartData;
+  options?: EChartsOption;
+  width?: number | string;
+  height?: number | string;
+  className?: string;
+  layout?: 'none' | 'circular' | 'force';
+  roam?: boolean | 'scale' | 'move';
+  focusNodeAdjacency?: boolean | 'allEdges';
   draggable?: boolean;
-  focusNodeAdjacency?: boolean;
-  edgeSymbol?: [string, string];
-  edgeSymbolSize?: [number, number];
-  force?: {
-    repulsion?: number;
-    gravity?: number;
-    edgeLength?: number;
-    layoutAnimation?: boolean;
-  };
-  nodes?: Array<{
-    id: string;
-    name: string;
-    value?: number;
-    category?: number;
-    x?: number;
-    y?: number;
-    fixed?: boolean;
-  }>;
-  links?: Array<{
-    source: string;
-    target: string;
-    value?: number;
-    lineStyle?: any;
-  }>;
-  categories?: Array<{
-    name: string;
-    itemStyle?: any;
-  }>;
-}
-
-interface GraphChartProps extends ChartProps {
-  config: GraphChartConfig; // or GraphChartConfigAlt
+  theme?: string | object;
+  onChartReady?: (chart: EChartsInstance) => void;
+  onEvents?: Record<string, (params: any) => void>;
 }
 
 const GraphChart: React.FC<GraphChartProps> = ({
   data,
-  config,
-  dimensions,
+  options = {},
+  width = '100%',
+  height = 400,
+  className = '',
+  layout = 'force',
+  roam = true,
+  focusNodeAdjacency = true,
+  draggable = true,
   theme,
-  onInteraction,
-  onError
+  onChartReady,
+  onEvents = {}
 }) => {
-  const chartRef = React.useRef<HTMLDivElement>(null);
-  const chartInstance = React.useRef<ECharts | null>(null);
+  const chartRef = useRef<HTMLDivElement>(null);
+  const chartInstanceRef = useRef<EChartsInstance | null>(null);
 
-  React.useEffect(() => {
-    if (!chartRef.current) return;
+  // Validate data function
+  const validateData = (chartData: GraphChartData): { isValid: boolean; error?: string } => {
+    if (!chartData) {
+      return { isValid: false, error: 'Chart data is required' };
+    }
 
-    let handleResize: (() => void) | null = null;
+    if (!chartData.nodes || !Array.isArray(chartData.nodes)) {
+      return { isValid: false, error: 'Nodes array is required' };
+    }
+
+    if (!chartData.links || !Array.isArray(chartData.links)) {
+      return { isValid: false, error: 'Links array is required' };
+    }
+
+    if (chartData.nodes.length === 0) {
+      return { isValid: false, error: 'At least one node is required' };
+    }
+
+    // Validate nodes
+    for (let i = 0; i < chartData.nodes.length; i++) {
+      const node = chartData.nodes[i];
+      if (!node.id || typeof node.id !== 'string') {
+        return { isValid: false, error: `Node at index ${i} must have a valid string id` };
+      }
+      if (!node.name || typeof node.name !== 'string') {
+        return { isValid: false, error: `Node at index ${i} must have a valid string name` };
+      }
+    }
+
+    // Create a set of valid node IDs for link validation
+    const nodeIds = new Set(chartData.nodes.map(node => node.id));
+
+    // Validate links
+    for (let i = 0; i < chartData.links.length; i++) {
+      const link = chartData.links[i];
+      if (!link.source || typeof link.source !== 'string') {
+        return { isValid: false, error: `Link at index ${i} must have a valid string source` };
+      }
+      if (!link.target || typeof link.target !== 'string') {
+        return { isValid: false, error: `Link at index ${i} must have a valid string target` };
+      }
+      if (!nodeIds.has(link.source)) {
+        return { isValid: false, error: `Link at index ${i} references non-existent source node: ${link.source}` };
+      }
+      if (!nodeIds.has(link.target)) {
+        return { isValid: false, error: `Link at index ${i} references non-existent target node: ${link.target}` };
+      }
+    }
+
+    return { isValid: true };
+  };
+
+  // Default chart options
+  const getDefaultOptions = (): EChartsOption => ({
+    title: {
+      text: 'Graph Chart',
+      top: 'top',
+      left: 'center'
+    },
+    tooltip: {
+      trigger: 'item',
+      formatter: (params: any) => {
+        if (params.dataType === 'node') {
+          return `${params.data.name}<br/>Value: ${params.data.value || 'N/A'}`;
+        } else if (params.dataType === 'edge') {
+          return `${params.data.source} → ${params.data.target}<br/>Value: ${params.data.value || 'N/A'}`;
+        }
+        return params.name;
+      }
+    },
+    legend: {
+      show: !!data.categories && data.categories.length > 0,
+      data: data.categories?.map(cat => cat.name) || [],
+      top: 'bottom'
+    },
+    series: [
+      {
+        type: 'graph',
+        layout: layout,
+        data: data.nodes,
+        links: data.links,
+        categories: data.categories,
+        roam: roam,
+        focusNodeAdjacency: focusNodeAdjacency,
+        draggable: draggable,
+        symbol: 'circle',
+        symbolSize: 20,
+        itemStyle: {
+          color: '#4A90E2'
+        },
+        lineStyle: {
+          color: '#999',
+          width: 2,
+          curveness: 0.1
+        },
+        label: {
+          show: true,
+          position: 'right',
+          formatter: '{b}'
+        },
+        emphasis: {
+          focus: 'adjacency',
+          label: {
+            show: true
+          }
+        },
+        force: layout === 'force' ? {
+          repulsion: 100,
+          gravity: 0.05,
+          edgeLength: 80,
+          layoutAnimation: true
+        } : undefined
+      } as any
+    ]
+  });
+
+  useEffect(() => {
+    if (!chartRef.current) {
+      return undefined;
+    }
+
+    // Validate data
+    const validation = validateData(data);
+    if (!validation.isValid) {
+      console.error('GraphChart validation error:', validation.error);
+      return undefined;
+    }
+
+    // Dispose existing chart
+    if (chartInstanceRef.current) {
+      chartInstanceRef.current.dispose();
+    }
 
     try {
-      // Initialize chart
-      chartInstance.current = init(chartRef.current, theme?.name || 'default');
+      // Initialize chart with theme support
+      chartInstanceRef.current = echarts.init(chartRef.current, theme);
 
-      // Prepare graph data
-      const graphData = prepareGraphData(data, config);
+      // Merge default options with provided options
+      const chartOptions: EChartsOption = {
+        ...getDefaultOptions(),
+        ...options
+      };
 
-      // Chart options (using type assertion to avoid ECharts type conflicts)
-      const option = {
-        title: {
-          text: config.title || 'Network Graph',
-          left: 'center',
-          textStyle: {
-            color: theme?.textColor || '#333'
-          }
-        },
-        tooltip: {
-          trigger: 'item',
-          formatter: (params: any) => {
-            if (params.dataType === 'node') {
-              return `${params.name}: ${params.value || 'N/A'}`;
-            } else {
-              return `${params.data.source} → ${params.data.target}`;
-            }
-          }
-        },
-        legend: config.showLegend ? {
-          data: config.categories?.map(cat => cat.name) || [],
-          bottom: 0
-        } : undefined,
-        animation: config.animation !== false,
-        animationDurationUpdate: config.animation !== false ? 1500 : 0,
-        animationEasingUpdate: config.animation !== false ? 'cubicOut' : undefined,
-        series: [{
-          type: 'graph',
-          layout: config.layout || 'force',
-          data: graphData.nodes,
-          links: graphData.links,
-          categories: config.categories,
-          roam: config.roam !== false, // Default to true
-          draggable: config.draggable !== false,
-          focusNodeAdjacency: config.focusNodeAdjacency !== false,
-          edgeSymbol: config.edgeSymbol || ['circle', 'arrow'],
-          edgeSymbolSize: config.edgeSymbolSize || [4, 10],
-          force: {
-            repulsion: config.force?.repulsion || 200,
-            gravity: config.force?.gravity || 0.1,
-            edgeLength: config.force?.edgeLength || 50,
-            layoutAnimation: config.force?.layoutAnimation !== false,
-            ...config.force
-          },
-          label: {
-            show: config.showLabels !== false,
-            position: 'right'
-          },
-          lineStyle: {
-            color: 'source',
-            curveness: 0.3,
-            opacity: 0.6
-          },
-          itemStyle: {
-            borderColor: '#fff',
-            borderWidth: 1
-          },
-          emphasis: {
-            focus: 'adjacency',
-            lineStyle: {
-              width: 10
-            }
-          }
-        }]
-      } as ECBasicOption;
+      // Set chart options
+      chartInstanceRef.current.setOption(chartOptions, true);
 
-      chartInstance.current.setOption(option);
+      // Register event handlers
+      Object.entries(onEvents).forEach(([eventName, handler]) => {
+        if (chartInstanceRef.current) {
+          chartInstanceRef.current.on(eventName, handler);
+        }
+      });
 
-      // Handle interactions
-      if (onInteraction) {
-        chartInstance.current.on('click', (params) => {
-          onInteraction({
-            type: 'click',
-            data: params.data,
-            seriesIndex: params.seriesIndex,
-            dataIndex: params.dataIndex
-          });
-        });
+      // Call onChartReady callback
+      if (onChartReady && chartInstanceRef.current) {
+        onChartReady(chartInstanceRef.current);
       }
 
       // Handle resize
-      handleResize = () => {
-        chartInstance.current?.resize();
+      const handleResize = () => {
+        if (chartInstanceRef.current) {
+          chartInstanceRef.current.resize();
+        }
       };
 
       window.addEventListener('resize', handleResize);
 
-    } catch (error) {
-      console.error('Error initializing graph chart:', error);
-      if (onError) {
-        onError({
-          message: error instanceof Error ? error.message : 'Unknown error',
-          type: 'initialization_error'
-        });
-      }
-    }
-
-    // Cleanup function - always returned regardless of success or error
-    return () => {
-      if (handleResize) {
+      // Return cleanup function
+      return () => {
         window.removeEventListener('resize', handleResize);
-      }
-      if (chartInstance.current) {
-        chartInstance.current.dispose();
-        chartInstance.current = null;
-      }
-    };
-  }, [data, config, dimensions, theme]);
+        if (chartInstanceRef.current) {
+          // Remove event handlers
+          Object.keys(onEvents).forEach(eventName => {
+            if (chartInstanceRef.current) {
+              chartInstanceRef.current.off(eventName);
+            }
+          });
+          chartInstanceRef.current.dispose();
+          chartInstanceRef.current = null;
+        }
+      };
+    } catch (error) {
+      console.error('Error creating graph chart:', error);
+      return undefined;
+    }
+  }, [data, options, layout, roam, focusNodeAdjacency, draggable, theme, onChartReady, onEvents]);
 
-  // Resize chart when dimensions change
-  React.useEffect(() => {
-    chartInstance.current?.resize();
-  }, [dimensions.width, dimensions.height]);
+  // Handle validation errors
+  const validation = validateData(data);
+  if (!validation.isValid) {
+    return (
+      <div 
+        className={`flex items-center justify-center border border-red-300 bg-red-50 ${className}`}
+        style={{ width, height }}
+      >
+        <div className="text-red-500 text-center p-4">
+          <p className="font-medium">Invalid Graph Data</p>
+          <p className="text-sm mt-1">{validation.error}</p>
+          <p className="text-xs mt-2 text-gray-500">Check console for more details</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
       ref={chartRef}
-      style={{
-        width: dimensions.width,
-        height: dimensions.height,
-        minHeight: '300px'
+      className={className}
+      style={{ 
+        width: typeof width === 'number' ? `${width}px` : width,
+        height: typeof height === 'number' ? `${height}px` : height
       }}
     />
   );
 };
 
-// Helper function to prepare graph data
-function prepareGraphData(data: any[] | ChartData | any, config: GraphChartConfig) {
-  try {
-    // Type guard to check if data is array-like
-    const isArrayLike = (value: any): value is any[] => {
-      return Array.isArray(value);
-    };
-
-    // Type guard to check if data is ChartData object
-    const isChartData = (value: any): value is ChartData => {
-      return value && typeof value === 'object' && !Array.isArray(value) && (value.rows || value.data);
-    };
-
-    // Convert to array based on data type
-    let dataArray: any[] = [];
-    
-    if (isArrayLike(data)) {
-      dataArray = data;
-    } else if (isChartData(data)) {
-      dataArray = data.rows || data.data || [];
-    } else if (data && typeof data === 'object') {
-      // Handle other object formats
-      dataArray = Object.values(data);
-    } else {
-      // Fallback to empty array
-      console.warn('GraphChart: Invalid data format, using empty array');
-      dataArray = [];
-    }
-    
-    // If nodes and links are provided in config, use them directly
-    if (config.nodes && config.links) {
-      return {
-        nodes: config.nodes,
-        links: config.links
-      };
-    }
-
-    // Otherwise, transform the data array into nodes and links
-    const nodes = dataArray.map((item: any, index: number) => {
-      if (!item) return { id: `node_${index}`, name: `Node ${index}`, value: 1, category: 0 };
-      
-      return {
-        id: item.id || `node_${index}`,
-        name: item.name || item.label || `Node ${index}`,
-        value: typeof item.value === 'number' ? item.value : 1,
-        category: typeof item.category === 'number' ? item.category : 0,
-        x: typeof item.x === 'number' ? item.x : undefined,
-        y: typeof item.y === 'number' ? item.y : undefined,
-        fixed: Boolean(item.fixed)
-      };
-    });
-
-    const links = dataArray.reduce((acc: any[], item: any, index: number) => {
-      if (item?.connections && Array.isArray(item.connections)) {
-        item.connections.forEach((targetId: string) => {
-          if (typeof targetId === 'string') {
-            acc.push({
-              source: item.id || `node_${index}`,
-              target: targetId,
-              value: typeof item.connectionValue === 'number' ? item.connectionValue : 1
-            });
-          }
-        });
-      }
-      return acc;
-    }, []);
-
-    return { nodes, links };
-    
-  } catch (error) {
-    console.error('Error preparing graph data:', error);
-    // Return minimal fallback data
-    return {
-      nodes: [{ id: 'node_0', name: 'Default Node', value: 1, category: 0 }],
-      links: []
-    };
-  }
-}
-
 export default GraphChart;
-
-// Export the config type for use in other components
-export type { GraphChartConfig };

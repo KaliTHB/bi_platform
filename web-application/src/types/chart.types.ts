@@ -393,3 +393,274 @@ export interface DataRequest {
   limit?: number;
   offset?: number;
 }
+
+export interface ChartData {
+  rows: Record<string, any>[];
+  columns: ColumnDefinition[];
+  metadata?: Record<string, any>;
+}
+
+export interface ColumnDefinition {
+  name: string;
+  type: 'string' | 'number' | 'date' | 'boolean';
+  displayName?: string;
+  format?: string;
+}
+
+// Main ChartProps interface - single source of truth
+export interface ChartProps {
+  data: any[] | ChartData; // Supports both formats
+  config: any;
+  dimensions?: {
+    width: number;
+    height: number;
+  };
+  width?: number;
+  height?: number;
+  theme?: ChartTheme;
+  filters?: any[];
+  onInteraction?: (event: ChartInteractionEvent) => void;
+  onError?: (error: Error) => void;
+  isLoading?: boolean;
+  error?: string;
+}
+
+export interface ChartInteractionEvent {
+  type: 'click' | 'hover' | 'select' | 'zoom' | 'pan';
+  data?: any;
+  dataIndex?: number;
+  seriesIndex?: number;
+}
+
+export interface ChartTheme {
+  name?: string;
+  backgroundColor?: string;
+  textColor?: string;
+  gridColor?: string;
+  colors?: string[];
+}
+
+// Plugin configuration interface
+export interface ChartPluginConfig {
+  name: string;
+  displayName: string;
+  category: string;
+  library: string;
+  version: string;
+  description?: string;
+  tags?: string[];
+  configSchema?: any;
+  dataRequirements?: {
+    minColumns?: number;
+    maxColumns?: number;
+    requiredFields?: string[];
+    optionalFields?: string[];
+    supportedTypes?: string[];
+  };
+  exportFormats?: string[];
+  component: React.ComponentType<ChartProps>;
+}
+
+export interface ChartData {
+  rows: Record<string, any>[];
+  columns: ColumnDefinition[];
+  metadata?: Record<string, any>;
+}
+
+export interface ColumnDefinition {
+  name: string;
+  type: 'string' | 'number' | 'date' | 'boolean';
+  displayName?: string;
+  format?: string;
+}
+
+// Main ChartProps interface - single source of truth
+export interface ChartProps {
+  data: any[] | ChartData; // Supports both formats
+  config: any;
+  dimensions?: {
+    width: number;
+    height: number;
+  };
+  width?: number;
+  height?: number;
+  theme?: ChartTheme;
+  filters?: any[];
+  onInteraction?: (event: ChartInteractionEvent) => void;
+  onError?: (error: Error) => void;
+  isLoading?: boolean;
+  error?: string;
+}
+
+export interface ChartInteractionEvent {
+  type: 'click' | 'hover' | 'select' | 'zoom' | 'pan';
+  data?: any;
+  dataIndex?: number;
+  seriesIndex?: number;
+}
+
+export interface ChartTheme {
+  name?: string;
+  backgroundColor?: string;
+  textColor?: string;
+  gridColor?: string;
+  colors?: string[];
+}
+
+// Plugin configuration interface
+export interface ChartPluginConfig {
+  name: string;
+  displayName: string;
+  category: string;
+  library: string;
+  version: string;
+  description?: string;
+  tags?: string[];
+  configSchema?: any;
+  dataRequirements?: {
+    minColumns?: number;
+    maxColumns?: number;
+    requiredFields?: string[];
+    optionalFields?: string[];
+    supportedTypes?: string[];
+  };
+  exportFormats?: string[];
+  component: React.ComponentType<ChartProps>;
+}
+
+export interface ChartConfiguration {
+  title?: string;
+  subtitle?: string;
+  xAxis?: AxisConfiguration;
+  yAxis?: AxisConfiguration;
+  series?: SeriesConfiguration[];
+  colors?: string[];
+  legend?: LegendConfiguration;
+  tooltip?: TooltipConfiguration;
+  animation?: AnimationConfiguration;
+  interactions?: InteractionConfiguration;
+  [key: string]: any;
+}
+
+export interface AxisConfiguration {
+  title?: string;
+  type?: 'category' | 'value' | 'time' | 'log';
+  min?: number;
+  max?: number;
+  interval?: number;
+  format?: string;
+  show?: boolean;
+}
+
+export interface SeriesConfiguration {
+  name: string;
+  type: string;
+  dataKey: string;
+  color?: string;
+  stack?: string;
+  smooth?: boolean;
+  symbol?: string;
+  symbolSize?: number;
+}
+
+export interface LegendConfiguration {
+  show?: boolean;
+  position?: 'top' | 'bottom' | 'left' | 'right';
+  align?: 'left' | 'center' | 'right';
+}
+
+export interface TooltipConfiguration {
+  show?: boolean;
+  trigger?: 'item' | 'axis';
+  formatter?: string;
+}
+
+export interface AnimationConfiguration {
+  enabled?: boolean;
+  duration?: number;
+  easing?: string;
+}
+
+export interface InteractionConfiguration {
+  zoom?: boolean;
+  pan?: boolean;
+  brush?: boolean;
+  dataZoom?: boolean;
+}
+
+// Chart preview props interface (for chart selection/preview components)
+export interface ChartPreviewProps {
+  data?: any[];
+  config?: any;
+  width?: number;
+  height?: number;
+  dimensions?: {
+    width: number;
+    height: number;
+  };
+  theme?: any;
+  isPreview?: boolean;
+  showSampleData?: boolean;
+  sampleDataCount?: number;
+}
+
+// Chart preview props interface (for chart selection/preview components)
+export interface ChartPreviewProps {
+  data?: any[];
+  config?: any;
+  width?: number;
+  height?: number;
+  dimensions?: {
+    width: number;
+    height: number;
+  };
+  theme?: any;
+  isPreview?: boolean;
+  showSampleData?: boolean;
+  sampleDataCount?: number;
+  chartType?: string;
+  chartLibrary?: string;
+}
+
+// Chart configuration props interface (for chart config forms/editors)
+export interface ChartConfigProps {
+  config: any;
+  data?: any[];
+  availableColumns?: ColumnInfo[];
+  chartType?: string;
+  chartLibrary?: string;
+  onConfigChange: (newConfig: any) => void;
+  onValidate?: (isValid: boolean, errors?: ValidationError[]) => void;
+  showPreview?: boolean;
+  previewDimensions?: { width: number; height: number };
+}
+
+// Supporting interfaces for ChartConfigProps
+export interface ColumnInfo {
+  name: string;
+  type: 'string' | 'number' | 'date' | 'boolean';
+  displayName?: string;
+  nullable?: boolean;
+  unique?: boolean;
+  sampleValues?: any[];
+}
+
+export interface ValidationError {
+  field: string;
+  message: string;
+  code?: string;
+  severity?: 'error' | 'warning' | 'info';
+}
+
+// Chart theme interface (enhanced)
+export interface ChartTheme {
+  name?: string;
+  backgroundColor?: string;
+  textColor?: string;
+  gridColor?: string;
+  colors?: string[];
+  fontSize?: number;
+  fontFamily?: string;
+  borderRadius?: number;
+  opacity?: number;
+}

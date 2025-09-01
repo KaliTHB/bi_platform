@@ -5,6 +5,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
 import { ChartProps } from '@/types/chart.types';
+import { hasDataContent, getDataArray } from '@/plugins/charts/utils/chartDataUtils';
 
 export interface ParallelChartConfig {
   dimensions: string[];
@@ -24,15 +25,18 @@ export const ParallelChart: React.FC<ChartProps> = ({
   const chartInstance = useRef<echarts.ECharts>();
 
   useEffect(() => {
-    if (!chartRef.current || !data?.length) return;
+    if (!chartRef.current || !hasDataContent(data)) return;
 
     try {
       chartInstance.current = echarts.init(chartRef.current);
       
       const { dimensions, colorField, brushMode = 'rect' } = config as ParallelChartConfig;
       
+      // Get the actual data array regardless of format
+      const dataArray = getDataArray(data);
+      
       // Prepare parallel coordinates data
-      const parallelData = data.map(item => 
+      const parallelData = dataArray.map(item => 
         dimensions.map(dim => parseFloat(item[dim]) || 0)
       );
 
@@ -63,19 +67,19 @@ export const ParallelChart: React.FC<ChartProps> = ({
           },
           data: parallelData.map((item, index) => ({
             value: item,
-            name: data[index][colorField] || index
+            name: colorField ? dataArray[index][colorField] || index : index
           }))
         }
       };
 
       chartInstance.current.setOption(option);
 
-      // Handle brush events
-      chartInstance.current.on('brushSelected', (params) => {
+      chartInstance.current.on('brushSelected', (params : any) => {
         onInteraction?.({
-          type: 'brush',
+          type: 'select', // Use 'select' instead of 'brush' as it's in the ChartInteractionEvent type
           data: params,
-          event: params
+          dataIndex: params.batch?.[0]?.selected?.[0]?.dataIndex?.[0], // Extract dataIndex if available
+          seriesIndex: 0 // For parallel charts, typically single series
         });
       });
 

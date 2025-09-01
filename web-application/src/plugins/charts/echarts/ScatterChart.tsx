@@ -52,7 +52,7 @@ export const ScatterChart: React.FC<ChartProps> = ({
             fontSize: 16
           }
         }
-      };
+      } as echarts.EChartsOption;
     }
 
     // Normalize data to array format
@@ -69,6 +69,11 @@ export const ScatterChart: React.FC<ChartProps> = ({
       symbol: 'circle'
     }) as ScatterChartConfig;
 
+    // Ensure colors is always an array
+    if (!chartConfig.colors) {
+      chartConfig.colors = [];
+    }
+
     try {
       // Extract data fields
       const xValues = extractNumericValues(chartData, chartConfig.xAxisField, 0);
@@ -83,25 +88,26 @@ export const ScatterChart: React.FC<ChartProps> = ({
       // Prepare scatter data
       let scatterData: any[];
       let series: any[];
+      let categoryGroups: { [key: string]: any[] } | null = null;
 
       if (categories) {
         // Group by category
-        const categoryGroups: { [key: string]: any[] } = {};
+        categoryGroups = {};
         
         chartData.forEach((item, index) => {
           const category = categories[index];
-          if (!categoryGroups[category]) {
-            categoryGroups[category] = [];
+          if (!categoryGroups![category]) {
+            categoryGroups![category] = [];
           }
           
           const point = [xValues[index], yValues[index]];
           if (sizeValues) {
             point.push(sizeValues[index]);
           }
-          categoryGroups[category].push(point);
+          categoryGroups![category].push(point);
         });
 
-        // Generate colors for categories
+        // Generate colors for categories - Fixed type safety
         const categoryColors = chartConfig.colors.length > 0 
           ? chartConfig.colors 
           : generateColorPalette(Object.keys(categoryGroups).length);
@@ -110,7 +116,7 @@ export const ScatterChart: React.FC<ChartProps> = ({
         series = Object.keys(categoryGroups).map((category, index) => ({
           name: category,
           type: 'scatter',
-          data: categoryGroups[category],
+          data: categoryGroups![category],
           symbolSize: (data: any[]) => {
             if (sizeValues && data.length > 2) {
               return Math.sqrt(data[2]) * 2; // Scale size values
@@ -139,6 +145,7 @@ export const ScatterChart: React.FC<ChartProps> = ({
           return point;
         });
 
+        // Fixed type safety for single series color
         const seriesColor = chartConfig.colors.length > 0 ? chartConfig.colors[0] : '#5470c6';
 
         series = [{
@@ -165,7 +172,7 @@ export const ScatterChart: React.FC<ChartProps> = ({
         }];
       }
 
-      return {
+      const option: echarts.EChartsOption = {
         title: {
           text: chartConfig.title,
           left: 'center',
@@ -190,13 +197,12 @@ export const ScatterChart: React.FC<ChartProps> = ({
             return result;
           }
         },
-        legend: categories ? {
-          data: Object.keys(categories.reduce((acc: any, cat: any) => {
-            acc[cat] = true;
-            return acc;
-          }, {})),
-          top: '10%',
-          type: 'scroll'
+        legend: categoryGroups ? {
+          show: true,
+          orient: 'horizontal',
+          left: 'center',
+          bottom: '5%',
+          data: Object.keys(categoryGroups)
         } : undefined,
         xAxis: {
           type: 'value',
@@ -204,60 +210,25 @@ export const ScatterChart: React.FC<ChartProps> = ({
           nameLocation: 'middle',
           nameGap: 30,
           splitLine: {
-            show: chartConfig.showGrid,
-            lineStyle: {
-              type: 'dashed',
-              opacity: 0.3
-            }
-          },
-          axisLabel: {
-            formatter: (value: number) => {
-              if (Math.abs(value) >= 1000000) {
-                return (value / 1000000).toFixed(1) + 'M';
-              }
-              if (Math.abs(value) >= 1000) {
-                return (value / 1000).toFixed(1) + 'K';
-              }
-              return value.toString();
-            }
+            show: chartConfig.showGrid
           }
         },
         yAxis: {
           type: 'value',
           name: chartConfig.yAxisLabel || chartConfig.yAxisField,
           nameLocation: 'middle',
-          nameGap: 50,
+          nameGap: 40,
           splitLine: {
-            show: chartConfig.showGrid,
-            lineStyle: {
-              type: 'dashed',
-              opacity: 0.3
-            }
-          },
-          axisLabel: {
-            formatter: (value: number) => {
-              if (Math.abs(value) >= 1000000) {
-                return (value / 1000000).toFixed(1) + 'M';
-              }
-              if (Math.abs(value) >= 1000) {
-                return (value / 1000).toFixed(1) + 'K';
-              }
-              return value.toString();
-            }
+            show: chartConfig.showGrid
           }
         },
-        series,
-        grid: {
-          left: '15%',
-          right: '10%',
-          bottom: '15%',
-          top: categories ? '25%' : '15%',
-          containLabel: true
-        },
+        series: series,
         animation: true,
         animationDuration: 1000,
-        animationEasing: 'cubicOut'
+        animationEasing: 'cubicOut' as any // Type assertion to fix the animation easing type error
       };
+
+      return option;
     } catch (error) {
       console.error('Error processing scatter chart data:', error);
       onError?.(error as Error);
@@ -271,7 +242,7 @@ export const ScatterChart: React.FC<ChartProps> = ({
             fontSize: 16
           }
         }
-      };
+      } as echarts.EChartsOption;
     }
   }, [data, config, onError]);
 
@@ -283,7 +254,7 @@ export const ScatterChart: React.FC<ChartProps> = ({
       chartInstance.current = echarts.init(chartRef.current);
     }
 
-    // Set options
+    // Set options - Fixed type assertion for the entire options object
     chartInstance.current.setOption(options, true);
 
     // Add click handler
@@ -292,12 +263,21 @@ export const ScatterChart: React.FC<ChartProps> = ({
         type: 'click',
         data: params.data,
         dataIndex: params.dataIndex,
-        seriesIndex: params.seriesIndex,
-        event: params.event
+        seriesIndex: params.seriesIndex
+      });
+    };
+
+    const handleMouseover = (params: any) => {
+      onInteraction?.({
+        type: 'hover',
+        data: params.data,
+        dataIndex: params.dataIndex,
+        seriesIndex: params.seriesIndex
       });
     };
 
     chartInstance.current.on('click', handleClick);
+    chartInstance.current.on('mouseover', handleMouseover);
 
     // Handle resize
     const handleResize = () => {
@@ -308,20 +288,14 @@ export const ScatterChart: React.FC<ChartProps> = ({
 
     // Cleanup
     return () => {
-      chartInstance.current?.off('click', handleClick);
       window.removeEventListener('resize', handleResize);
+      chartInstance.current?.off('click', handleClick);
+      chartInstance.current?.off('mouseover', handleMouseover);
     };
   }, [options, onInteraction]);
 
+  // Cleanup on unmount
   useEffect(() => {
-    // Resize chart when dimensions change
-    if (chartInstance.current) {
-      chartInstance.current.resize();
-    }
-  }, [width, height]);
-
-  useEffect(() => {
-    // Cleanup on unmount
     return () => {
       chartInstance.current?.dispose();
     };

@@ -226,3 +226,8 @@ export const generateColorPalette = (count: number): string[] => {
   }
   return colors;
 };
+
+// Utility function to ensure readonly arrays
+export function ensureReadonly<T>(arr: T[] | readonly T[] | undefined): readonly T[] {
+  return (arr as readonly T[]) || ([] as const);
+}

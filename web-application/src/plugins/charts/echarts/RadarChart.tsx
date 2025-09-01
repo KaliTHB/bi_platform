@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Typography, CircularProgress, Alert } from '@mui/material';
 import * as echarts from 'echarts';
-import { ChartProps, ChartConfiguration } from '../../../types/chart.types';
+import { ChartProps, ChartData } from '../../../types/chart.types';
 
-interface RadarChartConfig extends ChartConfiguration {
+interface RadarChartConfig {
   title?: string;
   subtitle?: string;
   radar?: {
@@ -40,11 +40,32 @@ interface RadarChartConfig extends ChartConfiguration {
     orient?: 'horizontal' | 'vertical';
   };
   animation?: boolean;
+  colors?: string[];
+  [key: string]: any;
 }
 
 interface RadarChartProps extends ChartProps {
   config: RadarChartConfig;
 }
+
+// Utility function to normalize data to array format
+const normalizeData = (data: any[] | ChartData): any[] => {
+  if (!data) return [];
+  
+  if (Array.isArray(data)) {
+    return data;
+  } else if (data && typeof data === 'object' && 'rows' in data) {
+    return (data as ChartData).rows || [];
+  }
+  
+  return [];
+};
+
+// Utility function to check if data is empty
+const isDataEmpty = (data: any[] | ChartData): boolean => {
+  const normalizedData = normalizeData(data);
+  return normalizedData.length === 0;
+};
 
 export const RadarChart: React.FC<RadarChartProps> = ({
   data,
@@ -70,12 +91,13 @@ export const RadarChart: React.FC<RadarChartProps> = ({
 
   // Process data for radar chart
   useEffect(() => {
-    if (!data || data.length === 0) {
+    if (isDataEmpty(data)) {
       setProcessedData({ seriesData: [], indicators: [], seriesNames: [] });
       return;
     }
 
     try {
+      const normalizedData = normalizeData(data);
       let indicators: any[] = [];
       let seriesData: any[] = [];
       let seriesNames: string[] = [];
@@ -86,7 +108,7 @@ export const RadarChart: React.FC<RadarChartProps> = ({
       } else if (config.valueFields) {
         // Auto-generate indicators from valueFields
         indicators = config.valueFields.map(field => {
-          const values = data.map(item => Number(item[field]) || 0);
+          const values = normalizedData.map(item => Number(item[field]) || 0);
           const max = Math.max(...values);
           const min = Math.min(...values);
           
@@ -98,12 +120,13 @@ export const RadarChart: React.FC<RadarChartProps> = ({
         });
       } else {
         // Auto-detect numeric fields
-        const numericFields = Object.keys(data[0] || {}).filter(key => {
-          return data.some(item => typeof item[key] === 'number' && !isNaN(item[key]));
+        const firstItem = normalizedData[0] || {};
+        const numericFields = Object.keys(firstItem).filter(key => {
+          return normalizedData.some(item => typeof item[key] === 'number' && !isNaN(item[key]));
         });
 
         indicators = numericFields.map(field => {
-          const values = data.map(item => Number(item[field]) || 0);
+          const values = normalizedData.map(item => Number(item[field]) || 0);
           const max = Math.max(...values);
           const min = Math.min(...values);
           
@@ -121,7 +144,7 @@ export const RadarChart: React.FC<RadarChartProps> = ({
         config.series.forEach((seriesConfig, seriesIndex) => {
           seriesNames.push(seriesConfig.name);
           
-          const seriesValues = data.map(item => {
+          const seriesValues = normalizedData.map(item => {
             return seriesConfig.dataFields.map(field => Number(item[field]) || 0);
           });
 
@@ -130,7 +153,7 @@ export const RadarChart: React.FC<RadarChartProps> = ({
             type: 'radar',
             data: seriesValues.map((values, dataIndex) => ({
               value: values,
-              name: config.nameField ? data[dataIndex][config.nameField] : `Item ${dataIndex + 1}`
+              name: config.nameField ? normalizedData[dataIndex][config.nameField] : `Item ${dataIndex + 1}`
             })),
             areaStyle: seriesConfig.areaStyle ? {
               opacity: seriesConfig.areaStyle.opacity || 0.3,
@@ -148,10 +171,10 @@ export const RadarChart: React.FC<RadarChartProps> = ({
         // Auto-generate series from data
         const indicatorFields = indicators.map(ind => ind.name);
         
-        if (config.nameField && data.length > 0) {
+        if (config.nameField && normalizedData.length > 0) {
           // Each row is a separate series
-          data.forEach((item, index) => {
-            const seriesName = item[config.nameField] || `Series ${index + 1}`;
+          normalizedData.forEach((item, index) => {
+            const seriesName = item[config.nameField!] || `Series ${index + 1}`;
             seriesNames.push(seriesName);
             
             const values = indicatorFields.map(field => Number(item[field]) || 0);
@@ -176,7 +199,7 @@ export const RadarChart: React.FC<RadarChartProps> = ({
         } else {
           // Single series with all data points
           seriesNames.push('Data Series');
-          const seriesValues = data.map((item, index) => {
+          const seriesValues = normalizedData.map((item, index) => {
             const values = indicatorFields.map(field => Number(item[field]) || 0);
             return {
               value: values,
@@ -206,11 +229,13 @@ export const RadarChart: React.FC<RadarChartProps> = ({
       onError?.(new Error(errorMessage));
       setProcessedData({ seriesData: [], indicators: [], seriesNames: [] });
     }
-  }, [data, config, theme]);
+  }, [data, config, theme, onError]);
 
   // Initialize and update chart
   useEffect(() => {
     if (!chartRef.current || processedData.indicators.length === 0) return;
+
+    let resizeListener: (() => void) | null = null;
 
     try {
       // Initialize ECharts instance
@@ -267,7 +292,7 @@ export const RadarChart: React.FC<RadarChartProps> = ({
             textStyle: {
               color: theme?.textColor || '#333'
             }
-          },
+          } as any, // Type assertion to bypass strict typing
           splitLine: {
             lineStyle: {
               color: theme?.gridColor || '#e0e6ed'
@@ -323,66 +348,68 @@ export const RadarChart: React.FC<RadarChartProps> = ({
       };
 
       window.addEventListener('resize', handleResize);
+      resizeListener = handleResize;
       chartInstance.current.resize();
-
-      return () => {
-        window.removeEventListener('resize', handleResize);
-      };
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to render radar chart';
       onError?.(new Error(errorMessage));
     }
-  }, [processedData, config, dimensions, theme, onInteraction]);
 
-  // Cleanup
+    // Return cleanup function
+    return () => {
+      if (resizeListener) {
+        window.removeEventListener('resize', resizeListener);
+      }
+    };
+  }, [processedData, config, theme, onInteraction, onError]);
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (chartInstance.current) {
         chartInstance.current.dispose();
-        chartInstance.current = undefined;
       }
     };
   }, []);
 
-  if (error) {
-    return (
-      <Alert severity="error" sx={{ width: dimensions.width, height: dimensions.height }}>
-        Chart Error: {error}
-      </Alert>
-    );
-  }
-
+  // Loading state
   if (isLoading) {
     return (
-      <Box
-        sx={{
-          width: dimensions.width,
-          height: dimensions.height,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}
+      <Box 
+        display="flex" 
+        justifyContent="center" 
+        alignItems="center" 
+        width={dimensions.width} 
+        height={dimensions.height}
       >
         <CircularProgress />
       </Box>
     );
   }
 
-  if (!data || data.length === 0) {
+  // Error state
+  if (error) {
     return (
-      <Box
-        sx={{
-          width: dimensions.width,
-          height: dimensions.height,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          border: '1px dashed #ccc',
-          borderRadius: 1
-        }}
+      <Box width={dimensions.width} height={dimensions.height}>
+        <Alert severity="error">
+          <Typography variant="body2">{error}</Typography>
+        </Alert>
+      </Box>
+    );
+  }
+
+  // No data state
+  if (isDataEmpty(data)) {
+    return (
+      <Box 
+        display="flex" 
+        justifyContent="center" 
+        alignItems="center" 
+        width={dimensions.width} 
+        height={dimensions.height}
       >
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" color="textSecondary">
           No data available for radar chart
         </Typography>
       </Box>
@@ -390,15 +417,12 @@ export const RadarChart: React.FC<RadarChartProps> = ({
   }
 
   return (
-    <Box
-      ref={chartRef}
-      sx={{
-        width: dimensions.width,
-        height: dimensions.height,
-        '& canvas': {
-          borderRadius: 1
-        }
-      }}
+    <div 
+      ref={chartRef} 
+      style={{ 
+        width: dimensions.width, 
+        height: dimensions.height 
+      }} 
     />
   );
 };

@@ -84,6 +84,9 @@ export const PieChart: React.FC<ChartProps> = ({
         ? ['40%', '70%'] 
         : chartConfig.radius || ['0%', '70%'];
 
+      // Get safe legend position with fallback
+      const legendPosition = chartConfig.legendPosition || 'right';
+
       return {
         title: {
           text: chartConfig.title,
@@ -99,9 +102,9 @@ export const PieChart: React.FC<ChartProps> = ({
         },
         legend: {
           show: chartConfig.showLegend,
-          orient: ['top', 'bottom'].includes(chartConfig.legendPosition) ? 'horizontal' : 'vertical',
-          [chartConfig.legendPosition]: chartConfig.legendPosition === 'top' ? '10%' : 
-                                       chartConfig.legendPosition === 'bottom' ? '10%' : '10%',
+          orient: ['top', 'bottom'].includes(legendPosition) ? 'horizontal' : 'vertical',
+          [legendPosition]: legendPosition === 'top' ? '10%' : 
+                                       legendPosition === 'bottom' ? '10%' : '10%',
           data: labels,
           type: 'scroll',
           pageButtonItemGap: 5,
