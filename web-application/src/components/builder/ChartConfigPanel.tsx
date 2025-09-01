@@ -1,7 +1,7 @@
-// web-application/src/components/builder/ChartConfigPanel.tsx
+// File: web-application/src/components/builder/ChartConfigPanel.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Drawer,
   Box,
@@ -36,10 +36,25 @@ import {
   Close as CloseIcon,
   Add as AddIcon,
   Delete as DeleteIcon,
-  Palette as PaletteIcon
+  Palette as PaletteIcon,
+  Save as SaveIcon,
+  Refresh as RefreshIcon
 } from '@mui/icons-material';
 import { SketchPicker } from 'react-color';
-import { Chart, ChartConfig, ChartDimensions, ChartAxes, ChartAxis, ChartLegend } from '@/types/chart.types';
+import { 
+  Chart, 
+  ChartConfig, 
+  ChartDimensions, 
+  ChartAxes, 
+  ChartAxis, 
+  ChartLegend,
+  ChartTitle,
+  ChartSeries,
+  ChartTheme,
+  ChartConfiguration
+  //ChartGrid,
+  //ChartAnimation,
+} from '@/types/chart.types';
 import { Dataset } from '@/types/dashboard.types';
 import { datasetAPI } from '@/services/api';
 
@@ -75,674 +90,649 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
   const [datasetColumns, setDatasetColumns] = useState<Array<{ name: string; type: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState<{ [key: string]: boolean }>({});
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
-  // Helper function to create default ChartConfig
-  const createDefaultChartConfig = (): ChartConfig => ({
-    dimensions: {
-      width: 400,
-      height: 300,
-      margin: { top: 20, right: 20, bottom: 20, left: 20 }
+  const createDefaultChartConfig = useCallback((): ChartConfig => ({
+  dimensions: {
+    width: 400,
+    height: 300,
+    margin: { top: 20, right: 20, bottom: 20, left: 20 }
+  },
+  series: [],
+  axes: {
+    x: {
+      field: '',
+      title: '',
+      type: 'category',
+      scale: 'linear',
+      grid: true,
+      labels: true
     },
-    series: [],
-    axes: {
-      x: {
-        field: '',
-        title: '',
-        type: 'category',
-        scale: 'linear',
-        grid: true,
-        labels: true
-      },
-      y: {
-        field: '',
-        title: '',
-        type: 'value',
-        scale: 'linear',
-        grid: true,
-        labels: true
-      }
-    },
-    legend: {
-      show: true,
-      position: 'bottom',
-      align: 'center',
-      orientation: 'horizontal'
-    },
-    colors: ['#1976d2', '#dc004e', '#388e3c', '#f57c00'],
-    animations: true,
-    interactivity: true,
-    theme: 'light',
-    customTheme: {
-      primaryColor: '#1976d2',
-      secondaryColor: '#dc004e',
-      backgroundColor: '#ffffff',
-      textColor: '#333333',
-      fontFamily: 'Roboto, sans-serif',
-      fontSize: 12,
-      useCustomColors: false,
-      enableAnimations: true
+    y: {
+      field: '',
+      title: '',
+      type: 'value',
+      scale: 'linear',
+      grid: true,
+      labels: true
     }
-  });
+  },
+  legend: {
+    show: true,
+    position: 'bottom',
+    align: 'center',
+    orient: 'horizontal'
+  },
+  title: {
+    text: '',
+    subtitle: '',
+    position: 'center'
+  },
+  theme: 'light',
+  // Make sure colors is a mutable array
+  colors: ['#1976d2', '#dc004e', '#388e3c', '#f57c00'] as string[],
+  animations: true,
+  interactivity: true,
+  customTheme: {
+    primaryColor: '#1976d2',
+    secondaryColor: '#dc004e',
+    backgroundColor: '#ffffff',
+    textColor: '#333333',
+    fontFamily: 'Roboto, sans-serif',
+    fontSize: 12,
+    useCustomColors: false,
+    enableAnimations: true
+  }
+}), []);
 
+  // Initialize config when chart changes
   useEffect(() => {
     if (chart) {
-      setConfig({ ...chart });
-      if (chart.dataset_ids && chart.dataset_ids.length > 0) {
-        loadDatasetColumns(chart.dataset_ids[0]);
+      setConfig({
+        ...chart,
+        config_json: {
+          ...createDefaultChartConfig(),
+          ...chart.config_json
+        }
+      });
+    } else {
+      setConfig(null);
+    }
+    setValidationErrors([]);
+  }, [chart, createDefaultChartConfig]);
+
+  // Load dataset columns when chart dataset changes
+  useEffect(() => {
+    const loadDatasetColumns = async () => {
+      if (config && config.dataset_ids && config.dataset_ids.length > 0) {
+        setLoading(true);
+        try {
+          const columns = await datasetAPI.getColumns(config.dataset_ids[0]);
+          setDatasetColumns(columns);
+        } catch (error) {
+          console.error('Failed to load dataset columns:', error);
+          setDatasetColumns([]);
+        } finally {
+          setLoading(false);
+        }
       }
-    }
-  }, [chart]);
+    };
 
-  const loadDatasetColumns = async (datasetId: string) => {
-    try {
-      setLoading(true);
-      const response = await datasetAPI.getDatasetSchema(datasetId);
-      setDatasetColumns(response.schema.columns || []);
-    } catch (error) {
-      console.error('Failed to load dataset columns:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    loadDatasetColumns();
+  }, [config?.dataset_ids]);
 
-  const handleConfigChange = (path: string, value: any) => {
+  // Handle config changes with deep merge
+  const handleConfigChange = useCallback((path: string, value: any) => {
     if (!config) return;
 
-    setConfig(prev => {
-      if (!prev) return prev;
-      
-      const newConfig = { ...prev };
-      const keys = path.split('.');
+    setConfig(prevConfig => {
+      if (!prevConfig) return prevConfig;
 
-      // Handle config_json property specifically
-      if (keys[0] === 'config_json' || keys[0] === 'config') {
-        if (!newConfig.config_json) {
-          newConfig.config_json = createDefaultChartConfig();
+      const newConfig = { ...prevConfig };
+      const pathParts = path.split('.');
+      let current: any = newConfig;
+
+      // Navigate to the parent of the target property
+      for (let i = 0; i < pathParts.length - 1; i++) {
+        if (!current[pathParts[i]]) {
+          current[pathParts[i]] = {};
         }
-        
-        let current: any = newConfig.config_json;
-        const configKeys = keys.slice(1);
-
-        // Navigate to the parent of the target property
-        for (let i = 0; i < configKeys.length - 1; i++) {
-          const key = configKeys[i];
-          if (!current[key]) {
-            current[key] = {};
-          }
-          current = current[key];
-        }
-
-        // Set the final property
-        if (configKeys.length > 0) {
-          current[configKeys[configKeys.length - 1]] = value;
-        } else {
-          newConfig.config_json = value;
-        }
-      } else {
-        // Handle other properties
-        let current: any = newConfig;
-
-        // Navigate to the parent of the target property
-        for (let i = 0; i < keys.length - 1; i++) {
-          const key = keys[i];
-          if (!current[key]) {
-            current[key] = {};
-          }
-          current = current[key];
-        }
-
-        // Set the final property
-        current[keys[keys.length - 1]] = value;
+        current = current[pathParts[i]];
       }
 
+      // Set the target property
+      current[pathParts[pathParts.length - 1]] = value;
+      
       return newConfig;
     });
-  };
+  }, [config]);
 
-  const handleSave = () => {
-    if (config) {
-      onSave(config);
-      onClose();
-    }
-  };
-
-  const handleDatasetChange = (datasetId: string) => {
-    handleConfigChange('dataset_ids', [datasetId]);
-    loadDatasetColumns(datasetId);
-  };
-
-  const addYAxis = () => {
+  // Handle dataset selection
+  const handleDatasetChange = useCallback((datasetId: string) => {
     if (!config) return;
     
-    const currentYAxes = config.config_json?.y_axes || [];
-    const newYAxes = [
-      ...currentYAxes,
-      {
-        column: '',
-        name: `Series ${currentYAxes.length + 1}`,
-        color: getDefaultColor(currentYAxes.length),
-        line_style: 'solid',
-        line_width: 2,
-        show_points: true,
-        point_size: 4
-      }
-    ];
-    
-    handleConfigChange('config_json.y_axes', newYAxes);
-  };
+    setConfig(prevConfig => ({
+      ...prevConfig!,
+      dataset_ids: [datasetId]
+    }));
+  }, [config]);
 
-  const removeYAxis = (index: number) => {
+  // Handle save
+  const handleSave = useCallback(() => {
     if (!config) return;
-    
-    const currentYAxes = config.config_json?.y_axes || [];
-    const newYAxes = currentYAxes.filter((_: any, i: number) => i !== index);
-    
-    handleConfigChange('config_json.y_axes', newYAxes);
-  };
 
-  const getDefaultColor = (index: number) => {
-    const colors = [
-      '#1976d2', '#dc004e', '#388e3c', '#f57c00',
-      '#7b1fa2', '#c62828', '#00796b', '#f9a825'
-    ];
-    return colors[index % colors.length];
-  };
-
-  const getColumnOptions = (type?: 'numeric' | 'categorical' | 'all') => {
-    if (!type || type === 'all') {
-      return datasetColumns;
+    // Validate configuration
+    const errors: string[] = [];
+    
+    if (!config.name?.trim()) {
+      errors.push('Chart name is required');
     }
     
-    const numericTypes = ['number', 'integer', 'float', 'decimal', 'bigint'];
-    const categoricalTypes = ['string', 'text', 'varchar', 'char', 'category'];
-    
-    return datasetColumns.filter(col => {
-      if (type === 'numeric') {
-        return numericTypes.includes(col.type.toLowerCase());
-      } else if (type === 'categorical') {
-        return categoricalTypes.includes(col.type.toLowerCase());
-      }
-      return true;
-    });
-  };
-
-  const renderBasicConfig = () => {
-    if (!config) return null;
-
-    return (
-      <Accordion defaultExpanded>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="h6">Basic Configuration</Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField
-              fullWidth
-              label="Chart Name"
-              value={config.name || ''}
-              onChange={(e) => handleConfigChange('name', e.target.value)}
-            />
-
-            <FormControl fullWidth>
-              <InputLabel>Dataset</InputLabel>
-              <Select
-                value={config.dataset_ids?.[0] || ''}
-                onChange={(e) => handleDatasetChange(e.target.value)}
-              >
-                {datasets.map(dataset => (
-                  <MenuItem key={dataset.id} value={dataset.id}>
-                    {dataset.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <TextField
-              fullWidth
-              label="Chart Title"
-              value={config.config_json?.title?.text || ''}
-              onChange={(e) => handleConfigChange('config_json.title.text', e.target.value)}
-            />
-
-            <TextField
-              fullWidth
-              label="Subtitle"
-              value={config.config_json?.title?.subtitle || ''}
-              onChange={(e) => handleConfigChange('config_json.title.subtitle', e.target.value)}
-            />
-
-            <FormControl fullWidth>
-              <InputLabel>Title Position</InputLabel>
-              <Select
-                value={config.config_json?.title?.position || 'center'}
-                onChange={(e) => handleConfigChange('config_json.title.position', e.target.value)}
-              >
-                <MenuItem value="left">Left</MenuItem>
-                <MenuItem value="center">Center</MenuItem>
-                <MenuItem value="right">Right</MenuItem>
-              </Select>
-            </FormControl>
-          </Box>
-        </AccordionDetails>
-      </Accordion>
-    );
-  };
-
-  const renderDataConfig = () => {
-    if (!config) return null;
-
-    const isLineOrAreaChart = ['line-chart', 'area-chart'].includes(config.chart_type);
-    const isBarChart = config.chart_type === 'bar-chart';
-    const isPieChart = ['pie-chart', 'donut-chart'].includes(config.chart_type);
-    const isScatterPlot = config.chart_type === 'scatter-plot';
-    const isMetricCard = config.chart_type === 'metric-card';
-
-    return (
-      <Accordion defaultExpanded>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="h6">Data Configuration</Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {/* X-Axis Configuration for Line/Bar/Scatter charts */}
-            {(isLineOrAreaChart || isBarChart || isScatterPlot) && (
-              <>
-                <Typography variant="subtitle2" color="primary">X-Axis</Typography>
-                <FormControl fullWidth>
-                  <InputLabel>X-Axis Column</InputLabel>
-                  <Select
-                    value={config.config_json?.x_axis?.column || ''}
-                    onChange={(e) => handleConfigChange('config_json.x_axis.column', e.target.value)}
-                  >
-                    {getColumnOptions('all').map(col => (
-                      <MenuItem key={col.name} value={col.name}>
-                        {col.name} ({col.type})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-
-                <TextField
-                  fullWidth
-                  label="X-Axis Title"
-                  value={config.config_json?.x_axis?.title || ''}
-                  onChange={(e) => handleConfigChange('config_json.x_axis.title', e.target.value)}
-                />
-
-                {(isLineOrAreaChart || isBarChart) && (
-                  <FormControl fullWidth>
-                    <InputLabel>X-Axis Type</InputLabel>
-                    <Select
-                      value={config.config_json?.x_axis?.type || 'category'}
-                      onChange={(e) => handleConfigChange('config_json.x_axis.type', e.target.value)}
-                    >
-                      <MenuItem value="category">Category</MenuItem>
-                      <MenuItem value="value">Value</MenuItem>
-                      <MenuItem value="time">Time</MenuItem>
-                      <MenuItem value="log">Log</MenuItem>
-                    </Select>
-                  </FormControl>
-                )}
-              </>
-            )}
-
-            {/* Y-Axis Configuration for Line/Bar charts */}
-            {(isLineOrAreaChart || isBarChart) && (
-              <>
-                <Divider sx={{ my: 2 }} />
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="subtitle2" color="primary">Y-Axes</Typography>
-                  <Button 
-                    size="small" 
-                    startIcon={<AddIcon />} 
-                    onClick={addYAxis}
-                  >
-                    Add Series
-                  </Button>
-                </Box>
-
-                {config.config_json?.y_axes?.map((yAxis: any, index: number) => (
-                  <Paper key={index} sx={{ p: 2, border: '1px solid #e0e0e0' }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                      <Typography variant="body1">Series {index + 1}</Typography>
-                      <IconButton onClick={() => removeYAxis(index)} size="small" color="error">
-                        <DeleteIcon />
-                      </IconButton>
-                    </Box>
-                    
-                    <Grid container spacing={2}>
-                      <Grid item xs={12}>
-                        <FormControl fullWidth>
-                          <InputLabel>Column</InputLabel>
-                          <Select
-                            value={yAxis.column || ''}
-                            onChange={(e) => handleConfigChange(`config_json.y_axes.${index}.column`, e.target.value)}
-                          >
-                            {getColumnOptions('numeric').map(col => (
-                              <MenuItem key={col.name} value={col.name}>
-                                {col.name} ({col.type})
-                              </MenuItem>
-                            ))}
-                          </Select>
-                        </FormControl>
-                      </Grid>
-                      
-                      <Grid item xs={6}>
-                        <TextField
-                          fullWidth
-                          label="Series Name"
-                          value={yAxis.name || ''}
-                          onChange={(e) => handleConfigChange(`config_json.y_axes.${index}.name`, e.target.value)}
-                        />
-                      </Grid>
-                      
-                      <Grid item xs={6}>
-                        <TextField
-                          fullWidth
-                          label="Color"
-                          type="color"
-                          value={yAxis.color || '#1976d2'}
-                          onChange={(e) => handleConfigChange(`config_json.y_axes.${index}.color`, e.target.value)}
-                        />
-                      </Grid>
-                    </Grid>
-                  </Paper>
-                ))}
-              </>
-            )}
-
-            {/* Pie Chart Configuration */}
-            {isPieChart && (
-              <>
-                <FormControl fullWidth>
-                  <InputLabel>Label Column</InputLabel>
-                  <Select
-                    value={config.config_json?.label_column || ''}
-                    onChange={(e) => handleConfigChange('config_json.label_column', e.target.value)}
-                  >
-                    {getColumnOptions('categorical').map(col => (
-                      <MenuItem key={col.name} value={col.name}>
-                        {col.name} ({col.type})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-
-                <FormControl fullWidth>
-                  <InputLabel>Value Column</InputLabel>
-                  <Select
-                    value={config.config_json?.value_column || ''}
-                    onChange={(e) => handleConfigChange('config_json.value_column', e.target.value)}
-                  >
-                    {getColumnOptions('numeric').map(col => (
-                      <MenuItem key={col.name} value={col.name}>
-                        {col.name} ({col.type})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </>
-            )}
-
-            {/* Metric Card Configuration */}
-            {isMetricCard && (
-              <>
-                <FormControl fullWidth>
-                  <InputLabel>Metric Column</InputLabel>
-                  <Select
-                    value={config.config_json?.metric_column || ''}
-                    onChange={(e) => handleConfigChange('config_json.metric_column', e.target.value)}
-                  >
-                    {getColumnOptions('numeric').map(col => (
-                      <MenuItem key={col.name} value={col.name}>
-                        {col.name} ({col.type})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-
-                <FormControl fullWidth>
-                  <InputLabel>Value Format</InputLabel>
-                  <Select
-                    value={config.config_json?.value_format || 'number'}
-                    onChange={(e) => handleConfigChange('config_json.value_format', e.target.value)}
-                  >
-                    <MenuItem value="number">Number</MenuItem>
-                    <MenuItem value="currency">Currency</MenuItem>
-                    <MenuItem value="percentage">Percentage</MenuItem>
-                  </Select>
-                </FormControl>
-
-                <FormControl fullWidth>
-                  <InputLabel>Comparison Column (Optional)</InputLabel>
-                  <Select
-                    value={config.config_json?.comparison_column || ''}
-                    onChange={(e) => handleConfigChange('config_json.comparison_column', e.target.value)}
-                  >
-                    <MenuItem value="">None</MenuItem>
-                    {getColumnOptions('numeric').map(col => (
-                      <MenuItem key={col.name} value={col.name}>
-                        {col.name} ({col.type})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </>
-            )}
-          </Box>
-        </AccordionDetails>
-      </Accordion>
-    );
-  };
-
-  const renderStyleConfig = () => {
-    if (!config || config.chart_type === 'table-chart' || config.chart_type === 'metric-card') {
-      return null;
+    if (!config.dataset_ids || config.dataset_ids.length === 0) {
+      errors.push('At least one dataset is required');
     }
 
-    return (
-      <Accordion>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="h6">Style & Interaction</Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {/* Legend Configuration */}
-            <Typography variant="subtitle2" color="primary">Legend</Typography>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={config.config_json?.legend?.show !== false}
-                  onChange={(e) => handleConfigChange('config_json.legend.show', e.target.checked)}
-                />
-              }
-              label="Show Legend"
-            />
+    if (!config.config_json?.dimensions?.width || config.config_json?.dimensions?.width <= 0) {
+      errors.push('Valid chart width is required');
+    }
 
-            {config.config_json?.legend?.show !== false && (
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>Position</InputLabel>
-                    <Select
-                      value={config.config_json?.legend?.position || 'bottom'}
-                      onChange={(e) => handleConfigChange('config_json.legend.position', e.target.value)}
-                    >
-                      <MenuItem value="top">Top</MenuItem>
-                      <MenuItem value="bottom">Bottom</MenuItem>
-                      <MenuItem value="left">Left</MenuItem>
-                      <MenuItem value="right">Right</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-              </Grid>
-            )}
-          </Box>
-        </AccordionDetails>
-      </Accordion>
-    );
-  };
+    if (!config.config_json?.dimensions?.height || config.config_json?.dimensions?.height <= 0) {
+      errors.push('Valid chart height is required');
+    }
 
-  const renderThemeConfig = () => {
-    if (!config) return null;
+    if (errors.length > 0) {
+      setValidationErrors(errors);
+      return;
+    }
 
-    return (
-      <Accordion>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="h6">Theme & Appearance</Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {/* Theme Selection */}
-            <FormControl fullWidth>
-              <InputLabel>Theme</InputLabel>
-              <Select
-                value={config.config_json?.theme || 'light'}
-                onChange={(e) => handleConfigChange('config_json.theme', e.target.value)}
-                label="Theme"
-              >
-                {AVAILABLE_THEMES.map(theme => (
-                  <MenuItem key={theme.value} value={theme.value}>
-                    {theme.label}
-                  </MenuItem>
-                ))}
-              </Select>
-              <FormHelperText>
-                Choose a theme that matches your dashboard's appearance
-              </FormHelperText>
-            </FormControl>
+    setValidationErrors([]);
+    onSave(config);
+  }, [config, onSave]);
 
-            {/* Color Customization */}
-            <Typography variant="subtitle2" color="primary">Color Customization</Typography>
-            
-            <Grid container spacing={2}>
-              <Grid item xs={6}>
-                <TextField
-                  label="Primary Color"
-                  type="color"
-                  value={config.config_json?.customTheme?.primaryColor || '#1976d2'}
-                  onChange={(e) => handleConfigChange('config_json.customTheme.primaryColor', e.target.value)}
-                  fullWidth
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Grid>
-              <Grid item xs={6}>
-                <TextField
-                  label="Secondary Color"
-                  type="color"
-                  value={config.config_json?.customTheme?.secondaryColor || '#dc004e'}
-                  onChange={(e) => handleConfigChange('config_json.customTheme.secondaryColor', e.target.value)}
-                  fullWidth
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Grid>
-              <Grid item xs={6}>
-                <TextField
-                  label="Background Color"
-                  type="color"
-                  value={config.config_json?.customTheme?.backgroundColor || '#ffffff'}
-                  onChange={(e) => handleConfigChange('config_json.customTheme.backgroundColor', e.target.value)}
-                  fullWidth
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Grid>
-              <Grid item xs={6}>
-                <TextField
-                  label="Text Color"
-                  type="color"
-                  value={config.config_json?.customTheme?.textColor || '#333333'}
-                  onChange={(e) => handleConfigChange('config_json.customTheme.textColor', e.target.value)}
-                  fullWidth
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Grid>
-            </Grid>
+  // Color picker handlers
+  const handleColorPickerOpen = useCallback((key: string) => {
+    setShowColorPicker(prev => ({ ...prev, [key]: true }));
+  }, []);
 
-            {/* Font Configuration */}
-            <Typography variant="subtitle2" color="primary">Typography</Typography>
-            
-            <Grid container spacing={2}>
-              <Grid item xs={6}>
-                <TextField
-                  label="Font Family"
-                  value={config.config_json?.customTheme?.fontFamily || 'Roboto, sans-serif'}
-                  onChange={(e) => handleConfigChange('config_json.customTheme.fontFamily', e.target.value)}
-                  fullWidth
-                  helperText="CSS font family"
-                />
-              </Grid>
-              <Grid item xs={6}>
-                <TextField
-                  label="Font Size"
-                  type="number"
-                  value={config.config_json?.customTheme?.fontSize || 12}
-                  onChange={(e) => handleConfigChange('config_json.customTheme.fontSize', parseInt(e.target.value))}
-                  fullWidth
-                  InputProps={{ endAdornment: 'px' }}
-                />
-              </Grid>
-            </Grid>
+  const handleColorPickerClose = useCallback((key: string) => {
+    setShowColorPicker(prev => ({ ...prev, [key]: false }));
+  }, []);
 
-            {/* Advanced Theme Options */}
-            <Typography variant="subtitle2" color="primary">Advanced Options</Typography>
-            
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={config.config_json?.customTheme?.useCustomColors !== false}
-                  onChange={(e) => handleConfigChange('config_json.customTheme.useCustomColors', e.target.checked)}
-                />
-              }
-              label="Use Custom Colors"
-            />
-
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={config.config_json?.customTheme?.enableAnimations !== false}
-                  onChange={(e) => handleConfigChange('config_json.customTheme.enableAnimations', e.target.checked)}
-                />
-              }
-              label="Enable Animations"
-            />
-          </Box>
-        </AccordionDetails>
-      </Accordion>
-    );
-  };
+  const handleColorChange = useCallback((key: string, color: any) => {
+    handleConfigChange(key, color.hex);
+  }, [handleConfigChange]);
 
   if (!config) {
-    return null;
+    return (
+      <Drawer
+        anchor="right"
+        open={open}
+        onClose={onClose}
+        PaperProps={{ sx: { width: 400 } }}
+      >
+        <Box p={3} textAlign="center">
+          <Typography variant="h6">No chart selected</Typography>
+          <Typography variant="body2" color="textSecondary" mt={1}>
+            Select a chart to configure its settings.
+          </Typography>
+        </Box>
+      </Drawer>
+    );
   }
 
+  const renderBasicConfig = () => (
+    <Accordion defaultExpanded>
+      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <Typography variant="h6">Basic Configuration</Typography>
+      </AccordionSummary>
+      <AccordionDetails>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <FormControl fullWidth>
+            <InputLabel>Dataset</InputLabel>
+            <Select
+              value={config.dataset_ids?.[0] || ''}
+              onChange={(e) => handleDatasetChange(e.target.value)}
+            >
+              {datasets.map(dataset => (
+                <MenuItem key={dataset.id} value={dataset.id}>
+                  {dataset.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <TextField
+            fullWidth
+            label="Chart Name"
+            value={config.name || ''}
+            onChange={(e) => setConfig(prev => prev ? { ...prev, name: e.target.value } : null)}
+          />
+
+          <TextField
+            fullWidth
+            label="Description"
+            multiline
+            rows={3}
+            value={config.description || ''}
+            onChange={(e) => setConfig(prev => prev ? { ...prev, description: e.target.value } : null)}
+          />
+
+          <TextField
+            fullWidth
+            label="Chart Title"
+            value={config.config_json?.title?.text || ''}
+            onChange={(e) => handleConfigChange('config_json.title.text', e.target.value)}
+          />
+
+          <TextField
+            fullWidth
+            label="Subtitle"
+            value={config.config_json?.title?.subtitle || ''}
+            onChange={(e) => handleConfigChange('config_json.title.subtitle', e.target.value)}
+          />
+
+          <FormControl fullWidth>
+            <InputLabel>Title Position</InputLabel>
+            <Select
+              value={config.config_json?.title?.position || 'center'}
+              onChange={(e) => handleConfigChange('config_json.title.position', e.target.value)}
+            >
+              <MenuItem value="left">Left</MenuItem>
+              <MenuItem value="center">Center</MenuItem>
+              <MenuItem value="right">Right</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
+      </AccordionDetails>
+    </Accordion>
+  );
+
+  const renderDimensionsConfig = () => (
+    <Accordion>
+      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <Typography variant="h6">Chart Dimensions</Typography>
+      </AccordionSummary>
+      <AccordionDetails>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <Grid container spacing={2}>
+            <Grid item xs={6}>
+              <TextField
+                fullWidth
+                label="Width"
+                type="number"
+                value={config.config_json?.dimensions?.width || 400}
+                onChange={(e) => handleConfigChange('config_json.dimensions.width', parseInt(e.target.value) || 400)}
+                InputProps={{ inputProps: { min: 100, max: 2000 } }}
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField
+                fullWidth
+                label="Height"
+                type="number"
+                value={config.config_json?.dimensions?.height || 300}
+                onChange={(e) => handleConfigChange('config_json.dimensions.height', parseInt(e.target.value) || 300)}
+                InputProps={{ inputProps: { min: 100, max: 1500 } }}
+              />
+            </Grid>
+          </Grid>
+
+          <Typography variant="subtitle2" gutterBottom>
+            Margins
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={6}>
+              <TextField
+                fullWidth
+                label="Top"
+                type="number"
+                value={config.config_json?.dimensions?.margin?.top || 20}
+                onChange={(e) => handleConfigChange('config_json.dimensions.margin.top', parseInt(e.target.value) || 20)}
+                InputProps={{ inputProps: { min: 0, max: 100 } }}
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField
+                fullWidth
+                label="Right"
+                type="number"
+                value={config.config_json?.dimensions?.margin?.right || 20}
+                onChange={(e) => handleConfigChange('config_json.dimensions.margin.right', parseInt(e.target.value) || 20)}
+                InputProps={{ inputProps: { min: 0, max: 100 } }}
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField
+                fullWidth
+                label="Bottom"
+                type="number"
+                value={config.config_json?.dimensions?.margin?.bottom || 20}
+                onChange={(e) => handleConfigChange('config_json.dimensions.margin.bottom', parseInt(e.target.value) || 20)}
+                InputProps={{ inputProps: { min: 0, max: 100 } }}
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField
+                fullWidth
+                label="Left"
+                type="number"
+                value={config.config_json?.dimensions?.margin?.left || 20}
+                onChange={(e) => handleConfigChange('config_json.dimensions.margin.left', parseInt(e.target.value) || 20)}
+                InputProps={{ inputProps: { min: 0, max: 100 } }}
+              />
+            </Grid>
+          </Grid>
+        </Box>
+      </AccordionDetails>
+    </Accordion>
+  );
+
+  const renderAxesConfig = () => (
+    <Accordion>
+      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <Typography variant="h6">Axes Configuration</Typography>
+      </AccordionSummary>
+      <AccordionDetails>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {/* X-Axis Configuration */}
+          <Box>
+            <Typography variant="subtitle2" gutterBottom>
+              X-Axis
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, ml: 2 }}>
+              <FormControl fullWidth>
+                <InputLabel>Data Field</InputLabel>
+                <Select
+                  value={config.config_json?.axes?.x?.field || ''}
+                  onChange={(e) => handleConfigChange('config_json.axes.x.field', e.target.value)}
+                >
+                  {datasetColumns.map(column => (
+                    <MenuItem key={column.name} value={column.name}>
+                      {column.name} ({column.type})
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <TextField
+                fullWidth
+                label="Axis Title"
+                value={config.config_json?.axes?.x?.title || ''}
+                onChange={(e) => handleConfigChange('config_json.axes.x.title', e.target.value)}
+              />
+
+              <FormControl fullWidth>
+                <InputLabel>Axis Type</InputLabel>
+                <Select
+                  value={config.config_json?.axes?.x?.type || 'category'}
+                  onChange={(e) => handleConfigChange('config_json.axes.x.type', e.target.value)}
+                >
+                  <MenuItem value="category">Category</MenuItem>
+                  <MenuItem value="value">Value</MenuItem>
+                  <MenuItem value="time">Time</MenuItem>
+                  <MenuItem value="log">Logarithmic</MenuItem>
+                </Select>
+              </FormControl>
+
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={config.config_json?.axes?.x?.grid || false}
+                    onChange={(e) => handleConfigChange('config_json.axes.x.grid', e.target.checked)}
+                  />
+                }
+                label="Show Grid Lines"
+              />
+            </Box>
+          </Box>
+
+          {/* Y-Axis Configuration */}
+          <Box>
+            <Typography variant="subtitle2" gutterBottom>
+              Y-Axis
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, ml: 2 }}>
+              <FormControl fullWidth>
+                <InputLabel>Data Field</InputLabel>
+                <Select
+                  value={config.config_json?.axes?.y?.field || ''}
+                  onChange={(e) => handleConfigChange('config_json.axes.y.field', e.target.value)}
+                >
+                  {datasetColumns.filter(column => column.type === 'number').map(column => (
+                    <MenuItem key={column.name} value={column.name}>
+                      {column.name} ({column.type})
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <TextField
+                fullWidth
+                label="Axis Title"
+                value={config.config_json?.axes?.y?.title || ''}
+                onChange={(e) => handleConfigChange('config_json.axes.y.title', e.target.value)}
+              />
+
+              <FormControl fullWidth>
+                <InputLabel>Scale Type</InputLabel>
+                <Select
+                  value={config.config_json?.axes?.y?.scale || 'linear'}
+                  onChange={(e) => handleConfigChange('config_json.axes.y.scale', e.target.value)}
+                >
+                  <MenuItem value="linear">Linear</MenuItem>
+                  <MenuItem value="log">Logarithmic</MenuItem>
+                  <MenuItem value="sqrt">Square Root</MenuItem>
+                </Select>
+              </FormControl>
+
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={config.config_json?.axes?.y?.grid || false}
+                    onChange={(e) => handleConfigChange('config_json.axes.y.grid', e.target.checked)}
+                  />
+                }
+                label="Show Grid Lines"
+              />
+            </Box>
+          </Box>
+        </Box>
+      </AccordionDetails>
+    </Accordion>
+  );
+
+  const renderLegendConfig = () => (
+    <Accordion>
+      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <Typography variant="h6">Legend Configuration</Typography>
+      </AccordionSummary>
+      <AccordionDetails>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={config.config_json?.legend?.show !== false}
+                onChange={(e) => handleConfigChange('config_json.legend.show', e.target.checked)}
+              />
+            }
+            label="Show Legend"
+          />
+
+          <FormControl fullWidth>
+            <InputLabel>Position</InputLabel>
+            <Select
+              value={config.config_json?.legend?.position || 'bottom'}
+              onChange={(e) => handleConfigChange('config_json.legend.position', e.target.value)}
+            >
+              <MenuItem value="top">Top</MenuItem>
+              <MenuItem value="bottom">Bottom</MenuItem>
+              <MenuItem value="left">Left</MenuItem>
+              <MenuItem value="right">Right</MenuItem>
+              <MenuItem value="top-left">Top Left</MenuItem>
+              <MenuItem value="top-right">Top Right</MenuItem>
+              <MenuItem value="bottom-left">Bottom Left</MenuItem>
+              <MenuItem value="bottom-right">Bottom Right</MenuItem>
+            </Select>
+          </FormControl>
+
+          <FormControl fullWidth>
+            <InputLabel>Orientation</InputLabel>
+            <Select
+              value={config.config_json?.legend?.orientation || 'horizontal'}
+              onChange={(e) => handleConfigChange('config_json.legend.orientation', e.target.value)}
+            >
+              <MenuItem value="horizontal">Horizontal</MenuItem>
+              <MenuItem value="vertical">Vertical</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
+      </AccordionDetails>
+    </Accordion>
+  );
+
+  const renderThemeConfig = () => (
+    <Accordion>
+      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <Typography variant="h6">Theme & Colors</Typography>
+      </AccordionSummary>
+      <AccordionDetails>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <FormControl fullWidth>
+            <InputLabel>Theme</InputLabel>
+            <Select
+              value={config.config_json?.theme?.name || 'default'}
+              onChange={(e) => handleConfigChange('config_json.theme.name', e.target.value)}
+            >
+              {AVAILABLE_THEMES.map(theme => (
+                <MenuItem key={theme.value} value={theme.value}>
+                  {theme.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControlLabel
+            control={
+              <Switch
+                checked={config.config_json?.theme?.darkMode || false}
+                onChange={(e) => handleConfigChange('config_json.theme.darkMode', e.target.checked)}
+              />
+            }
+            label="Dark Mode"
+          />
+
+          {/* Color palette preview and editing could go here */}
+          <Box>
+            <Typography variant="subtitle2" gutterBottom>
+              Color Palette
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {(config.config_json?.colors || []).map((color, index) => (
+                <Box
+                  key={index}
+                  sx={{
+                    width: 30,
+                    height: 30,
+                    backgroundColor: color,
+                    border: '1px solid #ddd',
+                    borderRadius: 1,
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => handleColorPickerOpen(`colors.${index}`)}
+                />
+              ))}
+            </Box>
+          </Box>
+        </Box>
+      </AccordionDetails>
+    </Accordion>
+  );
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h6">Configure Chart</Typography>
-          <IconButton onClick={onClose}>
+    <Drawer
+      anchor="right"
+      open={open}
+      onClose={onClose}
+      PaperProps={{ sx: { width: 450 } }}
+    >
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        {/* Header */}
+        <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Typography variant="h6">
+            Chart Configuration
+          </Typography>
+          <IconButton onClick={onClose} size="small">
             <CloseIcon />
           </IconButton>
         </Box>
-      </DialogTitle>
-      
-      <DialogContent dividers>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+
+        {/* Content */}
+        <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
+          {/* Validation Errors */}
+          {validationErrors.length > 0 && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Please fix the following errors:
+              </Typography>
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                {validationErrors.map((error, index) => (
+                  <li key={index}>{error}</li>
+                ))}
+              </ul>
+            </Alert>
+          )}
+
+          {/* Configuration Sections */}
           {renderBasicConfig()}
-          {renderDataConfig()}
-          {renderStyleConfig()}
+          {renderDimensionsConfig()}
+          {renderAxesConfig()}
+          {renderLegendConfig()}
           {renderThemeConfig()}
         </Box>
-      </DialogContent>
-      
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleSave} variant="contained" disabled={loading}>
-          {loading ? 'Saving...' : 'Save Configuration'}
-        </Button>
-      </DialogActions>
-    </Dialog>
+
+        {/* Footer */}
+        <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider', display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+          <Button
+            variant="outlined"
+            onClick={onClose}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<SaveIcon />}
+            onClick={handleSave}
+            disabled={loading}
+          >
+            {loading ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </Box>
+      </Box>
+
+      {/* Color Picker Dialogs */}
+      {Object.entries(showColorPicker).map(([key, show]) => (
+        show && (
+          <Dialog
+            key={key}
+            open={show}
+            onClose={() => handleColorPickerClose(key)}
+            maxWidth="sm"
+          >
+            <DialogTitle>Choose Color</DialogTitle>
+            <DialogContent>
+              <SketchPicker
+                color={config.config_json?.colors?.[parseInt(key.split('.')[1])] || '#3b82f6'}
+                onChange={(color) => handleColorChange(key, color)}
+              />
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => handleColorPickerClose(key)}>
+                Close
+              </Button>
+            </DialogActions>
+          </Dialog>
+        )
+      ))}
+    </Drawer>
   );
 };
-
-export default ChartConfigPanel;
