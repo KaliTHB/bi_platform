@@ -16,7 +16,7 @@ import type {
   ChartError,
   DataRequest
 } from '@/types/chart.types';
-import { ensureReadonly } from "../utils/chartDataUtils"
+import { ensureReadonly, ensureMutable, ensureValidSchema } from "../utils/chartDataUtils"
 // OR if you prefer to import from the main types file, import these:
 // import type {
 //   ChartConfig,
@@ -103,8 +103,8 @@ export class ChartConfigHelper {
       library: input.library as ChartLibrary,
       version: input.version,
       description: input.description,
-      tags: ensureReadonly(input.tags),
-      configSchema: input.configSchema,
+      tags: ensureMutable(input.tags),
+      configSchema: ensureValidSchema(input.configSchema),
       dataRequirements: {
         minColumns: input.dataRequirements.minColumns,
         maxColumns: input.dataRequirements.maxColumns,

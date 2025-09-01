@@ -1,7 +1,7 @@
 // Chart Data Utilities
 // File: web-application/src/plugins/charts/utils/chartDataUtils.ts
 
-import { ChartData } from '@/types/chart.types';
+import { ChartData, ChartConfigSchema, ChartConfigurationSchema, SchemaProperty } from '@/types/chart.types';
 
 /**
  * Type guard to check if data is ChartData format
@@ -230,4 +230,25 @@ export const generateColorPalette = (count: number): string[] => {
 // Utility function to ensure readonly arrays
 export function ensureReadonly<T>(arr: T[] | readonly T[] | undefined): readonly T[] {
   return (arr as readonly T[]) || ([] as const);
+}
+
+// Add a mutable version
+export function ensureMutable<T>(arr: T[] | readonly T[] | undefined): T[] {
+  return (arr ? [...arr] : []) as T[];
+}
+
+export function ensureValidSchema(schema: ChartConfigSchema): ChartConfigurationSchema {
+  const validatedProperties: Record<string, SchemaProperty> = {};
+  
+  for (const [key, prop] of Object.entries(schema.properties)) {
+    validatedProperties[key] = {
+      ...prop,
+      title: prop.title || key, // Ensure title exists
+    };
+  }
+  
+  return {
+    ...schema,
+    properties: validatedProperties
+  };
 }

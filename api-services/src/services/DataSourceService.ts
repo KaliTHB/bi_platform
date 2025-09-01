@@ -2,7 +2,7 @@
 import { db } from '../config/database';
 import { cache } from '../config/redis';
 import { logger } from '../utils/logger';
-import { DataSourcePlugins } from '../plugins/datasources';
+import { PluginService } from './PluginService';
 
 export interface DataSource {
   id: string;
@@ -55,7 +55,12 @@ export interface TestConnectionResult {
 }
 
 export class DataSourceService {
-  
+  private pluginService: PluginService;
+
+  constructor() {
+    this.pluginService = new PluginService();
+  }
+
   /**
    * Create a new datasource
    */
@@ -65,17 +70,8 @@ export class DataSourceService {
     userId: string
   ): Promise<DataSource> {
     try {
-      // Validate plugin exists
-      const plugin = DataSourcePlugins.get(data.plugin_name);
-      if (!plugin) {
-        throw new Error(`Plugin '${data.plugin_name}' not found`);
-      }
-
-      // Validate plugin configuration
-      const validation = DataSourcePlugins.validateConfig(data.plugin_name, data.connection_config);
-      if (!validation.valid) {
-        throw new Error(`Configuration validation failed: ${validation.errors.join(', ')}`);
-      }
+      // Delegate plugin validation to PluginService
+      await this.pluginService.validatePluginConfiguration(workspaceId, data.plugin_name, data.connection_config);
 
       // Check if name already exists in workspace
       const existingResult = await db.query(
@@ -84,37 +80,52 @@ export class DataSourceService {
       );
 
       if (existingResult.rows.length > 0) {
-        throw new Error(`Datasource name '${data.name}' already exists in workspace`);
+        throw new Error(`Datasource name '${data.name}' already exists in this workspace`);
       }
 
-      // Create datasource
-      const result = await db.query(
-        `INSERT INTO datasources (
-          workspace_id, plugin_name, name, display_name, description,
-          connection_config, test_query, connection_pool_config, 
-          performance_config, created_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING *`,
-        [
-          workspaceId,
-          data.plugin_name,
-          data.name,
-          data.display_name || data.name,
-          data.description,
-          JSON.stringify(data.connection_config),
-          data.test_query,
-          JSON.stringify(data.connection_pool_config || { max_connections: 20, min_connections: 5 }),
-          JSON.stringify(data.performance_config || {}),
-          userId
-        ]
-      );
+      const id = this.generateId();
+      
+      // Set default configurations
+      const connectionPoolConfig = data.connection_pool_config || {
+        max_connections: 10,
+        idle_timeout: 30000,
+        connection_timeout: 5000
+      };
 
-      const datasource = result.rows[0];
+      const performanceConfig = data.performance_config || {
+        query_timeout: 30000,
+        max_rows: 10000,
+        cache_ttl: 300
+      };
 
-      // Clear cache
+      const result = await db.query(`
+        INSERT INTO datasources (
+          id, workspace_id, plugin_name, name, display_name, description,
+          connection_config, test_query, connection_pool_config, performance_config,
+          test_status, created_by, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', $11, NOW(), NOW())
+        RETURNING *
+      `, [
+        id, workspaceId, data.plugin_name, data.name,
+        data.display_name || data.name, data.description,
+        JSON.stringify(data.connection_config),
+        data.test_query,
+        JSON.stringify(connectionPoolConfig),
+        JSON.stringify(performanceConfig),
+        userId
+      ]);
+
+      // Clear workspace datasources cache
       await cache.delete(`datasources:${workspaceId}`);
+      
+      const datasource = this.formatDataSource(result.rows[0]);
 
-      return this.formatDataSource(datasource);
+      // Test connection asynchronously (don't wait for it)
+      this.testConnectionAsync(datasource.id, workspaceId).catch(error => {
+        logger.error('Async connection test failed:', error);
+      });
+
+      return datasource;
     } catch (error) {
       logger.error('Error creating datasource:', error);
       throw error;
@@ -122,30 +133,33 @@ export class DataSourceService {
   }
 
   /**
-   * Get all datasources for workspace
+   * Get all datasources for a workspace
    */
   async getDataSources(workspaceId: string): Promise<DataSource[]> {
     try {
       const cacheKey = `datasources:${workspaceId}`;
       let datasources = await cache.get<DataSource[]>(cacheKey);
-
-      if (!datasources) {
-        const result = await db.query(
-          `SELECT d.*, u.first_name || ' ' || u.last_name as created_by_name
-           FROM datasources d
-           LEFT JOIN users u ON d.created_by = u.id
-           WHERE d.workspace_id = $1 AND d.is_active = true
-           ORDER BY d.created_at DESC`,
-          [workspaceId]
-        );
-
-        datasources = result.rows.map(row => this.formatDataSource(row));
-        await cache.set(cacheKey, datasources, 300); // Cache for 5 minutes
+      
+      if (datasources) {
+        return datasources;
       }
 
+      const result = await db.query(`
+        SELECT ds.*, u.email as created_by_email
+        FROM datasources ds
+        LEFT JOIN users u ON ds.created_by = u.id
+        WHERE ds.workspace_id = $1 AND ds.is_active = true
+        ORDER BY ds.created_at DESC
+      `, [workspaceId]);
+
+      datasources = result.rows.map(row => this.formatDataSource(row));
+      
+      // Cache for 5 minutes
+      await cache.set(cacheKey, datasources, 300);
+      
       return datasources;
     } catch (error) {
-      logger.error('Error fetching datasources:', error);
+      logger.error('Error getting datasources:', error);
       throw error;
     }
   }
@@ -155,20 +169,23 @@ export class DataSourceService {
    */
   async getDataSourceById(datasourceId: string, workspaceId?: string): Promise<DataSource | null> {
     try {
-      const query = workspaceId 
-        ? 'SELECT d.*, u.first_name || \' \' || u.last_name as created_by_name FROM datasources d LEFT JOIN users u ON d.created_by = u.id WHERE d.id = $1 AND d.workspace_id = $2 AND d.is_active = true'
-        : 'SELECT d.*, u.first_name || \' \' || u.last_name as created_by_name FROM datasources d LEFT JOIN users u ON d.created_by = u.id WHERE d.id = $1 AND d.is_active = true';
+      let query = 'SELECT * FROM datasources WHERE id = $1 AND is_active = true';
+      const params: any[] = [datasourceId];
       
-      const params = workspaceId ? [datasourceId, workspaceId] : [datasourceId];
-      const result = await db.query(query, params);
+      if (workspaceId) {
+        query += ' AND workspace_id = $2';
+        params.push(workspaceId);
+      }
 
+      const result = await db.query(query, params);
+      
       if (result.rows.length === 0) {
         return null;
       }
 
       return this.formatDataSource(result.rows[0]);
     } catch (error) {
-      logger.error('Error fetching datasource:', error);
+      logger.error('Error getting datasource:', error);
       throw error;
     }
   }
@@ -177,81 +194,75 @@ export class DataSourceService {
    * Update datasource
    */
   async updateDataSource(
-    datasourceId: string,
-    workspaceId: string,
-    data: UpdateDataSourceRequest,
-    userId: string
+    datasourceId: string, 
+    workspaceId: string, 
+    data: UpdateDataSourceRequest
   ): Promise<DataSource> {
     try {
-      // Get existing datasource
-      const existing = await this.getDataSourceById(datasourceId, workspaceId);
-      if (!existing) {
-        throw new Error('Datasource not found');
-      }
-
-      // If connection_config is being updated, validate it
+      // If connection config is being updated, validate it
       if (data.connection_config) {
-        const validation = DataSourcePlugins.validateConfig(existing.plugin_name, data.connection_config);
-        if (!validation.valid) {
-          throw new Error(`Configuration validation failed: ${validation.errors.join(', ')}`);
+        const currentDataSource = await this.getDataSourceById(datasourceId, workspaceId);
+        if (!currentDataSource) {
+          throw new Error('Datasource not found');
         }
-      }
 
-      // Check if name already exists (if name is being changed)
-      if (data.name && data.name !== existing.name) {
-        const existingResult = await db.query(
-          'SELECT id FROM datasources WHERE workspace_id = $1 AND name = $2 AND id != $3 AND is_active = true',
-          [workspaceId, data.name, datasourceId]
+        await this.pluginService.validatePluginConfiguration(
+          workspaceId, 
+          currentDataSource.plugin_name, 
+          data.connection_config
         );
-
-        if (existingResult.rows.length > 0) {
-          throw new Error(`Datasource name '${data.name}' already exists in workspace`);
-        }
       }
 
-      // Build update query
-      const updateFields = [];
-      const updateValues = [];
+      const updateFields: string[] = [];
+      const updateValues: any[] = [];
       let paramCount = 1;
 
+      // Build dynamic update query
       if (data.name !== undefined) {
         updateFields.push(`name = $${paramCount++}`);
         updateValues.push(data.name);
       }
-
+      
       if (data.display_name !== undefined) {
         updateFields.push(`display_name = $${paramCount++}`);
         updateValues.push(data.display_name);
       }
-
+      
       if (data.description !== undefined) {
         updateFields.push(`description = $${paramCount++}`);
         updateValues.push(data.description);
       }
-
+      
       if (data.connection_config !== undefined) {
         updateFields.push(`connection_config = $${paramCount++}`);
         updateValues.push(JSON.stringify(data.connection_config));
+        // Reset test status when connection config changes
+        updateFields.push(`test_status = 'pending'`);
+        updateFields.push(`test_error_message = NULL`);
       }
-
+      
       if (data.test_query !== undefined) {
         updateFields.push(`test_query = $${paramCount++}`);
         updateValues.push(data.test_query);
       }
-
+      
       if (data.connection_pool_config !== undefined) {
         updateFields.push(`connection_pool_config = $${paramCount++}`);
         updateValues.push(JSON.stringify(data.connection_pool_config));
       }
-
+      
       if (data.performance_config !== undefined) {
         updateFields.push(`performance_config = $${paramCount++}`);
         updateValues.push(JSON.stringify(data.performance_config));
       }
-
+      
       if (data.is_active !== undefined) {
         updateFields.push(`is_active = $${paramCount++}`);
         updateValues.push(data.is_active);
+      }
+
+      if (updateFields.length === 0) {
+        throw new Error('No fields to update');
       }
 
       updateFields.push(`updated_at = NOW()`);
@@ -265,10 +276,23 @@ export class DataSourceService {
         updateValues
       );
 
+      if (result.rows.length === 0) {
+        throw new Error('Datasource not found or update failed');
+      }
+
       // Clear cache
       await cache.delete(`datasources:${workspaceId}`);
 
-      return this.formatDataSource(result.rows[0]);
+      const updatedDataSource = this.formatDataSource(result.rows[0]);
+
+      // If connection config was updated, test connection asynchronously
+      if (data.connection_config) {
+        this.testConnectionAsync(datasourceId, workspaceId).catch(error => {
+          logger.error('Async connection test failed after update:', error);
+        });
+      }
+
+      return updatedDataSource;
     } catch (error) {
       logger.error('Error updating datasource:', error);
       throw error;
@@ -291,10 +315,14 @@ export class DataSourceService {
       }
 
       // Soft delete
-      await db.query(
+      const result = await db.query(
         'UPDATE datasources SET is_active = false, updated_at = NOW() WHERE id = $1 AND workspace_id = $2',
         [datasourceId, workspaceId]
       );
+
+      if (result.rowCount === 0) {
+        throw new Error('Datasource not found');
+      }
 
       // Clear cache
       await cache.delete(`datasources:${workspaceId}`);
@@ -305,7 +333,7 @@ export class DataSourceService {
   }
 
   /**
-   * Test datasource connection
+   * Test datasource connection - delegates to PluginService
    */
   async testConnection(datasourceId: string, workspaceId?: string): Promise<TestConnectionResult> {
     try {
@@ -314,18 +342,15 @@ export class DataSourceService {
         throw new Error('Datasource not found');
       }
 
-      const plugin = DataSourcePlugins.get(datasource.plugin_name);
-      if (!plugin) {
-        throw new Error(`Plugin '${datasource.plugin_name}' not found`);
-      }
+      // Delegate to PluginService for connection testing
+      const result = await this.pluginService.testPluginConnection(
+        datasource.plugin_name,
+        datasource.connection_config
+      );
 
-      const startTime = Date.now();
-      const isValid = await plugin.testConnection(datasource.connection_config);
-      const responseTime = Date.now() - startTime;
-
-      // Update test status
-      const testStatus = isValid ? 'success' : 'failed';
-      const errorMessage = isValid ? null : 'Connection test failed';
+      // Update test status in database
+      const testStatus = result.success ? 'success' : 'failed';
+      const errorMessage = result.success ? null : result.message;
 
       await db.query(
         `UPDATE datasources 
@@ -340,12 +365,11 @@ export class DataSourceService {
       }
 
       return {
-        success: isValid,
-        message: isValid ? 'Connection successful' : 'Connection failed',
-        response_time: responseTime,
+        ...result,
         details: {
-          plugin_name: datasource.plugin_name,
-          test_status: testStatus
+          ...result.details,
+          datasource_id: datasourceId,
+          datasource_name: datasource.name
         }
       };
     } catch (error) {
@@ -370,75 +394,63 @@ export class DataSourceService {
   }
 
   /**
-   * Test connection with custom config (without saving)
+   * Test connection with custom config (without saving) - delegates to PluginService
    */
   async testConnectionConfig(
     pluginName: string,
     connectionConfig: Record<string, any>
   ): Promise<TestConnectionResult> {
-    try {
-      const plugin = DataSourcePlugins.get(pluginName);
-      if (!plugin) {
-        throw new Error(`Plugin '${pluginName}' not found`);
-      }
-
-      // Validate configuration
-      const validation = DataSourcePlugins.validateConfig(pluginName, connectionConfig);
-      if (!validation.valid) {
-        throw new Error(`Configuration validation failed: ${validation.errors.join(', ')}`);
-      }
-
-      const startTime = Date.now();
-      const isValid = await plugin.testConnection(connectionConfig);
-      const responseTime = Date.now() - startTime;
-
-      return {
-        success: isValid,
-        message: isValid ? 'Connection successful' : 'Connection failed',
-        response_time: responseTime,
-        details: {
-          plugin_name: pluginName
-        }
-      };
-    } catch (error) {
-      logger.error('Error testing connection config:', error);
-      return {
-        success: false,
-        message: error instanceof Error ? error.message : 'Connection test failed',
-        error_code: 'TEST_CONNECTION_ERROR'
-      };
-    }
+    return this.pluginService.testPluginConnection(pluginName, connectionConfig);
   }
 
   /**
    * Get datasource usage statistics
    */
-  async getDataSourceUsage(datasourceId: string): Promise<any> {
+  async getUsageStatistics(datasourceId: string, workspaceId: string): Promise<any> {
     try {
-      const result = await db.query(
-        `SELECT 
-          COUNT(DISTINCT ds.id) as dataset_count,
+      const result = await db.query(`
+        SELECT 
+          COUNT(DISTINCT d.id) as dataset_count,
           COUNT(DISTINCT c.id) as chart_count,
-          COUNT(DISTINCT d.id) as dashboard_count,
-          MAX(ds.updated_at) as last_used
-         FROM datasources dsrc
-         LEFT JOIN datasets ds ON dsrc.id = ds.data_source_id AND ds.is_active = true
-         LEFT JOIN charts c ON ds.id = c.dataset_id AND c.is_active = true
-         LEFT JOIN dashboards d ON c.dashboard_id = d.id AND d.is_active = true
-         WHERE dsrc.id = $1`,
-        [datasourceId]
-      );
+          COUNT(DISTINCT db.id) as dashboard_count,
+          MAX(qh.executed_at) as last_used
+        FROM datasources ds
+        LEFT JOIN datasets d ON ds.id = d.data_source_id AND d.is_active = true
+        LEFT JOIN charts c ON d.id = c.dataset_id AND c.is_active = true
+        LEFT JOIN dashboard_charts dc ON c.id = dc.chart_id
+        LEFT JOIN dashboards db ON dc.dashboard_id = db.id AND db.is_active = true
+        LEFT JOIN query_history qh ON ds.id = qh.datasource_id
+        WHERE ds.id = $1 AND ds.workspace_id = $2
+        GROUP BY ds.id
+      `, [datasourceId, workspaceId]);
 
-      return result.rows[0];
+      if (result.rows.length === 0) {
+        throw new Error('Datasource not found');
+      }
+
+      return {
+        dataset_count: parseInt(result.rows[0].dataset_count) || 0,
+        chart_count: parseInt(result.rows[0].chart_count) || 0,
+        dashboard_count: parseInt(result.rows[0].dashboard_count) || 0,
+        last_used: result.rows[0].last_used
+      };
     } catch (error) {
-      logger.error('Error fetching datasource usage:', error);
+      logger.error('Error getting usage statistics:', error);
       throw error;
     }
   }
 
   /**
-   * Format datasource from database row
+   * Private helper methods
    */
+  private async testConnectionAsync(datasourceId: string, workspaceId: string): Promise<void> {
+    try {
+      await this.testConnection(datasourceId, workspaceId);
+    } catch (error) {
+      logger.error('Async connection test failed:', error);
+    }
+  }
+
   private formatDataSource(row: any): DataSource {
     return {
       id: row.id,
@@ -459,5 +471,9 @@ export class DataSourceService {
       created_at: row.created_at,
       updated_at: row.updated_at
     };
+  }
+
+  private generateId(): string {
+    return 'ds_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
   }
 }

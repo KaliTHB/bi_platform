@@ -1,64 +1,134 @@
-// api-services/src/services/PluginManager.ts
-import fs from 'fs';
-import path from 'path';
+// File: api-services/src/services/PluginManager.ts
+import * as fs from 'fs';
+import * as path from 'path';
 import { logger } from '../utils/logger';
 
-interface DataSourcePlugin {
+// DataSource Plugin Interfaces
+export interface DataSourcePlugin {
   name: string;
-  type: string;
+  displayName: string;
+  category: 'relational' | 'cloud_databases' | 'storage_services' | 'data_lakes';
   version: string;
-  description: string;
-  connect(config: any): Promise<any>;
-  disconnect(connection: any): Promise<void>;
-  executeQuery(connection: any, query: string, params?: any[]): Promise<{
-    rows: any[];
-    columns: Array<{
-      name: string;
-      type: string;
-      nullable?: boolean;
+  description?: string;
+  author?: string;
+  license?: string;
+  
+  // Configuration schema for UI generation
+  configSchema: {
+    [key: string]: {
+      type: 'string' | 'number' | 'boolean' | 'password' | 'select';
+      required?: boolean;
+      default?: any;
+      options?: string[] | { label: string; value: string }[];
+      validation?: RegExp | ((value: any) => boolean);
       description?: string;
-    }>;
-  }>;
-  testConnection(config: any): Promise<boolean>;
-  getSchema?(connection: any, schema?: string): Promise<any>;
+      placeholder?: string;
+      helpText?: string;
+    };
+  };
+  
+  // Core plugin methods (all required)
+  connect(config: ConnectionConfig): Promise<Connection>;
+  testConnection(config: ConnectionConfig): Promise<TestResult>;
+  executeQuery(connection: Connection, query: string, params?: any[]): Promise<QueryResult>;
+  getSchema(connection: Connection): Promise<SchemaInfo>;
+  getTables(connection: Connection, database?: string): Promise<TableInfo[]>;
+  getColumns(connection: Connection, table: string): Promise<ColumnInfo[]>;
+  disconnect(connection: Connection): Promise<void>;
+  
+  // Optional capabilities
+  capabilities?: {
+    supportsBulkInsert?: boolean;
+    supportsTransactions?: boolean;
+    supportsStoredProcedures?: boolean;
+    supportsCustomFunctions?: boolean;
+    maxConcurrentConnections?: number;
+    supportsStreaming?: boolean;
+  };
 }
 
-interface ChartPlugin {
+export interface ConnectionConfig {
+  [key: string]: any;
+}
+
+export interface Connection {
+  id: string;
+  config: ConnectionConfig;
+  isConnected: boolean;
+  lastActivity: Date;
+}
+
+export interface TestResult {
+  success: boolean;
+  message: string;
+  error_code?: string;
+  response_time?: number;
+}
+
+export interface QueryResult {
+  rows: any[];
+  columns: ColumnInfo[];
+  metadata?: {
+    total_rows?: number;
+    execution_time?: number;
+    query_cost?: number;
+  };
+}
+
+export interface SchemaInfo {
+  databases: DatabaseInfo[];
+}
+
+export interface DatabaseInfo {
+  name: string;
+  tables: TableInfo[];
+}
+
+export interface TableInfo {
+  name: string;
+  schema?: string;
+  type: 'table' | 'view' | 'materialized_view';
+  columns: ColumnInfo[];
+  row_count?: number;
+}
+
+export interface ColumnInfo {
   name: string;
   type: string;
-  version: string;
-  description: string;
-  category: string;
-  config_schema: any;
-  render_config: any;
-  supported_data_types: string[];
-  min_columns: number;
-  max_columns: number;
+  nullable: boolean;
+  defaultValue?: any;
+  isPrimaryKey?: boolean;
+  isForeignKey?: boolean;
 }
 
+/**
+ * Plugin Manager - Handles ONLY DataSource plugins for backend
+ * Chart plugins are handled by frontend ChartFactory
+ */
 export class PluginManager {
   private static dataSourcePlugins: Map<string, DataSourcePlugin> = new Map();
-  private static chartPlugins: Map<string, ChartPlugin> = new Map();
   private static initialized = false;
 
   /**
-   * Initialize plugin system - load all plugins from filesystem
+   * Initialize plugin manager - loads only DataSource plugins
    */
   static async initialize(): Promise<void> {
     if (this.initialized) {
+      logger.info('PluginManager already initialized');
       return;
     }
 
     try {
+      logger.info('Initializing PluginManager...');
+      
+      // Load DataSource plugins only
       await this.loadDataSourcePlugins();
-      await this.loadChartPlugins();
+      
       this.initialized = true;
-      logger.info('Plugin system initialized', {
-        dataSourcePlugins: this.dataSourcePlugins.size,
-        chartPlugins: this.chartPlugins.size
-      });
+      logger.info(`PluginManager initialized successfully with ${this.dataSourcePlugins.size} data source plugins`);
+      
     } catch (error) {
-      logger.error('Failed to initialize plugin system', error);
+      logger.error('Failed to initialize PluginManager:', error);
       throw error;
     }
   }
@@ -70,19 +140,33 @@ export class PluginManager {
     const pluginsPath = path.join(__dirname, '../plugins/datasources');
     
     if (!fs.existsSync(pluginsPath)) {
-      logger.warn('Data source plugins directory not found', { pluginsPath });
+      logger.warn('DataSource plugins directory not found', { pluginsPath });
       return;
     }
 
-    const pluginDirs = fs.readdirSync(pluginsPath, { withFileTypes: true })
+    // Get category directories (relational, cloud, etc.)
+    const categoryDirs = fs.readdirSync(pluginsPath, { withFileTypes: true })
       .filter(dirent => dirent.isDirectory())
       .map(dirent => dirent.name);
 
-    for (const pluginDir of pluginDirs) {
-      try {
-        await this.loadDataSourcePlugin(pluginDir, pluginsPath);
-      } catch (error) {
-        logger.error('Failed to load data source plugin', { plugin: pluginDir, error });
+    for (const categoryDir of categoryDirs) {
+      const categoryPath = path.join(pluginsPath, categoryDir);
+      
+      // Get plugin directories within each category
+      const pluginDirs = fs.readdirSync(categoryPath, { withFileTypes: true })
+        .filter(dirent => dirent.isDirectory())
+        .map(dirent => dirent.name);
+
+      for (const pluginDir of pluginDirs) {
+        try {
+          await this.loadDataSourcePlugin(pluginDir, categoryPath, categoryDir);
+        } catch (error) {
+          logger.error('Failed to load data source plugin', { 
+            plugin: pluginDir, 
+            category: categoryDir, 
+            error 
+          });
+        }
       }
     }
   }
@@ -90,146 +174,83 @@ export class PluginManager {
   /**
    * Load individual data source plugin
    */
-  private static async loadDataSourcePlugin(pluginDir: string, basePath: string): Promise<void> {
-    const pluginPath = path.join(basePath, pluginDir);
-    const manifestPath = path.join(pluginPath, 'manifest.json');
-    const indexPath = path.join(pluginPath, 'index.js');
+  private static async loadDataSourcePlugin(
+    pluginDir: string, 
+    categoryPath: string, 
+    category: string
+  ): Promise<void> {
+    const pluginPath = path.join(categoryPath, pluginDir);
+    const indexPath = path.join(pluginPath, 'index.ts');
 
-    // Check if manifest exists
-    if (!fs.existsSync(manifestPath)) {
-      throw new Error(`Manifest not found for plugin ${pluginDir}`);
-    }
-
-    // Check if index exists
+    // Check if index file exists
     if (!fs.existsSync(indexPath)) {
-      throw new Error(`Index file not found for plugin ${pluginDir}`);
+      throw new Error(`Index file not found for plugin ${pluginDir} at ${indexPath}`);
     }
 
-    // Load manifest
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    try {
+      // Load plugin module
+      const pluginModule = await import(indexPath);
+      const plugin: DataSourcePlugin = pluginModule.default || pluginModule;
 
-    // Validate manifest
-    this.validateDataSourceManifest(manifest);
+      // Validate plugin interface
+      this.validateDataSourcePlugin(plugin);
 
-    // Load plugin code
-    const pluginModule = require(indexPath);
-    const plugin: DataSourcePlugin = {
-      ...manifest,
-      ...pluginModule
-    };
-
-    // Validate plugin interface
-    this.validateDataSourcePlugin(plugin);
-
-    this.dataSourcePlugins.set(plugin.type, plugin);
-    logger.info('Loaded data source plugin', { 
-      type: plugin.type, 
-      name: plugin.name, 
-      version: plugin.version 
-    });
-  }
-
-  /**
-   * Load chart plugins from filesystem
-   */
-  private static async loadChartPlugins(): Promise<void> {
-    const pluginsPath = path.join(__dirname, '../plugins/charts');
-    
-    if (!fs.existsSync(pluginsPath)) {
-      logger.warn('Chart plugins directory not found', { pluginsPath });
-      return;
-    }
-
-    const pluginDirs = fs.readdirSync(pluginsPath, { withFileTypes: true })
-      .filter(dirent => dirent.isDirectory())
-      .map(dirent => dirent.name);
-
-    for (const pluginDir of pluginDirs) {
-      try {
-        await this.loadChartPlugin(pluginDir, pluginsPath);
-      } catch (error) {
-        logger.error('Failed to load chart plugin', { plugin: pluginDir, error });
+      // Set category if not explicitly defined
+      if (!plugin.category) {
+        (plugin as any).category = category;
       }
-    }
-  }
 
-  /**
-   * Load individual chart plugin
-   */
-  private static async loadChartPlugin(pluginDir: string, basePath: string): Promise<void> {
-    const pluginPath = path.join(basePath, pluginDir);
-    const manifestPath = path.join(pluginPath, 'manifest.json');
+      this.dataSourcePlugins.set(plugin.name, plugin);
+      
+      logger.info('Loaded data source plugin', { 
+        name: plugin.name,
+        displayName: plugin.displayName,
+        category: plugin.category,
+        version: plugin.version 
+      });
 
-    // Check if manifest exists
-    if (!fs.existsSync(manifestPath)) {
-      throw new Error(`Manifest not found for chart plugin ${pluginDir}`);
-    }
-
-    // Load manifest
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-
-    // Validate manifest
-    this.validateChartManifest(manifest);
-
-    const plugin: ChartPlugin = manifest;
-
-    this.chartPlugins.set(plugin.type, plugin);
-    logger.info('Loaded chart plugin', { 
-      type: plugin.type, 
-      name: plugin.name, 
-      version: plugin.version,
-      category: plugin.category
-    });
-  }
-
-  /**
-   * Validate data source plugin manifest
-   */
-  private static validateDataSourceManifest(manifest: any): void {
-    const required = ['name', 'type', 'version', 'description'];
-    for (const field of required) {
-      if (!manifest[field]) {
-        throw new Error(`Missing required field '${field}' in data source plugin manifest`);
-      }
-    }
-  }
-
-  /**
-   * Validate chart plugin manifest
-   */
-  private static validateChartManifest(manifest: any): void {
-    const required = ['name', 'type', 'version', 'description', 'category', 'config_schema'];
-    for (const field of required) {
-      if (!manifest[field]) {
-        throw new Error(`Missing required field '${field}' in chart plugin manifest`);
-      }
+    } catch (error) {
+      logger.error(`Failed to import data source plugin ${pluginDir}:`, error);
+      throw error;
     }
   }
 
   /**
    * Validate data source plugin interface
    */
-  private static validateDataSourcePlugin(plugin: any): void {
-    const required = ['connect', 'disconnect', 'executeQuery', 'testConnection'];
-    for (const method of required) {
-      if (typeof plugin[method] !== 'function') {
-        throw new Error(`Data source plugin missing required method '${method}'`);
+  private static validateDataSourcePlugin(plugin: any): asserts plugin is DataSourcePlugin {
+    const requiredMethods = [
+      'connect', 'testConnection', 'executeQuery', 
+      'getSchema', 'getTables', 'getColumns', 'disconnect'
+    ];
+
+    const requiredProperties = ['name', 'displayName', 'version', 'configSchema'];
+
+    // Check required properties
+    for (const prop of requiredProperties) {
+      if (!plugin[prop]) {
+        throw new Error(`Plugin missing required property: ${prop}`);
       }
+    }
+
+    // Check required methods
+    for (const method of requiredMethods) {
+      if (typeof plugin[method] !== 'function') {
+        throw new Error(`Plugin missing required method: ${method}`);
+      }
+    }
+
+    // Validate configSchema
+    if (typeof plugin.configSchema !== 'object' || plugin.configSchema === null) {
+      throw new Error('Plugin configSchema must be an object');
     }
   }
 
   /**
-   * Get data source plugin by type
+   * Get data source plugin by name
    */
-  static getDataSourcePlugin(type: string): DataSourcePlugin | null {
-    return this.dataSourcePlugins.get(type) || null;
-  }
-
-  /**
-   * Get chart plugin by type
-   */
-  static getChartPlugin(type: string): ChartPlugin | null {
-    return this.chartPlugins.get(type) || null;
+  static getDataSourcePlugin(name: string): DataSourcePlugin | null {
+    return this.dataSourcePlugins.get(name) || null;
   }
 
   /**
@@ -240,34 +261,74 @@ export class PluginManager {
   }
 
   /**
-   * Get all chart plugins
+   * Get data source plugins by category
    */
-  static getAllChartPlugins(): ChartPlugin[] {
-    return Array.from(this.chartPlugins.values());
-  }
-
-  /**
-   * Get chart plugins by category
-   */
-  static getChartPluginsByCategory(category: string): ChartPlugin[] {
-    return Array.from(this.chartPlugins.values())
+  static getDataSourcePluginsByCategory(category: string): DataSourcePlugin[] {
+    return Array.from(this.dataSourcePlugins.values())
       .filter(plugin => plugin.category === category);
   }
 
   /**
    * Test data source connection
    */
-  static async testDataSourceConnection(type: string, config: any): Promise<boolean> {
-    const plugin = this.getDataSourcePlugin(type);
+  static async testDataSourceConnection(pluginName: string, config: ConnectionConfig): Promise<TestResult> {
+    const plugin = this.getDataSourcePlugin(pluginName);
     if (!plugin) {
-      throw new Error(`Data source plugin not found: ${type}`);
+      return {
+        success: false,
+        message: `Data source plugin not found: ${pluginName}`,
+        error_code: 'PLUGIN_NOT_FOUND'
+      };
     }
 
     try {
-      return await plugin.testConnection(config);
+      const startTime = Date.now();
+      const result = await plugin.testConnection(config);
+      const responseTime = Date.now() - startTime;
+
+      return {
+        success: result.success,
+        message: result.message,
+        error_code: result.error_code,
+        response_time: responseTime
+      };
+
     } catch (error) {
-      logger.error('Data source connection test failed', { type, error });
-      return false;
+      logger.error('Data source connection test failed', { 
+        plugin: pluginName, 
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Connection test failed',
+        error_code: 'CONNECTION_TEST_ERROR'
+      };
+    }
+  }
+
+  /**
+   * Execute query using data source plugin
+   */
+  static async executeQuery(
+    pluginName: string, 
+    connection: Connection, 
+    query: string, 
+    params?: any[]
+  ): Promise<QueryResult> {
+    const plugin = this.getDataSourcePlugin(pluginName);
+    if (!plugin) {
+      throw new Error(`Data source plugin not found: ${pluginName}`);
+    }
+
+    try {
+      return await plugin.executeQuery(connection, query, params);
+    } catch (error) {
+      logger.error('Query execution failed', { 
+        plugin: pluginName, 
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
     }
   }
 
@@ -276,17 +337,79 @@ export class PluginManager {
    */
   static getPluginStats(): {
     dataSourcePlugins: number;
-    chartPlugins: number;
     categories: string[];
+    pluginsByCategory: Record<string, number>;
   } {
-    const categories = Array.from(new Set(
-      Array.from(this.chartPlugins.values()).map(p => p.category)
-    ));
+    const plugins = Array.from(this.dataSourcePlugins.values());
+    const categories = Array.from(new Set(plugins.map(p => p.category)));
+    
+    const pluginsByCategory = plugins.reduce((acc, plugin) => {
+      acc[plugin.category] = (acc[plugin.category] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
 
     return {
       dataSourcePlugins: this.dataSourcePlugins.size,
-      chartPlugins: this.chartPlugins.size,
-      categories
+      categories,
+      pluginsByCategory
+    };
+  }
+
+  /**
+   * Get plugin manifest for frontend (DataSource plugins only)
+   */
+  static getDataSourceManifests(): any[] {
+    return Array.from(this.dataSourcePlugins.values()).map(plugin => ({
+      name: plugin.name,
+      displayName: plugin.displayName,
+      category: plugin.category,
+      version: plugin.version,
+      description: plugin.description,
+      author: plugin.author,
+      license: plugin.license,
+      configSchema: plugin.configSchema,
+      capabilities: plugin.capabilities
+    }));
+  }
+
+  /**
+   * Validate plugin configuration
+   */
+  static validatePluginConfig(
+    pluginName: string, 
+    config: any
+  ): { valid: boolean; errors: string[] } {
+    const plugin = this.getDataSourcePlugin(pluginName);
+    if (!plugin) {
+      return { valid: false, errors: [`Data source plugin '${pluginName}' not found`] };
+    }
+
+    const errors: string[] = [];
+    const schema = plugin.configSchema;
+
+    // Check required fields
+    Object.entries(schema).forEach(([fieldName, fieldSchema]) => {
+      if (fieldSchema.required && (config[fieldName] === undefined || config[fieldName] === '')) {
+        errors.push(`Field '${fieldName}' is required`);
+      }
+
+      // Validate field values
+      if (config[fieldName] !== undefined && fieldSchema.validation) {
+        if (fieldSchema.validation instanceof RegExp) {
+          if (!fieldSchema.validation.test(config[fieldName])) {
+            errors.push(`Field '${fieldName}' does not match required pattern`);
+          }
+        } else if (typeof fieldSchema.validation === 'function') {
+          if (!fieldSchema.validation(config[fieldName])) {
+            errors.push(`Field '${fieldName}' failed validation`);
+          }
+        }
+      }
+    });
+
+    return {
+      valid: errors.length === 0,
+      errors
     };
   }
 
@@ -295,11 +418,10 @@ export class PluginManager {
    */
   static async reload(): Promise<void> {
     this.dataSourcePlugins.clear();
-    this.chartPlugins.clear();
     this.initialized = false;
 
     // Clear require cache for plugin modules
-    const pluginsPath = path.join(__dirname, '../plugins');
+    const pluginsPath = path.join(__dirname, '../plugins/datasources');
     Object.keys(require.cache).forEach(key => {
       if (key.startsWith(pluginsPath)) {
         delete require.cache[key];
@@ -307,71 +429,13 @@ export class PluginManager {
     });
 
     await this.initialize();
+    logger.info('PluginManager reloaded successfully');
   }
 
   /**
-   * Get plugin manifest for frontend
+   * Check if plugin manager is initialized
    */
-  static getPluginManifests(): {
-    dataSourcePlugins: any[];
-    chartPlugins: any[];
-  } {
-    return {
-      dataSourcePlugins: Array.from(this.dataSourcePlugins.values()).map(plugin => ({
-        name: plugin.name,
-        type: plugin.type,
-        version: plugin.version,
-        description: plugin.description
-      })),
-      chartPlugins: Array.from(this.chartPlugins.values()).map(plugin => ({
-        name: plugin.name,
-        type: plugin.type,
-        version: plugin.version,
-        description: plugin.description,
-        category: plugin.category,
-        config_schema: plugin.config_schema,
-        render_config: plugin.render_config,
-        supported_data_types: plugin.supported_data_types,
-        min_columns: plugin.min_columns,
-        max_columns: plugin.max_columns
-      }))
-    };
-  }
-
-  /**
-   * Validate chart configuration against plugin schema
-   */
-  static validateChartConfig(chartType: string, config: any): { valid: boolean; errors: string[] } {
-    const plugin = this.getChartPlugin(chartType);
-    if (!plugin) {
-      return { valid: false, errors: [`Chart type '${chartType}' not supported`] };
-    }
-
-    // Basic validation against schema
-    const errors: string[] = [];
-    const schema = plugin.config_schema;
-
-    if (schema.required) {
-      for (const field of schema.required) {
-        if (!config[field]) {
-          errors.push(`Missing required field '${field}'`);
-        }
-      }
-    }
-
-    // Validate data requirements
-    if (config.columns) {
-      if (plugin.min_columns && config.columns.length < plugin.min_columns) {
-        errors.push(`Chart requires at least ${plugin.min_columns} columns`);
-      }
-      if (plugin.max_columns && config.columns.length > plugin.max_columns) {
-        errors.push(`Chart supports maximum ${plugin.max_columns} columns`);
-      }
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors
-    };
+  static isInitialized(): boolean {
+    return this.initialized;
   }
 }
