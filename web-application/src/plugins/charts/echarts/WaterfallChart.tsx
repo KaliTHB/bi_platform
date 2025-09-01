@@ -1,17 +1,10 @@
-// ECharts Waterfall Chart Component
-// File: web-application/src/plugins/charts/echarts/WaterfallChart.tsx
+// File: src/plugins/charts/echarts/WaterfallChart.tsx
 'use client';
 
 import React, { useEffect, useRef, useMemo } from 'react';
 import * as echarts from 'echarts';
-import { ChartProps, ChartData } from '@/types/chart.types';
-import { 
-  normalizeChartData, 
-  isChartDataEmpty, 
-  extractFieldValues, 
-  extractNumericValues, 
-  createChartConfig 
-} from '../utils/chartDataUtils';
+import { ChartProps, ChartData, ChartPluginConfig } from '@/types/chart.types';
+import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
 
 export interface WaterfallChartConfig {
   title?: string;
@@ -31,32 +24,20 @@ export interface WaterfallChartConfig {
   };
   showValues?: boolean;
   valueFormat?: string;
+  showGrid?: boolean;
+  orientation?: 'horizontal' | 'vertical';
 }
 
-// Utility function to normalize data to array format
-const normalizeData = (data: any[] | ChartData): any[] => {
-  if (!data) return [];
-  
-  if (Array.isArray(data)) {
-    return data;
-  } else if (data && typeof data === 'object' && 'rows' in data) {
-    return (data as ChartData).rows || [];
-  }
-  
-  return [];
-};
+interface WaterfallChartProps extends ChartProps {
+  chartId?: string;
+}
 
-// Utility function to check if data is empty
-const isDataEmpty = (data: any[] | ChartData): boolean => {
-  const normalizedData = normalizeData(data);
-  return normalizedData.length === 0;
-};
-
-export const WaterfallChart: React.FC<ChartProps> = ({
+export const WaterfallChart: React.FC<WaterfallChartProps> = ({
+  chartId,
   data,
   config,
-  width = 400,
-  height = 300,
+  width = 600,
+  height = 400,
   onInteraction,
   onError
 }) => {
@@ -64,8 +45,7 @@ export const WaterfallChart: React.FC<ChartProps> = ({
   const chartInstance = useRef<echarts.ECharts>();
 
   const options = useMemo(() => {
-    // Check if data is empty using utility function
-    if (isDataEmpty(data)) {
+    if (!hasDataContent(data)) {
       return {
         title: {
           text: 'No Data Available',
@@ -76,125 +56,100 @@ export const WaterfallChart: React.FC<ChartProps> = ({
             fontSize: 16
           }
         }
-      } as echarts.EChartsOption;
+      };
     }
 
-    // Normalize data to array format
-    const chartData = normalizeData(data);
-    
-    // Create safe configuration with defaults
-    const chartConfig = createChartConfig(config, {
-      xField: 'category',
-      yField: 'value',
-      title: 'Waterfall Chart',
-      showConnect: true,
-      colors: {
-        positive: '#00cc96',
-        negative: '#ff6692',
-        total: '#ab63fa'
-      },
-      showValues: true,
-      valueFormat: 'number'
-    }) as WaterfallChartConfig;
-
     try {
-      // Extract data fields
-      const categories = extractFieldValues(chartData, chartConfig.xField, 'Unknown');
-      const values = extractNumericValues(chartData, chartConfig.yField, 0);
-
-      // Define proper type for processed data items
-      interface ProcessedDataItem {
-        name: string;
-        value: number | [number, number, number]; // [start, end, change]
-        itemStyle: {
-          color: string;
-        };
-        label: {
-          show: boolean;
-          position: 'top' | 'bottom';
-          formatter: (params: any) => string;
-        };
-        isTotal: boolean;
-        rawValue: number; // Store the raw value for easy access
-        startValue?: number; // For non-total items
-        endValue?: number; // For non-total items
-      }
-
-      // Process data for waterfall
-      let cumulativeValue = 0;
-      const processedData: ProcessedDataItem[] = chartData.map((item, index) => {
-        const value = values[index];
-        const category = categories[index];
-        const start = cumulativeValue;
-        cumulativeValue += value;
+      const chartConfig = config as WaterfallChartConfig;
+      const dataArray = getDataArray(data);
+      
+      // Process data for waterfall chart
+      let runningTotal = 0;
+      const processedData = dataArray.map((item, index) => {
+        const value = parseFloat(item[chartConfig.yField]) || 0;
+        const isLast = index === dataArray.length - 1;
+        const name = item[chartConfig.xField];
         
-        // Determine if this is a total item (typically the last item)
-        const isTotal = index === chartData.length - 1 || 
-                       category.toLowerCase().includes('total') ||
-                       category.toLowerCase().includes('sum');
-        
-        return {
-          name: category,
-          value: isTotal ? cumulativeValue : [start, cumulativeValue, value],
-          itemStyle: {
-            color: isTotal ? 
-              (chartConfig.colors?.total || '#ab63fa') : 
-              (value >= 0 ? (chartConfig.colors?.positive || '#00cc96') : (chartConfig.colors?.negative || '#ff6692'))
-          },
-          label: {
-            show: chartConfig.showValues || false,
-            position: (value >= 0 ? 'top' : 'bottom') as 'top' | 'bottom',
-            formatter: (params: any) => {
-              const val = isTotal ? cumulativeValue : value;
-              return formatValue(val, chartConfig.valueFormat || 'number');
-            }
-          },
-          isTotal: isTotal,
-          rawValue: value,
-          startValue: isTotal ? undefined : start,
-          endValue: isTotal ? undefined : cumulativeValue
-        };
+        if (isLast) {
+          // Last item is usually the total
+          return {
+            name,
+            value: runningTotal + value,
+            itemStyle: { 
+              color: chartConfig.colors?.total || '#5470c6' 
+            },
+            isTotal: true,
+            originalValue: value
+          };
+        } else {
+          const startValue = runningTotal;
+          runningTotal += value;
+          
+          return {
+            name,
+            value,
+            startValue,
+            endValue: runningTotal,
+            itemStyle: { 
+              color: value >= 0 
+                ? (chartConfig.colors?.positive || '#73c0de')
+                : (chartConfig.colors?.negative || '#fc8452')
+            },
+            isTotal: false,
+            originalValue: value
+          };
+        }
       });
 
-      // Format value helper function (moved inside useMemo to avoid dependency issues)
-      const formatValue = (value: number, format: string): string => {
-        switch (format) {
-          case 'currency':
-            return new Intl.NumberFormat('en-US', {
-              style: 'currency',
-              currency: 'USD'
-            }).format(value);
-          case 'percentage':
-            return `${(value * 100).toFixed(1)}%`;
-          case 'decimal2':
-            return value.toFixed(2);
-          default:
-            return value.toString();
+      // Create categories for x-axis
+      const categories = processedData.map(item => item.name);
+      
+      // Prepare series data for ECharts
+      const seriesData = processedData.map(item => {
+        if (item.isTotal) {
+          return {
+            value: item.value,
+            itemStyle: item.itemStyle,
+            label: {
+              show: chartConfig.showValues || false,
+              position: 'top',
+              formatter: chartConfig.valueFormat 
+                ? `{c}${chartConfig.valueFormat}`
+                : '{c}'
+            }
+          };
+        } else {
+          return {
+            value: [item.startValue, item.endValue],
+            itemStyle: item.itemStyle,
+            label: {
+              show: chartConfig.showValues || false,
+              position: item.originalValue >= 0 ? 'top' : 'bottom',
+              formatter: chartConfig.valueFormat 
+                ? `{c}${chartConfig.valueFormat}`
+                : '{c}'
+            }
+          };
         }
-      };
+      });
 
-      // Create connector data if enabled - Fixed typing
-      const connectorData: number[][][] = chartConfig.showConnect ? 
-        processedData.slice(0, -1).map((currentItem, index) => {
-          const nextItem = processedData[index + 1];
+      // Create connector data for lines between bars (if enabled)
+      const connectorData: any[] = [];
+      if (chartConfig.showConnect) {
+        for (let i = 0; i < processedData.length - 1; i++) {
+          const current = processedData[i];
+          const next = processedData[i + 1];
           
-          // Get end value of current item
-          const currentEndValue = currentItem.isTotal ? 
-            (typeof currentItem.value === 'number' ? currentItem.value : 0) :
-            (Array.isArray(currentItem.value) ? currentItem.value[1] : 0);
-          
-          // Get start value of next item
-          const nextStartValue = nextItem.isTotal ? 
-            (typeof nextItem.value === 'number' ? nextItem.value : 0) :
-            (Array.isArray(nextItem.value) ? nextItem.value[0] : 0);
-          
-          return [
-            [index + 0.4, currentEndValue],
-            [index + 0.6, nextStartValue]
-          ];
-        }) : [];
+          if (!current.isTotal && !next.isTotal) {
+            connectorData.push([
+              [i, current.endValue],
+              [i + 1, next.startValue]
+            ]);
+          }
+        }
+      }
 
-      const option: echarts.EChartsOption = {
+      return {
         title: {
           text: chartConfig.title,
           left: 'center',
@@ -207,118 +162,122 @@ export const WaterfallChart: React.FC<ChartProps> = ({
           trigger: 'item',
           formatter: (params: any) => {
             const dataIndex = params.dataIndex;
-            if (dataIndex >= 0 && dataIndex < processedData.length) {
-              const data = processedData[dataIndex];
-              if (data.isTotal) {
-                return `${data.name}<br/>Total: ${formatValue(data.rawValue, chartConfig.valueFormat || 'number')}`;
-              } else {
-                const startVal = data.startValue || 0;
-                const endVal = data.endValue || 0;
-                return `${data.name}<br/>Change: ${formatValue(data.rawValue, chartConfig.valueFormat || 'number')}<br/>Running Total: ${formatValue(endVal, chartConfig.valueFormat || 'number')}`;
-              }
+            const item = processedData[dataIndex];
+            let tooltip = `${item.name}<br/>`;
+            
+            if (item.isTotal) {
+              tooltip += `Total: ${item.value}`;
+            } else {
+              tooltip += `Change: ${item.originalValue}<br/>`;
+              tooltip += `Running Total: ${item.endValue}`;
             }
-            return '';
+            
+            if (chartConfig.valueFormat) {
+              tooltip = tooltip.replace(/(\d+)/g, `$1${chartConfig.valueFormat}`);
+            }
+            
+            return tooltip;
           }
+        },
+        grid: {
+          left: '3%',
+          right: '4%',
+          bottom: '3%',
+          top: '15%',
+          containLabel: true,
+          show: chartConfig.showGrid !== false
         },
         xAxis: {
           type: 'category',
           data: categories,
-          axisLabel: {
-            interval: 0,
-            rotate: categories.length > 6 ? 45 : 0
+          axisPointer: {
+            type: 'shadow'
           }
         },
         yAxis: {
-          type: 'value',
-          name: chartConfig.yField,
-          nameLocation: 'middle',
-          nameGap: 50
+          type: 'value'
         },
         series: [
+          // Main waterfall bars
           {
-            name: 'Waterfall',
+            name: chartConfig.title || 'Waterfall',
             type: 'custom',
             renderItem: (params: any, api: any) => {
               const dataIndex = params.dataIndex;
-              if (dataIndex >= 0 && dataIndex < processedData.length) {
-                const dataItem = processedData[dataIndex];
+              const item = processedData[dataIndex];
+              
+              if (item.isTotal) {
+                // Render total bar from 0
+                const startCoord = api.coord([dataIndex, 0]);
+                const endCoord = api.coord([dataIndex, item.value]);
+                const rectHeight = Math.abs(endCoord[1] - startCoord[1]);
+                const rectWidth = api.size([1, 0])[0] * 0.6;
                 
-                if (dataItem.isTotal) {
-                  // Render total bar from 0 to total value
-                  const totalValue = typeof dataItem.value === 'number' ? dataItem.value : 0;
-                  const startCoord = api.coord([dataIndex, 0]);
-                  const endCoord = api.coord([dataIndex, totalValue]);
-                  
-                  const rectHeight = Math.abs(endCoord[1] - startCoord[1]);
-                  const rectWidth = api.size([1, 0])[0] * 0.6;
-                  
-                  return {
-                    type: 'rect',
-                    shape: {
-                      x: startCoord[0] - rectWidth / 2,
-                      y: Math.min(startCoord[1], endCoord[1]),
-                      width: rectWidth,
-                      height: rectHeight
-                    },
-                    style: api.style({
-                      fill: dataItem.itemStyle.color
-                    })
-                  };
-                } else {
-                  // Render change bar
-                  const start = dataItem.startValue || 0;
-                  const end = dataItem.endValue || 0;
-                  const startCoord = api.coord([dataIndex, start]);
-                  const endCoord = api.coord([dataIndex, end]);
-                  
-                  const rectHeight = Math.abs(endCoord[1] - startCoord[1]);
-                  const rectWidth = api.size([1, 0])[0] * 0.6;
-                  
-                  return {
-                    type: 'rect',
-                    shape: {
-                      x: startCoord[0] - rectWidth / 2,
-                      y: Math.min(startCoord[1], endCoord[1]),
-                      width: rectWidth,
-                      height: rectHeight
-                    },
-                    style: api.style({
-                      fill: dataItem.itemStyle.color
-                    })
-                  };
-                }
+                return {
+                  type: 'rect',
+                  shape: {
+                    x: startCoord[0] - rectWidth / 2,
+                    y: Math.min(startCoord[1], endCoord[1]),
+                    width: rectWidth,
+                    height: rectHeight
+                  },
+                  style: {
+                    fill: item.itemStyle.color,
+                    stroke: '#fff',
+                    lineWidth: 1
+                  }
+                };
+              } else {
+                // Render change bar
+                const startCoord = api.coord([dataIndex, item.startValue]);
+                const endCoord = api.coord([dataIndex, item.endValue]);
+                const rectHeight = Math.abs(endCoord[1] - startCoord[1]);
+                const rectWidth = api.size([1, 0])[0] * 0.6;
+                
+                return {
+                  type: 'rect',
+                  shape: {
+                    x: startCoord[0] - rectWidth / 2,
+                    y: Math.min(startCoord[1], endCoord[1]),
+                    width: rectWidth,
+                    height: rectHeight
+                  },
+                  style: {
+                    fill: item.itemStyle.color,
+                    stroke: '#fff',
+                    lineWidth: 1
+                  }
+                };
               }
-              return null;
             },
             data: processedData.map(item => ({
-              value: typeof item.value === 'number' ? item.value : item.value[1],
+              value: item.isTotal ? item.value : item.originalValue,
               itemStyle: item.itemStyle
             })),
             z: 100
-          } as echarts.CustomSeriesOption,
-          // Connector lines - Fixed typing with individual line series for each connector
-          ...(chartConfig.showConnect && connectorData.length > 0 ? 
-            connectorData.map((connector, index) => ({
-              name: `Connector-${index}`,
-              type: 'line' as const,
-              data: connector,
-              lineStyle: {
-                color: chartConfig.connectStyle?.stroke || '#8c8c8c',
-                type: 'dashed' as const,
-                width: 1
-              },
-              symbol: 'none' as const,
-              silent: true,
-              showInLegend: false
-            } as echarts.LineSeriesOption))
-          : [])
-        ] as echarts.SeriesOption[],
+          },
+          // Connector lines
+          ...(chartConfig.showConnect && connectorData.length > 0 
+            ? connectorData.map((connector, index) => ({
+                name: `Connector-${index}`,
+                type: 'line' as const,
+                data: connector,
+                lineStyle: {
+                  color: chartConfig.connectStyle?.stroke || '#8c8c8c',
+                  type: 'dashed' as const,
+                  width: 1
+                },
+                symbol: 'none' as const,
+                silent: true,
+                showInLegend: false
+              }))
+            : [])
+        ],
         animation: true,
         animationDuration: 1000,
-        animationEasing: 'cubicOut' as any
-      };
+        animationEasing: 'cubicOut'
+      } as echarts.EChartsOption;
 
-      return option;
     } catch (error) {
       console.error('Error processing waterfall chart data:', error);
       onError?.(error as Error);
@@ -350,22 +309,26 @@ export const WaterfallChart: React.FC<ChartProps> = ({
       // Set options
       chartInstance.current.setOption(options, true);
 
-      // Add event handlers
+      // Add event handlers with fixed TypeScript interface
       const handleClick = (params: any) => {
         onInteraction?.({
           type: 'click',
+          chartId: chartId || 'echarts-waterfall-chart', // ✅ Add required chartId
           data: params.data,
           dataIndex: params.dataIndex,
-          seriesIndex: params.seriesIndex
+          seriesIndex: params.seriesIndex,
+          timestamp: Date.now() // ✅ Add timestamp, remove event property
         });
       };
 
       const handleMouseOver = (params: any) => {
         onInteraction?.({
           type: 'hover',
+          chartId: chartId || 'echarts-waterfall-chart', // ✅ Add required chartId
           data: params.data,
           dataIndex: params.dataIndex,
-          seriesIndex: params.seriesIndex
+          seriesIndex: params.seriesIndex,
+          timestamp: Date.now() // ✅ Add timestamp
         });
       };
 
@@ -385,7 +348,7 @@ export const WaterfallChart: React.FC<ChartProps> = ({
       onError?.(new Error(errorMessage));
     }
 
-    // Always return cleanup function
+    // Cleanup function
     return () => {
       if (resizeListener) {
         window.removeEventListener('resize', resizeListener);
@@ -395,7 +358,7 @@ export const WaterfallChart: React.FC<ChartProps> = ({
         chartInstance.current.off('mouseover');
       }
     };
-  }, [options, onInteraction, onError]);
+  }, [chartId, options, onInteraction, onError]); // ✅ Add chartId to dependencies
 
   // Cleanup on unmount
   useEffect(() => {
@@ -417,17 +380,14 @@ export const WaterfallChart: React.FC<ChartProps> = ({
   );
 };
 
-export default WaterfallChart;
-
-// Chart Plugin Configuration Export
-export const EChartsWaterfallChartConfig = {
+export const EChartsWaterfallChartConfig: ChartPluginConfig = {
   name: 'echarts-waterfall',
   displayName: 'ECharts Waterfall Chart',
-  category: 'financial',
+  category: 'advanced',
   library: 'echarts',
   version: '1.0.0',
-  description: 'Waterfall chart showing cumulative effects of sequential positive and negative values',
-  tags: ['waterfall', 'financial', 'cumulative', 'bridge', 'variance'],
+  description: 'Financial waterfall chart showing incremental changes',
+  tags: ['waterfall', 'financial', 'incremental', 'cumulative'],
   
   configSchema: {
     type: 'object',
@@ -437,179 +397,66 @@ export const EChartsWaterfallChartConfig = {
         title: 'Chart Title',
         default: 'Waterfall Chart'
       },
-      categoryField: {
+      xField: {
         type: 'string',
         title: 'Category Field',
-        description: 'Field name for x-axis categories',
-        default: 'category'
+        required: true
       },
-      valueField: {
+      yField: {
         type: 'string',
         title: 'Value Field',
-        description: 'Field name for values',
-        default: 'value'
+        required: true
       },
-      typeField: {
-        type: 'string',
-        title: 'Type Field',
-        description: 'Field indicating value type (positive/negative/total)',
-        default: 'type'
-      },
-      startingValue: {
-        type: 'number',
-        title: 'Starting Value',
-        description: 'Initial value for the waterfall',
-        default: 0
-      },
-      showConnectorLines: {
+      showConnectors: {
         type: 'boolean',
-        title: 'Show Connector Lines',
-        description: 'Show lines connecting the bars',
+        title: 'Show Connectors',
         default: true
       },
-      connectorLineStyle: {
-        type: 'select',
-        title: 'Connector Line Style',
-        options: [
-          { label: 'Solid', value: 'solid' },
-          { label: 'Dashed', value: 'dashed' },
-          { label: 'Dotted', value: 'dotted' }
-        ],
-        default: 'dashed'
-      },
-      connectorLineColor: {
-        type: 'color',
-        title: 'Connector Line Color',
-        default: '#999999'
-      },
-      positiveColor: {
-        type: 'color',
-        title: 'Positive Value Color',
-        default: '#00da3c'
-      },
-      negativeColor: {
-        type: 'color',
-        title: 'Negative Value Color',
-        default: '#ec0000'
-      },
-      totalColor: {
-        type: 'color',
-        title: 'Total Value Color',
-        default: '#5470c6'
-      },
-      neutralColor: {
-        type: 'color',
-        title: 'Neutral Value Color',
-        default: '#91cc75'
-      },
-      showValues: {
-        type: 'boolean',
-        title: 'Show Values on Bars',
-        default: true
-      },
-      valuePosition: {
-        type: 'select',
-        title: 'Value Label Position',
-        options: [
-          { label: 'Top', value: 'top' },
-          { label: 'Inside', value: 'inside' },
-          { label: 'Bottom', value: 'bottom' }
-        ],
-        default: 'top'
-      },
-      showCumulative: {
-        type: 'boolean',
-        title: 'Show Cumulative Values',
-        description: 'Display running totals',
-        default: false
-      },
-      cumulativePosition: {
-        type: 'select',
-        title: 'Cumulative Label Position',
-        options: [
-          { label: 'Top', value: 'top' },
-          { label: 'Inside', value: 'inside' },
-          { label: 'Bottom', value: 'bottom' }
-        ],
-        default: 'inside'
-      },
-      barWidth: {
-        type: 'string',
-        title: 'Bar Width',
-        description: 'Width as percentage of category width',
-        default: '60%'
-      },
-      barGap: {
-        type: 'string',
-        title: 'Bar Gap',
-        description: 'Gap between bars as percentage',
-        default: '20%'
-      },
-      showGrid: {
-        type: 'boolean',
-        title: 'Show Grid',
-        default: true
-      },
-      gridLineStyle: {
-        type: 'select',
-        title: 'Grid Line Style',
-        options: [
-          { label: 'Solid', value: 'solid' },
-          { label: 'Dashed', value: 'dashed' },
-          { label: 'Dotted', value: 'dotted' }
-        ],
-        default: 'solid'
-      },
-      xAxisLabel: {
-        type: 'string',
-        title: 'X-Axis Label'
-      },
-      yAxisLabel: {
-        type: 'string',
-        title: 'Y-Axis Label'
-      },
-      rotateLabels: {
-        type: 'number',
-        title: 'Rotate X-Axis Labels (degrees)',
-        default: 0,
-        minimum: -90,
-        maximum: 90
-      },
-      enableDataZoom: {
-        type: 'boolean',
-        title: 'Enable Data Zoom',
-        default: false
-      },
-      animation: {
-        type: 'boolean',
-        title: 'Enable Animation',
-        default: true
-      },
-      animationDelay: {
-        type: 'number',
-        title: 'Animation Delay (ms)',
-        default: 0,
-        minimum: 0,
-        maximum: 2000
+      colors: {
+        type: 'object',
+        title: 'Colors',
+        properties: {
+          positive: {
+            type: 'string',
+            title: 'Positive Color',
+            default: '#2E8B57'
+          },
+          negative: {
+            type: 'string',
+            title: 'Negative Color',
+            default: '#DC143C'
+          },
+          total: {
+            type: 'string',
+            title: 'Total Color',
+            default: '#4682B4'
+          }
+        }
       }
     },
-    required: ['categoryField', 'valueField']
+    required: ['xField', 'yField']
   },
   
   dataRequirements: {
     minColumns: 2,
-    maxColumns: 20,
+    maxColumns: 50,
     requiredFields: ['category', 'value'],
     optionalFields: ['type'],
     supportedTypes: ['string', 'number'],
     aggregationSupport: true,
-    pivotSupport: false,
-    specialRequirements: [
-      'Values should represent changes, not absolute amounts',
-      'Optional type field to specify positive/negative/total/neutral'
-    ]
+    pivotSupport: false
   },
   
   exportFormats: ['png', 'svg', 'pdf'],
-  component: WaterfallChart
+  component: WaterfallChart, // Replace with actual component import
+  
+  interactionSupport: {
+    zoom: false,
+    pan: false,
+    selection: true,
+    brush: false,
+    drilldown: true,
+    tooltip: true,
+    crossFilter: false
+  }
 };

@@ -1,340 +1,285 @@
-import React, { useEffect, useRef } from 'react';
+// File: src/plugins/charts/echarts/GraphChart.tsx
+'use client';
+
+import React, { useEffect, useRef, useMemo } from 'react';
 import * as echarts from 'echarts';
-import type { EChartsOption, ECharts as EChartsInstance } from 'echarts';
+import { ChartProps } from '@/types/chart.types';
+import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
 
-// Define the correct types for ECharts Graph
-export interface GraphNodeItemStyle {
-  color?: string;
-  borderColor?: string;
-  borderWidth?: number;
-  borderType?: 'solid' | 'dashed' | 'dotted';
-  shadowBlur?: number;
-  shadowColor?: string;
-  shadowOffsetX?: number;
-  shadowOffsetY?: number;
-}
-
-export interface GraphNodeLabel {
-  show?: boolean;
-  position?: 'top' | 'left' | 'right' | 'bottom' | 'inside' | 'insideLeft' | 'insideRight' | 'insideTop' | 'insideBottom';
-  formatter?: string | ((params: any) => string);
-  color?: string;
-  fontSize?: number;
-  fontFamily?: string;
-}
-
-export interface GraphNode {
-  id: string;
-  name: string;
-  value?: number;
-  category?: number;
-  symbol?: 'circle' | 'rect' | 'roundRect' | 'triangle' | 'diamond' | 'pin' | 'arrow' | 'none' | string;
-  symbolSize?: number | number[];
-  x?: number;
-  y?: number;
-  fixed?: boolean;
-  itemStyle?: GraphNodeItemStyle;
-  label?: GraphNodeLabel;
-}
-
-export interface GraphLinkLineStyle {
-  color?: string;
-  width?: number;
-  type?: 'solid' | 'dashed' | 'dotted';
-  curveness?: number;
-  opacity?: number;
-}
-
-export interface GraphLinkLabel {
-  show?: boolean;
-  position?: 'start' | 'middle' | 'end';
-  formatter?: string | ((params: any) => string);
-  color?: string;
-  fontSize?: number;
-}
-
-export interface GraphLink {
-  source: string;
-  target: string;
-  value?: number;
-  lineStyle?: GraphLinkLineStyle;
-  label?: GraphLinkLabel;
-}
-
-export interface GraphCategoryItemStyle {
-  color?: string;
-  borderColor?: string;
-  borderWidth?: number;
-}
-
-export interface GraphCategory {
-  name: string;
-  itemStyle?: GraphCategoryItemStyle;
-  symbol?: 'circle' | 'rect' | 'roundRect' | 'triangle' | 'diamond' | 'pin' | 'arrow' | 'none' | string;
-  symbolSize?: number | number[];
-}
-
-export interface ForceConfig {
-  initLayout?: 'circular' | 'none';
-  repulsion?: number | number[];
-  gravity?: number;
-  edgeLength?: number | number[];
-  layoutAnimation?: boolean;
-  friction?: number;
-}
-
-export interface GraphChartData {
-  nodes: GraphNode[];
-  links: GraphLink[];
-  categories?: GraphCategory[];
-}
-
-export interface GraphChartProps {
-  data: GraphChartData;
-  options?: EChartsOption;
-  width?: number | string;
-  height?: number | string;
-  className?: string;
+export interface GraphChartConfig {
+  // Node configuration
+  nodeIdField: string;
+  nodeLabelField?: string;
+  nodeSizeField?: string;
+  nodeCategoryField?: string;
+  
+  // Link configuration (if separate from nodes)
+  sourceField?: string;
+  targetField?: string;
+  linkValueField?: string;
+  
+  title?: string;
   layout?: 'none' | 'circular' | 'force';
-  roam?: boolean | 'scale' | 'move';
-  focusNodeAdjacency?: boolean | 'allEdges';
+  roam?: boolean;
   draggable?: boolean;
-  theme?: string | object;
-  onChartReady?: (chart: EChartsInstance) => void;
-  onEvents?: Record<string, (params: any) => void>;
+  focusNodeAdjacency?: boolean;
+  symbolSize?: number | [number, number];
+  repulsion?: number;
+  gravity?: number;
+  edgeLength?: number;
+  categories?: Array<{
+    name: string;
+    itemStyle?: any;
+  }>;
 }
 
-const GraphChart: React.FC<GraphChartProps> = ({
+interface GraphChartProps extends ChartProps {
+  chartId?: string;
+}
+
+export const GraphChart: React.FC<GraphChartProps> = ({
+  chartId,
   data,
-  options = {},
-  width = '100%',
+  config,
+  width = 600,
   height = 400,
-  className = '',
-  layout = 'force',
-  roam = true,
-  focusNodeAdjacency = true,
-  draggable = true,
-  theme,
-  onChartReady,
-  onEvents = {}
+  onInteraction,
+  onError
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstanceRef = useRef<EChartsInstance | null>(null);
+  const chartInstance = useRef<echarts.ECharts>();
 
-  // Validate data function
-  const validateData = (chartData: GraphChartData): { isValid: boolean; error?: string } => {
-    if (!chartData) {
-      return { isValid: false, error: 'Chart data is required' };
-    }
-
-    if (!chartData.nodes || !Array.isArray(chartData.nodes)) {
-      return { isValid: false, error: 'Nodes array is required' };
-    }
-
-    if (!chartData.links || !Array.isArray(chartData.links)) {
-      return { isValid: false, error: 'Links array is required' };
-    }
-
-    if (chartData.nodes.length === 0) {
-      return { isValid: false, error: 'At least one node is required' };
-    }
-
-    // Validate nodes
-    for (let i = 0; i < chartData.nodes.length; i++) {
-      const node = chartData.nodes[i];
-      if (!node.id || typeof node.id !== 'string') {
-        return { isValid: false, error: `Node at index ${i} must have a valid string id` };
-      }
-      if (!node.name || typeof node.name !== 'string') {
-        return { isValid: false, error: `Node at index ${i} must have a valid string name` };
-      }
-    }
-
-    // Create a set of valid node IDs for link validation
-    const nodeIds = new Set(chartData.nodes.map(node => node.id));
-
-    // Validate links
-    for (let i = 0; i < chartData.links.length; i++) {
-      const link = chartData.links[i];
-      if (!link.source || typeof link.source !== 'string') {
-        return { isValid: false, error: `Link at index ${i} must have a valid string source` };
-      }
-      if (!link.target || typeof link.target !== 'string') {
-        return { isValid: false, error: `Link at index ${i} must have a valid string target` };
-      }
-      if (!nodeIds.has(link.source)) {
-        return { isValid: false, error: `Link at index ${i} references non-existent source node: ${link.source}` };
-      }
-      if (!nodeIds.has(link.target)) {
-        return { isValid: false, error: `Link at index ${i} references non-existent target node: ${link.target}` };
-      }
-    }
-
-    return { isValid: true };
-  };
-
-  // Default chart options
-  const getDefaultOptions = (): EChartsOption => ({
-    title: {
-      text: 'Graph Chart',
-      top: 'top',
-      left: 'center'
-    },
-    tooltip: {
-      trigger: 'item',
-      formatter: (params: any) => {
-        if (params.dataType === 'node') {
-          return `${params.data.name}<br/>Value: ${params.data.value || 'N/A'}`;
-        } else if (params.dataType === 'edge') {
-          return `${params.data.source} → ${params.data.target}<br/>Value: ${params.data.value || 'N/A'}`;
-        }
-        return params.name;
-      }
-    },
-    legend: {
-      show: !!data.categories && data.categories.length > 0,
-      data: data.categories?.map(cat => cat.name) || [],
-      top: 'bottom'
-    },
-    series: [
-      {
-        type: 'graph',
-        layout: layout,
-        data: data.nodes,
-        links: data.links,
-        categories: data.categories,
-        roam: roam,
-        focusNodeAdjacency: focusNodeAdjacency,
-        draggable: draggable,
-        symbol: 'circle',
-        symbolSize: 20,
-        itemStyle: {
-          color: '#4A90E2'
-        },
-        lineStyle: {
-          color: '#999',
-          width: 2,
-          curveness: 0.1
-        },
-        label: {
-          show: true,
-          position: 'right',
-          formatter: '{b}'
-        },
-        emphasis: {
-          focus: 'adjacency',
-          label: {
-            show: true
+  const options = useMemo(() => {
+    if (!hasDataContent(data)) {
+      return {
+        title: {
+          text: 'No Data Available',
+          left: 'center',
+          top: 'middle',
+          textStyle: {
+            color: '#999',
+            fontSize: 16
           }
-        },
-        force: layout === 'force' ? {
-          repulsion: 100,
-          gravity: 0.05,
-          edgeLength: 80,
-          layoutAnimation: true
-        } : undefined
-      } as any
-    ]
-  });
-
-  useEffect(() => {
-    if (!chartRef.current) {
-      return undefined;
-    }
-
-    // Validate data
-    const validation = validateData(data);
-    if (!validation.isValid) {
-      console.error('GraphChart validation error:', validation.error);
-      return undefined;
-    }
-
-    // Dispose existing chart
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.dispose();
+        }
+      };
     }
 
     try {
-      // Initialize chart with theme support
-      chartInstanceRef.current = echarts.init(chartRef.current, theme);
+      const chartConfig = config as GraphChartConfig;
+      const dataArray = getDataArray(data);
+      
+      // Prepare nodes
+      const nodeMap = new Map();
+      const nodes: any[] = [];
+      const links: any[] = [];
 
-      // Merge default options with provided options
-      const chartOptions: EChartsOption = {
-        ...getDefaultOptions(),
-        ...options
-      };
-
-      // Set chart options
-      chartInstanceRef.current.setOption(chartOptions, true);
-
-      // Register event handlers
-      Object.entries(onEvents).forEach(([eventName, handler]) => {
-        if (chartInstanceRef.current) {
-          chartInstanceRef.current.on(eventName, handler);
-        }
-      });
-
-      // Call onChartReady callback
-      if (onChartReady && chartInstanceRef.current) {
-        onChartReady(chartInstanceRef.current);
+      // If we have sourceField and targetField, this is link data
+      if (chartConfig.sourceField && chartConfig.targetField) {
+        // Extract nodes from links
+        dataArray.forEach(item => {
+          const source = item[chartConfig.sourceField!];
+          const target = item[chartConfig.targetField!];
+          
+          if (!nodeMap.has(source)) {
+            nodeMap.set(source, {
+              id: source,
+              name: source,
+              symbolSize: chartConfig.symbolSize || 30
+            });
+            nodes.push(nodeMap.get(source));
+          }
+          
+          if (!nodeMap.has(target)) {
+            nodeMap.set(target, {
+              id: target,
+              name: target,
+              symbolSize: chartConfig.symbolSize || 30
+            });
+            nodes.push(nodeMap.get(target));
+          }
+          
+          links.push({
+            source: source,
+            target: target,
+            value: chartConfig.linkValueField ? (parseFloat(item[chartConfig.linkValueField]) || 1) : 1
+          });
+        });
+      } else {
+        // This is node data, create nodes directly
+        dataArray.forEach(item => {
+          const nodeId = item[chartConfig.nodeIdField];
+          const nodeLabel = chartConfig.nodeLabelField ? item[chartConfig.nodeLabelField] : nodeId;
+          const nodeSize = chartConfig.nodeSizeField 
+            ? (parseFloat(item[chartConfig.nodeSizeField]) || 30)
+            : (Array.isArray(chartConfig.symbolSize) ? chartConfig.symbolSize[0] : chartConfig.symbolSize || 30);
+          const category = chartConfig.nodeCategoryField ? item[chartConfig.nodeCategoryField] : 0;
+          
+          nodes.push({
+            id: nodeId,
+            name: nodeLabel,
+            symbolSize: nodeSize,
+            category: category
+          });
+        });
       }
 
-      // Handle resize
-      const handleResize = () => {
-        if (chartInstanceRef.current) {
-          chartInstanceRef.current.resize();
-        }
-      };
+      // Force layout configuration
+      const force = chartConfig.layout === 'force' ? {
+        repulsion: chartConfig.repulsion || 100,
+        gravity: chartConfig.gravity || 0.1,
+        edgeLength: chartConfig.edgeLength || 150,
+        layoutAnimation: true
+      } : undefined;
 
-      window.addEventListener('resize', handleResize);
-
-      // Return cleanup function
-      return () => {
-        window.removeEventListener('resize', handleResize);
-        if (chartInstanceRef.current) {
-          // Remove event handlers
-          Object.keys(onEvents).forEach(eventName => {
-            if (chartInstanceRef.current) {
-              chartInstanceRef.current.off(eventName);
+      return {
+        title: {
+          text: chartConfig.title,
+          left: 'center',
+          textStyle: {
+            fontSize: 16,
+            fontWeight: 'bold'
+          }
+        },
+        tooltip: {
+          trigger: 'item',
+          formatter: (params: any) => {
+            if (params.dataType === 'node') {
+              return `${params.data.name}${params.data.symbolSize ? `<br/>Size: ${params.data.symbolSize}` : ''}`;
+            } else if (params.dataType === 'edge') {
+              return `${params.data.source} → ${params.data.target}${params.data.value ? `<br/>Value: ${params.data.value}` : ''}`;
             }
-          });
-          chartInstanceRef.current.dispose();
-          chartInstanceRef.current = null;
-        }
+            return '';
+          }
+        },
+        legend: chartConfig.categories ? {
+          show: true,
+          data: chartConfig.categories.map(cat => cat.name)
+        } : undefined,
+        series: [
+          {
+            name: chartConfig.title || 'Graph',
+            type: 'graph',
+            data: nodes,
+            links: links,
+            categories: chartConfig.categories,
+            layout: chartConfig.layout || 'force',
+            force,
+            roam: chartConfig.roam !== false,
+            draggable: chartConfig.draggable !== false,
+            focusNodeAdjacency: chartConfig.focusNodeAdjacency !== false,
+            label: {
+              show: true,
+              position: 'inside',
+              formatter: '{b}',
+              fontSize: 12,
+              fontWeight: 'bold'
+            },
+            lineStyle: {
+              color: 'source',
+              curveness: 0.3,
+              width: 2
+            },
+            itemStyle: {
+              borderColor: '#fff',
+              borderWidth: 1,
+              shadowBlur: 10,
+              shadowColor: 'rgba(0, 0, 0, 0.3)'
+            },
+            emphasis: {
+              focus: 'adjacency',
+              lineStyle: {
+                width: 10
+              }
+            },
+            animationType: 'expansion',
+            animationDelay: (idx: number) => idx * 10
+          }
+        ],
+        animation: true
       };
     } catch (error) {
-      console.error('Error creating graph chart:', error);
-      return undefined;
+      console.error('Error processing graph chart data:', error);
+      onError?.(error as Error);
+      return {
+        title: {
+          text: 'Error Loading Chart',
+          left: 'center',
+          top: 'middle',
+          textStyle: {
+            color: '#ff4444',
+            fontSize: 16
+          }
+        }
+      };
     }
-  }, [data, options, layout, roam, focusNodeAdjacency, draggable, theme, onChartReady, onEvents]);
+  }, [data, config, onError]);
 
-  // Handle validation errors
-  const validation = validateData(data);
-  if (!validation.isValid) {
-    return (
-      <div 
-        className={`flex items-center justify-center border border-red-300 bg-red-50 ${className}`}
-        style={{ width, height }}
-      >
-        <div className="text-red-500 text-center p-4">
-          <p className="font-medium">Invalid Graph Data</p>
-          <p className="text-sm mt-1">{validation.error}</p>
-          <p className="text-xs mt-2 text-gray-500">Check console for more details</p>
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (!chartRef.current) return;
+
+    if (!chartInstance.current) {
+      chartInstance.current = echarts.init(chartRef.current);
+    }
+
+    chartInstance.current.setOption(options, true);
+
+    const handleClick = (params: any) => {
+      onInteraction?.({
+        type: 'click',
+        chartId: chartId || 'echarts-graph-chart',
+        data: params.data,
+        dataIndex: params.dataIndex,
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
+      });
+    };
+
+    const handleMouseover = (params: any) => {
+      onInteraction?.({
+        type: 'hover',
+        chartId: chartId || 'echarts-graph-chart',
+        data: params.data,
+        dataIndex: params.dataIndex,
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
+      });
+    };
+
+    chartInstance.current.on('click', handleClick);
+    chartInstance.current.on('mouseover', handleMouseover);
+
+    const handleResize = () => {
+      chartInstance.current?.resize();
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      chartInstance.current?.off('click', handleClick);
+      chartInstance.current?.off('mouseover', handleMouseover);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [chartId, options, onInteraction]);
+
+  useEffect(() => {
+    if (chartInstance.current) {
+      chartInstance.current.resize();
+    }
+  }, [width, height]);
+
+  useEffect(() => {
+    return () => {
+      chartInstance.current?.dispose();
+    };
+  }, []);
 
   return (
-    <div
-      ref={chartRef}
-      className={className}
+    <div 
+      ref={chartRef} 
       style={{ 
-        width: typeof width === 'number' ? `${width}px` : width,
-        height: typeof height === 'number' ? `${height}px` : height
-      }}
+        width: typeof width === 'number' ? `${width}px` : width, 
+        height: typeof height === 'number' ? `${height}px` : height 
+      }} 
     />
   );
 };
-
-export default GraphChart;

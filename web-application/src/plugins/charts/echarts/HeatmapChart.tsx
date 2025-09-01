@@ -1,29 +1,29 @@
-// File: /web-application/src/plugins/charts/echarts/HeatmapChart.tsx
-
+// File: src/plugins/charts/echarts/HeatmapChart.tsx
 'use client';
 
 import React, { useEffect, useRef, useMemo } from 'react';
 import * as echarts from 'echarts';
 import { ChartProps } from '@/types/chart.types';
-import { 
-  normalizeChartData, 
-  isChartDataEmpty, 
-  extractFieldValues, 
-  extractNumericValues, 
-  createChartConfig 
-} from '../utils/chartDataUtils';
+import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
 
 export interface HeatmapChartConfig {
-  title?: string;
-  xAxisField: string;
-  yAxisField: string;
+  xField: string;
+  yField: string;
   valueField: string;
-  colorScale?: 'blues' | 'reds' | 'greens' | 'viridis' | 'plasma';
-  showValues?: boolean;
-  cellBorderRadius?: number;
+  title?: string;
+  xAxisLabel?: string;
+  yAxisLabel?: string;
+  colorRange?: [string, string];
+  showLabels?: boolean;
+  showGrid?: boolean;
 }
 
-export const HeatmapChart: React.FC<ChartProps> = ({
+interface HeatmapChartProps extends ChartProps {
+  chartId?: string;
+}
+
+export const HeatmapChart: React.FC<HeatmapChartProps> = ({
+  chartId,
   data,
   config,
   width = 400,
@@ -35,8 +35,7 @@ export const HeatmapChart: React.FC<ChartProps> = ({
   const chartInstance = useRef<echarts.ECharts>();
 
   const options = useMemo(() => {
-    // Check if data is empty using utility function
-    if (isChartDataEmpty(data)) {
+    if (!hasDataContent(data)) {
       return {
         title: {
           text: 'No Data Available',
@@ -50,49 +49,23 @@ export const HeatmapChart: React.FC<ChartProps> = ({
       };
     }
 
-    // Normalize data to array format
-    const chartData = normalizeChartData(data);
-    
-    // Create safe configuration with defaults
-    const chartConfig = createChartConfig(config, {
-      xAxisField: 'x',
-      yAxisField: 'y',
-      valueField: 'value',
-      title: 'Heatmap',
-      colorScale: 'blues',
-      showValues: false,
-      cellBorderRadius: 0
-    }) as HeatmapChartConfig;
-
     try {
-      // Extract unique values for axes
-      const xValues = extractFieldValues(chartData, chartConfig.xAxisField, '');
-      const yValues = extractFieldValues(chartData, chartConfig.yAxisField, '');
-      const values = extractNumericValues(chartData, chartConfig.valueField, 0);
-
-      // Get unique categories
-      const xCategories = [...new Set(xValues)].sort();
-      const yCategories = [...new Set(yValues)].sort();
-
+      const chartConfig = config as HeatmapChartConfig;
+      const dataArray = getDataArray(data);
+      
+      // Get unique values for x and y axes
+      const xCategories = Array.from(new Set(dataArray.map(item => item[chartConfig.xField]))).sort();
+      const yCategories = Array.from(new Set(dataArray.map(item => item[chartConfig.yField]))).sort();
+      
       // Prepare heatmap data
-      const heatmapData = chartData.map((item, index) => [
-        xCategories.indexOf(xValues[index]),
-        yCategories.indexOf(yValues[index]),
-        values[index] || 0
+      const heatmapData = dataArray.map(item => [
+        xCategories.indexOf(item[chartConfig.xField]),
+        yCategories.indexOf(item[chartConfig.yField]),
+        parseFloat(item[chartConfig.valueField]) || 0
       ]);
 
-      // Define color schemes
-      const colorSchemes = {
-        blues: ['#f7fbff', '#deebf7', '#c6dbef', '#9ecae1', '#6baed6', '#4292c6', '#2171b5', '#08519c', '#08306b'],
-        reds: ['#fff5f0', '#fee0d2', '#fcbba1', '#fc9272', '#fb6a4a', '#ef3b2c', '#cb181d', '#a50f15', '#67000d'],
-        greens: ['#f7fcf5', '#e5f5e0', '#c7e9c0', '#a1d99b', '#74c476', '#41ab5d', '#238b45', '#006d2c', '#00441b'],
-        viridis: ['#440154', '#482777', '#3f4a8a', '#31678e', '#26838f', '#1f9d8a', '#6cce5a', '#b6de2b', '#fee825'],
-        plasma: ['#0d0887', '#6a00a8', '#b12a90', '#e16462', '#fca636', '#f0f921']
-      };
-
-      const selectedColors = colorSchemes[chartConfig.colorScale ?? 'blues'] ?? colorSchemes.blues;
-
-      // Calculate min and max values for color mapping
+      // Calculate min/max for color scaling
+      const values = heatmapData.map(item => item[2]);
       const minValue = Math.min(...values);
       const maxValue = Math.max(...values);
 
@@ -108,31 +81,33 @@ export const HeatmapChart: React.FC<ChartProps> = ({
         tooltip: {
           position: 'top',
           formatter: (params: any) => {
-            const data = params.data;
-            return `${chartConfig.xAxisField}: ${xCategories[data[0]]}<br/>` +
-                   `${chartConfig.yAxisField}: ${yCategories[data[1]]}<br/>` +
-                   `${chartConfig.valueField}: ${data[2]}`;
+            const [x, y, value] = params.data;
+            return `${xCategories[x]} - ${yCategories[y]}<br/>${chartConfig.valueField}: ${value}`;
           }
         },
         grid: {
           height: '50%',
-          top: '10%'
+          top: '10%',
+          containLabel: true
         },
         xAxis: {
           type: 'category',
           data: xCategories,
+          name: chartConfig.xAxisLabel,
+          nameLocation: 'middle',
+          nameGap: 30,
           splitArea: {
-            show: true
-          },
-          axisLabel: {
-            rotate: xCategories.some(cat => String(cat).length > 8) ? 45 : 0
+            show: chartConfig.showGrid !== false
           }
         },
         yAxis: {
           type: 'category',
           data: yCategories,
+          name: chartConfig.yAxisLabel,
+          nameLocation: 'middle',
+          nameGap: 50,
           splitArea: {
-            show: true
+            show: chartConfig.showGrid !== false
           }
         },
         visualMap: {
@@ -143,39 +118,26 @@ export const HeatmapChart: React.FC<ChartProps> = ({
           left: 'center',
           bottom: '15%',
           inRange: {
-            color: selectedColors
-          },
-          text: ['High', 'Low'],
-          textStyle: {
-            color: '#333'
+            color: chartConfig.colorRange || ['#50a3ba', '#eac736', '#d94e5d']
           }
         },
-        series: [{
-          name: chartConfig.valueField,
-          type: 'heatmap',
-          data: heatmapData,
-          label: {
-            show: chartConfig.showValues,
-            formatter: '{c}',
-            color: '#000',
-            fontSize: 12
-          },
-          itemStyle: {
-            borderRadius: chartConfig.cellBorderRadius,
-            borderColor: '#fff',
-            borderWidth: 1
-          },
-          emphasis: {
-            itemStyle: {
-              shadowBlur: 10,
-              shadowColor: 'rgba(0, 0, 0, 0.5)',
-              borderColor: '#333',
-              borderWidth: 2
+        series: [
+          {
+            name: chartConfig.title || 'Heatmap',
+            type: 'heatmap',
+            data: heatmapData,
+            label: {
+              show: chartConfig.showLabels || false
+            },
+            emphasis: {
+              itemStyle: {
+                shadowBlur: 10,
+                shadowColor: 'rgba(0, 0, 0, 0.5)'
+              }
             }
           }
-        }],
-        animation: true,
-        animationDuration: 1000
+        ],
+        animation: true
       };
     } catch (error) {
       console.error('Error processing heatmap chart data:', error);
@@ -197,50 +159,57 @@ export const HeatmapChart: React.FC<ChartProps> = ({
   useEffect(() => {
     if (!chartRef.current) return;
 
-    // Initialize chart
     if (!chartInstance.current) {
       chartInstance.current = echarts.init(chartRef.current);
     }
 
-    // Set options
     chartInstance.current.setOption(options, true);
 
-    // Add click handler
     const handleClick = (params: any) => {
       onInteraction?.({
         type: 'click',
+        chartId: chartId || 'echarts-heatmap-chart',
         data: params.data,
         dataIndex: params.dataIndex,
         seriesIndex: params.seriesIndex,
-        event: params.event
+        timestamp: Date.now()
+      });
+    };
+
+    const handleMouseover = (params: any) => {
+      onInteraction?.({
+        type: 'hover',
+        chartId: chartId || 'echarts-heatmap-chart',
+        data: params.data,
+        dataIndex: params.dataIndex,
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
       });
     };
 
     chartInstance.current.on('click', handleClick);
+    chartInstance.current.on('mouseover', handleMouseover);
 
-    // Handle resize
     const handleResize = () => {
       chartInstance.current?.resize();
     };
 
     window.addEventListener('resize', handleResize);
 
-    // Cleanup
     return () => {
       chartInstance.current?.off('click', handleClick);
+      chartInstance.current?.off('mouseover', handleMouseover);
       window.removeEventListener('resize', handleResize);
     };
-  }, [options, onInteraction]);
+  }, [chartId, options, onInteraction]);
 
   useEffect(() => {
-    // Resize chart when dimensions change
     if (chartInstance.current) {
       chartInstance.current.resize();
     }
   }, [width, height]);
 
   useEffect(() => {
-    // Cleanup on unmount
     return () => {
       chartInstance.current?.dispose();
     };
@@ -256,84 +225,3 @@ export const HeatmapChart: React.FC<ChartProps> = ({
     />
   );
 };
-
-// Chart Plugin Configuration Export
-export const EChartsHeatmapChartConfig = {
-  name: 'echarts-heatmap',
-  displayName: 'ECharts Heatmap',
-  category: 'statistical',
-  library: 'echarts',
-  version: '1.0.0',
-  description: 'Interactive heatmap visualization for correlation and density analysis',
-  tags: ['heatmap', 'correlation', 'density', 'statistical'],
-  
-  configSchema: {
-    type: 'object',
-    properties: {
-      title: {
-        type: 'string',
-        title: 'Chart Title',
-        default: 'Heatmap'
-      },
-      xAxisField: {
-        type: 'string',
-        title: 'X-Axis Field',
-        description: 'Field name for x-axis categories',
-        default: 'x'
-      },
-      yAxisField: {
-        type: 'string',
-        title: 'Y-Axis Field',
-        description: 'Field name for y-axis categories',
-        default: 'y'
-      },
-      valueField: {
-        type: 'string',
-        title: 'Value Field',
-        description: 'Field name for heatmap values',
-        default: 'value'
-      },
-      colorScale: {
-        type: 'select',
-        title: 'Color Scale',
-        options: [
-          { label: 'Blues', value: 'blues' },
-          { label: 'Reds', value: 'reds' },
-          { label: 'Greens', value: 'greens' },
-          { label: 'Viridis', value: 'viridis' },
-          { label: 'Plasma', value: 'plasma' }
-        ],
-        default: 'blues'
-      },
-      showValues: {
-        type: 'boolean',
-        title: 'Show Cell Values',
-        description: 'Display values inside heatmap cells',
-        default: false
-      },
-      cellBorderRadius: {
-        type: 'number',
-        title: 'Cell Border Radius',
-        default: 0,
-        minimum: 0,
-        maximum: 10
-      }
-    },
-    required: ['xAxisField', 'yAxisField', 'valueField']
-  },
-  
-  dataRequirements: {
-    minColumns: 3,
-    maxColumns: 10,
-    requiredFields: ['x', 'y', 'value'],
-    optionalFields: [],
-    supportedTypes: ['string', 'number'],
-    aggregationSupport: true,
-    pivotSupport: true
-  },
-  
-  exportFormats: ['png', 'svg', 'pdf'],
-  component: HeatmapChart
-};
-
-export default HeatmapChart;

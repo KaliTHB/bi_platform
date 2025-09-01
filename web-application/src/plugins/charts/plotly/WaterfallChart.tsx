@@ -1,9 +1,20 @@
+// src/plugins/charts/plotly/WaterfallChart.tsx
 import React, { useMemo } from 'react';
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
 import Plot from 'react-plotly.js';
 import { PlotData, Config, Layout } from 'plotly.js';
 import { ChartProps, ChartPluginConfig } from '@/types/chart.types';
 import { getDataArray, isChartDataEmpty } from '../utils/chartDataUtils';
+import {
+  getThemeTextColor,
+  getThemeBackgroundColor, 
+  getThemeGridColor,
+  getThemePrimaryColor,
+  getPlotlyTextFont,
+  getPlotlyTitleFont,
+  getThemeFontFamily,
+  getChartColors
+} from '@/utils/themeHelpers';
 
 interface WaterfallChartConfig extends ChartPluginConfig {
   title?: string;
@@ -58,51 +69,38 @@ interface WaterfallChartConfig extends ChartPluginConfig {
   orientation?: 'v' | 'h';
 }
 
-export const WaterfallChart: React.FC<ChartProps> = ({ 
-  data, 
-  config, 
-  dimensions, 
-  theme, 
-  onInteraction, 
+export interface WaterfallChartProps extends ChartProps {
+  config: WaterfallChartConfig;
+}
+
+const WaterfallChart: React.FC<WaterfallChartProps> = ({
+  data,
+  config: waterfallConfig,
+  dimensions,
+  theme,
+  filters,
+  onInteraction,
   onError,
   isLoading,
   error
 }) => {
-  const waterfallConfig = config as WaterfallChartConfig;
-
+  // Process and validate data
   const processedData = useMemo(() => {
-    if (isChartDataEmpty(data)) {
-      return null;
-    }
-
+    if (!data) return null;
+    
     try {
       const dataArray = getDataArray(data);
       
-      // Validate required fields
-      if (!waterfallConfig.categoryField || !waterfallConfig.valueField) {
-        throw new Error('categoryField and valueField are required for waterfall chart');
+      if (isChartDataEmpty(dataArray)) {
+        return null;
       }
 
-      // Process data and determine measure types
-      const processedItems = dataArray.map((item, index) => {
-        const category = String(item[waterfallConfig.categoryField] || `Item ${index + 1}`);
+      const result = dataArray.map((item, index) => {
+        const category = item[waterfallConfig.categoryField];
         const value = Number(item[waterfallConfig.valueField]) || 0;
-        
-        // Determine measure type
-        let measure = 'relative'; // default
-        if (waterfallConfig.measureField && item[waterfallConfig.measureField]) {
-          const measureValue = String(item[waterfallConfig.measureField]).toLowerCase();
-          if (['relative', 'absolute', 'total'].includes(measureValue)) {
-            measure = measureValue;
-          }
-        } else {
-          // Auto-detect totals based on category names
-          const categoryLower = category.toLowerCase();
-          if (categoryLower.includes('total') || categoryLower.includes('sum') || 
-              categoryLower.includes('final') || categoryLower.includes('net')) {
-            measure = 'total';
-          }
-        }
+        const measure = waterfallConfig.measureField ? 
+          item[waterfallConfig.measureField] : 
+          (index === dataArray.length - 1 ? 'total' : 'relative');
 
         return {
           category,
@@ -111,11 +109,7 @@ export const WaterfallChart: React.FC<ChartProps> = ({
         };
       });
 
-      if (processedItems.length === 0) {
-        throw new Error('No valid data found for waterfall chart');
-      }
-
-      return processedItems;
+      return result.length > 0 ? result : null;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to process waterfall chart data';
       onError?.(new Error(errorMessage));
@@ -145,7 +139,7 @@ export const WaterfallChart: React.FC<ChartProps> = ({
     );
   }
 
-  if (!processedData || processedData.length === 0) {
+  if (!processedData) {
     return (
       <Box sx={{ 
         width: dimensions?.width, 
@@ -161,12 +155,13 @@ export const WaterfallChart: React.FC<ChartProps> = ({
     );
   }
 
-  // Default colors
-  const defaultIncreasingColor = theme?.colors?.[0] || '#2E8B57'; // Sea Green
-  const defaultDecreasingColor = theme?.colors?.[1] || '#DC143C'; // Crimson
-  const defaultTotalColor = theme?.colors?.[2] || '#4682B4';      // Steel Blue
+  // Default colors using theme-aware helpers
+  const chartColors = getChartColors(theme, 3);
+  const defaultIncreasingColor = getThemePrimaryColor(theme, 0) || '#2E8B57'; // Sea Green
+  const defaultDecreasingColor = chartColors[1] || '#DC143C'; // Crimson
+  const defaultTotalColor = chartColors[2] || '#4682B4';      // Steel Blue
 
-  const plotData: any[] = [{
+  const plotData: PlotData[] = [{
     type: 'waterfall',
     x: waterfallConfig.orientation === 'h' ? processedData.map(item => item.value) : processedData.map(item => item.category),
     y: waterfallConfig.orientation === 'h' ? processedData.map(item => item.category) : processedData.map(item => item.value),
@@ -175,24 +170,26 @@ export const WaterfallChart: React.FC<ChartProps> = ({
     textinfo: waterfallConfig.textinfo || 'label+value',
     textfont: waterfallConfig.textfont ? {
       size: waterfallConfig.textfont.size || 12,
-      color: waterfallConfig.textfont.color || theme?.textColor || '#333',
-      family: waterfallConfig.textfont.family || theme?.fontFamily || 'Arial, sans-serif'
+      // FIXED: Use proper theme structure
+      color: waterfallConfig.textfont.color || getThemeTextColor(theme),
+      family: waterfallConfig.textfont.family || getThemeFontFamily(theme)
     } : {
       size: 12,
-      color: theme?.textColor || '#333',
-      family: theme?.fontFamily || 'Arial, sans-serif'
+      color: getThemeTextColor(theme),
+      family: getThemeFontFamily(theme)
     },
     measure: processedData.map(item => item.measure),
     connector: waterfallConfig.connector ? {
       line: {
-        color: waterfallConfig.connector.line?.color || theme?.gridColor || '#888',
+        // FIXED: Use proper theme structure
+        color: waterfallConfig.connector.line?.color || getThemeGridColor(theme),
         width: waterfallConfig.connector.line?.width || 2,
         dash: waterfallConfig.connector.line?.dash || 'solid'
       },
       visible: waterfallConfig.connector.visible !== false
     } : {
       line: {
-        color: theme?.gridColor || '#888',
+        color: getThemeGridColor(theme),
         width: 2,
         dash: 'solid'
       },
@@ -231,7 +228,7 @@ export const WaterfallChart: React.FC<ChartProps> = ({
       `Type: %{measure}<br>` +
       `<extra></extra>`,
     showlegend: waterfallConfig.showlegend !== false
-  }];
+  } as unknown as PlotData];
 
   const layout: Partial<Layout> = {
     width: dimensions?.width || 400,
@@ -239,7 +236,8 @@ export const WaterfallChart: React.FC<ChartProps> = ({
     title: {
       text: waterfallConfig.title,
       font: { 
-        color: theme?.textColor || '#333',
+        // FIXED: Use proper theme structure
+        color: getThemeTextColor(theme),
         size: 16
       }
     },
@@ -247,38 +245,39 @@ export const WaterfallChart: React.FC<ChartProps> = ({
       title: { 
         text: waterfallConfig.orientation === 'h' ? waterfallConfig.valueField : waterfallConfig.categoryField 
       },
-      color: theme?.textColor || '#333',
-      gridcolor: theme?.gridColor || '#e0e0e0',
+      color: getThemeTextColor(theme),
+      gridcolor: getThemeGridColor(theme),
       tickangle: waterfallConfig.orientation !== 'h' ? -45 : 0
     },
     yaxis: {
       title: { 
         text: waterfallConfig.orientation === 'h' ? waterfallConfig.categoryField : waterfallConfig.valueField 
       },
-      color: theme?.textColor || '#333',
-      gridcolor: theme?.gridColor || '#e0e0e0'
+      color: getThemeTextColor(theme),
+      gridcolor: getThemeGridColor(theme)
     },
     font: {
-      color: theme?.textColor || '#333',
-      family: theme?.fontFamily || 'Arial, sans-serif'
+      color: getThemeTextColor(theme),
+      family: getThemeFontFamily(theme)
     },
-    plot_bgcolor: theme?.backgroundColor || 'white',
-    paper_bgcolor: theme?.backgroundColor || 'white',
+    // FIXED: Use proper theme structure
+    plot_bgcolor: getThemeBackgroundColor(theme),
+    paper_bgcolor: getThemeBackgroundColor(theme),
     showlegend: waterfallConfig.showlegend !== false,
     legend: {
       orientation: 'v',
       x: 1.02,
       y: 1,
-      font: { color: theme?.textColor || '#333' }
+      font: { color: getThemeTextColor(theme) }
     },
-    margin: { l: 80, r: 120, t: 80, b: 100 }
+    margin: { l: 60, r: 100, t: 80, b: 60 }
   };
 
   const plotConfig: Partial<Config> = {
     responsive: true,
     displayModeBar: true,
     displaylogo: false,
-    modeBarButtonsToRemove: ['pan2d', 'lasso2d', 'select2d'],
+    modeBarButtonsToRemove: ['pan2d', 'lasso2d', 'select2d', 'zoom2d'],
     toImageButtonOptions: {
       format: 'png',
       filename: 'waterfall-chart',
@@ -294,41 +293,28 @@ export const WaterfallChart: React.FC<ChartProps> = ({
         data={plotData}
         layout={layout}
         config={plotConfig}
-        onClick={(event: any) => {
-          if (onInteraction && event.points?.length > 0) {
-            const point = event.points[0];
-            const dataIndex = point.pointNumber;
-            const item = processedData[dataIndex];
-            
+        onClick={(event) => {
+          if (onInteraction) {
             onInteraction({
               type: 'click',
-              data: {
-                category: item.category,
-                value: item.value,
-                measure: item.measure
-              },
-              dataIndex
+              chartId: '',
+              data: event.points[0],
+              dataIndex: event.points[0].pointIndex,
+              timestamp: Date.now()
             });
           }
         }}
-        onHover={(event: any) => {
-          if (onInteraction && event.points?.length > 0) {
-            const point = event.points[0];
-            const dataIndex = point.pointNumber;
-            const item = processedData[dataIndex];
-            
+        onHover={(event) => {
+          if (onInteraction) {
             onInteraction({
               type: 'hover',
-              data: {
-                category: item.category,
-                value: item.value,
-                measure: item.measure
-              },
-              dataIndex
+              chartId: '',
+              data: event.points[0],
+              dataIndex: event.points[0].pointIndex,
+              timestamp: Date.now()
             });
           }
         }}
-        style={{ width: '100%', height: '100%' }}
       />
     </Box>
   );

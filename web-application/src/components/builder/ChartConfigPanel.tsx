@@ -24,7 +24,12 @@ import {
   Grid,
   Slider,
   Autocomplete,
-  Alert
+  Alert,
+  FormHelperText,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Dialog
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
@@ -49,6 +54,15 @@ interface ChartConfigPanelProps {
 interface ChartConfigState extends Chart {
   // Extend with additional UI state if needed
 }
+
+// Available themes configuration
+const AVAILABLE_THEMES = [
+  { value: 'light', label: 'Light Theme' },
+  { value: 'dark', label: 'Dark Theme' },
+  { value: 'corporate', label: 'Corporate Theme' },
+  { value: 'webview', label: 'Webview Theme' },
+  { value: 'custom', label: 'Custom Theme' }
+];
 
 export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
   open,
@@ -96,7 +110,18 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
     },
     colors: ['#1976d2', '#dc004e', '#388e3c', '#f57c00'],
     animations: true,
-    interactivity: true
+    interactivity: true,
+    theme: 'light',
+    customTheme: {
+      primaryColor: '#1976d2',
+      secondaryColor: '#dc004e',
+      backgroundColor: '#ffffff',
+      textColor: '#333333',
+      fontFamily: 'Roboto, sans-serif',
+      fontSize: 12,
+      useCustomColors: false,
+      enableAnimations: true
+    }
   });
 
   useEffect(() => {
@@ -170,21 +195,6 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
         current[keys[keys.length - 1]] = value;
       }
 
-      // Transform config if needed
-      let transformedConfig = {};
-
-      // FIXED: Check if chart exists and has config_json before accessing it
-      if (chart?.config_json) {
-        try {
-          transformedConfig = typeof chart.config_json === 'string' 
-            ? JSON.parse(chart.config_json) 
-            : chart.config_json;
-        } catch (error) {
-          console.error('Error parsing config_json:', error);
-          transformedConfig = createDefaultChartConfig();
-        }
-      }
-
       return newConfig;
     });
   };
@@ -225,7 +235,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
     if (!config) return;
     
     const currentYAxes = config.config_json?.y_axes || [];
-    const newYAxes = currentYAxes.filter((_: any, i: number ) => i !== index);
+    const newYAxes = currentYAxes.filter((_: any, i: number) => i !== index);
     
     handleConfigChange('config_json.y_axes', newYAxes);
   };
@@ -394,18 +404,12 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                 {config.config_json?.y_axes?.map((yAxis: any, index: number) => (
                   <Paper key={index} sx={{ p: 2, border: '1px solid #e0e0e0' }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                      <Typography variant="body2" fontWeight="medium">
-                        Series {index + 1}
-                      </Typography>
-                      <IconButton 
-                        size="small" 
-                        onClick={() => removeYAxis(index)}
-                        color="error"
-                      >
+                      <Typography variant="body1">Series {index + 1}</Typography>
+                      <IconButton onClick={() => removeYAxis(index)} size="small" color="error">
                         <DeleteIcon />
                       </IconButton>
                     </Box>
-
+                    
                     <Grid container spacing={2}>
                       <Grid item xs={12}>
                         <FormControl fullWidth>
@@ -422,7 +426,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                           </Select>
                         </FormControl>
                       </Grid>
-
+                      
                       <Grid item xs={6}>
                         <TextField
                           fullWidth
@@ -431,93 +435,16 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                           onChange={(e) => handleConfigChange(`config_json.y_axes.${index}.name`, e.target.value)}
                         />
                       </Grid>
-
+                      
                       <Grid item xs={6}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <TextField
-                            fullWidth
-                            label="Color"
-                            value={yAxis.color || ''}
-                            onChange={(e) => handleConfigChange(`config_json.y_axes.${index}.color`, e.target.value)}
-                          />
-                          <IconButton 
-                            onClick={() => setShowColorPicker({ 
-                              ...showColorPicker, 
-                              [`yAxis_${index}`]: !showColorPicker[`yAxis_${index}`] 
-                            })}
-                          >
-                            <PaletteIcon />
-                          </IconButton>
-                        </Box>
-
-                        {showColorPicker[`yAxis_${index}`] && (
-                          <Box sx={{ position: 'absolute', zIndex: 1000, mt: 1 }}>
-                            <SketchPicker
-                              color={yAxis.color || '#1976d2'}
-                              onChangeComplete={(color) => {
-                                handleConfigChange(`config_json.y_axes.${index}.color`, color.hex);
-                                setShowColorPicker({ ...showColorPicker, [`yAxis_${index}`]: false });
-                              }}
-                            />
-                          </Box>
-                        )}
+                        <TextField
+                          fullWidth
+                          label="Color"
+                          type="color"
+                          value={yAxis.color || '#1976d2'}
+                          onChange={(e) => handleConfigChange(`config_json.y_axes.${index}.color`, e.target.value)}
+                        />
                       </Grid>
-
-                      {isLineOrAreaChart && (
-                        <>
-                          <Grid item xs={6}>
-                            <FormControl fullWidth>
-                              <InputLabel>Line Style</InputLabel>
-                              <Select
-                                value={yAxis.line_style || 'solid'}
-                                onChange={(e) => handleConfigChange(`config_json.y_axes.${index}.line_style`, e.target.value)}
-                              >
-                                <MenuItem value="solid">Solid</MenuItem>
-                                <MenuItem value="dashed">Dashed</MenuItem>
-                                <MenuItem value="dotted">Dotted</MenuItem>
-                              </Select>
-                            </FormControl>
-                          </Grid>
-
-                          <Grid item xs={6}>
-                            <Typography variant="body2" gutterBottom>
-                              Line Width: {yAxis.line_width || 2}
-                            </Typography>
-                            <Slider
-                              value={yAxis.line_width || 2}
-                              onChange={(_, value) => handleConfigChange(`config_json.y_axes.${index}.line_width`, value)}
-                              min={1}
-                              max={10}
-                              step={1}
-                              marks
-                            />
-                          </Grid>
-
-                          <Grid item xs={6}>
-                            <FormControlLabel
-                              control={
-                                <Switch
-                                  checked={yAxis.show_points !== false}
-                                  onChange={(e) => handleConfigChange(`config_json.y_axes.${index}.show_points`, e.target.checked)}
-                                />
-                              }
-                              label="Show Points"
-                            />
-                          </Grid>
-
-                          <Grid item xs={6}>
-                            <FormControlLabel
-                              control={
-                                <Switch
-                                  checked={yAxis.fill_area || false}
-                                  onChange={(e) => handleConfigChange(`config_json.y_axes.${index}.fill_area`, e.target.checked)}
-                                />
-                              }
-                              label="Fill Area"
-                            />
-                          </Grid>
-                        </>
-                      )}
                     </Grid>
                   </Paper>
                 ))}
@@ -554,56 +481,6 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                     ))}
                   </Select>
                 </FormControl>
-
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={config.config_json?.show_labels !== false}
-                      onChange={(e) => handleConfigChange('config_json.show_labels', e.target.checked)}
-                    />
-                  }
-                  label="Show Labels"
-                />
-              </>
-            )}
-
-            {/* Scatter Plot Configuration */}
-            {isScatterPlot && (
-              <>
-                <FormControl fullWidth>
-                  <InputLabel>Y-Axis Column</InputLabel>
-                  <Select
-                    value={config.config_json?.y_axis?.column || ''}
-                    onChange={(e) => handleConfigChange('config_json.y_axis.column', e.target.value)}
-                  >
-                    {getColumnOptions('numeric').map(col => (
-                      <MenuItem key={col.name} value={col.name}>
-                        {col.name} ({col.type})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-
-                <TextField
-                  fullWidth
-                  label="Y-Axis Title"
-                  value={config.config_json?.y_axis?.title || ''}
-                  onChange={(e) => handleConfigChange('config_json.y_axis.title', e.target.value)}
-                />
-
-                <Box sx={{ px: 2 }}>
-                  <Typography variant="body2" gutterBottom>
-                    Point Size: {config.config_json?.point_size || 6}
-                  </Typography>
-                  <Slider
-                    value={config.config_json?.point_size || 6}
-                    onChange={(_, value) => handleConfigChange('config_json.point_size', value)}
-                    min={2}
-                    max={20}
-                    step={1}
-                    marks
-                  />
-                </Box>
               </>
             )}
 
@@ -611,10 +488,10 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
             {isMetricCard && (
               <>
                 <FormControl fullWidth>
-                  <InputLabel>Value Column</InputLabel>
+                  <InputLabel>Metric Column</InputLabel>
                   <Select
-                    value={config.config_json?.value_column || ''}
-                    onChange={(e) => handleConfigChange('config_json.value_column', e.target.value)}
+                    value={config.config_json?.metric_column || ''}
+                    onChange={(e) => handleConfigChange('config_json.metric_column', e.target.value)}
                   >
                     {getColumnOptions('numeric').map(col => (
                       <MenuItem key={col.name} value={col.name}>
@@ -698,74 +575,135 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                     </Select>
                   </FormControl>
                 </Grid>
-
-                <Grid item xs={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>Orientation</InputLabel>
-                    <Select
-                      value={config.config_json?.legend?.orientation || 'horizontal'}
-                      onChange={(e) => handleConfigChange('config_json.legend.orientation', e.target.value)}
-                    >
-                      <MenuItem value="horizontal">Horizontal</MenuItem>
-                      <MenuItem value="vertical">Vertical</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
               </Grid>
             )}
+          </Box>
+        </AccordionDetails>
+      </Accordion>
+    );
+  };
 
-            {/* Grid Configuration */}
-            <Typography variant="subtitle2" color="primary">Grid</Typography>
+  const renderThemeConfig = () => {
+    if (!config) return null;
+
+    return (
+      <Accordion>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography variant="h6">Theme & Appearance</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {/* Theme Selection */}
+            <FormControl fullWidth>
+              <InputLabel>Theme</InputLabel>
+              <Select
+                value={config.config_json?.theme || 'light'}
+                onChange={(e) => handleConfigChange('config_json.theme', e.target.value)}
+                label="Theme"
+              >
+                {AVAILABLE_THEMES.map(theme => (
+                  <MenuItem key={theme.value} value={theme.value}>
+                    {theme.label}
+                  </MenuItem>
+                ))}
+              </Select>
+              <FormHelperText>
+                Choose a theme that matches your dashboard's appearance
+              </FormHelperText>
+            </FormControl>
+
+            {/* Color Customization */}
+            <Typography variant="subtitle2" color="primary">Color Customization</Typography>
+            
+            <Grid container spacing={2}>
+              <Grid item xs={6}>
+                <TextField
+                  label="Primary Color"
+                  type="color"
+                  value={config.config_json?.customTheme?.primaryColor || '#1976d2'}
+                  onChange={(e) => handleConfigChange('config_json.customTheme.primaryColor', e.target.value)}
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  label="Secondary Color"
+                  type="color"
+                  value={config.config_json?.customTheme?.secondaryColor || '#dc004e'}
+                  onChange={(e) => handleConfigChange('config_json.customTheme.secondaryColor', e.target.value)}
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  label="Background Color"
+                  type="color"
+                  value={config.config_json?.customTheme?.backgroundColor || '#ffffff'}
+                  onChange={(e) => handleConfigChange('config_json.customTheme.backgroundColor', e.target.value)}
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  label="Text Color"
+                  type="color"
+                  value={config.config_json?.customTheme?.textColor || '#333333'}
+                  onChange={(e) => handleConfigChange('config_json.customTheme.textColor', e.target.value)}
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+            </Grid>
+
+            {/* Font Configuration */}
+            <Typography variant="subtitle2" color="primary">Typography</Typography>
+            
+            <Grid container spacing={2}>
+              <Grid item xs={6}>
+                <TextField
+                  label="Font Family"
+                  value={config.config_json?.customTheme?.fontFamily || 'Roboto, sans-serif'}
+                  onChange={(e) => handleConfigChange('config_json.customTheme.fontFamily', e.target.value)}
+                  fullWidth
+                  helperText="CSS font family"
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  label="Font Size"
+                  type="number"
+                  value={config.config_json?.customTheme?.fontSize || 12}
+                  onChange={(e) => handleConfigChange('config_json.customTheme.fontSize', parseInt(e.target.value))}
+                  fullWidth
+                  InputProps={{ endAdornment: 'px' }}
+                />
+              </Grid>
+            </Grid>
+
+            {/* Advanced Theme Options */}
+            <Typography variant="subtitle2" color="primary">Advanced Options</Typography>
+            
             <FormControlLabel
               control={
                 <Switch
-                  checked={config.config_json?.grid?.show_x_grid !== false}
-                  onChange={(e) => handleConfigChange('config_json.grid.show_x_grid', e.target.checked)}
+                  checked={config.config_json?.customTheme?.useCustomColors !== false}
+                  onChange={(e) => handleConfigChange('config_json.customTheme.useCustomColors', e.target.checked)}
                 />
               }
-              label="Show X-Axis Grid"
+              label="Use Custom Colors"
             />
 
             <FormControlLabel
               control={
                 <Switch
-                  checked={config.config_json?.grid?.show_y_grid !== false}
-                  onChange={(e) => handleConfigChange('config_json.grid.show_y_grid', e.target.checked)}
+                  checked={config.config_json?.customTheme?.enableAnimations !== false}
+                  onChange={(e) => handleConfigChange('config_json.customTheme.enableAnimations', e.target.checked)}
                 />
               }
-              label="Show Y-Axis Grid"
-            />
-
-            {/* Interaction Configuration */}
-            <Typography variant="subtitle2" color="primary">Interaction</Typography>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={config.config_json?.interaction?.zoom_enabled !== false}
-                  onChange={(e) => handleConfigChange('config_json.interaction.zoom_enabled', e.target.checked)}
-                />
-              }
-              label="Enable Zoom"
-            />
-
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={config.config_json?.interaction?.tooltip_enabled !== false}
-                  onChange={(e) => handleConfigChange('config_json.interaction.tooltip_enabled', e.target.checked)}
-                />
-              }
-              label="Show Tooltips"
-            />
-
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={config.config_json?.interaction?.crosshair_enabled || false}
-                  onChange={(e) => handleConfigChange('config_json.interaction.crosshair_enabled', e.target.checked)}
-                />
-              }
-              label="Show Crosshair"
+              label="Enable Animations"
             />
           </Box>
         </AccordionDetails>
@@ -773,76 +711,38 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
     );
   };
 
-  if (!open || !chart) {
+  if (!config) {
     return null;
   }
 
   return (
-    <Drawer
-      anchor="right"
-      open={open}
-      onClose={onClose}
-      sx={{
-        '& .MuiDrawer-paper': {
-          width: 480,
-          maxWidth: '90vw'
-        }
-      }}
-    >
-      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-        {/* Header */}
-        <Box sx={{ 
-          p: 2, 
-          borderBottom: '1px solid #e0e0e0',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between'
-        }}>
-          <Typography variant="h6">
-            Chart Configuration
-          </Typography>
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6">Configure Chart</Typography>
           <IconButton onClick={onClose}>
             <CloseIcon />
           </IconButton>
         </Box>
-
-        {/* Content */}
-        <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
-          {loading && (
-            <Box sx={{ p: 2, textAlign: 'center' }}>
-              <Typography>Loading dataset columns...</Typography>
-            </Box>
-          )}
-
-          {!loading && (
-            <>
-              {renderBasicConfig()}
-              {renderDataConfig()}
-              {renderStyleConfig()}
-            </>
-          )}
+      </DialogTitle>
+      
+      <DialogContent dividers>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {renderBasicConfig()}
+          {renderDataConfig()}
+          {renderStyleConfig()}
+          {renderThemeConfig()}
         </Box>
-
-        {/* Footer */}
-        <Box sx={{ 
-          p: 2, 
-          borderTop: '1px solid #e0e0e0',
-          display: 'flex',
-          gap: 1,
-          justifyContent: 'flex-end'
-        }}>
-          <Button onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleSave}
-            disabled={!config}
-          >
-            Save Changes
-          </Button>
-        </Box>
-      </Box>
-    </Drawer>
+      </DialogContent>
+      
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={handleSave} variant="contained" disabled={loading}>
+          {loading ? 'Saving...' : 'Save Configuration'}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 };
+
+export default ChartConfigPanel;

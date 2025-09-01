@@ -1,112 +1,291 @@
-// ECharts Parallel Coordinates Chart Component
-// File: web-application/src/plugins/charts/echarts/ParallelChart.tsx
+// File: src/plugins/charts/echarts/ParallelChart.tsx
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import * as echarts from 'echarts';
-import { ChartProps } from '@/types/chart.types';
-import { hasDataContent, getDataArray } from '@/plugins/charts/utils/chartDataUtils';
+import { ChartProps, ChartPluginConfig } from '@/types/chart.types';
+import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
 
 export interface ParallelChartConfig {
-  dimensions: string[];
+  dimensions: Array<{
+    name: string;
+    field: string;
+    type?: 'value' | 'category';
+    min?: number;
+    max?: number;
+    categories?: string[];
+  }>;
   colorField?: string;
-  brushMode?: 'rect' | 'polygon' | 'lineX' | 'lineY';
+  title?: string;
+  smooth?: boolean;
+  opacity?: number;
 }
 
-export const ParallelChart: React.FC<ChartProps> = ({
+interface ParallelChartProps extends ChartProps {
+  chartId?: string;
+}
+
+export const ParallelChart: React.FC<ParallelChartProps> = ({
+  chartId,
   data,
   config,
-  width = 400,
-  height = 300,
+  width = 600,
+  height = 400,
   onInteraction,
   onError
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts>();
 
-  useEffect(() => {
-    if (!chartRef.current || !hasDataContent(data)) return;
-
-    try {
-      chartInstance.current = echarts.init(chartRef.current);
-      
-      const { dimensions, colorField, brushMode = 'rect' } = config as ParallelChartConfig;
-      
-      // Get the actual data array regardless of format
-      const dataArray = getDataArray(data);
-      
-      // Prepare parallel coordinates data
-      const parallelData = dataArray.map(item => 
-        dimensions.map(dim => parseFloat(item[dim]) || 0)
-      );
-
-      // Create dimension configuration
-      const parallelAxis = dimensions.map(dim => ({
-        dim: dim,
-        name: dim,
-        type: 'value',
-        nameLocation: 'end',
-        nameGap: 20
-      }));
-
-      const option = {
+  const options = useMemo(() => {
+    if (!hasDataContent(data)) {
+      return {
         title: {
-          text: config.title || 'Parallel Coordinates',
-          left: 'center'
-        },
-        brush: {
-          toolbox: ['rect', 'polygon', 'lineX', 'lineY', 'keep', 'clear'],
-          xAxisIndex: 'all'
-        },
-        parallelAxis: parallelAxis,
-        series: {
-          type: 'parallel',
-          lineStyle: {
-            width: 1,
-            opacity: 0.8
-          },
-          data: parallelData.map((item, index) => ({
-            value: item,
-            name: colorField ? dataArray[index][colorField] || index : index
-          }))
+          text: 'No Data Available',
+          left: 'center',
+          top: 'middle',
+          textStyle: {
+            color: '#999',
+            fontSize: 16
+          }
         }
       };
+    }
 
-      chartInstance.current.setOption(option);
+    try {
+      const chartConfig = config as ParallelChartConfig;
+      const dataArray = getDataArray(data);
+      
+      if (!chartConfig.dimensions || chartConfig.dimensions.length === 0) {
+        throw new Error('Parallel chart requires dimensions configuration');
+      }
 
-      chartInstance.current.on('brushSelected', (params : any) => {
-        onInteraction?.({
-          type: 'select', // Use 'select' instead of 'brush' as it's in the ChartInteractionEvent type
-          data: params,
-          dataIndex: params.batch?.[0]?.selected?.[0]?.dataIndex?.[0], // Extract dataIndex if available
-          seriesIndex: 0 // For parallel charts, typically single series
+      // Prepare parallel axis configuration
+      const parallelAxis = chartConfig.dimensions.map((dim, index) => {
+        const axisConfig: any = {
+          dim: index,
+          name: dim.name,
+          type: dim.type || 'value',
+          nameLocation: 'top'
+        };
+
+        if (dim.type === 'category') {
+          if (dim.categories) {
+            axisConfig.data = dim.categories;
+          } else {
+            // Extract unique categories from data
+            const categories = Array.from(new Set(dataArray.map(item => item[dim.field])));
+            axisConfig.data = categories;
+          }
+        } else {
+          // For value type, calculate min/max
+          const values = dataArray.map(item => parseFloat(item[dim.field]) || 0);
+          axisConfig.min = dim.min !== undefined ? dim.min : Math.min(...values);
+          axisConfig.max = dim.max !== undefined ? dim.max : Math.max(...values);
+        }
+
+        return axisConfig;
+      });
+
+      // Prepare data for parallel coordinates
+      const parallelData = dataArray.map(item => {
+        return chartConfig.dimensions.map(dim => {
+          if (dim.type === 'category') {
+            return item[dim.field];
+          } else {
+            return parseFloat(item[dim.field]) || 0;
+          }
         });
       });
 
+      // Color mapping if colorField is specified
+      let visualMap;
+      if (chartConfig.colorField) {
+        const colorValues = dataArray.map(item => parseFloat(item[chartConfig.colorField!]) || 0);
+        const minColorValue = Math.min(...colorValues);
+        const maxColorValue = Math.max(...colorValues);
+        
+        visualMap = {
+          show: true,
+          min: minColorValue,
+          max: maxColorValue,
+          dimension: chartConfig.dimensions.findIndex(d => d.field === chartConfig.colorField),
+          inRange: {
+            color: ['#50a3ba', '#eac736', '#d94e5d']
+          }
+        };
+      }
+
+      return {
+        title: {
+          text: chartConfig.title,
+          left: 'center',
+          textStyle: {
+            fontSize: 16,
+            fontWeight: 'bold'
+          }
+        },
+        tooltip: {
+          trigger: 'item',
+          formatter: (params: any) => {
+            const values = params.data;
+            let result = '';
+            chartConfig.dimensions.forEach((dim, index) => {
+              result += `${dim.name}: ${values[index]}<br/>`;
+            });
+            return result;
+          }
+        },
+        parallelAxis,
+        visualMap,
+        parallel: {
+          left: '5%',
+          right: '13%',
+          bottom: '10%',
+          top: '20%',
+          parallelAxisDefault: {
+            type: 'value',
+            nameLocation: 'top',
+            nameGap: 20,
+            nameTextStyle: {
+              fontSize: 12,
+              fontWeight: 'bold'
+            },
+            axisLine: {
+              lineStyle: {
+                color: '#aaa'
+              }
+            },
+            axisTick: {
+              lineStyle: {
+                color: '#777'
+              }
+            },
+            splitLine: {
+              show: false
+            },
+            axisLabel: {
+              color: '#333'
+            }
+          }
+        },
+        series: [
+          {
+            name: chartConfig.title || 'Parallel',
+            type: 'parallel',
+            data: parallelData,
+            lineStyle: {
+              width: 2,
+              opacity: chartConfig.opacity || 0.45
+            },
+            smooth: chartConfig.smooth || false,
+            emphasis: {
+              lineStyle: {
+                width: 4,
+                opacity: 0.9
+              }
+            },
+            progressive: 500,
+            animation: false
+          }
+        ]
+      };
     } catch (error) {
-      console.error('Parallel chart error:', error);
+      console.error('Error processing parallel chart data:', error);
       onError?.(error as Error);
+      return {
+        title: {
+          text: 'Error Loading Chart',
+          left: 'center',
+          top: 'middle',
+          textStyle: {
+            color: '#ff4444',
+            fontSize: 16
+          }
+        }
+      };
+    }
+  }, [data, config, onError]);
+
+  useEffect(() => {
+    if (!chartRef.current) return;
+
+    if (!chartInstance.current) {
+      chartInstance.current = echarts.init(chartRef.current);
     }
 
+    chartInstance.current.setOption(options, true);
+
+    const handleClick = (params: any) => {
+      onInteraction?.({
+        type: 'click',
+        chartId: chartId || 'echarts-parallel-chart',
+        data: params.data,
+        dataIndex: params.dataIndex,
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
+      });
+    };
+
+    const handleMouseover = (params: any) => {
+      onInteraction?.({
+        type: 'hover',
+        chartId: chartId || 'echarts-parallel-chart',
+        data: params.data,
+        dataIndex: params.dataIndex,
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
+      });
+    };
+
+    chartInstance.current.on('click', handleClick);
+    chartInstance.current.on('mouseover', handleMouseover);
+
+    const handleResize = () => {
+      chartInstance.current?.resize();
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      chartInstance.current?.off('click', handleClick);
+      chartInstance.current?.off('mouseover', handleMouseover);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [chartId, options, onInteraction]);
+
+  useEffect(() => {
+    if (chartInstance.current) {
+      chartInstance.current.resize();
+    }
+  }, [width, height]);
+
+  useEffect(() => {
     return () => {
       chartInstance.current?.dispose();
     };
-  }, [data, config, width, height]);
+  }, []);
 
-  return <div ref={chartRef} style={{ width, height }} />;
+  return (
+    <div 
+      ref={chartRef} 
+      style={{ 
+        width: typeof width === 'number' ? `${width}px` : width, 
+        height: typeof height === 'number' ? `${height}px` : height 
+      }} 
+    />
+  );
 };
 
-export default ParallelChart;
 
-// Chart Plugin Configuration Export
-export const EChartsParallelChartConfig = {
+export const EChartsParallelChartConfig: ChartPluginConfig = {
   name: 'echarts-parallel',
   displayName: 'ECharts Parallel Coordinates',
   category: 'advanced',
   library: 'echarts',
   version: '1.0.0',
-  description: 'Parallel coordinates chart for visualizing multi-dimensional data relationships',
-  tags: ['parallel', 'coordinates', 'multidimensional', 'correlation', 'advanced'],
+  description: 'Multi-dimensional data analysis with parallel coordinates',
+  tags: ['parallel', 'coordinates', 'multidimensional', 'analysis'],
   
   configSchema: {
     type: 'object',
@@ -116,155 +295,51 @@ export const EChartsParallelChartConfig = {
         title: 'Chart Title',
         default: 'Parallel Coordinates'
       },
-      nameField: {
-        type: 'string',
-        title: 'Name Field',
-        description: 'Field for line/series identification'
+      dimensions: {
+        type: 'array',
+        title: 'Dimensions',
+        description: 'List of dimension fields',
+        items: {
+          type: 'string',
+          title: 'Dimension Field'
+        },
+        minItems: 2
       },
       colorField: {
         type: 'string',
         title: 'Color Field',
-        description: 'Field to determine line colors'
+        description: 'Field for line coloring'
       },
-      layout: {
-        type: 'select',
-        title: 'Layout Orientation',
-        options: [
-          { label: 'Horizontal', value: 'horizontal' },
-          { label: 'Vertical', value: 'vertical' }
-        ],
-        default: 'horizontal'
-      },
-      axisExpandable: {
+      brushing: {
         type: 'boolean',
-        title: 'Expandable Axes',
-        description: 'Allow expanding axes on hover',
+        title: 'Enable Brushing',
+        description: 'Allow filtering by brushing axes',
         default: true
-      },
-      axisExpandCenter: {
-        type: 'number',
-        title: 'Expand Center',
-        description: 'Center axis for expansion',
-        minimum: 0
-      },
-      axisExpandCount: {
-        type: 'number',
-        title: 'Expand Count',
-        description: 'Number of axes to expand',
-        default: 0,
-        minimum: 0
-      },
-      axisExpandWidth: {
-        type: 'number',
-        title: 'Expand Width',
-        description: 'Width when axes are expanded',
-        default: 50,
-        minimum: 10
-      },
-      axisExpandTriggerOn: {
-        type: 'select',
-        title: 'Expand Trigger',
-        options: [
-          { label: 'Click', value: 'click' },
-          { label: 'Mouse Over', value: 'mouseover' }
-        ],
-        default: 'click'
-      },
-      lineWidth: {
-        type: 'number',
-        title: 'Line Width',
-        default: 1,
-        minimum: 1,
-        maximum: 10
-      },
-      progressive: {
-        type: 'number',
-        title: 'Progressive Rendering',
-        description: 'Render lines progressively for large datasets',
-        default: 500,
-        minimum: 0
-      },
-      progressiveThreshold: {
-        type: 'number',
-        title: 'Progressive Threshold',
-        description: 'Threshold to enable progressive rendering',
-        default: 3000,
-        minimum: 100
-      },
-      enableBrush: {
-        type: 'boolean',
-        title: 'Enable Brush Selection',
-        description: 'Allow brushing to filter data',
-        default: true
-      },
-      brushMode: {
-        type: 'select',
-        title: 'Brush Mode',
-        options: [
-          { label: 'Single', value: 'single' },
-          { label: 'Multiple', value: 'multiple' }
-        ],
-        default: 'multiple'
-      },
-      smooth: {
-        type: 'boolean',
-        title: 'Smooth Lines',
-        default: false
-      },
-      showTooltip: {
-        type: 'boolean',
-        title: 'Show Tooltip',
-        default: true
-      },
-      colors: {
-        type: 'array',
-        title: 'Color Scheme',
-        items: {
-          type: 'color',
-          title: 'Color'
-        },
-        default: ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc']
-      },
-      colorBy: {
-        type: 'select',
-        title: 'Color Strategy',
-        options: [
-          { label: 'Series', value: 'series' },
-          { label: 'Data', value: 'data' }
-        ],
-        default: 'series'
-      },
-      animation: {
-        type: 'boolean',
-        title: 'Enable Animation',
-        default: true
-      },
-      animationThreshold: {
-        type: 'number',
-        title: 'Animation Threshold',
-        description: 'Disable animation above this many data points',
-        default: 2000,
-        minimum: 100
       }
     },
-    required: []
+    required: ['dimensions']
   },
   
   dataRequirements: {
-    minColumns: 3,
-    maxColumns: 50,
-    requiredFields: [],
-    optionalFields: ['name', 'category'],
-    supportedTypes: ['string', 'number', 'date'],
+    minColumns: 2,
+    maxColumns: 20,
+    requiredFields: ['dim1', 'dim2'],
+    optionalFields: ['color', 'category'],
+    supportedTypes: ['number', 'string'],
     aggregationSupport: false,
-    pivotSupport: false,
-    specialRequirements: [
-      'At least 3 numeric dimensions recommended',
-      'Best suited for datasets with 4-20 dimensions',
-      'Large datasets may require progressive rendering'
-    ]
+    pivotSupport: false
   },
   
   exportFormats: ['png', 'svg', 'pdf'],
-  component: ParallelChart
+  component: ParallelChart, // Replace with actual component import
+  
+  interactionSupport: {
+    zoom: false,
+    pan: false,
+    selection: true,
+    brush: true,
+    drilldown: false,
+    tooltip: true,
+    crossFilter: true
+  }
 };

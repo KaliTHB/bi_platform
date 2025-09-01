@@ -74,9 +74,9 @@ export class ChartConfigHelper {
       dataRequirements: {
         minColumns: input.dataRequirements.minColumns,
         maxColumns: input.dataRequirements.maxColumns,
-        requiredFields: input.dataRequirements.requiredFields as readonly string[],
-        optionalFields: input.dataRequirements.optionalFields as readonly string[] || [],
-        supportedTypes: input.dataRequirements.supportedTypes as readonly SupportedDataType[],
+        requiredFields: input.dataRequirements.requiredFields as string[],
+        optionalFields: input.dataRequirements.optionalFields  as string[] || [],
+        supportedTypes: input.dataRequirements.supportedTypes as SupportedDataType[],
         aggregationSupport: input.dataRequirements.aggregationSupport,
         pivotSupport: input.dataRequirements.pivotSupport
       },

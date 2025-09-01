@@ -1,9 +1,19 @@
+// src/plugins/charts/plotly/FunnelChart.tsx
 import React, { useMemo } from 'react';
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
 import Plot from 'react-plotly.js';
 import { PlotData, Config, Layout } from 'plotly.js';
+import { ChartProps, ChartPluginConfig } from '@/types/chart.types';
 import { getDataArray, isChartDataEmpty } from '../utils/chartDataUtils';
-import { ChartProps,ChartPluginConfig,ChartConfiguration } from '@/types/chart.types';
+import {
+  getThemeTextColor,
+  getThemeBackgroundColor,
+  getThemeGridColor,
+  getPlotlyTextFont,
+  getPlotlyTitleFont,
+  getThemeFontFamily,
+  getChartColors
+} from '@/utils/themeHelpers';
 
 interface FunnelChartConfig extends ChartPluginConfig {
   title?: string;
@@ -11,7 +21,7 @@ interface FunnelChartConfig extends ChartPluginConfig {
   labelField: string;
   valueField: string;
   textposition?: 'inside' | 'outside' | 'auto' | 'none';
-  textinfo?: 'label' | 'percent' | 'value' | 'label+percent' | 'label+value' | 'percent+value' | 'label+percent+value';
+  textinfo?: 'label' | 'value' | 'percent' | 'label+value' | 'label+percent' | 'value+percent' | 'label+value+percent';
   textfont?: {
     size?: number;
     color?: string;
@@ -28,7 +38,6 @@ interface FunnelChartConfig extends ChartPluginConfig {
   opacity?: number;
   marker?: {
     colors?: string[];
-    colorscale?: string;
     line?: {
       color?: string;
       width?: number;
@@ -38,52 +47,40 @@ interface FunnelChartConfig extends ChartPluginConfig {
   hovertemplate?: string;
   showlegend?: boolean;
   orientation?: 'v' | 'h';
-  sort?: boolean;
 }
 
-export const FunnelChart: React.FC<ChartProps> = ({ 
-  data, 
-  config, 
-  dimensions, 
-  theme, 
-  onInteraction, 
+export interface FunnelChartProps extends ChartProps {
+  config: FunnelChartConfig;
+}
+
+const FunnelChart: React.FC<FunnelChartProps> = ({
+  data,
+  config: funnelConfig,
+  dimensions,
+  theme,
+  filters,
+  onInteraction,
   onError,
   isLoading,
   error
 }) => {
-  const funnelConfig = config as FunnelChartConfig;
-
+  // Process and validate data
   const processedData = useMemo(() => {
-    if (isChartDataEmpty(data)) {
-      return null;
-    }
-
+    if (!data) return null;
+    
     try {
       const dataArray = getDataArray(data);
       
-      // Validate required fields
-      if (!funnelConfig.labelField || !funnelConfig.valueField) {
-        throw new Error('labelField and valueField are required for funnel chart');
+      if (isChartDataEmpty(dataArray)) {
+        return null;
       }
 
-      // Extract and process data
-      const processedItems = dataArray
-        .map(item => ({
-          label: String(item[funnelConfig.labelField] || ''),
-          value: Number(item[funnelConfig.valueField]) || 0
-        }))
-        .filter(item => item.label && item.value > 0);
+      const result = dataArray.map(item => ({
+        label: item[funnelConfig.labelField],
+        value: Number(item[funnelConfig.valueField]) || 0
+      })).filter(item => item.value > 0); // Remove zero/negative values
 
-      if (processedItems.length === 0) {
-        throw new Error('No valid data found for funnel chart');
-      }
-
-      // Sort by value descending if sort is enabled (default behavior for funnels)
-      if (funnelConfig.sort !== false) {
-        processedItems.sort((a, b) => b.value - a.value);
-      }
-
-      return processedItems;
+      return result.length > 0 ? result : null;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to process funnel chart data';
       onError?.(new Error(errorMessage));
@@ -113,7 +110,7 @@ export const FunnelChart: React.FC<ChartProps> = ({
     );
   }
 
-  if (!processedData || processedData.length === 0) {
+  if (!processedData) {
     return (
       <Box sx={{ 
         width: dimensions?.width, 
@@ -129,16 +126,11 @@ export const FunnelChart: React.FC<ChartProps> = ({
     );
   }
 
-  // Generate colors if not provided
-  const defaultColors = theme?.colors || [
-    '#636efa', '#ef553b', '#00cc96', '#ab63fa', '#ffa15a',
-    '#19d3f3', '#ff6692', '#b6e880', '#ff97ff', '#fecb52'
-  ];
-  
-  const colors = funnelConfig.marker?.colors || 
-    processedData.map((_, index) => defaultColors[index % defaultColors.length]);
+  // Generate colors if not provided using theme-aware helpers
+  const chartColors = getChartColors(theme, processedData.length);
+  const colors = funnelConfig.marker?.colors || chartColors;
 
-  const plotData: any[] = [{
+  const plotData: PlotData[] = [{
     type: 'funnel',
     x: funnelConfig.orientation === 'h' ? processedData.map(item => item.value) : processedData.map(item => item.label),
     y: funnelConfig.orientation === 'h' ? processedData.map(item => item.label) : processedData.map(item => item.value),
@@ -148,22 +140,24 @@ export const FunnelChart: React.FC<ChartProps> = ({
     textinfo: funnelConfig.textinfo || 'label+percent',
     textfont: funnelConfig.textfont ? {
       size: funnelConfig.textfont.size || 12,
-      color: funnelConfig.textfont.color || theme?.textColor || '#333',
-      family: funnelConfig.textfont.family || theme?.fontFamily || 'Arial, sans-serif'
+      // FIXED: Use proper theme structure
+      color: funnelConfig.textfont.color || getThemeTextColor(theme),
+      family: funnelConfig.textfont.family || getThemeFontFamily(theme)
     } : {
       size: 12,
-      color: theme?.textColor || '#333',
-      family: theme?.fontFamily || 'Arial, sans-serif'
+      color: getThemeTextColor(theme),
+      family: getThemeFontFamily(theme)
     },
     connector: funnelConfig.connector ? {
       line: {
-        color: funnelConfig.connector.line?.color || theme?.gridColor || '#888',
+        // FIXED: Use proper theme structure
+        color: funnelConfig.connector.line?.color || getThemeGridColor(theme),
         width: funnelConfig.connector.line?.width || 2
       },
       fillcolor: funnelConfig.connector.fillcolor || 'rgba(136,136,136,0.2)',
       visible: funnelConfig.connector.visible !== false
     } : {
-      line: { color: theme?.gridColor || '#888', width: 2 },
+      line: { color: getThemeGridColor(theme), width: 2 },
       fillcolor: 'rgba(136,136,136,0.2)',
       visible: true
     },
@@ -182,7 +176,7 @@ export const FunnelChart: React.FC<ChartProps> = ({
       `Percentage: %{percent}<br>` +
       `<extra></extra>`,
     showlegend: funnelConfig.showlegend !== false
-  }];
+  } as unknown as PlotData];
 
   const layout: Partial<Layout> = {
     width: dimensions?.width || 400,
@@ -190,22 +184,24 @@ export const FunnelChart: React.FC<ChartProps> = ({
     title: {
       text: funnelConfig.title,
       font: { 
-        color: theme?.textColor || '#333',
+        // FIXED: Use proper theme structure
+        color: getThemeTextColor(theme),
         size: 16
       }
     },
     font: {
-      color: theme?.textColor || '#333',
-      family: theme?.fontFamily || 'Arial, sans-serif'
+      color: getThemeTextColor(theme),
+      family: getThemeFontFamily(theme)
     },
-    plot_bgcolor: theme?.backgroundColor || 'white',
-    paper_bgcolor: theme?.backgroundColor || 'white',
+    // FIXED: Use proper theme structure
+    plot_bgcolor: getThemeBackgroundColor(theme),
+    paper_bgcolor: getThemeBackgroundColor(theme),
     showlegend: funnelConfig.showlegend !== false && processedData.length > 1,
     legend: {
       orientation: 'v',
       x: 1.02,
       y: 1,
-      font: { color: theme?.textColor || '#333' }
+      font: { color: getThemeTextColor(theme) }
     },
     margin: { l: 60, r: 100, t: 80, b: 60 }
   };
@@ -230,41 +226,28 @@ export const FunnelChart: React.FC<ChartProps> = ({
         data={plotData}
         layout={layout}
         config={plotConfig}
-        onClick={(event: any) => {
-          if (onInteraction && event.points?.length > 0) {
-            const point = event.points[0];
-            const dataIndex = point.pointNumber;
-            const item = processedData[dataIndex];
-            
+        onClick={(event) => {
+          if (onInteraction) {
             onInteraction({
               type: 'click',
-              data: {
-                label: item.label,
-                value: item.value,
-                percent: point.percent
-              },
-              dataIndex
+              chartId: '',
+              data: event.points[0],
+              dataIndex: event.points[0].pointIndex,
+              timestamp: Date.now()
             });
           }
         }}
-        onHover={(event: any) => {
-          if (onInteraction && event.points?.length > 0) {
-            const point = event.points[0];
-            const dataIndex = point.pointNumber;
-            const item = processedData[dataIndex];
-            
+        onHover={(event) => {
+          if (onInteraction) {
             onInteraction({
               type: 'hover',
-              data: {
-                label: item.label,
-                value: item.value,
-                percent: point.percent
-              },
-              dataIndex
+              chartId: '',
+              data: event.points[0],
+              dataIndex: event.points[0].pointIndex,
+              timestamp: Date.now()
             });
           }
         }}
-        style={{ width: '100%', height: '100%' }}
       />
     </Box>
   );

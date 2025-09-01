@@ -30,7 +30,12 @@ export interface CandlestickChartConfig {
   borderDownColor?: string;
 }
 
-export const CandlestickChart: React.FC<ChartProps> = ({
+interface CandlestickChartProps extends ChartProps {
+  chartId?: string;
+}
+
+export const CandlestickChart: React.FC<CandlestickChartProps> = ({
+  chartId, // Add this parameter
   data,
   config,
   width = 800,
@@ -335,15 +340,26 @@ export const CandlestickChart: React.FC<ChartProps> = ({
 
     // Add click handler
     const handleClick = (params: any) => {
-      onInteraction?.({
-        type: 'click',
-        data: params.data,
-        dataIndex: params.dataIndex,
-        event: params.event
-      });
-    };
+  onInteraction?.({
+    type: 'click',
+    chartId: chartId || 'echarts-candlestick-chart', // Add required chartId
+    data: params.data,
+    dataIndex: params.dataIndex,
+    timestamp: Date.now() // Add timestamp, remove event property
+  });
+};
 
-    chartInstance.current.on('click', handleClick);
+   const handleMouseover = (params: any) => {
+  onInteraction?.({
+    type: 'hover',
+    chartId: chartId || 'echarts-candlestick-chart',
+    data: params.data,
+    dataIndex: params.dataIndex,
+    timestamp: Date.now()
+  });
+};
+     chartInstance.current.on('click', handleClick);
+     chartInstance.current.on('mouseover', handleMouseover); 
 
     // Handle resize
     const handleResize = () => {
@@ -355,9 +371,10 @@ export const CandlestickChart: React.FC<ChartProps> = ({
     // Cleanup
     return () => {
       chartInstance.current?.off('click', handleClick);
+      chartInstance.current?.off('mouseover', handleMouseover);
       window.removeEventListener('resize', handleResize);
     };
-  }, [options, onInteraction]);
+  }, [chartId, options, onInteraction]);
 
   useEffect(() => {
     // Resize chart when dimensions change

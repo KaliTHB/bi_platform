@@ -1,31 +1,29 @@
-// File: /web-application/src/plugins/charts/echarts/PieChart.tsx
-
+// File: src/plugins/charts/echarts/PieChart.tsx
 'use client';
 
 import React, { useEffect, useRef, useMemo } from 'react';
 import * as echarts from 'echarts';
-import { ChartProps } from '@/types/chart.types';
-import { 
-  normalizeChartData, 
-  isChartDataEmpty, 
-  extractFieldValues, 
-  extractNumericValues, 
-  createChartConfig 
-} from '../utils/chartDataUtils';
+import { ChartProps, ChartPluginConfig } from '@/types/chart.types';
+import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
 
 export interface PieChartConfig {
-  title?: string;
   labelField: string;
   valueField: string;
-  showLabels?: boolean;
+  title?: string;
   showLegend?: boolean;
-  isDonut?: boolean;
-  radius?: string[];
-  roseType?: 'radius' | 'area' | false;
   legendPosition?: 'top' | 'bottom' | 'left' | 'right';
+  isDonut?: boolean;
+  radius?: string | [string, string];
+  showLabels?: boolean;
+  showPercentage?: boolean;
 }
 
-export const PieChart: React.FC<ChartProps> = ({
+interface PieChartProps extends ChartProps {
+  chartId?: string;
+}
+
+export const PieChart: React.FC<PieChartProps> = ({
+  chartId,
   data,
   config,
   width = 400,
@@ -37,8 +35,7 @@ export const PieChart: React.FC<ChartProps> = ({
   const chartInstance = useRef<echarts.ECharts>();
 
   const options = useMemo(() => {
-    // Check if data is empty using utility function
-    if (isChartDataEmpty(data)) {
+    if (!hasDataContent(data)) {
       return {
         title: {
           text: 'No Data Available',
@@ -52,40 +49,16 @@ export const PieChart: React.FC<ChartProps> = ({
       };
     }
 
-    // Normalize data to array format
-    const chartData = normalizeChartData(data);
-    
-    // Create safe configuration with defaults
-    const chartConfig = createChartConfig(config, {
-      labelField: 'name',
-      valueField: 'value',
-      title: 'Pie Chart',
-      showLabels: true,
-      showLegend: true,
-      isDonut: false,
-      radius: ['0%', '70%'],
-      roseType: false,
-      legendPosition: 'right'
-    }) as PieChartConfig;
-
     try {
-      // Extract data using utility functions
-      const labels = extractFieldValues(chartData, chartConfig.labelField, 'Unknown');
-      const values = extractNumericValues(chartData, chartConfig.valueField, 0);
-
-      // Prepare pie data
-      const pieData = labels.map((label, index) => ({
-        name: label,
-        value: values[index]
+      const chartConfig = config as PieChartConfig;
+      const dataArray = getDataArray(data);
+      
+      const pieData = dataArray.map(item => ({
+        name: item[chartConfig.labelField],
+        value: parseFloat(item[chartConfig.valueField]) || 0
       }));
 
-      // Calculate radius based on donut setting
-      const radius = chartConfig.isDonut 
-        ? ['40%', '70%'] 
-        : chartConfig.radius || ['0%', '70%'];
-
-      // Get safe legend position with fallback
-      const legendPosition = chartConfig.legendPosition || 'right';
+      const radius = chartConfig.isDonut ? ['40%', '70%'] : (chartConfig.radius || '55%');
 
       return {
         title: {
@@ -98,54 +71,44 @@ export const PieChart: React.FC<ChartProps> = ({
         },
         tooltip: {
           trigger: 'item',
-          formatter: '{a} <br/>{b} : {c} ({d}%)'
+          formatter: chartConfig.showPercentage 
+            ? '{a} <br/>{b} : {c} ({d}%)'
+            : '{a} <br/>{b} : {c}'
         },
         legend: {
-          show: chartConfig.showLegend,
-          orient: ['top', 'bottom'].includes(legendPosition) ? 'horizontal' : 'vertical',
-          [legendPosition]: legendPosition === 'top' ? '10%' : 
-                                       legendPosition === 'bottom' ? '10%' : '10%',
-          data: labels,
-          type: 'scroll',
-          pageButtonItemGap: 5,
-          pageButtonGap: 20,
-          pageIconSize: 12
+          show: chartConfig.showLegend !== false,
+          orient: chartConfig.legendPosition === 'left' || chartConfig.legendPosition === 'right' 
+            ? 'vertical' 
+            : 'horizontal',
+          [chartConfig.legendPosition || 'bottom']: chartConfig.legendPosition === 'left' || chartConfig.legendPosition === 'right' ? 'left' : 10,
+          data: pieData.map(item => item.name)
         },
         series: [
           {
             name: chartConfig.title || 'Data',
             type: 'pie',
-            radius: radius,
+            radius,
             center: ['50%', '50%'],
             data: pieData,
-            roseType: chartConfig.roseType || false,
             label: {
-              show: chartConfig.showLabels,
-              formatter: '{b}: {c} ({d}%)',
-              position: chartConfig.isDonut ? 'outside' : 'inside'
-            },
-            labelLine: {
-              show: chartConfig.showLabels && !chartConfig.isDonut,
-              smooth: 0.2,
-              length: 10,
-              length2: 20
+              show: chartConfig.showLabels !== false,
+              formatter: chartConfig.showPercentage 
+                ? '{b}: {d}%'
+                : '{b}: {c}'
             },
             emphasis: {
               itemStyle: {
                 shadowBlur: 10,
                 shadowOffsetX: 0,
                 shadowColor: 'rgba(0, 0, 0, 0.5)'
-              },
-              scale: true,
-              scaleSize: 10
+              }
             },
             animationType: 'scale',
             animationEasing: 'elasticOut',
             animationDelay: (idx: number) => Math.random() * 200
           }
         ],
-        animation: true,
-        animationDuration: 1000
+        animation: true
       };
     } catch (error) {
       console.error('Error processing pie chart data:', error);
@@ -167,50 +130,57 @@ export const PieChart: React.FC<ChartProps> = ({
   useEffect(() => {
     if (!chartRef.current) return;
 
-    // Initialize chart
     if (!chartInstance.current) {
       chartInstance.current = echarts.init(chartRef.current);
     }
 
-    // Set options
     chartInstance.current.setOption(options, true);
 
-    // Add click handler
     const handleClick = (params: any) => {
       onInteraction?.({
         type: 'click',
+        chartId: chartId || 'echarts-pie-chart',
         data: params.data,
         dataIndex: params.dataIndex,
         seriesIndex: params.seriesIndex,
-        event: params.event
+        timestamp: Date.now()
+      });
+    };
+
+    const handleMouseover = (params: any) => {
+      onInteraction?.({
+        type: 'hover',
+        chartId: chartId || 'echarts-pie-chart',
+        data: params.data,
+        dataIndex: params.dataIndex,
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
       });
     };
 
     chartInstance.current.on('click', handleClick);
+    chartInstance.current.on('mouseover', handleMouseover);
 
-    // Handle resize
     const handleResize = () => {
       chartInstance.current?.resize();
     };
 
     window.addEventListener('resize', handleResize);
 
-    // Cleanup
     return () => {
       chartInstance.current?.off('click', handleClick);
+      chartInstance.current?.off('mouseover', handleMouseover);
       window.removeEventListener('resize', handleResize);
     };
-  }, [options, onInteraction]);
+  }, [chartId, options, onInteraction]);
 
   useEffect(() => {
-    // Resize chart when dimensions change
     if (chartInstance.current) {
       chartInstance.current.resize();
     }
   }, [width, height]);
 
   useEffect(() => {
-    // Cleanup on unmount
     return () => {
       chartInstance.current?.dispose();
     };
@@ -227,17 +197,14 @@ export const PieChart: React.FC<ChartProps> = ({
   );
 };
 
-export default PieChart;
-
-// Chart Plugin Configuration Export
-export const EChartsPieChartConfig = {
+export const EChartsPieChartConfig: ChartPluginConfig = {
   name: 'echarts-pie',
   displayName: 'ECharts Pie Chart',
   category: 'basic',
   library: 'echarts',
   version: '1.0.0',
-  description: 'Interactive pie chart with customizable styling and animations',
-  tags: ['pie', 'donut', 'proportion', 'circular', 'basic'],
+  description: 'Interactive pie chart with customizable segments and labels',
+  tags: ['pie', 'donut', 'categorical', 'proportional'],
   
   configSchema: {
     type: 'object',
@@ -247,126 +214,68 @@ export const EChartsPieChartConfig = {
         title: 'Chart Title',
         default: 'Pie Chart'
       },
-      nameField: {
+      labelField: {
         type: 'string',
-        title: 'Name Field',
-        description: 'Field name for slice labels',
-        default: 'name'
+        title: 'Label Field',
+        description: 'Field name for segment labels',
+        required: true
       },
       valueField: {
         type: 'string',
         title: 'Value Field',
-        description: 'Field name for slice values',
-        default: 'value'
+        description: 'Field name for segment values',
+        required: true
+      },
+      isDonut: {
+        type: 'boolean',
+        title: 'Donut Chart',
+        description: 'Display as donut chart instead of pie',
+        default: false
       },
       innerRadius: {
-        type: 'number',
-        title: 'Inner Radius (%)',
-        description: 'Inner radius for donut chart (0 for pie chart)',
-        default: 0,
-        minimum: 0,
-        maximum: 80
+        type: 'string',
+        title: 'Inner Radius',
+        default: '0%'
       },
       outerRadius: {
-        type: 'number',
-        title: 'Outer Radius (%)',
-        default: 75,
-        minimum: 20,
-        maximum: 100
-      },
-      startAngle: {
-        type: 'number',
-        title: 'Start Angle',
-        description: 'Starting angle in degrees',
-        default: 0,
-        minimum: 0,
-        maximum: 360
-      },
-      roseType: {
-        type: 'select',
-        title: 'Rose Type',
-        description: 'Nightingale chart style',
-        options: [
-          { label: 'None', value: 'none' },
-          { label: 'Radius', value: 'radius' },
-          { label: 'Area', value: 'area' }
-        ],
-        default: 'none'
+        type: 'string',
+        title: 'Outer Radius',
+        default: '70%'
       },
       showLabels: {
         type: 'boolean',
         title: 'Show Labels',
         default: true
       },
-      labelPosition: {
-        type: 'select',
-        title: 'Label Position',
-        options: [
-          { label: 'Outside', value: 'outside' },
-          { label: 'Inside', value: 'inside' },
-          { label: 'Center', value: 'center' }
-        ],
-        default: 'outside'
-      },
-      showValues: {
-        type: 'boolean',
-        title: 'Show Values in Labels',
-        default: true
-      },
       showPercentages: {
         type: 'boolean',
-        title: 'Show Percentages in Labels',
-        default: true
-      },
-      showLegend: {
-        type: 'boolean',
-        title: 'Show Legend',
-        default: true
-      },
-      legendPosition: {
-        type: 'select',
-        title: 'Legend Position',
-        options: [
-          { label: 'Top', value: 'top' },
-          { label: 'Bottom', value: 'bottom' },
-          { label: 'Left', value: 'left' },
-          { label: 'Right', value: 'right' }
-        ],
-        default: 'right'
-      },
-      colors: {
-        type: 'array',
-        title: 'Color Scheme',
-        items: {
-          type: 'color',
-          title: 'Color'
-        },
-        default: ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc']
-      },
-      emphasis: {
-        type: 'boolean',
-        title: 'Enable Hover Effects',
-        default: true
-      },
-      animation: {
-        type: 'boolean',
-        title: 'Enable Animation',
+        title: 'Show Percentages',
         default: true
       }
     },
-    required: ['nameField', 'valueField']
+    required: ['labelField', 'valueField']
   },
   
   dataRequirements: {
     minColumns: 2,
-    maxColumns: 10,
+    maxColumns: 50,
     requiredFields: ['name', 'value'],
-    optionalFields: [],
+    optionalFields: ['category'],
     supportedTypes: ['string', 'number'],
     aggregationSupport: true,
     pivotSupport: false
   },
   
   exportFormats: ['png', 'svg', 'pdf'],
-  component: PieChart
+  component: PieChart, // Replace with actual component import
+  
+  interactionSupport: {
+    zoom: false,
+    pan: false,
+    selection: true,
+    brush: false,
+    drilldown: true,
+    tooltip: true,
+    crossFilter: true
+  }
 };

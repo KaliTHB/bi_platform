@@ -1,9 +1,17 @@
+// src/plugins/charts/plotly/Mesh3D.tsx
 import React, { useMemo } from 'react';
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
 import Plot from 'react-plotly.js';
 import { PlotData, Config, Layout } from 'plotly.js';
+import { ChartProps, ChartPluginConfig } from '@/types/chart.types';
 import { getDataArray, isChartDataEmpty } from '../utils/chartDataUtils';
-import { ChartProps,ChartPluginConfig,ChartConfiguration } from '@/types/chart.types';
+import {
+  getThemeTextColor,
+  getThemeBackgroundColor,
+  getThemeGridColor,
+  getPlotlyTextFont,
+  getPlotlyTitleFont
+} from '@/utils/themeHelpers';
 
 interface Mesh3DConfig extends ChartPluginConfig {
   title?: string;
@@ -52,9 +60,13 @@ interface Mesh3DConfig extends ChartPluginConfig {
   showlegend?: boolean;
 }
 
-export const Mesh3D: React.FC<ChartProps> = ({ 
+export interface Mesh3DProps extends ChartProps {
+  config: Mesh3DConfig;
+}
+
+const Mesh3D: React.FC<Mesh3DProps> = ({ 
   data, 
-  config, 
+  config: meshConfig, 
   dimensions, 
   theme, 
   onInteraction, 
@@ -62,15 +74,15 @@ export const Mesh3D: React.FC<ChartProps> = ({
   isLoading,
   error
 }) => {
-  const meshConfig = config as Mesh3DConfig;
-
   const processedData = useMemo(() => {
-    if (isChartDataEmpty(data)) {
-      return null;
-    }
-
+    if (!data) return null;
+    
     try {
       const dataArray = getDataArray(data);
+      
+      if (isChartDataEmpty(dataArray)) {
+        return null;
+      }
       
       // Validate required fields
       if (!meshConfig.xField || !meshConfig.yField || !meshConfig.zField) {
@@ -190,17 +202,10 @@ export const Mesh3D: React.FC<ChartProps> = ({
     lightposition: meshConfig.lightposition || { x: 100, y: 200, z: 0 },
     contour: meshConfig.contour ? {
       show: meshConfig.contour.show !== false,
-      color: meshConfig.contour.color || theme?.gridColor || '#333',
+      // FIXED: Use proper theme structure
+      color: meshConfig.contour.color || getThemeGridColor(theme),
       width: meshConfig.contour.width || 2
     } : undefined,
-    colorbar: meshConfig.colorbar ? {
-      ...meshConfig.colorbar,
-      titlefont: { color: theme?.textColor || '#333' },
-      tickfont: { color: theme?.textColor || '#333' }
-    } : {
-      titlefont: { color: theme?.textColor || '#333' },
-      tickfont: { color: theme?.textColor || '#333' }
-    },
     hovertemplate: meshConfig.hovertemplate || 
       `${meshConfig.xField}: %{x}<br>${meshConfig.yField}: %{y}<br>${meshConfig.zField}: %{z}<extra></extra>`,
     showlegend: meshConfig.showlegend !== false
@@ -220,38 +225,45 @@ export const Mesh3D: React.FC<ChartProps> = ({
     meshTrace.k = processedData.triangles.k;
   }
 
-  const plotData: any[] = [meshTrace];
+  const plotData: PlotData[] = [meshTrace as unknown as PlotData];
 
   const layout: Partial<Layout> = {
     width: dimensions?.width || 400,
     height: dimensions?.height || 300,
     title: {
       text: meshConfig.title,
-      font: { color: theme?.textColor || '#333' }
+      // FIXED: Use proper theme structure
+      font: getPlotlyTitleFont(theme)
     },
     scene: {
       xaxis: { 
         title: { text: meshConfig.xField },
-        color: theme?.textColor || '#333',
-        gridcolor: theme?.gridColor || '#e0e0e0'
+        // FIXED: Use proper theme structure
+        color: getThemeTextColor(theme),
+        gridcolor: getThemeGridColor(theme)
       },
       yaxis: { 
         title: { text: meshConfig.yField },
-        color: theme?.textColor || '#333',
-        gridcolor: theme?.gridColor || '#e0e0e0'
+        // FIXED: Use proper theme structure
+        color: getThemeTextColor(theme),
+        gridcolor: getThemeGridColor(theme)
       },
       zaxis: { 
         title: { text: meshConfig.zField },
-        color: theme?.textColor || '#333',
-        gridcolor: theme?.gridColor || '#e0e0e0'
+        // FIXED: Use proper theme structure
+        color: getThemeTextColor(theme),
+        gridcolor: getThemeGridColor(theme)
       },
-      bgcolor: theme?.backgroundColor || 'white',
+      // FIXED: Use proper theme structure
+      bgcolor: getThemeBackgroundColor(theme),
       camera: {
         eye: { x: 1.2, y: 1.2, z: 1.2 }
       }
     },
-    plot_bgcolor: theme?.backgroundColor || 'white',
-    paper_bgcolor: theme?.backgroundColor || 'white',
+    font: getPlotlyTextFont(theme),
+    // FIXED: Use proper theme structure
+    plot_bgcolor: getThemeBackgroundColor(theme),
+    paper_bgcolor: getThemeBackgroundColor(theme),
     showlegend: meshConfig.showlegend !== false,
     margin: { l: 60, r: 60, t: 80, b: 60 }
   };
@@ -281,13 +293,15 @@ export const Mesh3D: React.FC<ChartProps> = ({
             const point = event.points[0];
             onInteraction({
               type: 'click',
+              chartId: '',
               data: { 
                 x: point.x, 
                 y: point.y, 
                 z: point.z,
                 intensity: point.intensity 
               },
-              dataIndex: point.pointIndex
+              dataIndex: point.pointIndex,
+              timestamp: Date.now()
             });
           }
         }}
@@ -296,13 +310,15 @@ export const Mesh3D: React.FC<ChartProps> = ({
             const point = event.points[0];
             onInteraction({
               type: 'hover',
+              chartId: '',
               data: { 
                 x: point.x, 
                 y: point.y, 
                 z: point.z,
                 intensity: point.intensity 
               },
-              dataIndex: point.pointIndex
+              dataIndex: point.pointIndex,
+              timestamp: Date.now()
             });
           }
         }}

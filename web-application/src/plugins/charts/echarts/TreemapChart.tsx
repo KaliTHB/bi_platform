@@ -1,29 +1,29 @@
-// File: /web-application/src/plugins/charts/echarts/TreemapChart.tsx
-
+// File: src/plugins/charts/echarts/TreemapChart.tsx
 'use client';
 
 import React, { useEffect, useRef, useMemo } from 'react';
 import * as echarts from 'echarts';
 import { ChartProps } from '@/types/chart.types';
-import { 
-  normalizeChartData, 
-  isChartDataEmpty, 
-  createChartConfig 
-} from '../utils/chartDataUtils';
+import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
 
 export interface TreemapChartConfig {
-  title?: string;
   nameField: string;
   valueField: string;
   parentField?: string;
   colorField?: string;
+  title?: string;
   showLabels?: boolean;
   leafDepth?: number;
   roam?: boolean;
   breadcrumb?: boolean;
 }
 
-export const TreemapChart: React.FC<ChartProps> = ({
+interface TreemapChartProps extends ChartProps {
+  chartId?: string;
+}
+
+export const TreemapChart: React.FC<TreemapChartProps> = ({
+  chartId,
   data,
   config,
   width = 400,
@@ -35,8 +35,7 @@ export const TreemapChart: React.FC<ChartProps> = ({
   const chartInstance = useRef<echarts.ECharts>();
 
   const options = useMemo(() => {
-    // Check if data is empty using utility function
-    if (isChartDataEmpty(data)) {
+    if (!hasDataContent(data)) {
       return {
         title: {
           text: 'No Data Available',
@@ -50,28 +49,17 @@ export const TreemapChart: React.FC<ChartProps> = ({
       };
     }
 
-    // Normalize data to array format
-    const chartData = normalizeChartData(data);
-    
-    // Create safe configuration with defaults
-    const chartConfig = createChartConfig(config, {
-      nameField: 'name',
-      valueField: 'value',
-      title: 'Treemap',
-      showLabels: true,
-      leafDepth: null,
-      roam: false,
-      breadcrumb: true
-    }) as TreemapChartConfig;
-
     try {
+      const chartConfig = config as TreemapChartConfig;
+      const dataArray = getDataArray(data);
+      
       // Build hierarchical data structure
       const buildHierarchy = (items: any[], parentId: string | null = null): any[] => {
         return items
           .filter(item => (chartConfig.parentField ? item[chartConfig.parentField] : null) === parentId)
           .map(item => ({
             name: item[chartConfig.nameField],
-            value: item[chartConfig.valueField],
+            value: parseFloat(item[chartConfig.valueField]) || 0,
             children: buildHierarchy(items, item[chartConfig.nameField])
           }))
           .filter(item => item.children.length > 0 || item.value > 0);
@@ -81,12 +69,12 @@ export const TreemapChart: React.FC<ChartProps> = ({
       
       if (chartConfig.parentField) {
         // Hierarchical data with parent-child relationships
-        treemapData = buildHierarchy(chartData);
+        treemapData = buildHierarchy(dataArray);
       } else {
         // Flat data - convert to treemap format
-        treemapData = chartData.map(item => ({
+        treemapData = dataArray.map(item => ({
           name: item[chartConfig.nameField],
-          value: item[chartConfig.valueField] || 0
+          value: parseFloat(item[chartConfig.valueField]) || 0
         }));
       }
 
@@ -133,7 +121,7 @@ export const TreemapChart: React.FC<ChartProps> = ({
           {
             type: 'treemap',
             data: treemapData,
-            roam: chartConfig.roam,
+            roam: chartConfig.roam || false,
             nodeClick: 'zoomToNode',
             breadcrumb: chartConfig.breadcrumb ? {
               show: true
@@ -141,7 +129,7 @@ export const TreemapChart: React.FC<ChartProps> = ({
               show: false
             },
             label: {
-              show: chartConfig.showLabels,
+              show: chartConfig.showLabels !== false,
               formatter: '{b}',
               position: 'insideTopLeft',
               fontSize: 12,
@@ -234,49 +222,57 @@ export const TreemapChart: React.FC<ChartProps> = ({
   useEffect(() => {
     if (!chartRef.current) return;
 
-    // Initialize chart
     if (!chartInstance.current) {
       chartInstance.current = echarts.init(chartRef.current);
     }
 
-    // Set options
     chartInstance.current.setOption(options, true);
 
-    // Add click handler
     const handleClick = (params: any) => {
       onInteraction?.({
         type: 'click',
+        chartId: chartId || 'echarts-treemap-chart',
         data: params.data,
         dataIndex: params.dataIndex,
-        event: params.event
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
+      });
+    };
+
+    const handleMouseover = (params: any) => {
+      onInteraction?.({
+        type: 'hover',
+        chartId: chartId || 'echarts-treemap-chart',
+        data: params.data,
+        dataIndex: params.dataIndex,
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
       });
     };
 
     chartInstance.current.on('click', handleClick);
+    chartInstance.current.on('mouseover', handleMouseover);
 
-    // Handle resize
     const handleResize = () => {
       chartInstance.current?.resize();
     };
 
     window.addEventListener('resize', handleResize);
 
-    // Cleanup
     return () => {
       chartInstance.current?.off('click', handleClick);
+      chartInstance.current?.off('mouseover', handleMouseover);
       window.removeEventListener('resize', handleResize);
     };
-  }, [options, onInteraction]);
+  }, [chartId, options, onInteraction]);
 
   useEffect(() => {
-    // Resize chart when dimensions change
     if (chartInstance.current) {
       chartInstance.current.resize();
     }
   }, [width, height]);
 
   useEffect(() => {
-    // Cleanup on unmount
     return () => {
       chartInstance.current?.dispose();
     };
@@ -292,82 +288,3 @@ export const TreemapChart: React.FC<ChartProps> = ({
     />
   );
 };
-
-// Chart Plugin Configuration Export
-export const EChartsTreemapChartConfig = {
-  name: 'echarts-treemap',
-  displayName: 'ECharts Treemap',
-  category: 'advanced',
-  library: 'echarts',
-  version: '1.0.0',
-  description: 'Interactive treemap for hierarchical data visualization with zoom and drill-down',
-  tags: ['treemap', 'hierarchical', 'space-filling', 'advanced'],
-  
-  configSchema: {
-    type: 'object',
-    properties: {
-      title: {
-        type: 'string',
-        title: 'Chart Title',
-        default: 'Treemap'
-      },
-      nameField: {
-        type: 'string',
-        title: 'Name Field',
-        description: 'Field name for item names',
-        default: 'name'
-      },
-      valueField: {
-        type: 'string',
-        title: 'Value Field',
-        description: 'Field name for item sizes',
-        default: 'value'
-      },
-      parentField: {
-        type: 'string',
-        title: 'Parent Field',
-        description: 'Optional field for hierarchical relationships'
-      },
-      showLabels: {
-        type: 'boolean',
-        title: 'Show Labels',
-        default: true
-      },
-      roam: {
-        type: 'boolean',
-        title: 'Enable Zoom/Pan',
-        description: 'Allow users to zoom and pan the treemap',
-        default: false
-      },
-      breadcrumb: {
-        type: 'boolean',
-        title: 'Show Breadcrumb',
-        description: 'Display navigation breadcrumb',
-        default: true
-      },
-      leafDepth: {
-        type: 'number',
-        title: 'Leaf Depth',
-        description: 'Maximum depth to show (null for all levels)',
-        minimum: 1,
-        maximum: 10
-      }
-    },
-    required: ['nameField', 'valueField']
-  },
-  
-  dataRequirements: {
-    minColumns: 2,
-    maxColumns: 100,
-    requiredFields: ['name', 'value'],
-    optionalFields: ['parent', 'color'],
-    supportedTypes: ['string', 'number'],
-    aggregationSupport: true,
-    pivotSupport: false
-  },
-  
-  exportFormats: ['png', 'svg', 'pdf'],
-  component: TreemapChart
-};
-
-export default TreemapChart;

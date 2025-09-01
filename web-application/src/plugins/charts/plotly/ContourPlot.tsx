@@ -1,9 +1,18 @@
+// src/plugins/charts/plotly/ContourPlot.tsx
 import React, { useMemo } from 'react';
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
 import Plot from 'react-plotly.js';
 import { PlotData, Config, Layout } from 'plotly.js';
+import { ChartProps, ChartPluginConfig } from '@/types/chart.types';
 import { getDataArray, isChartDataEmpty } from '../utils/chartDataUtils';
-import { ChartProps,ChartPluginConfig,ChartConfiguration } from '@/types/chart.types';
+import { 
+  getThemeTextColor, 
+  getThemeBackgroundColor, 
+  getThemeGridColor,
+  getThemeFontSize,
+  getPlotlyTextFont,
+  getPlotlyTitleFont 
+} from '@/utils/themeHelpers';
 
 interface ContourPlotConfig extends ChartPluginConfig {
   title?: string;
@@ -34,7 +43,7 @@ interface ContourPlotConfig extends ChartPluginConfig {
   hovertemplate?: string;
   colorbar?: {
     title?: string;
-    titleside?: string;
+    titleside?: 'right' | 'top' | 'bottom';
     tickmode?: string;
     tick0?: number;
     dtick?: number;
@@ -42,76 +51,53 @@ interface ContourPlotConfig extends ChartPluginConfig {
   autocontour?: boolean;
   ncontours?: number;
   reversescale?: boolean;
+  opacity?: number;
 }
 
-export const ContourPlot: React.FC<ChartProps> = ({ 
-  data, 
-  config, 
-  dimensions, 
-  theme, 
-  onInteraction, 
+export interface ContourPlotProps extends ChartProps {
+  config: ContourPlotConfig;
+}
+
+const ContourPlot: React.FC<ContourPlotProps> = ({
+  data,
+  config: contourConfig,
+  dimensions,
+  theme,
+  filters,
+  onInteraction,
   onError,
   isLoading,
   error
 }) => {
-  const contourConfig = config as ContourPlotConfig;
-
+  // Process and validate data
   const processedData = useMemo(() => {
-    if (isChartDataEmpty(data)) {
-      return null;
-    }
-
+    if (!data) return null;
+    
     try {
       const dataArray = getDataArray(data);
       
-      // Validate required fields
-      if (!contourConfig.xField || !contourConfig.yField || !contourConfig.zField) {
-        throw new Error('xField, yField, and zField are required for contour plot');
+      if (isChartDataEmpty(dataArray)) {
+        return null;
       }
 
-      // Extract values
-      const xValues = dataArray.map(item => Number(item[contourConfig.xField])).filter(val => !isNaN(val));
-      const yValues = dataArray.map(item => Number(item[contourConfig.yField])).filter(val => !isNaN(val));
-      const zValues = dataArray.map(item => Number(item[contourConfig.zField])).filter(val => !isNaN(val));
+      // Extract values for each field
+      const xValues = dataArray.map(item => item[contourConfig.xField]).filter(val => val !== null && val !== undefined);
+      const yValues = dataArray.map(item => item[contourConfig.yField]).filter(val => val !== null && val !== undefined);
+      const zValues = dataArray.map(item => item[contourConfig.zField]).filter(val => val !== null && val !== undefined);
 
+      // Return null if any field has no valid values
       if (xValues.length === 0 || yValues.length === 0 || zValues.length === 0) {
-        throw new Error('No valid numeric data found for contour plot');
-      }
-
-      // Get unique x and y values and sort them
-      const xUnique = [...new Set(xValues)].sort((a, b) => a - b);
-      const yUnique = [...new Set(yValues)].sort((a, b) => a - b);
-
-      // Create z matrix
-      const zMatrix: number[][] = [];
-      for (let i = 0; i < yUnique.length; i++) {
-        zMatrix[i] = [];
-        for (let j = 0; j < xUnique.length; j++) {
-          // Find data points that match this x,y coordinate
-          const matchingItems = dataArray.filter(item => {
-            const x = Number(item[contourConfig.xField]);
-            const y = Number(item[contourConfig.yField]);
-            return Math.abs(x - xUnique[j]) < 0.001 && Math.abs(y - yUnique[i]) < 0.001;
-          });
-          
-          if (matchingItems.length > 0) {
-            // Average z values if multiple points exist at same x,y
-            const avgZ = matchingItems.reduce((sum, item) => 
-              sum + Number(item[contourConfig.zField]), 0) / matchingItems.length;
-            zMatrix[i][j] = avgZ;
-          } else {
-            zMatrix[i][j] = 0;
-          }
-        }
+        return null;
       }
 
       return {
-        x: xUnique,
-        y: yUnique,
-        z: zMatrix
+        x: xValues,
+        y: yValues,
+        z: zValues,
+        originalData: dataArray
       };
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to process contour data';
+      const errorMessage = err instanceof Error ? err.message : 'Failed to process contour plot data';
       onError?.(new Error(errorMessage));
       return null;
     }
@@ -155,59 +141,104 @@ export const ContourPlot: React.FC<ChartProps> = ({
     );
   }
 
-  const plotData: any[] = [{
+  // Create unique sorted arrays for grid
+  const uniqueX = [...new Set(processedData.x)].sort((a, b) => a - b);
+  const uniqueY = [...new Set(processedData.y)].sort((a, b) => a - b);
+
+  // Create Z matrix - explicitly type to allow null values
+  const zMatrix: (number | null)[][] = [];
+  for (let i = 0; i < uniqueY.length; i++) {
+    zMatrix[i] = [];
+    for (let j = 0; j < uniqueX.length; j++) {
+      // Find corresponding Z value
+      const dataIndex = processedData.originalData.findIndex(item => 
+        item[contourConfig.xField] === uniqueX[j] && 
+        item[contourConfig.yField] === uniqueY[i]
+      );
+      
+      if (dataIndex !== -1) {
+        zMatrix[i][j] = Number(processedData.originalData[dataIndex][contourConfig.zField]) || 0;
+      } else {
+        zMatrix[i][j] = null; // Missing data point
+      }
+    }
+  }
+
+  const plotData: PlotData[] = [{
     type: 'contour',
-    x: processedData.x,
-    y: processedData.y,
-    z: processedData.z,
+    x: uniqueX,
+    y: uniqueY,
+    z: zMatrix,
     colorscale: contourConfig.colorscale || 'Viridis',
     showscale: contourConfig.showscale !== false,
-    connectgaps: contourConfig.connectgaps !== false,
-    hoverongaps: contourConfig.hoverongaps !== false,
+    connectgaps: contourConfig.connectgaps || false,
+    hoverongaps: contourConfig.hoverongaps || false,
     autocontour: contourConfig.autocontour !== false,
     ncontours: contourConfig.ncontours || 15,
     reversescale: contourConfig.reversescale || false,
+    opacity: contourConfig.opacity || 1,
     contours: contourConfig.contours ? {
       start: contourConfig.contours.start,
       end: contourConfig.contours.end,
       size: contourConfig.contours.size,
       coloring: contourConfig.contours.coloring || 'fill',
       showlines: contourConfig.contours.showlines !== false,
-      labelfont: contourConfig.contours.labelfont
-    } : undefined,
-    line: contourConfig.line,
-    colorbar: contourConfig.colorbar ? {
-      ...contourConfig.colorbar,
-      titlefont: { color: theme?.textColor || '#333' },
-      tickfont: { color: theme?.textColor || '#333' }
+      labelfont: contourConfig.contours.labelfont ? {
+        size: contourConfig.contours.labelfont.size || getThemeFontSize(theme, 'axis'),
+        color: contourConfig.contours.labelfont.color || getThemeTextColor(theme)
+      } : getPlotlyTextFont(theme, 10)
     } : {
-      titlefont: { color: theme?.textColor || '#333' },
-      tickfont: { color: theme?.textColor || '#333' }
+      coloring: 'fill',
+      showlines: true,
+      labelfont: getPlotlyTextFont(theme, 10)
+    },
+    line: contourConfig.line ? {
+      color: contourConfig.line.color || getThemeTextColor(theme),
+      width: contourConfig.line.width || 1,
+      smoothing: contourConfig.line.smoothing || 1
+    } : {
+      color: getThemeTextColor(theme),
+      width: 1,
+      smoothing: 1
     },
     hovertemplate: contourConfig.hovertemplate || 
-      `${contourConfig.xField}: %{x}<br>${contourConfig.yField}: %{y}<br>${contourConfig.zField}: %{z}<extra></extra>`
-  }];
+      `<b>%{fullData.name}</b><br>` +
+      `${contourConfig.xField}: %{x}<br>` +
+      `${contourConfig.yField}: %{y}<br>` +
+      `${contourConfig.zField}: %{z}<br>` +
+      `<extra></extra>`,
+    colorbar: contourConfig.colorbar ? {
+      title: contourConfig.colorbar.title || contourConfig.zField,
+      titleside: contourConfig.colorbar.titleside || 'right',
+      tickmode: contourConfig.colorbar.tickmode || 'linear',
+      tick0: contourConfig.colorbar.tick0,
+      dtick: contourConfig.colorbar.dtick
+    } : {
+      title: contourConfig.zField
+    }
+  } as unknown as PlotData];
 
   const layout: Partial<Layout> = {
     width: dimensions?.width || 400,
     height: dimensions?.height || 300,
     title: {
       text: contourConfig.title,
-      font: { color: theme?.textColor || '#333' }
+      font: getPlotlyTitleFont(theme)
     },
+    font: getPlotlyTextFont(theme),
+    plot_bgcolor: getThemeBackgroundColor(theme),
+    paper_bgcolor: getThemeBackgroundColor(theme),
     xaxis: {
       title: { text: contourConfig.xField },
-      color: theme?.textColor || '#333',
-      gridcolor: theme?.gridColor || '#e0e0e0'
+      color: getThemeTextColor(theme),
+      gridcolor: getThemeGridColor(theme)
     },
     yaxis: {
       title: { text: contourConfig.yField },
-      color: theme?.textColor || '#333',
-      gridcolor: theme?.gridColor || '#e0e0e0'
+      color: getThemeTextColor(theme),
+      gridcolor: getThemeGridColor(theme)
     },
-    plot_bgcolor: theme?.backgroundColor || 'white',
-    paper_bgcolor: theme?.backgroundColor || 'white',
-    margin: { l: 80, r: 80, t: 80, b: 60 }
+    margin: { l: 60, r: 100, t: 80, b: 60 }
   };
 
   const plotConfig: Partial<Config> = {
@@ -230,27 +261,28 @@ export const ContourPlot: React.FC<ChartProps> = ({
         data={plotData}
         layout={layout}
         config={plotConfig}
-        onClick={(event: any) => {
-          if (onInteraction && event.points?.length > 0) {
-            const point = event.points[0];
+        onClick={(event) => {
+          if (onInteraction) {
             onInteraction({
               type: 'click',
-              data: { x: point.x, y: point.y, z: point.z },
-              dataIndex: point.pointIndex
+              chartId: '',
+              data: event.points[0],
+              dataIndex: event.points[0].pointIndex,
+              timestamp: Date.now()
             });
           }
         }}
-        onHover={(event: any) => {
-          if (onInteraction && event.points?.length > 0) {
-            const point = event.points[0];
+        onHover={(event) => {
+          if (onInteraction) {
             onInteraction({
               type: 'hover',
-              data: { x: point.x, y: point.y, z: point.z },
-              dataIndex: point.pointIndex
+              chartId: '',
+              data: event.points[0],
+              dataIndex: event.points[0].pointIndex,
+              timestamp: Date.now()
             });
           }
         }}
-        style={{ width: '100%', height: '100%' }}
       />
     </Box>
   );

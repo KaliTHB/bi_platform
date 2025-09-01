@@ -1,10 +1,17 @@
+// src/plugins/charts/plotly/Surface3D.tsx
 import React, { useMemo } from 'react';
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
 import Plot from 'react-plotly.js';
 import { PlotData, Config, Layout } from 'plotly.js';
+import { ChartProps, ChartPluginConfig, ChartInteractionEvent } from '@/types/chart.types';
 import { getDataArray, isChartDataEmpty } from '../utils/chartDataUtils';
-import { ChartProps,ChartPluginConfig,ChartConfiguration } from '@/types/chart.types';
-import { ChartData, ChartInteractionEvent } from '@/types/chart.types';
+import {
+  getThemeTextColor,
+  getThemeBackgroundColor,
+  getThemeGridColor,
+  getPlotlyTextFont,
+  getPlotlyTitleFont
+} from '@/utils/themeHelpers';
 
 interface Surface3DConfig extends ChartPluginConfig {
   title?: string;
@@ -64,9 +71,13 @@ interface Surface3DConfig extends ChartPluginConfig {
   showlabels?: boolean;
 }
 
-export const Surface3D: React.FC<ChartProps> = ({ 
+export interface Surface3DProps extends ChartProps {
+  config: Surface3DConfig;
+}
+
+const Surface3D: React.FC<Surface3DProps> = ({ 
   data, 
-  config, 
+  config: surfaceConfig, 
   dimensions, 
   theme, 
   onInteraction, 
@@ -74,22 +85,22 @@ export const Surface3D: React.FC<ChartProps> = ({
   isLoading,
   error
 }) => {
-  const surfaceConfig = config as Surface3DConfig;
-
   const processedData = useMemo(() => {
-    if (isChartDataEmpty(data)) {
-      return null;
-    }
-
+    if (!data) return null;
+    
     try {
       const dataArray = getDataArray(data);
+      
+      if (isChartDataEmpty(dataArray)) {
+        return null;
+      }
       
       // Validate required fields
       if (!surfaceConfig.xField || !surfaceConfig.yField || !surfaceConfig.zField) {
         throw new Error('xField, yField, and zField are required for 3D surface plot');
       }
 
-      // Extract and validate numeric values
+      // Extract coordinate data
       const xValues = dataArray.map(item => Number(item[surfaceConfig.xField])).filter(val => !isNaN(val));
       const yValues = dataArray.map(item => Number(item[surfaceConfig.yField])).filter(val => !isNaN(val));
       const zValues = dataArray.map(item => Number(item[surfaceConfig.zField])).filter(val => !isNaN(val));
@@ -98,38 +109,34 @@ export const Surface3D: React.FC<ChartProps> = ({
         throw new Error('No valid numeric data found for 3D surface plot');
       }
 
-      // Get unique x and y values and sort them
-      const xUnique = [...new Set(xValues)].sort((a, b) => a - b);
-      const yUnique = [...new Set(yValues)].sort((a, b) => a - b);
+      // Create unique sorted arrays for surface grid
+      const uniqueX = [...new Set(xValues)].sort((a, b) => a - b);
+      const uniqueY = [...new Set(yValues)].sort((a, b) => a - b);
 
-      // Create z matrix for surface plot
-      const zMatrix: number[][] = [];
-      for (let i = 0; i < yUnique.length; i++) {
+      // Create Z matrix for surface
+      const zMatrix: (number | null)[][] = [];
+      for (let i = 0; i < uniqueY.length; i++) {
         zMatrix[i] = [];
-        for (let j = 0; j < xUnique.length; j++) {
-          // Find data points that match this x,y coordinate
-          const matchingItems = dataArray.filter(item => {
-            const x = Number(item[surfaceConfig.xField]);
-            const y = Number(item[surfaceConfig.yField]);
-            return Math.abs(x - xUnique[j]) < 0.001 && Math.abs(y - yUnique[i]) < 0.001;
-          });
+        for (let j = 0; j < uniqueX.length; j++) {
+          // Find corresponding Z value
+          const dataIndex = dataArray.findIndex(item => 
+            Number(item[surfaceConfig.xField]) === uniqueX[j] && 
+            Number(item[surfaceConfig.yField]) === uniqueY[i]
+          );
           
-          if (matchingItems.length > 0) {
-            // Average z values if multiple points exist at same x,y
-            const avgZ = matchingItems.reduce((sum, item) => 
-              sum + Number(item[surfaceConfig.zField]), 0) / matchingItems.length;
-            zMatrix[i][j] = avgZ;
+          if (dataIndex !== -1) {
+            zMatrix[i][j] = Number(dataArray[dataIndex][surfaceConfig.zField]) || 0;
           } else {
-            // Interpolate or use 0 for missing values
-            zMatrix[i][j] = 0;
+            zMatrix[i][j] = null; // Missing data point
           }
         }
       }
 
       return {
-        x: xUnique,
-        y: yUnique,
-        z: zMatrix
+        x: uniqueX,
+        y: uniqueY,
+        z: zMatrix,
+        originalData: dataArray
       };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to process 3D surface data';
@@ -176,7 +183,7 @@ export const Surface3D: React.FC<ChartProps> = ({
     );
   }
 
-  const plotData: any[] = [{
+  const plotData: PlotData[] = [{
     type: 'surface',
     x: processedData.x,
     y: processedData.y,
@@ -191,23 +198,23 @@ export const Surface3D: React.FC<ChartProps> = ({
         show: surfaceConfig.contours.x.show !== false,
         start: surfaceConfig.contours.x.start,
         end: surfaceConfig.contours.x.end,
-        size: surfaceConfig.contours.x.size,
-        color: surfaceConfig.contours.x.color || theme?.colors?.[0] || '#636efa'
-      } : undefined,
+        size: surfaceConfig.contours.x.size || 1,
+        color: surfaceConfig.contours.x.color || getThemeGridColor(theme)
+      } : { show: false },
       y: surfaceConfig.contours.y ? {
         show: surfaceConfig.contours.y.show !== false,
         start: surfaceConfig.contours.y.start,
         end: surfaceConfig.contours.y.end,
-        size: surfaceConfig.contours.y.size,
-        color: surfaceConfig.contours.y.color || theme?.colors?.[1] || '#ef553b'
-      } : undefined,
+        size: surfaceConfig.contours.y.size || 1,
+        color: surfaceConfig.contours.y.color || getThemeGridColor(theme)
+      } : { show: false },
       z: surfaceConfig.contours.z ? {
         show: surfaceConfig.contours.z.show !== false,
         start: surfaceConfig.contours.z.start,
         end: surfaceConfig.contours.z.end,
-        size: surfaceConfig.contours.z.size,
-        color: surfaceConfig.contours.z.color || theme?.colors?.[2] || '#00cc96'
-      } : undefined
+        size: surfaceConfig.contours.z.size || 1,
+        color: surfaceConfig.contours.z.color || getThemeGridColor(theme)
+      } : { show: false }
     } : undefined,
     lighting: surfaceConfig.lighting ? {
       ambient: surfaceConfig.lighting.ambient || 0.8,
@@ -223,45 +230,44 @@ export const Surface3D: React.FC<ChartProps> = ({
       fresnel: 0.2
     },
     lightposition: surfaceConfig.lightposition || { x: 100, y: 200, z: 0 },
-    colorbar: surfaceConfig.colorbar ? {
-      ...surfaceConfig.colorbar,
-      titlefont: { color: theme?.textColor || '#333' },
-      tickfont: { color: theme?.textColor || '#333' }
-    } : {
-      titlefont: { color: theme?.textColor || '#333' },
-      tickfont: { color: theme?.textColor || '#333' }
-    },
     hovertemplate: surfaceConfig.hovertemplate || 
       `${surfaceConfig.xField}: %{x}<br>${surfaceConfig.yField}: %{y}<br>${surfaceConfig.zField}: %{z}<extra></extra>`
-  }];
+  } as unknown as PlotData];
 
   const layout: Partial<Layout> = {
     width: dimensions?.width || 400,
     height: dimensions?.height || 300,
     title: {
       text: surfaceConfig.title,
-      font: { color: theme?.textColor || '#333' }
+      // FIXED: Use proper theme structure
+      font: getPlotlyTitleFont(theme)
     },
     scene: {
       xaxis: { 
         title: { text: surfaceConfig.xField },
-        color: theme?.textColor || '#333',
-        gridcolor: theme?.gridColor || '#e0e0e0'
+        // FIXED: Use proper theme structure
+        color: getThemeTextColor(theme),
+        gridcolor: getThemeGridColor(theme)
       },
       yaxis: { 
         title: { text: surfaceConfig.yField },
-        color: theme?.textColor || '#333',
-        gridcolor: theme?.gridColor || '#e0e0e0'
+        // FIXED: Use proper theme structure
+        color: getThemeTextColor(theme),
+        gridcolor: getThemeGridColor(theme)
       },
       zaxis: { 
         title: { text: surfaceConfig.zField },
-        color: theme?.textColor || '#333',
-        gridcolor: theme?.gridColor || '#e0e0e0'
+        // FIXED: Use proper theme structure
+        color: getThemeTextColor(theme),
+        gridcolor: getThemeGridColor(theme)
       },
-      bgcolor: theme?.backgroundColor || 'white'
+      // FIXED: Use proper theme structure
+      bgcolor: getThemeBackgroundColor(theme)
     },
-    plot_bgcolor: theme?.backgroundColor || 'white',
-    paper_bgcolor: theme?.backgroundColor || 'white',
+    font: getPlotlyTextFont(theme),
+    // FIXED: Use proper theme structure
+    plot_bgcolor: getThemeBackgroundColor(theme),
+    paper_bgcolor: getThemeBackgroundColor(theme),
     margin: { l: 60, r: 60, t: 80, b: 60 }
   };
 
@@ -286,22 +292,26 @@ export const Surface3D: React.FC<ChartProps> = ({
         layout={layout}
         config={plotConfig}
         onClick={(event: any) => {
-  if (onInteraction && event.points?.length > 0) {
-    const point = event.points[0];
-    onInteraction({
-      type: 'click',
-      data: { x: point.x, y: point.y, z: point.z },
-      dataIndex: point.pointIndex
-    } as ChartInteractionEvent);
-  }
-}}
+          if (onInteraction && event.points?.length > 0) {
+            const point = event.points[0];
+            onInteraction({
+              type: 'click',
+              chartId: '',
+              data: { x: point.x, y: point.y, z: point.z },
+              dataIndex: point.pointIndex,
+              timestamp: Date.now()
+            } as ChartInteractionEvent);
+          }
+        }}
         onHover={(event: any) => {
           if (onInteraction && event.points?.length > 0) {
             const point = event.points[0];
             onInteraction({
               type: 'hover',
+              chartId: '',
               data: { x: point.x, y: point.y, z: point.z },
-              dataIndex: point.pointIndex
+              dataIndex: point.pointIndex,
+              timestamp: Date.now()
             });
           }
         }}

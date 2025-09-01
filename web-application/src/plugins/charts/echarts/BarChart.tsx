@@ -1,37 +1,30 @@
-// File: /web-application/src/plugins/charts/echarts/BarChart.tsx
-
+// File: src/plugins/charts/echarts/BarChart.tsx
 'use client';
 
 import React, { useEffect, useRef, useMemo } from 'react';
 import * as echarts from 'echarts';
-import { ChartProps } from '@/types/chart.types';
-import { 
-  normalizeChartData, 
-  isChartDataEmpty, 
-  extractFieldValues, 
-  extractNumericValues, 
-  createChartConfig 
-} from '../utils/chartDataUtils';
+import { ChartProps,ChartPluginConfig } from '@/types/chart.types';
+import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
 
 export interface BarChartConfig {
-  title?: string;
   xAxisField: string;
   yAxisField: string;
+  title?: string;
   xAxisLabel?: string;
   yAxisLabel?: string;
   seriesName?: string;
   color?: string;
+  isHorizontal?: boolean;
   showValues?: boolean;
   rotateLabels?: number;
-  horizontal?: boolean;
 }
 
-interface EChartsBarChartProps extends ChartProps {
+interface BarChartProps extends ChartProps {
   chartId?: string;
 }
 
-export const BarChart: React.FC<EChartsBarChartProps> = ({
-  chartId, // Add this parameter
+export const BarChart: React.FC<BarChartProps> = ({
+  chartId,
   data,
   config,
   width = 400,
@@ -43,8 +36,7 @@ export const BarChart: React.FC<EChartsBarChartProps> = ({
   const chartInstance = useRef<echarts.ECharts>();
 
   const options = useMemo(() => {
-    // Check if data is empty using utility function
-    if (isChartDataEmpty(data)) {
+    if (!hasDataContent(data)) {
       return {
         title: {
           text: 'No Data Available',
@@ -58,27 +50,13 @@ export const BarChart: React.FC<EChartsBarChartProps> = ({
       };
     }
 
-    // Normalize data to array format
-    const chartData = normalizeChartData(data);
-    
-    // Create safe configuration with defaults
-    const chartConfig = createChartConfig(config, {
-      xAxisField: 'name',
-      yAxisField: 'value',
-      title: 'Bar Chart',
-      color: '#5470c6',
-      showValues: false,
-      rotateLabels: 0,
-      horizontal: false
-    }) as BarChartConfig;
-
     try {
-      // Extract data using utility functions
-      const categories = extractFieldValues(chartData, chartConfig.xAxisField, 'Unknown');
-      const values = extractNumericValues(chartData, chartConfig.yAxisField, 0);
-
-      // Determine chart orientation
-      const isHorizontal = chartConfig.horizontal;
+      const chartConfig = config as BarChartConfig;
+      const dataArray = getDataArray(data);
+      
+      const categories = dataArray.map(item => item[chartConfig.xAxisField]);
+      const values = dataArray.map(item => parseFloat(item[chartConfig.yAxisField]) || 0);
+      const isHorizontal = chartConfig.isHorizontal || false;
 
       return {
         title: {
@@ -93,10 +71,6 @@ export const BarChart: React.FC<EChartsBarChartProps> = ({
           trigger: 'axis',
           axisPointer: {
             type: 'shadow'
-          },
-          formatter: (params: any) => {
-            const param = Array.isArray(params) ? params[0] : params;
-            return `${param.axisValueLabel}<br/>${param.seriesName}: ${param.value}`;
           }
         },
         xAxis: {
@@ -104,8 +78,8 @@ export const BarChart: React.FC<EChartsBarChartProps> = ({
           data: isHorizontal ? undefined : categories,
           name: isHorizontal ? chartConfig.yAxisLabel : chartConfig.xAxisLabel,
           axisLabel: {
-            rotate: isHorizontal ? 0 : chartConfig.rotateLabels,
-            interval: 0 // Show all labels
+            rotate: isHorizontal ? 0 : chartConfig.rotateLabels || 0,
+            interval: 0
           }
         },
         yAxis: {
@@ -114,7 +88,6 @@ export const BarChart: React.FC<EChartsBarChartProps> = ({
           name: isHorizontal ? chartConfig.xAxisLabel : chartConfig.yAxisLabel,
           axisLabel: {
             formatter: (value: any) => {
-              // Format large numbers
               if (typeof value === 'number' && value >= 1000) {
                 return (value / 1000).toFixed(1) + 'K';
               }
@@ -128,11 +101,11 @@ export const BarChart: React.FC<EChartsBarChartProps> = ({
             type: 'bar',
             data: values,
             itemStyle: {
-              color: chartConfig.color,
+              color: chartConfig.color || '#5470c6',
               borderRadius: isHorizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]
             },
             label: {
-              show: chartConfig.showValues,
+              show: chartConfig.showValues || false,
               position: isHorizontal ? 'right' : 'top',
               formatter: '{c}'
             },
@@ -174,51 +147,57 @@ export const BarChart: React.FC<EChartsBarChartProps> = ({
   useEffect(() => {
     if (!chartRef.current) return;
 
-    // Initialize chart
     if (!chartInstance.current) {
       chartInstance.current = echarts.init(chartRef.current);
     }
 
-    // Set options
     chartInstance.current.setOption(options, true);
 
-    // Add click handler
     const handleClick = (params: any) => {
-  onInteraction?.({
-    type: 'click',
-    chartId: chartId || 'echarts-bar-chart',
-    data: params.data,
-    dataIndex: params.dataIndex,
-    seriesIndex: params.seriesIndex,
-    timestamp: Date.now()
-  });
-};
+      onInteraction?.({
+        type: 'click',
+        chartId: chartId || 'echarts-bar-chart',
+        data: params.data,
+        dataIndex: params.dataIndex,
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
+      });
+    };
+
+    const handleMouseover = (params: any) => {
+      onInteraction?.({
+        type: 'hover',
+        chartId: chartId || 'echarts-bar-chart',
+        data: params.data,
+        dataIndex: params.dataIndex,
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
+      });
+    };
 
     chartInstance.current.on('click', handleClick);
+    chartInstance.current.on('mouseover', handleMouseover);
 
-    // Handle resize
     const handleResize = () => {
       chartInstance.current?.resize();
     };
 
     window.addEventListener('resize', handleResize);
 
-    // Cleanup
     return () => {
       chartInstance.current?.off('click', handleClick);
+      chartInstance.current?.off('mouseover', handleMouseover);
       window.removeEventListener('resize', handleResize);
     };
-  }, [options, onInteraction]);
+  }, [chartId, options, onInteraction]);
 
   useEffect(() => {
-    // Resize chart when dimensions change
     if (chartInstance.current) {
       chartInstance.current.resize();
     }
   }, [width, height]);
 
   useEffect(() => {
-    // Cleanup on unmount
     return () => {
       chartInstance.current?.dispose();
     };
@@ -235,8 +214,7 @@ export const BarChart: React.FC<EChartsBarChartProps> = ({
   );
 };
 
-// Chart Plugin Configuration Export
-export const EChartsBarChartConfig = {
+export const EChartsBarChartConfig: ChartPluginConfig = {
   name: 'echarts-bar',
   displayName: 'ECharts Bar Chart',
   category: 'basic',
@@ -253,30 +231,26 @@ export const EChartsBarChartConfig = {
         title: 'Chart Title',
         default: 'Bar Chart'
       },
-      xAxisField: {
+      xField: {
         type: 'string',
         title: 'X-Axis Field',
         description: 'Field name for categories (x-axis)',
-        default: 'name'
+        required: true
       },
-      yAxisField: {
-        type: 'string',
+      yField: {
+        type: 'string', 
         title: 'Y-Axis Field',
         description: 'Field name for values (y-axis)',
-        default: 'value'
+        required: true
       },
-      xAxisLabel: {
+      orientation: {
         type: 'string',
-        title: 'X-Axis Label',
-        description: 'Label for the x-axis'
-      },
-      yAxisLabel: {
-        type: 'string',
-        title: 'Y-Axis Label',
-        description: 'Label for the y-axis'
+        title: 'Orientation',
+        enum: ['vertical', 'horizontal'],
+        default: 'vertical'
       },
       color: {
-        type: 'color',
+        type: 'string',
         title: 'Bar Color',
         default: '#5470c6'
       },
@@ -285,35 +259,35 @@ export const EChartsBarChartConfig = {
         title: 'Show Values on Bars',
         default: false
       },
-      rotateLabels: {
-        type: 'number',
-        title: 'Rotate X-Axis Labels (degrees)',
-        default: 0,
-        minimum: -90,
-        maximum: 90
-      },
-      horizontal: {
+      stacked: {
         type: 'boolean',
-        title: 'Horizontal Orientation',
-        description: 'Display bars horizontally instead of vertically',
+        title: 'Stacked Bars',
         default: false
       }
     },
-    required: ['xAxisField', 'yAxisField']
+    required: ['xField', 'yField']
   },
   
   dataRequirements: {
     minColumns: 2,
     maxColumns: 100,
     requiredFields: ['name', 'value'],
-    optionalFields: [],
+    optionalFields: ['category', 'series'],
     supportedTypes: ['string', 'number'],
     aggregationSupport: true,
-    pivotSupport: false
+    pivotSupport: true
   },
   
   exportFormats: ['png', 'svg', 'pdf'],
-  component: BarChart
+  component: BarChart, // Replace with actual component import
+  
+  interactionSupport: {
+    zoom: true,
+    pan: false,
+    selection: true,
+    brush: true,
+    drilldown: true,
+    tooltip: true,
+    crossFilter: true
+  }
 };
-
-export default BarChart;

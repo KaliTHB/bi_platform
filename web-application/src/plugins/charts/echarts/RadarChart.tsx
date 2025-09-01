@@ -1,443 +1,287 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Box, Typography, CircularProgress, Alert } from '@mui/material';
-import * as echarts from 'echarts';
-import { ChartProps, ChartData } from '../../../types/chart.types';
+// File: src/plugins/charts/echarts/RadarChart.tsx
+'use client';
 
-interface RadarChartConfig {
-  title?: string;
-  subtitle?: string;
-  radar?: {
-    indicator: Array<{
-      name: string;
-      max?: number;
-      min?: number;
-    }>;
-    radius?: string | number;
-    startAngle?: number;
-    splitNumber?: number;
-    shape?: 'polygon' | 'circle';
-    center?: [string | number, string | number];
-  };
-  series?: Array<{
+import React, { useEffect, useRef, useMemo } from 'react';
+import * as echarts from 'echarts';
+import { ChartProps,ChartPluginConfig } from '@/types/chart.types';
+import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
+
+export interface RadarChartConfig {
+  dimensions: Array<{
     name: string;
-    dataFields: string[];
-    areaStyle?: {
-      opacity?: number;
-      color?: string;
-    };
-    lineStyle?: {
-      width?: number;
-      color?: string;
-    };
-    symbol?: string;
-    symbolSize?: number;
+    field: string;
+    max?: number;
+    min?: number;
   }>;
-  nameField?: string;
-  valueFields?: string[];
-  legend?: {
-    show?: boolean;
-    position?: 'top' | 'bottom' | 'left' | 'right';
-    orient?: 'horizontal' | 'vertical';
-  };
-  animation?: boolean;
-  colors?: string[];
-  [key: string]: any;
+  seriesField?: string;
+  title?: string;
+  showLegend?: boolean;
+  shape?: 'polygon' | 'circle';
+  radius?: string | number;
 }
 
 interface RadarChartProps extends ChartProps {
-  config: RadarChartConfig;
+  chartId?: string;
 }
 
-// Utility function to normalize data to array format
-const normalizeData = (data: any[] | ChartData): any[] => {
-  if (!data) return [];
-  
-  if (Array.isArray(data)) {
-    return data;
-  } else if (data && typeof data === 'object' && 'rows' in data) {
-    return (data as ChartData).rows || [];
-  }
-  
-  return [];
-};
-
-// Utility function to check if data is empty
-const isDataEmpty = (data: any[] | ChartData): boolean => {
-  const normalizedData = normalizeData(data);
-  return normalizedData.length === 0;
-};
-
 export const RadarChart: React.FC<RadarChartProps> = ({
+  chartId,
   data,
   config,
-  dimensions = { width: 800, height: 600 },
-  theme,
+  width = 400,
+  height = 300,
   onInteraction,
-  onError,
-  isLoading = false,
-  error
+  onError
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts>();
-  const [processedData, setProcessedData] = useState<{
-    seriesData: any[];
-    indicators: any[];
-    seriesNames: string[];
-  }>({
-    seriesData: [],
-    indicators: [],
-    seriesNames: []
-  });
 
-  // Process data for radar chart
-  useEffect(() => {
-    if (isDataEmpty(data)) {
-      setProcessedData({ seriesData: [], indicators: [], seriesNames: [] });
-      return;
-    }
-
-    try {
-      const normalizedData = normalizeData(data);
-      let indicators: any[] = [];
-      let seriesData: any[] = [];
-      let seriesNames: string[] = [];
-
-      if (config.radar?.indicator) {
-        // Use predefined indicators
-        indicators = config.radar.indicator;
-      } else if (config.valueFields) {
-        // Auto-generate indicators from valueFields
-        indicators = config.valueFields.map(field => {
-          const values = normalizedData.map(item => Number(item[field]) || 0);
-          const max = Math.max(...values);
-          const min = Math.min(...values);
-          
-          return {
-            name: field,
-            max: max > 0 ? Math.ceil(max * 1.1) : 100,
-            min: min < 0 ? Math.floor(min * 1.1) : 0
-          };
-        });
-      } else {
-        // Auto-detect numeric fields
-        const firstItem = normalizedData[0] || {};
-        const numericFields = Object.keys(firstItem).filter(key => {
-          return normalizedData.some(item => typeof item[key] === 'number' && !isNaN(item[key]));
-        });
-
-        indicators = numericFields.map(field => {
-          const values = normalizedData.map(item => Number(item[field]) || 0);
-          const max = Math.max(...values);
-          const min = Math.min(...values);
-          
-          return {
-            name: field,
-            max: max > 0 ? Math.ceil(max * 1.1) : 100,
-            min: min < 0 ? Math.floor(min * 1.1) : 0
-          };
-        });
-      }
-
-      // Process series data
-      if (config.series && config.series.length > 0) {
-        // Use predefined series configuration
-        config.series.forEach((seriesConfig, seriesIndex) => {
-          seriesNames.push(seriesConfig.name);
-          
-          const seriesValues = normalizedData.map(item => {
-            return seriesConfig.dataFields.map(field => Number(item[field]) || 0);
-          });
-
-          seriesData.push({
-            name: seriesConfig.name,
-            type: 'radar',
-            data: seriesValues.map((values, dataIndex) => ({
-              value: values,
-              name: config.nameField ? normalizedData[dataIndex][config.nameField] : `Item ${dataIndex + 1}`
-            })),
-            areaStyle: seriesConfig.areaStyle ? {
-              opacity: seriesConfig.areaStyle.opacity || 0.3,
-              color: seriesConfig.areaStyle.color || theme?.colors?.[seriesIndex] || '#5470c6'
-            } : undefined,
-            lineStyle: seriesConfig.lineStyle ? {
-              width: seriesConfig.lineStyle.width || 2,
-              color: seriesConfig.lineStyle.color || theme?.colors?.[seriesIndex] || '#5470c6'
-            } : undefined,
-            symbol: seriesConfig.symbol || 'circle',
-            symbolSize: seriesConfig.symbolSize || 6
-          });
-        });
-      } else {
-        // Auto-generate series from data
-        const indicatorFields = indicators.map(ind => ind.name);
-        
-        if (config.nameField && normalizedData.length > 0) {
-          // Each row is a separate series
-          normalizedData.forEach((item, index) => {
-            const seriesName = item[config.nameField!] || `Series ${index + 1}`;
-            seriesNames.push(seriesName);
-            
-            const values = indicatorFields.map(field => Number(item[field]) || 0);
-            
-            seriesData.push({
-              name: seriesName,
-              type: 'radar',
-              data: [{
-                value: values,
-                name: seriesName
-              }],
-              areaStyle: {
-                opacity: 0.3
-              },
-              lineStyle: {
-                width: 2
-              },
-              symbol: 'circle',
-              symbolSize: 6
-            });
-          });
-        } else {
-          // Single series with all data points
-          seriesNames.push('Data Series');
-          const seriesValues = normalizedData.map((item, index) => {
-            const values = indicatorFields.map(field => Number(item[field]) || 0);
-            return {
-              value: values,
-              name: config.nameField ? item[config.nameField] : `Item ${index + 1}`
-            };
-          });
-
-          seriesData.push({
-            name: 'Data Series',
-            type: 'radar',
-            data: seriesValues,
-            areaStyle: {
-              opacity: 0.3
-            },
-            lineStyle: {
-              width: 2
-            },
-            symbol: 'circle',
-            symbolSize: 6
-          });
+  const options = useMemo(() => {
+    if (!hasDataContent(data)) {
+      return {
+        title: {
+          text: 'No Data Available',
+          left: 'center',
+          top: 'middle',
+          textStyle: {
+            color: '#999',
+            fontSize: 16
+          }
         }
-      }
-
-      setProcessedData({ seriesData, indicators, seriesNames });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to process radar chart data';
-      onError?.(new Error(errorMessage));
-      setProcessedData({ seriesData: [], indicators: [], seriesNames: [] });
+      };
     }
-  }, [data, config, theme, onError]);
-
-  // Initialize and update chart
-  useEffect(() => {
-    if (!chartRef.current || processedData.indicators.length === 0) return;
-
-    let resizeListener: (() => void) | null = null;
 
     try {
-      // Initialize ECharts instance
-      if (!chartInstance.current) {
-        chartInstance.current = echarts.init(chartRef.current);
+      const chartConfig = config as RadarChartConfig;
+      const dataArray = getDataArray(data);
+      
+      if (!chartConfig.dimensions || chartConfig.dimensions.length === 0) {
+        throw new Error('Radar chart requires dimensions configuration');
       }
 
-      const option: echarts.EChartsOption = {
-        title: config.title ? {
-          text: config.title,
-          subtext: config.subtitle,
+      // Prepare radar indicator
+      const indicator = chartConfig.dimensions.map(dim => {
+        const values = dataArray.map(item => parseFloat(item[dim.field]) || 0);
+        const maxValue = dim.max !== undefined ? dim.max : Math.max(...values);
+        const minValue = dim.min !== undefined ? dim.min : Math.min(...values);
+        
+        return {
+          name: dim.name,
+          max: maxValue,
+          min: minValue
+        };
+      });
+
+      // Group data by series field if provided
+      const series: any[] = [];
+      
+      if (chartConfig.seriesField) {
+        const groupedData = new Map<string, any[]>();
+        
+        dataArray.forEach(item => {
+          const seriesValue = item[chartConfig.seriesField!];
+          if (!groupedData.has(seriesValue)) {
+            groupedData.set(seriesValue, []);
+          }
+          groupedData.get(seriesValue)!.push(item);
+        });
+
+        groupedData.forEach((items, seriesName) => {
+          // For multiple items in a series, we could average them or use the first one
+          const representativeItem = items[0]; // Using first item for simplicity
+          
+          const values = chartConfig.dimensions.map(dim => 
+            parseFloat(representativeItem[dim.field]) || 0
+          );
+
+          series.push({
+            name: seriesName,
+            type: 'radar',
+            data: [{
+              value: values,
+              name: seriesName
+            }]
+          });
+        });
+      } else {
+        // Single series - use all data points or first item
+        const values = chartConfig.dimensions.map(dim => {
+          // Average all values for this dimension
+          const dimValues = dataArray.map(item => parseFloat(item[dim.field]) || 0);
+          return dimValues.reduce((sum, val) => sum + val, 0) / dimValues.length;
+        });
+
+        series.push({
+          name: chartConfig.title || 'Data',
+          type: 'radar',
+          data: [{
+            value: values,
+            name: chartConfig.title || 'Data'
+          }]
+        });
+      }
+
+      return {
+        title: {
+          text: chartConfig.title,
           left: 'center',
           textStyle: {
-            color: theme?.textColor || '#333'
-          }
-        } : undefined,
-        backgroundColor: theme?.backgroundColor || 'transparent',
-        tooltip: {
-          show: true,
-          trigger: 'item',
-          formatter: (params: any) => {
-            if (params.value && Array.isArray(params.value)) {
-              const indicators = processedData.indicators;
-              let tooltipText = `<strong>${params.name}</strong><br/>`;
-              params.value.forEach((value: number, index: number) => {
-                if (indicators[index]) {
-                  tooltipText += `${indicators[index].name}: ${value}<br/>`;
-                }
-              });
-              return tooltipText;
-            }
-            return params.name;
+            fontSize: 16,
+            fontWeight: 'bold'
           }
         },
-        legend: config.legend?.show !== false && processedData.seriesNames.length > 1 ? {
-          data: processedData.seriesNames,
-          bottom: config.legend?.position === 'bottom' ? 10 : undefined,
-          top: config.legend?.position === 'top' ? 10 : undefined,
-          left: config.legend?.position === 'left' ? 10 : undefined,
-          right: config.legend?.position === 'right' ? 10 : undefined,
-          orient: config.legend?.orient || 'horizontal',
-          textStyle: {
-            color: theme?.textColor || '#333'
-          }
-        } : undefined,
+        tooltip: {
+          trigger: 'item'
+        },
+        legend: {
+          show: chartConfig.showLegend !== false && series.length > 1,
+          orient: 'vertical',
+          left: 'left',
+          data: series.map(s => s.name)
+        },
         radar: {
-          indicator: processedData.indicators,
-          radius: config.radar?.radius || '70%',
-          startAngle: config.radar?.startAngle || 90,
-          splitNumber: config.radar?.splitNumber || 5,
-          shape: config.radar?.shape || 'polygon',
-          center: config.radar?.center || ['50%', '50%'],
+          indicator,
+          shape: chartConfig.shape || 'polygon',
+          radius: chartConfig.radius || '75%',
+          splitNumber: 5,
+          nameGap: 15,
           name: {
             textStyle: {
-              color: theme?.textColor || '#333'
+              fontSize: 12,
+              fontWeight: 'bold'
             }
-          } as any, // Type assertion to bypass strict typing
+          },
           splitLine: {
             lineStyle: {
-              color: theme?.gridColor || '#e0e6ed'
+              color: [
+                'rgba(238, 197, 102, 0.1)',
+                'rgba(238, 197, 102, 0.2)',
+                'rgba(238, 197, 102, 0.4)',
+                'rgba(238, 197, 102, 0.6)',
+                'rgba(238, 197, 102, 0.8)',
+                'rgba(238, 197, 102, 1)'
+              ].reverse()
             }
           },
           splitArea: {
-            show: true,
-            areaStyle: {
-              color: ['rgba(250,250,250,0.3)', 'rgba(200,200,200,0.3)']
-            }
+            show: false
           },
           axisLine: {
             lineStyle: {
-              color: theme?.gridColor || '#e0e6ed'
+              color: 'rgba(238, 197, 102, 0.5)'
             }
           }
         },
-        series: processedData.seriesData.map((series, index) => ({
-          ...series,
-          itemStyle: {
-            color: theme?.colors?.[index % (theme?.colors?.length || 1)] || '#5470c6'
+        series: series.map((s, index) => ({
+          ...s,
+          areaStyle: {
+            opacity: 0.1
           },
-          areaStyle: series.areaStyle ? {
-            ...series.areaStyle,
-            color: series.areaStyle.color || theme?.colors?.[index % (theme?.colors?.length || 1)] || '#5470c6'
-          } : undefined
+          lineStyle: {
+            width: 2
+          },
+          symbol: 'none',
+          itemStyle: {
+            color: `hsl(${index * 360 / series.length}, 70%, 50%)`
+          }
         })),
-        animation: config.animation !== false,
-        animationDuration: 1000,
-        animationEasing: 'cubicOut'
+        animation: true
       };
-
-      chartInstance.current.setOption(option, true);
-
-      // Handle interactions
-      if (onInteraction) {
-        const handleClick = (params: any) => {
-          onInteraction({
-            type: 'click',
-            data: params.data,
-            dataIndex: params.dataIndex,
-            seriesIndex: params.seriesIndex
-          });
-        };
-
-        chartInstance.current.off('click');
-        chartInstance.current.on('click', handleClick);
-      }
-
-      // Handle resize
-      const handleResize = () => {
-        chartInstance.current?.resize();
+    } catch (error) {
+      console.error('Error processing radar chart data:', error);
+      onError?.(error as Error);
+      return {
+        title: {
+          text: 'Error Loading Chart',
+          left: 'center',
+          top: 'middle',
+          textStyle: {
+            color: '#ff4444',
+            fontSize: 16
+          }
+        }
       };
+    }
+  }, [data, config, onError]);
 
-      window.addEventListener('resize', handleResize);
-      resizeListener = handleResize;
-      chartInstance.current.resize();
+  useEffect(() => {
+    if (!chartRef.current) return;
 
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to render radar chart';
-      onError?.(new Error(errorMessage));
+    if (!chartInstance.current) {
+      chartInstance.current = echarts.init(chartRef.current);
     }
 
-    // Return cleanup function
-    return () => {
-      if (resizeListener) {
-        window.removeEventListener('resize', resizeListener);
-      }
-    };
-  }, [processedData, config, theme, onInteraction, onError]);
+    chartInstance.current.setOption(options, true);
 
-  // Cleanup on unmount
+    const handleClick = (params: any) => {
+      onInteraction?.({
+        type: 'click',
+        chartId: chartId || 'echarts-radar-chart',
+        data: params.data,
+        dataIndex: params.dataIndex,
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
+      });
+    };
+
+    const handleMouseover = (params: any) => {
+      onInteraction?.({
+        type: 'hover',
+        chartId: chartId || 'echarts-radar-chart',
+        data: params.data,
+        dataIndex: params.dataIndex,
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
+      });
+    };
+
+    chartInstance.current.on('click', handleClick);
+    chartInstance.current.on('mouseover', handleMouseover);
+
+    const handleResize = () => {
+      chartInstance.current?.resize();
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      chartInstance.current?.off('click', handleClick);
+      chartInstance.current?.off('mouseover', handleMouseover);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [chartId, options, onInteraction]);
+
+  useEffect(() => {
+    if (chartInstance.current) {
+      chartInstance.current.resize();
+    }
+  }, [width, height]);
+
   useEffect(() => {
     return () => {
-      if (chartInstance.current) {
-        chartInstance.current.dispose();
-      }
+      chartInstance.current?.dispose();
     };
   }, []);
-
-  // Loading state
-  if (isLoading) {
-    return (
-      <Box 
-        display="flex" 
-        justifyContent="center" 
-        alignItems="center" 
-        width={dimensions.width} 
-        height={dimensions.height}
-      >
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  // Error state
-  if (error) {
-    return (
-      <Box width={dimensions.width} height={dimensions.height}>
-        <Alert severity="error">
-          <Typography variant="body2">{error}</Typography>
-        </Alert>
-      </Box>
-    );
-  }
-
-  // No data state
-  if (isDataEmpty(data)) {
-    return (
-      <Box 
-        display="flex" 
-        justifyContent="center" 
-        alignItems="center" 
-        width={dimensions.width} 
-        height={dimensions.height}
-      >
-        <Typography variant="body2" color="textSecondary">
-          No data available for radar chart
-        </Typography>
-      </Box>
-    );
-  }
 
   return (
     <div 
       ref={chartRef} 
       style={{ 
-        width: dimensions.width, 
-        height: dimensions.height 
+        width: typeof width === 'number' ? `${width}px` : width, 
+        height: typeof height === 'number' ? `${height}px` : height 
       }} 
     />
   );
 };
 
-export default RadarChart;
-
-// Chart Plugin Configuration Export
-export const EChartsRadarChartConfig = {
+export const EChartsRadarChartConfig: ChartPluginConfig = {
   name: 'echarts-radar',
   displayName: 'ECharts Radar Chart',
   category: 'advanced',
   library: 'echarts',
   version: '1.0.0',
-  description: 'Multi-dimensional radar chart for comparing multiple variables across data points',
-  tags: ['radar', 'spider', 'multi-dimensional', 'comparison', 'advanced'],
+  description: 'Multi-dimensional data visualization with radar/spider chart',
+  tags: ['radar', 'spider', 'multidimensional', 'comparison'],
   
   configSchema: {
     type: 'object',
@@ -447,147 +291,58 @@ export const EChartsRadarChartConfig = {
         title: 'Chart Title',
         default: 'Radar Chart'
       },
-      subtitle: {
-        type: 'string',
-        title: 'Chart Subtitle'
-      },
-      nameField: {
-        type: 'string',
-        title: 'Name Field',
-        description: 'Field used for series names or item labels'
-      },
-      valueFields: {
+      dimensions: {
         type: 'array',
-        title: 'Value Fields',
-        description: 'Fields to display as radar indicators',
+        title: 'Dimensions',
+        description: 'List of dimension fields',
         items: {
           type: 'string',
-          title: 'Field'
+          title: 'Dimension Field'
         },
-        default: []
+        minItems: 3
       },
-      radarShape: {
-        type: 'select',
-        title: 'Radar Shape',
-        options: [
-          { label: 'Polygon', value: 'polygon' },
-          { label: 'Circle', value: 'circle' }
-        ],
-        default: 'polygon'
-      },
-      radarRadius: {
+      seriesField: {
         type: 'string',
-        title: 'Radar Radius',
-        default: '75%'
+        title: 'Series Field',
+        description: 'Field for multiple radar series'
       },
-      startAngle: {
-        type: 'number',
-        title: 'Start Angle',
-        description: 'Starting angle of the radar in degrees',
-        default: 90,
-        minimum: 0,
-        maximum: 360
+      shape: {
+        type: 'string',
+        title: 'Radar Shape',
+        enum: ['polygon', 'circle'],
+        default: 'polygon'
       },
       splitNumber: {
         type: 'number',
-        title: 'Split Number',
-        description: 'Number of concentric circles',
+        title: 'Grid Split Number',
         default: 5,
-        minimum: 1,
-        maximum: 20
-      },
-      showLegend: {
-        type: 'boolean',
-        title: 'Show Legend',
-        default: true
-      },
-      legendPosition: {
-        type: 'select',
-        title: 'Legend Position',
-        options: [
-          { label: 'Top', value: 'top' },
-          { label: 'Bottom', value: 'bottom' },
-          { label: 'Left', value: 'left' },
-          { label: 'Right', value: 'right' }
-        ],
-        default: 'bottom'
-      },
-      legendOrientation: {
-        type: 'select',
-        title: 'Legend Orientation',
-        options: [
-          { label: 'Horizontal', value: 'horizontal' },
-          { label: 'Vertical', value: 'vertical' }
-        ],
-        default: 'horizontal'
-      },
-      fillArea: {
-        type: 'boolean',
-        title: 'Fill Area',
-        description: 'Fill the area under radar lines',
-        default: true
-      },
-      lineWidth: {
-        type: 'number',
-        title: 'Line Width',
-        default: 2,
-        minimum: 1,
+        minimum: 3,
         maximum: 10
-      },
-      pointSize: {
-        type: 'number',
-        title: 'Point Size',
-        default: 6,
-        minimum: 2,
-        maximum: 20
-      },
-      pointSymbol: {
-        type: 'select',
-        title: 'Point Symbol',
-        options: [
-          { label: 'Circle', value: 'circle' },
-          { label: 'Rectangle', value: 'rect' },
-          { label: 'Round Rectangle', value: 'roundRect' },
-          { label: 'Triangle', value: 'triangle' },
-          { label: 'Diamond', value: 'diamond' },
-          { label: 'Pin', value: 'pin' },
-          { label: 'Arrow', value: 'arrow' }
-        ],
-        default: 'circle'
-      },
-      animation: {
-        type: 'boolean',
-        title: 'Enable Animation',
-        default: true
-      },
-      colors: {
-        type: 'array',
-        title: 'Color Scheme',
-        description: 'Custom colors for series',
-        items: {
-          type: 'color',
-          title: 'Color'
-        },
-        default: ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc']
       }
     },
-    required: []
+    required: ['dimensions']
   },
   
   dataRequirements: {
     minColumns: 3,
-    maxColumns: 50,
-    requiredFields: [],
-    optionalFields: ['name'],
-    supportedTypes: ['string', 'number'],
+    maxColumns: 20,
+    requiredFields: ['dimension1', 'dimension2', 'dimension3'],
+    optionalFields: ['series', 'category'],
+    supportedTypes: ['number'],
     aggregationSupport: true,
-    pivotSupport: false,
-    specialRequirements: [
-      'At least 3 numeric fields required for meaningful radar visualization',
-      'Name field recommended for series identification'
-    ]
+    pivotSupport: true
   },
   
   exportFormats: ['png', 'svg', 'pdf'],
-  component: RadarChart
+  component: RadarChart, // Replace with actual component import
+  
+  interactionSupport: {
+    zoom: false,
+    pan: false,
+    selection: true,
+    brush: false,
+    drilldown: false,
+    tooltip: true,
+    crossFilter: true
+  }
 };

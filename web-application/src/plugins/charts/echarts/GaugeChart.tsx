@@ -13,6 +13,11 @@ import {
   createChartConfig 
 } from '../utils/chartDataUtils';
 
+
+interface GaugeChartProps extends ChartProps {
+  chartId?: string;
+}
+
 export interface GaugeChartConfig {
   title?: string;
   nameField?: string;
@@ -29,7 +34,8 @@ export interface GaugeChartConfig {
   precision?: number;
 }
 
-export const GaugeChart: React.FC<ChartProps> = ({
+export const GaugeChart: React.FC<GaugeChartProps> = ({
+  chartId, // Add this parameter
   data,
   config,
   width = 400,
@@ -238,13 +244,25 @@ export const GaugeChart: React.FC<ChartProps> = ({
     const handleClick = (params: any) => {
       onInteraction?.({
         type: 'click',
+        chartId: chartId || 'echarts-gauge-chart', // Add required chartId
         data: params.data,
         dataIndex: params.dataIndex,
-        event: params.event
+        timestamp: Date.now() // Add timestamp, remove event property
+      });
+    };
+
+    const handleMouseover = (params: any) => {
+      onInteraction?.({
+        type: 'hover',
+        chartId: chartId || 'echarts-gauge-chart',
+        data: params.data,
+        dataIndex: params.dataIndex,
+        timestamp: Date.now()
       });
     };
 
     chartInstance.current.on('click', handleClick);
+    chartInstance.current.on('mouseover', handleMouseover); 
 
     // Handle resize
     const handleResize = () => {
@@ -256,9 +274,10 @@ export const GaugeChart: React.FC<ChartProps> = ({
     // Cleanup
     return () => {
       chartInstance.current?.off('click', handleClick);
+      chartInstance.current?.off('mouseover', handleMouseover);
       window.removeEventListener('resize', handleResize);
     };
-  }, [options, onInteraction]);
+  }, [chartId, options, onInteraction]);
 
   useEffect(() => {
     // Resize chart when dimensions change

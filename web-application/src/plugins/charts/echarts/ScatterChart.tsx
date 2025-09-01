@@ -1,34 +1,30 @@
-// File: /web-application/src/plugins/charts/echarts/ScatterChart.tsx
-
+// File: src/plugins/charts/echarts/ScatterChart.tsx
 'use client';
 
 import React, { useEffect, useRef, useMemo } from 'react';
 import * as echarts from 'echarts';
-import { ChartProps } from '@/types/chart.types';
-import { 
-  normalizeChartData, 
-  isChartDataEmpty, 
-  extractFieldValues, 
-  extractNumericValues, 
-  createChartConfig,
-  generateColorPalette 
-} from '../utils/chartDataUtils';
+import { ChartProps, ChartPluginConfig } from '@/types/chart.types';
+import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
 
 export interface ScatterChartConfig {
-  title?: string;
-  xAxisField: string;
-  yAxisField: string;
+  xField: string;
+  yField: string;
   sizeField?: string;
-  categoryField?: string;
+  title?: string;
   xAxisLabel?: string;
   yAxisLabel?: string;
-  symbolSize?: number | [number, number];
+  seriesName?: string;
+  symbolSize?: number;
   showGrid?: boolean;
-  colors?: string[];
-  symbol?: 'circle' | 'rect' | 'diamond' | 'triangle';
+  showLegend?: boolean;
 }
 
-export const ScatterChart: React.FC<ChartProps> = ({
+interface ScatterChartProps extends ChartProps {
+  chartId?: string;
+}
+
+export const ScatterChart: React.FC<ScatterChartProps> = ({
+  chartId,
   data,
   config,
   width = 400,
@@ -40,8 +36,7 @@ export const ScatterChart: React.FC<ChartProps> = ({
   const chartInstance = useRef<echarts.ECharts>();
 
   const options = useMemo(() => {
-    // Check if data is empty using utility function
-    if (isChartDataEmpty(data)) {
+    if (!hasDataContent(data)) {
       return {
         title: {
           text: 'No Data Available',
@@ -52,127 +47,21 @@ export const ScatterChart: React.FC<ChartProps> = ({
             fontSize: 16
           }
         }
-      } as echarts.EChartsOption;
-    }
-
-    // Normalize data to array format
-    const chartData = normalizeChartData(data);
-    
-    // Create safe configuration with defaults
-    const chartConfig = createChartConfig(config, {
-      xAxisField: 'x',
-      yAxisField: 'y',
-      title: 'Scatter Plot',
-      symbolSize: 20,
-      showGrid: true,
-      colors: [],
-      symbol: 'circle'
-    }) as ScatterChartConfig;
-
-    // Ensure colors is always an array
-    if (!chartConfig.colors) {
-      chartConfig.colors = [];
+      };
     }
 
     try {
-      // Extract data fields
-      const xValues = extractNumericValues(chartData, chartConfig.xAxisField, 0);
-      const yValues = extractNumericValues(chartData, chartConfig.yAxisField, 0);
-      const sizeValues = chartConfig.sizeField 
-        ? extractNumericValues(chartData, chartConfig.sizeField, chartConfig.symbolSize as number)
-        : null;
-      const categories = chartConfig.categoryField 
-        ? extractFieldValues(chartData, chartConfig.categoryField, 'Default')
-        : null;
+      const chartConfig = config as ScatterChartConfig;
+      const dataArray = getDataArray(data);
+      
+      const scatterData = dataArray.map(item => {
+        const x = parseFloat(item[chartConfig.xField]) || 0;
+        const y = parseFloat(item[chartConfig.yField]) || 0;
+        const size = chartConfig.sizeField ? (parseFloat(item[chartConfig.sizeField]) || chartConfig.symbolSize || 8) : chartConfig.symbolSize || 8;
+        return [x, y, size];
+      });
 
-      // Prepare scatter data
-      let scatterData: any[];
-      let series: any[];
-      let categoryGroups: { [key: string]: any[] } | null = null;
-
-      if (categories) {
-        // Group by category
-        categoryGroups = {};
-        
-        chartData.forEach((item, index) => {
-          const category = categories[index];
-          if (!categoryGroups![category]) {
-            categoryGroups![category] = [];
-          }
-          
-          const point = [xValues[index], yValues[index]];
-          if (sizeValues) {
-            point.push(sizeValues[index]);
-          }
-          categoryGroups![category].push(point);
-        });
-
-        // Generate colors for categories - Fixed type safety
-        const categoryColors = chartConfig.colors.length > 0 
-          ? chartConfig.colors 
-          : generateColorPalette(Object.keys(categoryGroups).length);
-
-        // Create series for each category
-        series = Object.keys(categoryGroups).map((category, index) => ({
-          name: category,
-          type: 'scatter',
-          data: categoryGroups![category],
-          symbolSize: (data: any[]) => {
-            if (sizeValues && data.length > 2) {
-              return Math.sqrt(data[2]) * 2; // Scale size values
-            }
-            return chartConfig.symbolSize as number;
-          },
-          itemStyle: {
-            color: categoryColors[index % categoryColors.length],
-            opacity: 0.8
-          },
-          emphasis: {
-            itemStyle: {
-              opacity: 1,
-              shadowBlur: 10,
-              shadowColor: 'rgba(0,0,0,0.3)'
-            }
-          }
-        }));
-      } else {
-        // Single series
-        scatterData = chartData.map((item, index) => {
-          const point = [xValues[index], yValues[index]];
-          if (sizeValues) {
-            point.push(sizeValues[index]);
-          }
-          return point;
-        });
-
-        // Fixed type safety for single series color
-        const seriesColor = chartConfig.colors.length > 0 ? chartConfig.colors[0] : '#5470c6';
-
-        series = [{
-          name: chartConfig.title || 'Data',
-          type: 'scatter',
-          data: scatterData,
-          symbolSize: (data: any[]) => {
-            if (sizeValues && data.length > 2) {
-              return Math.sqrt(data[2]) * 2;
-            }
-            return chartConfig.symbolSize as number;
-          },
-          itemStyle: {
-            color: seriesColor,
-            opacity: 0.8
-          },
-          emphasis: {
-            itemStyle: {
-              opacity: 1,
-              shadowBlur: 10,
-              shadowColor: 'rgba(0,0,0,0.3)'
-            }
-          }
-        }];
-      }
-
-      const option: echarts.EChartsOption = {
+      return {
         title: {
           text: chartConfig.title,
           left: 'center',
@@ -187,48 +76,64 @@ export const ScatterChart: React.FC<ChartProps> = ({
             type: 'cross'
           },
           formatter: (params: any) => {
-            const data = params.data;
-            let result = `${params.seriesName}<br/>`;
-            result += `${chartConfig.xAxisField}: ${data[0]}<br/>`;
-            result += `${chartConfig.yAxisField}: ${data[1]}`;
-            if (data.length > 2 && chartConfig.sizeField) {
-              result += `<br/>${chartConfig.sizeField}: ${data[2]}`;
+            const [x, y, size] = params.data;
+            let tooltip = `${chartConfig.xAxisLabel || 'X'}: ${x}<br/>`;
+            tooltip += `${chartConfig.yAxisLabel || 'Y'}: ${y}<br/>`;
+            if (chartConfig.sizeField) {
+              tooltip += `${chartConfig.sizeField}: ${size}`;
             }
-            return result;
+            return tooltip;
           }
         },
-        legend: categoryGroups ? {
-          show: true,
-          orient: 'horizontal',
-          left: 'center',
-          bottom: '5%',
-          data: Object.keys(categoryGroups)
-        } : undefined,
+        legend: {
+          show: chartConfig.showLegend !== false,
+          data: [chartConfig.seriesName || 'Data']
+        },
+        grid: {
+          show: chartConfig.showGrid !== false,
+          left: '3%',
+          right: '4%',
+          bottom: '3%',
+          top: '15%',
+          containLabel: true
+        },
         xAxis: {
           type: 'value',
-          name: chartConfig.xAxisLabel || chartConfig.xAxisField,
+          name: chartConfig.xAxisLabel,
           nameLocation: 'middle',
           nameGap: 30,
           splitLine: {
-            show: chartConfig.showGrid
+            show: chartConfig.showGrid !== false
           }
         },
         yAxis: {
           type: 'value',
-          name: chartConfig.yAxisLabel || chartConfig.yAxisField,
+          name: chartConfig.yAxisLabel,
           nameLocation: 'middle',
-          nameGap: 40,
+          nameGap: 50,
           splitLine: {
-            show: chartConfig.showGrid
+            show: chartConfig.showGrid !== false
           }
         },
-        series: series,
-        animation: true,
-        animationDuration: 1000,
-        animationEasing: 'cubicOut' as any // Type assertion to fix the animation easing type error
+        series: [
+          {
+            name: chartConfig.seriesName || 'Data',
+            type: 'scatter',
+            data: scatterData,
+            symbolSize: (data: number[]) => chartConfig.sizeField ? data[2] : chartConfig.symbolSize || 8,
+            itemStyle: {
+              color: '#5470c6'
+            },
+            emphasis: {
+              itemStyle: {
+                shadowBlur: 10,
+                shadowColor: 'rgba(0, 0, 0, 0.5)'
+              }
+            }
+          }
+        ],
+        animation: true
       };
-
-      return option;
     } catch (error) {
       console.error('Error processing scatter chart data:', error);
       onError?.(error as Error);
@@ -249,52 +154,50 @@ export const ScatterChart: React.FC<ChartProps> = ({
   useEffect(() => {
     if (!chartRef.current) return;
 
-    // Initialize chart
     if (!chartInstance.current) {
       chartInstance.current = echarts.init(chartRef.current);
     }
 
-    // Set options - Fixed type assertion for the entire options object
     chartInstance.current.setOption(options, true);
 
-    // Add click handler
     const handleClick = (params: any) => {
       onInteraction?.({
         type: 'click',
+        chartId: chartId || 'echarts-scatter-chart',
         data: params.data,
         dataIndex: params.dataIndex,
-        seriesIndex: params.seriesIndex
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
       });
     };
 
     const handleMouseover = (params: any) => {
       onInteraction?.({
         type: 'hover',
+        chartId: chartId || 'echarts-scatter-chart',
         data: params.data,
         dataIndex: params.dataIndex,
-        seriesIndex: params.seriesIndex
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
       });
     };
 
     chartInstance.current.on('click', handleClick);
     chartInstance.current.on('mouseover', handleMouseover);
 
-    // Handle resize
     const handleResize = () => {
       chartInstance.current?.resize();
     };
 
     window.addEventListener('resize', handleResize);
 
-    // Cleanup
     return () => {
       window.removeEventListener('resize', handleResize);
       chartInstance.current?.off('click', handleClick);
       chartInstance.current?.off('mouseover', handleMouseover);
     };
-  }, [options, onInteraction]);
+  }, [chartId, options, onInteraction]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       chartInstance.current?.dispose();
@@ -312,18 +215,14 @@ export const ScatterChart: React.FC<ChartProps> = ({
   );
 };
 
-
-export default ScatterChart;
-
-// Chart Plugin Configuration Export
-export const EChartsScatterChartConfig = {
+export const EChartsScatterChartConfig: ChartPluginConfig = {
   name: 'echarts-scatter',
   displayName: 'ECharts Scatter Plot',
-  category: 'basic',
+  category: 'advanced',
   library: 'echarts',
   version: '1.0.0',
-  description: 'Interactive scatter plot for exploring relationships between variables',
-  tags: ['scatter', 'bubble', 'correlation', 'relationship', 'basic'],
+  description: 'Interactive scatter plot for correlation analysis',
+  tags: ['scatter', 'correlation', 'bubble', 'analysis'],
   
   configSchema: {
     type: 'object',
@@ -333,138 +232,62 @@ export const EChartsScatterChartConfig = {
         title: 'Chart Title',
         default: 'Scatter Plot'
       },
-      xAxisField: {
+      xField: {
         type: 'string',
         title: 'X-Axis Field',
-        description: 'Field name for x-axis values',
-        default: 'x'
+        required: true
       },
-      yAxisField: {
+      yField: {
         type: 'string',
         title: 'Y-Axis Field',
-        description: 'Field name for y-axis values',
-        default: 'y'
+        required: true
       },
       sizeField: {
         type: 'string',
         title: 'Size Field',
-        description: 'Field name for bubble sizes (optional)'
+        description: 'Field for bubble size (optional)'
       },
-      categoryField: {
+      colorField: {
         type: 'string',
-        title: 'Category Field',
-        description: 'Field for grouping data points into series'
+        title: 'Color Field',
+        description: 'Field for color grouping (optional)'
       },
-      xAxisLabel: {
-        type: 'string',
-        title: 'X-Axis Label'
-      },
-      yAxisLabel: {
-        type: 'string',
-        title: 'Y-Axis Label'
-      },
-      pointSize: {
+      symbolSize: {
         type: 'number',
-        title: 'Default Point Size',
-        default: 8,
-        minimum: 2,
+        title: 'Symbol Size',
+        default: 10,
+        minimum: 1,
         maximum: 50
       },
-      minPointSize: {
-        type: 'number',
-        title: 'Minimum Point Size',
-        description: 'Minimum size when using size field',
-        default: 4,
-        minimum: 1,
-        maximum: 20
-      },
-      maxPointSize: {
-        type: 'number',
-        title: 'Maximum Point Size',
-        description: 'Maximum size when using size field',
-        default: 30,
-        minimum: 10,
-        maximum: 100
-      },
-      pointSymbol: {
-        type: 'select',
-        title: 'Point Symbol',
-        options: [
-          { label: 'Circle', value: 'circle' },
-          { label: 'Rectangle', value: 'rect' },
-          { label: 'Round Rectangle', value: 'roundRect' },
-          { label: 'Triangle', value: 'triangle' },
-          { label: 'Diamond', value: 'diamond' },
-          { label: 'Pin', value: 'pin' },
-          { label: 'Arrow', value: 'arrow' }
-        ],
-        default: 'circle'
-      },
-      showTrendLine: {
+      showRegressionLine: {
         type: 'boolean',
-        title: 'Show Trend Line',
+        title: 'Show Regression Line',
         default: false
-      },
-      trendLineType: {
-        type: 'select',
-        title: 'Trend Line Type',
-        options: [
-          { label: 'Linear', value: 'linear' },
-          { label: 'Polynomial', value: 'polynomial' },
-          { label: 'Logarithmic', value: 'logarithmic' },
-          { label: 'Exponential', value: 'exponential' }
-        ],
-        default: 'linear'
-      },
-      showGrid: {
-        type: 'boolean',
-        title: 'Show Grid',
-        default: true
-      },
-      showLegend: {
-        type: 'boolean',
-        title: 'Show Legend',
-        default: true
-      },
-      enableBrush: {
-        type: 'boolean',
-        title: 'Enable Brush Selection',
-        description: 'Allow selecting data points by brushing',
-        default: false
-      },
-      enableZoom: {
-        type: 'boolean',
-        title: 'Enable Zoom',
-        default: true
-      },
-      colors: {
-        type: 'array',
-        title: 'Color Scheme',
-        items: {
-          type: 'color',
-          title: 'Color'
-        },
-        default: ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc']
-      },
-      animation: {
-        type: 'boolean',
-        title: 'Enable Animation',
-        default: true
       }
     },
-    required: ['xAxisField', 'yAxisField']
+    required: ['xField', 'yField']
   },
   
   dataRequirements: {
     minColumns: 2,
     maxColumns: 100,
     requiredFields: ['x', 'y'],
-    optionalFields: ['size', 'category'],
-    supportedTypes: ['number', 'string', 'date'],
+    optionalFields: ['size', 'color', 'category'],
+    supportedTypes: ['number'],
     aggregationSupport: false,
     pivotSupport: false
   },
   
   exportFormats: ['png', 'svg', 'pdf'],
-  component: ScatterChart
+  component: ScatterChart, // Replace with actual component import
+  
+  interactionSupport: {
+    zoom: true,
+    pan: true,
+    selection: true,
+    brush: true,
+    drilldown: false,
+    tooltip: true,
+    crossFilter: true
+  }
 };

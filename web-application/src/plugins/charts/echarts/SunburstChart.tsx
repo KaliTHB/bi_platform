@@ -1,52 +1,33 @@
+// File: src/plugins/charts/echarts/SunburstChart.tsx
 'use client';
 
 import React, { useEffect, useRef, useMemo } from 'react';
 import * as echarts from 'echarts';
-import { ChartProps, ChartData } from '@/types/chart.types';
-import { 
-  normalizeChartData, 
-  isChartDataEmpty, 
-  extractFieldValues, 
-  extractNumericValues, 
-  createChartConfig 
-} from '../utils/chartDataUtils';
+import { ChartProps,ChartPluginConfig } from '@/types/chart.types';
+import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
 
 export interface SunburstChartConfig {
-  title?: string;
   nameField: string;
   valueField: string;
   parentField?: string;
-  colorField?: string;
-  radius?: [string, string];
-  sort?: string | null;
-  levels?: any[];
-  colors?: string[];
+  title?: string;
+  radius?: [string, string] | string;
+  center?: [string, string];
+  showLabels?: boolean;
+  labelRotate?: 'radial' | 'tangential' | number;
+  sort?: 'desc' | 'asc' | null;
 }
 
-// Utility function to normalize data to array format
-const normalizeData = (data: any[] | ChartData): any[] => {
-  if (!data) return [];
-  
-  if (Array.isArray(data)) {
-    return data;
-  } else if (data && typeof data === 'object' && 'rows' in data) {
-    return (data as ChartData).rows || [];
-  }
-  
-  return [];
-};
+interface SunburstChartProps extends ChartProps {
+  chartId?: string;
+}
 
-// Utility function to check if data is empty
-const isDataEmpty = (data: any[] | ChartData): boolean => {
-  const normalizedData = normalizeData(data);
-  return normalizedData.length === 0;
-};
-
-export const SunburstChart: React.FC<ChartProps> = ({
+export const SunburstChart: React.FC<SunburstChartProps> = ({
+  chartId,
   data,
   config,
   width = 400,
-  height = 300,
+  height = 400,
   onInteraction,
   onError
 }) => {
@@ -54,8 +35,7 @@ export const SunburstChart: React.FC<ChartProps> = ({
   const chartInstance = useRef<echarts.ECharts>();
 
   const options = useMemo(() => {
-    // Check if data is empty using utility function
-    if (isDataEmpty(data)) {
+    if (!hasDataContent(data)) {
       return {
         title: {
           text: 'No Data Available',
@@ -66,94 +46,63 @@ export const SunburstChart: React.FC<ChartProps> = ({
             fontSize: 16
           }
         }
-      } as echarts.EChartsOption;
+      };
     }
 
-    // Normalize data to array format
-    const chartData = normalizeData(data);
-    
-    // Create safe configuration with defaults
-    const chartConfig = createChartConfig(config, {
-      nameField: 'name',
-      valueField: 'value',
-      title: 'Sunburst Chart',
-      radius: ['0%', '90%'],
-      sort: null,
-      colors: []
-    }) as SunburstChartConfig;
-
     try {
-      // Build hierarchy helper function
+      const chartConfig = config as SunburstChartConfig;
+      const dataArray = getDataArray(data);
+      
+      // Build hierarchical data structure
       const buildHierarchy = (items: any[], parentId: string | null = null): any[] => {
-        if (!chartConfig.parentField) {
-          // If no parent field, treat as flat structure
-          return items.map(item => ({
-            name: item[chartConfig.nameField] || 'Unknown',
-            value: Number(item[chartConfig.valueField]) || 0,
-            itemStyle: chartConfig.colorField ? {
-              color: item[chartConfig.colorField]
-            } : undefined
-          }));
-        }
-
-        // Recursive hierarchy building with parent field
         return items
-          .filter(item => {
-            const parentValue = item[chartConfig.parentField!];
-            return parentValue === parentId || 
-                   (parentId === null && (!parentValue || parentValue === ''));
-          })
-          .map(item => {
-            const children = buildHierarchy(items, item[chartConfig.nameField]);
-            return {
-              name: item[chartConfig.nameField] || 'Unknown',
-              value: Number(item[chartConfig.valueField]) || 0,
-              children: children.length > 0 ? children : undefined,
-              itemStyle: chartConfig.colorField ? {
-                color: item[chartConfig.colorField]
-              } : undefined
-            };
-          });
+          .filter(item => (chartConfig.parentField ? item[chartConfig.parentField] : null) === parentId)
+          .map(item => ({
+            name: item[chartConfig.nameField],
+            value: parseFloat(item[chartConfig.valueField]) || 0,
+            children: buildHierarchy(items, item[chartConfig.nameField])
+          }))
+          .filter(item => item.children.length > 0 || item.value > 0);
       };
 
-      // Generate hierarchical data
-      const hierarchicalData = buildHierarchy(chartData);
+      let sunburstData: any[];
+      
+      if (chartConfig.parentField) {
+        // Hierarchical data with parent-child relationships
+        sunburstData = buildHierarchy(dataArray);
+      } else {
+        // Flat data - treat all as siblings
+        sunburstData = dataArray.map(item => ({
+          name: item[chartConfig.nameField],
+          value: parseFloat(item[chartConfig.valueField]) || 0
+        }));
+      }
 
-      // Default level configuration
-      const defaultLevels = [
-        {},
-        {
-          r0: '15%',
-          r: '35%',
-          itemStyle: {
-            borderWidth: 2
-          },
-          label: {
-            rotate: 'tangential'
-          }
-        },
-        {
-          r0: '35%',
-          r: '70%',
-          label: {
-            align: 'right'
-          }
-        },
-        {
-          r0: '70%',
-          r: '72%',
-          label: {
-            position: 'outside',
-            padding: 3,
-            silent: false
-          },
-          itemStyle: {
-            borderWidth: 3
-          }
+      // Sort data if requested
+      const sortData = (data: any[]) => {
+        if (chartConfig.sort) {
+          data.forEach(item => {
+            if (item.children) {
+              sortData(item.children);
+            }
+          });
+          
+          data.sort((a, b) => {
+            if (chartConfig.sort === 'desc') {
+              return b.value - a.value;
+            } else {
+              return a.value - b.value;
+            }
+          });
         }
-      ];
+        return data;
+      };
 
-      const option: echarts.EChartsOption = {
+      if (chartConfig.sort) {
+        sunburstData = sortData(sunburstData);
+      }
+
+      return {
         title: {
           text: chartConfig.title,
           left: 'center',
@@ -165,31 +114,78 @@ export const SunburstChart: React.FC<ChartProps> = ({
         tooltip: {
           trigger: 'item',
           formatter: (params: any) => {
-            if (params.data) {
-              return `${params.data.name}<br/>${chartConfig.valueField}: ${params.data.value}`;
+            let result = `${params.name}`;
+            if (params.value) {
+              result += `<br/>Value: ${params.value}`;
             }
-            return params.name;
+            if (params.percent) {
+              result += `<br/>Percentage: ${params.percent}%`;
+            }
+            return result;
           }
         },
-        series: {
-          type: 'sunburst',
-          data: hierarchicalData,
-          radius: chartConfig.radius || ['0%', '90%'],
-          sort: chartConfig.sort || undefined,
-          emphasis: {
-            focus: 'ancestor'
-          },
-          levels: chartConfig.levels || defaultLevels,
-          animationType: 'scale',
-          animationEasing: 'elasticOut' as any,
-          animationDelay: (idx: number) => idx * 50
-        } as any,
-        animation: true,
-        animationDuration: 1000,
-        animationEasing: 'cubicOut' as any
+        series: [
+          {
+            type: 'sunburst',
+            data: sunburstData,
+            radius: chartConfig.radius || [0, '75%'],
+            center: chartConfig.center || ['50%', '50%'],
+            sort: chartConfig.sort,
+            emphasis: {
+              focus: 'ancestor'
+            },
+            label: {
+              show: chartConfig.showLabels !== false,
+              rotate: chartConfig.labelRotate || 'radial',
+              minAngle: 4,
+              fontSize: 11,
+              fontWeight: 'bold'
+            },
+            itemStyle: {
+              borderColor: '#fff',
+              borderWidth: 2
+            },
+            levels: [
+              {},
+              {
+                r0: '15%',
+                r: '35%',
+                itemStyle: {
+                  borderWidth: 2
+                },
+                label: {
+                  rotate: 'tangential'
+                }
+              },
+              {
+                r0: '35%',
+                r: '70%',
+                label: {
+                  position: 'outside',
+                  padding: 3,
+                  silent: false
+                }
+              },
+              {
+                r0: '70%',
+                r: '72%',
+                label: {
+                  position: 'outside',
+                  padding: 3,
+                  silent: false
+                },
+                itemStyle: {
+                  borderWidth: 3
+                }
+              }
+            ],
+            animationType: 'scale',
+            animationEasing: 'elasticOut',
+            animationDelay: (idx: number) => Math.random() * 200
+          }
+        ],
+        animation: true
       };
-
-      return option;
     } catch (error) {
       console.error('Error processing sunburst chart data:', error);
       onError?.(error as Error);
@@ -203,77 +199,66 @@ export const SunburstChart: React.FC<ChartProps> = ({
             fontSize: 16
           }
         }
-      } as echarts.EChartsOption;
+      };
     }
   }, [data, config, onError]);
 
   useEffect(() => {
     if (!chartRef.current) return;
 
-    let resizeListener: (() => void) | null = null;
-
-    try {
-      // Initialize chart
-      if (!chartInstance.current) {
-        chartInstance.current = echarts.init(chartRef.current);
-      }
-
-      // Set options
-      chartInstance.current.setOption(options, true);
-
-      // Add event handlers
-      const handleClick = (params: any) => {
-        onInteraction?.({
-          type: 'click',
-          data: params.data,
-          dataIndex: params.dataIndex,
-          seriesIndex: params.seriesIndex
-        });
-      };
-
-      const handleMouseOver = (params: any) => {
-        onInteraction?.({
-          type: 'hover',
-          data: params.data,
-          dataIndex: params.dataIndex,
-          seriesIndex: params.seriesIndex
-        });
-      };
-
-      chartInstance.current.on('click', handleClick);
-      chartInstance.current.on('mouseover', handleMouseOver);
-
-      // Handle resize
-      const handleResize = () => {
-        chartInstance.current?.resize();
-      };
-
-      window.addEventListener('resize', handleResize);
-      resizeListener = handleResize;
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to render sunburst chart';
-      onError?.(new Error(errorMessage));
+    if (!chartInstance.current) {
+      chartInstance.current = echarts.init(chartRef.current);
     }
 
-    // Always return cleanup function
-    return () => {
-      if (resizeListener) {
-        window.removeEventListener('resize', resizeListener);
-      }
-      if (chartInstance.current) {
-        chartInstance.current.off('click');
-        chartInstance.current.off('mouseover');
-      }
-    };
-  }, [options, onInteraction, onError]);
+    chartInstance.current.setOption(options, true);
 
-  // Cleanup on unmount
+    const handleClick = (params: any) => {
+      onInteraction?.({
+        type: 'click',
+        chartId: chartId || 'echarts-sunburst-chart',
+        data: params.data,
+        dataIndex: params.dataIndex,
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
+      });
+    };
+
+    const handleMouseover = (params: any) => {
+      onInteraction?.({
+        type: 'hover',
+        chartId: chartId || 'echarts-sunburst-chart',
+        data: params.data,
+        dataIndex: params.dataIndex,
+        seriesIndex: params.seriesIndex,
+        timestamp: Date.now()
+      });
+    };
+
+    chartInstance.current.on('click', handleClick);
+    chartInstance.current.on('mouseover', handleMouseover);
+
+    const handleResize = () => {
+      chartInstance.current?.resize();
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      chartInstance.current?.off('click', handleClick);
+      chartInstance.current?.off('mouseover', handleMouseover);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [chartId, options, onInteraction]);
+
+  useEffect(() => {
+    if (chartInstance.current) {
+      chartInstance.current.resize();
+    }
+  }, [width, height]);
+
   useEffect(() => {
     return () => {
-      if (chartInstance.current) {
-        chartInstance.current.dispose();
-      }
+      chartInstance.current?.dispose();
     };
   }, []);
 
@@ -288,17 +273,14 @@ export const SunburstChart: React.FC<ChartProps> = ({
   );
 };
 
-export default SunburstChart;
-
-// Chart Plugin Configuration Export
-export const EChartsSunburstChartConfig = {
+export const EChartsSunburstChartConfig: ChartPluginConfig = {
   name: 'echarts-sunburst',
   displayName: 'ECharts Sunburst Chart',
   category: 'advanced',
   library: 'echarts',
   version: '1.0.0',
-  description: 'Hierarchical sunburst chart for visualizing multi-level categorical data',
-  tags: ['sunburst', 'hierarchy', 'multilevel', 'radial', 'advanced'],
+  description: 'Hierarchical data visualization with sunburst chart',
+  tags: ['sunburst', 'hierarchy', 'nested', 'circular'],
   
   configSchema: {
     type: 'object',
@@ -311,126 +293,31 @@ export const EChartsSunburstChartConfig = {
       nameField: {
         type: 'string',
         title: 'Name Field',
-        description: 'Field name for node labels',
-        default: 'name'
+        required: true
       },
       valueField: {
         type: 'string',
         title: 'Value Field',
-        description: 'Field name for node values',
-        default: 'value'
+        required: true
       },
-      childrenField: {
+      parentField: {
         type: 'string',
-        title: 'Children Field',
-        description: 'Field name for nested children array',
-        default: 'children'
+        title: 'Parent Field',
+        description: 'Field indicating parent relationship'
       },
-      startAngle: {
-        type: 'number',
-        title: 'Start Angle',
-        description: 'Starting angle in degrees',
-        default: 90,
-        minimum: 0,
-        maximum: 360
-      },
-      minAngle: {
-        type: 'number',
-        title: 'Minimum Angle',
-        description: 'Minimum angle for small segments',
-        default: 0,
-        minimum: 0,
-        maximum: 90
-      },
-      sort: {
-        type: 'select',
-        title: 'Sort Order',
-        options: [
-          { label: 'Descending', value: 'desc' },
-          { label: 'Ascending', value: 'asc' },
-          { label: 'None', value: 'null' }
-        ],
-        default: 'desc'
-      },
-      renderLabelForZeroData: {
-        type: 'boolean',
-        title: 'Show Labels for Zero Data',
-        default: false
-      },
-      showLabels: {
-        type: 'boolean',
-        title: 'Show Labels',
-        default: true
-      },
-      labelRotate: {
-        type: 'select',
-        title: 'Label Rotation',
-        options: [
-          { label: 'Radial', value: 'radial' },
-          { label: 'Tangential', value: 'tangential' },
-          { label: 'None', value: 'none' }
-        ],
-        default: 'radial'
-      },
-      labelMinAngle: {
-        type: 'number',
-        title: 'Label Minimum Angle',
-        description: 'Hide labels for segments smaller than this angle',
-        default: 10,
-        minimum: 0,
-        maximum: 90
+      radius: {
+        type: 'array',
+        title: 'Radius Range',
+        items: {
+          type: 'string'
+        },
+        default: ['20%', '90%']
       },
       highlightPolicy: {
-        type: 'select',
+        type: 'string',
         title: 'Highlight Policy',
-        description: 'How to highlight related nodes on hover',
-        options: [
-          { label: 'Descendant', value: 'descendant' },
-          { label: 'Ancestor', value: 'ancestor' },
-          { label: 'Self', value: 'self' },
-          { label: 'None', value: 'none' }
-        ],
+        enum: ['descendant', 'ancestor', 'self'],
         default: 'descendant'
-      },
-      downplay: {
-        type: 'boolean',
-        title: 'Downplay Unrelated',
-        description: 'Fade unrelated nodes on hover',
-        default: true
-      },
-      nodeClick: {
-        type: 'select',
-        title: 'Node Click Behavior',
-        options: [
-          { label: 'Root to Node', value: 'rootToNode' },
-          { label: 'Link', value: 'link' }
-        ],
-        default: 'rootToNode'
-      },
-      animationType: {
-        type: 'select',
-        title: 'Animation Type',
-        options: [
-          { label: 'Expansion', value: 'expansion' },
-          { label: 'Scale', value: 'scale' }
-        ],
-        default: 'expansion'
-      },
-      animationDuration: {
-        type: 'number',
-        title: 'Animation Duration (ms)',
-        default: 1000,
-        minimum: 0,
-        maximum: 5000
-      },
-      colors: {
-        type: 'array',
-        title: 'Color Scheme',
-        items: {
-          type: 'color',
-          title: 'Color'
-        },
-        default: ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc']
       }
     },
     required: ['nameField', 'valueField']
@@ -440,16 +327,22 @@ export const EChartsSunburstChartConfig = {
     minColumns: 2,
     maxColumns: 50,
     requiredFields: ['name', 'value'],
-    optionalFields: ['children', 'parent', 'level'],
-    supportedTypes: ['string', 'number', 'object'],
+    optionalFields: ['parent', 'level'],
+    supportedTypes: ['string', 'number'],
     aggregationSupport: true,
-    pivotSupport: false,
-    specialRequirements: [
-      'Data must be in hierarchical format with nested children',
-      'Each node should have name and value properties'
-    ]
+    pivotSupport: false
   },
   
   exportFormats: ['png', 'svg', 'pdf'],
-  component: SunburstChart
+  component: SunburstChart, // Replace with actual component import
+  
+  interactionSupport: {
+    zoom: false,
+    pan: false,
+    selection: true,
+    brush: false,
+    drilldown: true,
+    tooltip: true,
+    crossFilter: false
+  }
 };

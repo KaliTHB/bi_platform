@@ -1,10 +1,18 @@
+// src/plugins/charts/plotly/ViolinPlot.tsx
 import React, { useMemo } from 'react';
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
 import Plot from 'react-plotly.js';
 import { PlotData, Config, Layout } from 'plotly.js';
+import { ChartProps, ChartPluginConfig, ChartInteractionEvent } from '@/types/chart.types';
 import { getDataArray, isChartDataEmpty } from '../utils/chartDataUtils';
-import { ChartProps,ChartPluginConfig,ChartConfiguration } from '@/types/chart.types';
-import { ChartData, ChartInteractionEvent } from '@/types/chart.types';
+import {
+  getThemeTextColor,
+  getThemeBackgroundColor,
+  getThemeGridColor,
+  getPlotlyTextFont,
+  getPlotlyTitleFont,
+  getChartColors
+} from '@/utils/themeHelpers';
 
 interface ViolinPlotConfig extends ChartPluginConfig {
   title?: string;
@@ -44,9 +52,13 @@ interface ViolinPlotConfig extends ChartPluginConfig {
   showlegend?: boolean;
 }
 
-export const ViolinPlot: React.FC<ChartProps> = ({ 
+export interface ViolinPlotProps extends ChartProps {
+  config: ViolinPlotConfig;
+}
+
+const ViolinPlot: React.FC<ViolinPlotProps> = ({ 
   data, 
-  config, 
+  config: violinConfig, 
   dimensions, 
   theme, 
   onInteraction, 
@@ -54,15 +66,15 @@ export const ViolinPlot: React.FC<ChartProps> = ({
   isLoading,
   error
 }) => {
-  const violinConfig = config as ViolinPlotConfig;
-
   const processedData = useMemo(() => {
-    if (isChartDataEmpty(data)) {
-      return null;
-    }
-
+    if (!data) return null;
+    
     try {
       const dataArray = getDataArray(data);
+      
+      if (isChartDataEmpty(dataArray)) {
+        return null;
+      }
       
       // Validate required fields
       if (!violinConfig.yField) {
@@ -147,9 +159,12 @@ export const ViolinPlot: React.FC<ChartProps> = ({
   
   if (processedData.groups) {
     // Multiple violins for grouped data
+    // FIXED: Use theme helper to get colors array properly
+    const chartColors = getChartColors(theme, Object.keys(processedData.groups).length);
+    
     Object.entries(processedData.groups).forEach(([groupName, values], index) => {
-      const colors = theme?.colors || ['#636efa', '#ef553b', '#00cc96', '#ab63fa', '#ffa15a'];
-      const color = colors[index % colors.length];
+      // FIXED: Safe color access using helper function
+      const color = chartColors[index % chartColors.length];
 
       plotData.push({
         type: 'violin',
@@ -192,7 +207,9 @@ export const ViolinPlot: React.FC<ChartProps> = ({
     });
   } else if (processedData.ungrouped) {
     // Single violin for ungrouped data
-    const color = theme?.colors?.[0] || '#636efa';
+    // FIXED: Use theme helper for safe color access
+    const chartColors = getChartColors(theme, 1);
+    const color = chartColors[0];
     
     plotData.push({
       type: 'violin',
@@ -234,30 +251,41 @@ export const ViolinPlot: React.FC<ChartProps> = ({
     });
   }
 
+  // FIXED: Use double type assertion for PlotData
+  const typedPlotData: PlotData[] = plotData as unknown as PlotData[];
+
   const layout: Partial<Layout> = {
     width: dimensions?.width || 400,
     height: dimensions?.height || 300,
     title: {
       text: violinConfig.title,
-      font: { color: theme?.textColor || '#333' }
+      // FIXED: Use theme helper
+      font: getPlotlyTitleFont(theme)
     },
     xaxis: {
       title: { 
         text: violinConfig.orientation === 'h' ? violinConfig.yField : (violinConfig.groupField || '') 
       },
-      color: theme?.textColor || '#333',
-      gridcolor: theme?.gridColor || '#e0e0e0'
+      // FIXED: Use theme helpers
+      color: getThemeTextColor(theme),
+      gridcolor: getThemeGridColor(theme)
     },
     yaxis: {
       title: { 
         text: violinConfig.orientation === 'h' ? (violinConfig.groupField || '') : violinConfig.yField 
       },
-      color: theme?.textColor || '#333',
-      gridcolor: theme?.gridColor || '#e0e0e0'
+      // FIXED: Use theme helpers
+      color: getThemeTextColor(theme),
+      gridcolor: getThemeGridColor(theme)
     },
-    plot_bgcolor: theme?.backgroundColor || 'white',
-    paper_bgcolor: theme?.backgroundColor || 'white',
+    font: getPlotlyTextFont(theme),
+    // FIXED: Use theme helpers
+    plot_bgcolor: getThemeBackgroundColor(theme),
+    paper_bgcolor: getThemeBackgroundColor(theme),
     showlegend: plotData.length > 1 && violinConfig.showlegend !== false,
+    legend: {
+      font: { color: getThemeTextColor(theme) }
+    },
     margin: { l: 80, r: 60, t: 80, b: 60 }
   };
 
@@ -278,32 +306,36 @@ export const ViolinPlot: React.FC<ChartProps> = ({
   return (
     <Box sx={{ width: dimensions?.width, height: dimensions?.height }}>
       <Plot
-        data={plotData}
+        data={typedPlotData}
         layout={layout}
         config={plotConfig}
         onClick={(event: any) => {
-  if (onInteraction && event.points?.length > 0) {
-    const point = event.points[0];
-    onInteraction({
-      type: 'click',
-      data: { 
-        group: point.data.name,
-        value: violinConfig.orientation === 'h' ? point.x : point.y
-      },
-      dataIndex: point.pointIndex
-    } as ChartInteractionEvent);
-  }
-}}
+          if (onInteraction && event.points?.length > 0) {
+            const point = event.points[0];
+            onInteraction({
+              type: 'click',
+              chartId: '',
+              data: { 
+                group: point.data.name,
+                value: violinConfig.orientation === 'h' ? point.x : point.y
+              },
+              dataIndex: point.pointIndex,
+              timestamp: Date.now()
+            } as ChartInteractionEvent);
+          }
+        }}
         onHover={(event: any) => {
           if (onInteraction && event.points?.length > 0) {
             const point = event.points[0];
             onInteraction({
               type: 'hover',
+              chartId: '',
               data: { 
                 group: point.data.name,
                 value: violinConfig.orientation === 'h' ? point.x : point.y
               },
-              dataIndex: point.pointIndex
+              dataIndex: point.pointIndex,
+              timestamp: Date.now()
             });
           }
         }}

@@ -5,14 +5,21 @@
 import React, { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
 import { ChartProps } from '@/types/chart.types';
+import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
 
+
+// Update component interface to include chartId
+interface BoxplotChartProps extends ChartProps {
+  chartId?: string;
+}
 export interface BoxplotChartConfig {
   xField: string;
   yField: string;
   seriesField?: string;
 }
 
-export const BoxplotChart: React.FC<ChartProps> = ({
+export const BoxplotChart: React.FC<BoxplotChartProps> = ({
+  chartId,
   data,
   config,
   width = 400,
@@ -25,7 +32,7 @@ export const BoxplotChart: React.FC<ChartProps> = ({
 
   useEffect(() => {
     // Fix 1: Handle both data formats (any[] | ChartData)
-    const dataArray = Array.isArray(data) ? data : data?.rows || [];
+    const dataArray = getDataArray(data);
     
     if (!chartRef.current || !dataArray.length) return;
 
@@ -154,11 +161,15 @@ export const BoxplotChart: React.FC<ChartProps> = ({
 
       chartInstance.current.setOption(option, true);
 
+      // Fix 2: Update onInteraction call to match interface requirements
       chartInstance.current.on('click', (params) => {
         onInteraction?.({
           type: 'click',
+          chartId: chartId || 'echarts-boxplot-chart', // Add required chartId
           data: params.data,
-          event: params
+          dataIndex: params.dataIndex, // Add dataIndex if available
+          seriesIndex: params.seriesIndex, // Add seriesIndex if available
+          timestamp: Date.now() // Add timestamp, remove event property
         });
       });
 
@@ -170,7 +181,7 @@ export const BoxplotChart: React.FC<ChartProps> = ({
     return () => {
       chartInstance.current?.dispose();
     };
-  }, [data, config, width, height]);
+  },  [chartId, data, config, width, height, onInteraction, onError]);
 
   return <div ref={chartRef} style={{ width, height }} />;
 };
