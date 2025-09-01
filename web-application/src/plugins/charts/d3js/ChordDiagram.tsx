@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef ,useMemo} from 'react';
 import * as d3 from 'd3';
 import { ChartProps, ChartData, ChartInteractionEvent } from '@/types/chart.types';
 
@@ -169,6 +169,12 @@ export const ChordDiagram: React.FC<ChartProps> = ({
       const ribbon = d3.ribbon()
         .radius(calculatedInnerRadius);
 
+      // Generate a stable chartId for this component instance
+      const chartId = useMemo(() => 
+        `chord-diagram-${Math.random().toString(36).substr(2, 9)}`, 
+        []
+      );
+
       // Create arc generator for groups
       const arc = d3.arc()
         .innerRadius(calculatedInnerRadius)
@@ -197,13 +203,13 @@ export const ChordDiagram: React.FC<ChartProps> = ({
             startAngle: d.startAngle,
             endAngle: d.endAngle
           };
-
-          onInteraction?.({
-    type: 'click',
-    data: nodeData,
-    dataIndex: d.index ,
-    event
-  } as ChartInteractionEvent);
+           onInteraction?.({
+            type: 'click',
+            chartId,
+            data: nodeData,
+            dataIndex: d.index,
+            timestamp: Date.now(),
+          });
         })
         .on('mouseover', (event, d) => {
           // Highlight related ribbons
@@ -224,12 +230,13 @@ export const ChordDiagram: React.FC<ChartProps> = ({
             startAngle: d.startAngle,
             endAngle: d.endAngle
           };
-          onInteraction?.({
-    type: 'hover',
-    data: nodeData,
-    dataIndex: d.index,
-    event
-  } as ChartInteractionEvent);
+            onInteraction?.({
+              type: 'hover',
+              chartId,
+              data: nodeData,
+              dataIndex: d.index,
+              timestamp: Date.now()
+            });
         })
         .on('mouseout', (event) => {
           // Reset ribbon opacity
@@ -288,12 +295,13 @@ export const ChordDiagram: React.FC<ChartProps> = ({
             value: matrix[d.source.index][d.target.index]
           };
 
-          onInteraction?.({
-            type: 'click',
-            data: ribbonData,
-            dataIndex: chords.indexOf(d),
-            event
-          } as ChartInteractionEvent);
+           onInteraction?.({
+    type: 'click',
+    chartId,
+    data: ribbonData,
+    dataIndex: chords.indexOf(d),
+    timestamp: Date.now()
+  });
         })
         .on('mouseover', (event, d) => {
           // Highlight this ribbon
@@ -321,12 +329,13 @@ export const ChordDiagram: React.FC<ChartProps> = ({
             },
             value: matrix[d.source.index][d.target.index]
           };
-          onInteraction?.({
-            type: 'click',
-            data: ribbonData,
-            dataIndex: chords.indexOf(d),
-            event
-          } as ChartInteractionEvent);
+           onInteraction?.({
+              type: 'click',
+              chartId,
+              data: ribbonData,
+              dataIndex: chords.indexOf(d),
+              timestamp: Date.now()
+            });
         })
         .on('mouseout', (event) => {
           // Reset ribbon highlight

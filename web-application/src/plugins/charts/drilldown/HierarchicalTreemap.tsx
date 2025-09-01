@@ -4,6 +4,11 @@ import React, { useState, useCallback } from 'react';
 import * as d3 from 'd3';
 import { ChartProps, ChartData } from '@/types/chart.types';
 import { NavigationBreadcrumbs } from './NavigationBreadcrumbs';
+import { 
+  getDataArray, 
+  hasDataContent, 
+  isChartDataEmpty 
+} from '../utils/chartDataUtils';
 
 interface TreemapData {
   name: string;
@@ -33,42 +38,69 @@ export const HierarchicalTreemap: React.FC<HierarchicalTreemapProps> = ({
 }) => {
   // Helper function to convert data to TreemapData format
   const convertToTreemapData = React.useCallback((inputData: any[] | ChartData): TreemapData => {
-    // If it's already in the correct format, return it
-    if (inputData && typeof inputData === 'object' && 'name' in inputData) {
-      return inputData as TreemapData;
-    }
+  // If it's already in the correct format, return it
+  if (inputData && typeof inputData === 'object' && 'name' in inputData) {
+    return inputData as TreemapData;
+  }
 
-    // If it's an array, assume it's already TreemapData format
-    if (Array.isArray(inputData)) {
-      // For treemap, we expect a single root object, not an array
-      // If we get an array, wrap it in a root object
-      return {
-        name: 'Root',
-        children: inputData as TreemapData[]
-      };
-    }
-
-    // If it's ChartData format, convert it
-    if (inputData && typeof inputData === 'object' && 'rows' in inputData) {
-      const chartData = inputData as ChartData;
-      // Convert ChartData to TreemapData - this is a simple conversion
-      // You might need to adjust this based on your specific data structure
-      return {
-        name: 'Root',
-        children: chartData.rows.map(row => ({
-          name: row.name || row.label || 'Unknown',
-          value: row.value || row.count || 1
-        }))
-      };
-    }
-
-    // Fallback - return a basic structure
+  // Use existing utilities to handle data safely
+  if (isChartDataEmpty(inputData)) {
     return {
       name: 'Root',
       value: 0,
       children: []
     };
-  }, []);
+  }
+
+  // Get data array using utility (this handles undefined rows safely)
+  const dataArray = getDataArray(inputData);
+  
+  // If we got an empty array, return empty structure
+  if (dataArray.length === 0) {
+    return {
+      name: 'Root',
+      value: 0,
+      children: []
+    };
+  }
+
+  // If it's an array, assume it's already TreemapData format
+  if (Array.isArray(inputData)) {
+    return {
+      name: 'Root',
+      children: inputData as TreemapData[]
+    };
+  }
+
+  // Convert to TreemapData format
+  try {
+    return {
+      name: 'Root',
+      children: dataArray.map((row, index) => {
+        // Add safety checks for each row
+        if (!row || typeof row !== 'object') {
+          return {
+            name: `Item ${index}`,
+            value: 1
+          };
+        }
+        
+        return {
+          name: row.name || row.label || `Item ${index}`,
+          value: typeof row.value === 'number' ? row.value : 
+                 typeof row.count === 'number' ? row.count : 1
+        };
+      })
+    };
+  } catch (error) {
+    console.error('Error converting data to TreemapData:', error);
+    return {
+      name: 'Root',
+      value: 0,
+      children: []
+    };
+  }
+}, []);
 
   const [drilldownState, setDrilldownState] = useState<DrilldownState>({
     currentData: convertToTreemapData(data),
@@ -77,14 +109,29 @@ export const HierarchicalTreemap: React.FC<HierarchicalTreemapProps> = ({
   });
 
   // Update state when data changes
-  React.useEffect(() => {
-    const newData = convertToTreemapData(data);
-    setDrilldownState({
-      currentData: newData,
-      breadcrumbs: [{ name: 'Root', data: [newData] }], // Wrap in array
-      level: 0
-    });
-  }, [data, convertToTreemapData]);
+    React.useEffect(() => {
+      // Use utility function to validate data
+      if (hasDataContent(data)) {
+        const newData = convertToTreemapData(data);
+        setDrilldownState({
+          currentData: newData,
+          breadcrumbs: [{ name: 'Root', data: [newData] }],
+          level: 0
+        });
+      } else {
+        // Handle empty data case
+        const emptyData = {
+          name: 'Root',
+          value: 0,
+          children: []
+        };
+        setDrilldownState({
+          currentData: emptyData,
+          breadcrumbs: [{ name: 'Root', data: [emptyData] }],
+          level: 0
+        });
+      }
+    }, [data, convertToTreemapData]);
 
   const svgRef = React.useRef<SVGSVGElement>(null);
 

@@ -14,8 +14,13 @@ export interface VoronoiDiagramConfig {
   strokeWidth?: number;
   showPoints?: boolean;
 }
+// 1. Update your component interface to accept chartId
+export interface VoronoiDiagramProps extends ChartProps {
+  chartId?: string; // Add this optional prop
+}
 
-export const VoronoiDiagram: React.FC<ChartProps> = ({
+export const VoronoiDiagram: React.FC<VoronoiDiagramProps> = ({
+  chartId, // Add this parameter
   data,
   config,
   width = 400,
@@ -79,22 +84,23 @@ export const VoronoiDiagram: React.FC<ChartProps> = ({
         .attr('stroke', '#666')
         .attr('stroke-width', strokeWidth)
         .attr('fill-opacity', 0.3)
-        .on('mouseover', function(event, d) {
-          d3.select(this).attr('fill-opacity', 0.6);
-          onInteraction?.({
-            type: 'hover',
-            data: d,
-            dataIndex: dataArray.indexOf(d)
-          });
-        })
-        .on('mouseout', function(event, d) {
-          d3.select(this).attr('fill-opacity', 0.3);
-        })
+         .on('mouseover', function(event, d) {
+            d3.select(this).attr('fill-opacity', 0.6);
+            onInteraction?.({
+              type: 'hover',
+              chartId: chartId || 'voronoi-diagram', // Add required chartId
+              data: d,
+              dataIndex: dataArray.indexOf(d),
+              timestamp: Date.now() // Add required timestamp
+            });
+          })
         .on('click', (event, d) => {
           onInteraction?.({
             type: 'click',
+            chartId: chartId || 'voronoi-diagram', // Add required chartId
             data: d,
-            dataIndex: dataArray.indexOf(d)
+            dataIndex: dataArray.indexOf(d),
+            timestamp: Date.now() // Add required timestamp
           });
         });
 
@@ -147,7 +153,7 @@ export const VoronoiDiagram: React.FC<ChartProps> = ({
       console.error('Error rendering Voronoi diagram:', error);
       onError?.(error as Error);
     }
-  }, [data, config, width, height, onInteraction, onError]);
+  }, [chartId, data, config, width, height, onInteraction, onError]);
 
   return (
     <svg

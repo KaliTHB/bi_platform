@@ -4,7 +4,8 @@
 
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import { ChartProps, ChartData } from '@/types/chart.types';
+import { ChartProps, ChartData, ChartInteractionEvent } from '@/types/chart.types';
+import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
 
 export interface StreamGraphConfig {
   xField: string;
@@ -14,20 +15,12 @@ export interface StreamGraphConfig {
   curve?: 'basis' | 'cardinal' | 'linear' | 'monotone';
 }
 
-// Type guard to check if data is ChartData
-const isChartData = (data: any[] | ChartData): data is ChartData => {
-  return !!(data && typeof data === 'object' && 'rows' in data && Array.isArray(data.rows));
-};
+export interface StreamGraphProps extends ChartProps {
+  chartId?: string; // Add this optional prop
+}
 
-// Helper function to get the data array
-const getDataArray = (data: any[] | ChartData): any[] => {
-  if (isChartData(data)) {
-    return data.rows;
-  }
-  return data || [];
-};
-
-export const StreamGraph: React.FC<ChartProps> = ({
+export const StreamGraph: React.FC<StreamGraphProps> = ({
+  chartId, // Add this parameter
   data,
   config,
   width = 400,
@@ -38,9 +31,12 @@ export const StreamGraph: React.FC<ChartProps> = ({
   const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
-    // Get the actual data array and check if it has length
-    const dataArray = getDataArray(data);
-    if (!svgRef.current || !dataArray.length) return;
+    
+    // Check data validity using utility
+  if (!svgRef.current || !hasDataContent(data)) return;
+  
+  // Get the actual data array
+  const dataArray = getDataArray(data);
 
     try {
       const { xField, yField, seriesField, offset = 'wiggle', curve = 'basis' } = config as StreamGraphConfig;
@@ -145,18 +141,19 @@ export const StreamGraph: React.FC<ChartProps> = ({
           d3.select(this).style('opacity', 1);
           onInteraction?.({
             type: 'hover',
+            chartId: chartId || 'streamgraph-chart', // Add required chartId
             data: d,
-            seriesIndex: series.indexOf(d.key)
+            seriesIndex: series.indexOf(d.key),
+            timestamp: Date.now() // Add timestamp for full compatibility
           });
-        })
-        .on('mouseout', function(event, d: any) {
-          d3.select(this).style('opacity', 0.8);
         })
         .on('click', function(event, d: any) {
           onInteraction?.({
             type: 'click',
+            chartId: chartId || 'streamgraph-chart', // Add required chartId
             data: d,
-            seriesIndex: series.indexOf(d.key)
+            seriesIndex: series.indexOf(d.key),
+            timestamp: Date.now() // Add timestamp for full compatibility
           });
         });
 
@@ -200,7 +197,7 @@ export const StreamGraph: React.FC<ChartProps> = ({
       console.error('Error rendering stream graph:', error);
       onError?.(error as Error);
     }
-  }, [data, config, width, height, onInteraction, onError]);
+  }, [chartId, data, config, width, height, onInteraction, onError]);
 
   return (
     <svg

@@ -2,10 +2,10 @@
 // File: web-application/src/plugins/charts/d3js/ForceDirectedGraph.tsx
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import * as d3 from 'd3';
-import { ChartProps, ChartData } from '@/types/chart.types';
 import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
+import { ChartProps, ChartData, ChartInteractionEvent } from '@/types/chart.types';
 
 interface NetworkData {
   nodes: Array<{
@@ -91,6 +91,10 @@ export const ForceDirectedGraph: React.FC<ChartProps> = ({
 
         networkData = { nodes, links };
       }
+      const chartId = useMemo(() => 
+  `force-directed-graph-${Math.random().toString(36).substr(2, 9)}`, 
+  []
+);
 
       const { nodes, links } = networkData;
 
@@ -157,10 +161,12 @@ export const ForceDirectedGraph: React.FC<ChartProps> = ({
         })
         .on('mouseover', (event, d) => {
           onInteraction?.({
-            type: 'hover',
-            data: d,
-            dataIndex: nodes.indexOf(d)
-          });
+  type: 'hover',
+  chartId,
+  data: d,
+  dataIndex: nodes.indexOf(d),
+  timestamp: Date.now()
+});
         });
 
       // Add labels

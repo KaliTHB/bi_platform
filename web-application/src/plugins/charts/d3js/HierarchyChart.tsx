@@ -4,8 +4,8 @@
 
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import { ChartProps, ChartData } from '@/types/chart.types';
 import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
+import { ChartProps, ChartData, ChartInteractionEvent } from '@/types/chart.types';
 
 export interface HierarchyChartConfig {
   nameField: string;

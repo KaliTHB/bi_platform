@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import * as d3 from 'd3';
-import { ChartProps, ChartData } from '@/types/chart.types';
+import { ChartProps, ChartData, ChartInteractionEvent } from '@/types/chart.types';
 
 interface GeoData {
   id: string;
@@ -86,6 +86,11 @@ export const GeographicMap: React.FC<ChartProps> = ({
 
       // Get data array regardless of input format
       const dataArray = getDataArray(data);
+
+      const chartId = useMemo(() => 
+    `geographic-map-${Math.random().toString(36).substr(2, 9)}`, 
+    []
+  );
 
       // Process data
       const processedData: GeoData[] = dataArray.map((item, index) => {
@@ -266,17 +271,18 @@ export const GeographicMap: React.FC<ChartProps> = ({
         .style('cursor', 'pointer')
         .on('click', (event, d) => {
           onInteraction?.({
-            type: 'click',
-            data: {
-              id: d.id,
-              coordinates: d.coordinates,
-              value: d.value,
-              label: d.label,
-              formattedValue: d.value.toLocaleString()
-            },
-            dataIndex: processedData.indexOf(d),
-            event
-          });
+    type: 'click',
+    chartId,
+    data: {
+      id: d.id,
+      coordinates: d.coordinates,
+      value: d.value,
+      label: d.label,
+      formattedValue: d.value.toLocaleString()
+    },
+    dataIndex: processedData.indexOf(d),
+    timestamp: Date.now()
+  });
         })
         .on('mouseover', (event, d) => {
           // Highlight point on hover
@@ -285,18 +291,19 @@ export const GeographicMap: React.FC<ChartProps> = ({
             .attr('stroke-width', 3)
             .attr('stroke', '#333');
           
-          onInteraction?.({
-            type: 'hover',
-            data: {
-              id: d.id,
-              coordinates: d.coordinates,
-              value: d.value,
-              label: d.label,
-              formattedValue: d.value.toLocaleString()
-            },
-            dataIndex: processedData.indexOf(d),
-            event
-          });
+           onInteraction?.({
+    type: 'hover',
+    chartId,
+    data: {
+      id: d.id,
+      coordinates: d.coordinates,
+      value: d.value,
+      label: d.label,
+      formattedValue: d.value.toLocaleString()
+    },
+    dataIndex: processedData.indexOf(d),
+    timestamp: Date.now()
+  });
         })
         .on('mouseout', (event) => {
           // Remove highlight

@@ -26,7 +26,12 @@ export interface BarChartConfig {
   horizontal?: boolean;
 }
 
-export const BarChart: React.FC<ChartProps> = ({
+interface EChartsBarChartProps extends ChartProps {
+  chartId?: string;
+}
+
+export const BarChart: React.FC<EChartsBarChartProps> = ({
+  chartId, // Add this parameter
   data,
   config,
   width = 400,
@@ -179,14 +184,15 @@ export const BarChart: React.FC<ChartProps> = ({
 
     // Add click handler
     const handleClick = (params: any) => {
-      onInteraction?.({
-        type: 'click',
-        data: params.data,
-        dataIndex: params.dataIndex,
-        seriesIndex: params.seriesIndex,
-        event: params.event
-      });
-    };
+  onInteraction?.({
+    type: 'click',
+    chartId: chartId || 'echarts-bar-chart',
+    data: params.data,
+    dataIndex: params.dataIndex,
+    seriesIndex: params.seriesIndex,
+    timestamp: Date.now()
+  });
+};
 
     chartInstance.current.on('click', handleClick);
 
