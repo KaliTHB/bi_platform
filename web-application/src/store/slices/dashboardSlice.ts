@@ -2,18 +2,19 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { Dashboard, DashboardFilter, DashboardWithCharts } from '../../types/dashboard.types';
 import { dashboardAPI } from '../../services/api';
+import { castDraft } from "immer";
 
 interface DashboardState {
   dashboards: Dashboard[];
   currentDashboard: DashboardWithCharts | null;
   filters: DashboardFilter[];
   activeFilters: Record<string, any>;
-  layouts: Record<string, any>; // Grid layouts for responsive design
+  layouts: Record<string, any>;
   loading: boolean;
   saving: boolean;
   error: string | null;
   lastUpdated: string | null;
-  gridBreakpoint: string; // Current responsive breakpoint
+  gridBreakpoint: string;
 }
 
 const initialState: DashboardState = {
@@ -113,75 +114,123 @@ const dashboardSlice = createSlice({
   initialState,
   reducers: {
     setCurrentDashboard: (state, action: PayloadAction<DashboardWithCharts | null>) => {
-      state.currentDashboard = action.payload;
-      state.activeFilters = {}; // Reset filters when switching dashboards
+      state.currentDashboard = action.payload ? castDraft(action.payload) : null;
+      state.activeFilters = {};
     },
+    
     clearError: (state) => {
       state.error = null;
     },
+    
     setActiveFilters: (state, action: PayloadAction<Record<string, any>>) => {
       state.activeFilters = { ...state.activeFilters, ...action.payload };
     },
+    
     clearActiveFilters: (state) => {
       state.activeFilters = {};
     },
+    
     updateFilter: (state, action: PayloadAction<{ filterId: string; value: any }>) => {
       const { filterId, value } = action.payload;
       state.activeFilters[filterId] = value;
     },
+    
     removeFilter: (state, action: PayloadAction<string>) => {
       delete state.activeFilters[action.payload];
     },
+    
     setLayouts: (state, action: PayloadAction<Record<string, any>>) => {
       state.layouts = action.payload;
     },
+    
     updateLayout: (state, action: PayloadAction<{ breakpoint: string; layout: any[] }>) => {
       const { breakpoint, layout } = action.payload;
       state.layouts[breakpoint] = layout;
       state.lastUpdated = new Date().toISOString();
     },
+    
     setGridBreakpoint: (state, action: PayloadAction<string>) => {
       state.gridBreakpoint = action.payload;
     },
+    
     addDashboard: (state, action: PayloadAction<Dashboard>) => {
-      state.dashboards.push(action.payload);
+      state.dashboards.push(castDraft(action.payload));
     },
+    
     updateDashboard: (state, action: PayloadAction<Dashboard>) => {
       const index = state.dashboards.findIndex(d => d.id === action.payload.id);
       if (index !== -1) {
-        state.dashboards[index] = action.payload;
+        state.dashboards[index] = castDraft(action.payload);
       }
-      // Update current dashboard if it's the same one
       if (state.currentDashboard?.id === action.payload.id) {
-        state.currentDashboard = { ...state.currentDashboard, ...action.payload };
+        state.currentDashboard = { ...state.currentDashboard, ...castDraft(action.payload) } as any;
       }
     },
+    
     removeDashboard: (state, action: PayloadAction<string>) => {
       state.dashboards = state.dashboards.filter(d => d.id !== action.payload);
-      // Clear current dashboard if it's the deleted one
       if (state.currentDashboard?.id === action.payload) {
         state.currentDashboard = null;
       }
     },
+    
     setFilters: (state, action: PayloadAction<DashboardFilter[]>) => {
-      state.filters = action.payload;
+      state.filters = castDraft(action.payload);
     },
+    
     addFilter: (state, action: PayloadAction<DashboardFilter>) => {
-      state.filters.push(action.payload);
+      state.filters.push(castDraft(action.payload));
     },
+    
     updateDashboardFilter: (state, action: PayloadAction<DashboardFilter>) => {
       const index = state.filters.findIndex(f => f.id === action.payload.id);
       if (index !== -1) {
-        state.filters[index] = action.payload;
+        state.filters[index] = castDraft(action.payload);
       }
     },
+    
     removeFilterConfig: (state, action: PayloadAction<string>) => {
       state.filters = state.filters.filter(f => f.id !== action.payload);
     },
+    
     resetDashboardState: (state) => {
       Object.assign(state, initialState);
     },
+    
+    // Additional dashboard operations
+    setDashboards: (state, action: PayloadAction<Dashboard[]>) => {
+      state.dashboards = castDraft(action.payload);
+    },
+    
+    duplicateDashboard: (state, action: PayloadAction<Dashboard>) => {
+      state.dashboards.push(castDraft(action.payload));
+    },
+    
+    archiveDashboard: (state, action: PayloadAction<string>) => {
+      const dashboard = state.dashboards.find(d => d.id === action.payload);
+      if (dashboard) {
+        dashboard.status = 'archived';
+      }
+    },
+    
+    restoreDashboard: (state, action: PayloadAction<string>) => {
+      const dashboard = state.dashboards.find(d => d.id === action.payload);
+      if (dashboard) {
+        dashboard.status = 'published';
+      }
+    },
+    
+    updateDashboardMetadata: (state, action: PayloadAction<{ id: string; metadata: Partial<Dashboard> }>) => {
+      const index = state.dashboards.findIndex(d => d.id === action.payload.id);
+      if (index !== -1) {
+        state.dashboards[index] = castDraft({ ...state.dashboards[index], ...action.payload.metadata });
+      }
+      if (state.currentDashboard?.id === action.payload.id) {
+        state.currentDashboard = castDraft({ ...state.currentDashboard, ...action.payload.metadata });
+      }
+    },
   },
+  
   extraReducers: (builder) => {
     // Fetch dashboards
     builder
@@ -191,7 +240,7 @@ const dashboardSlice = createSlice({
       })
       .addCase(fetchDashboards.fulfilled, (state, action) => {
         state.loading = false;
-        state.dashboards = action.payload;
+        state.dashboards = castDraft(action.payload);
         state.lastUpdated = new Date().toISOString();
       })
       .addCase(fetchDashboards.rejected, (state, action) => {
@@ -207,9 +256,9 @@ const dashboardSlice = createSlice({
       })
       .addCase(fetchDashboard.fulfilled, (state, action) => {
         state.loading = false;
-        state.currentDashboard = action.payload;
+        state.currentDashboard = castDraft(action.payload);
         if (action.payload.filters) {
-          state.filters = action.payload.filters;
+          state.filters = castDraft(action.payload.filters);
         }
         state.lastUpdated = new Date().toISOString();
       })
@@ -226,14 +275,12 @@ const dashboardSlice = createSlice({
       })
       .addCase(saveDashboard.fulfilled, (state, action) => {
         state.saving = false;
-        // Update current dashboard
         if (state.currentDashboard?.id === action.payload.id) {
-          state.currentDashboard = action.payload;
+          state.currentDashboard = castDraft(action.payload);
         }
-        // Update in dashboards list
         const index = state.dashboards.findIndex(d => d.id === action.payload.id);
         if (index !== -1) {
-          state.dashboards[index] = action.payload;
+          state.dashboards[index] = castDraft(action.payload);
         }
         state.lastUpdated = new Date().toISOString();
       })
@@ -250,7 +297,7 @@ const dashboardSlice = createSlice({
       })
       .addCase(createDashboard.fulfilled, (state, action) => {
         state.loading = false;
-        state.dashboards.push(action.payload);
+        state.dashboards.push(castDraft(action.payload));
         state.lastUpdated = new Date().toISOString();
       })
       .addCase(createDashboard.rejected, (state, action) => {
@@ -297,6 +344,11 @@ export const {
   updateDashboardFilter,
   removeFilterConfig,
   resetDashboardState,
+  setDashboards,
+  duplicateDashboard,
+  archiveDashboard,
+  restoreDashboard,
+  updateDashboardMetadata,
 } = dashboardSlice.actions;
 
 export default dashboardSlice.reducer;

@@ -1,9 +1,9 @@
-// web-application/src/store/slices/datasetSlice.ts
+// src/store/slices/datasetSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import { Dataset, DatasetColumn, TransformationConfig,convertApiResponseToQueryResult ,DatasetQueryApiResponse} from '../../types/dataset.types';
+import { Dataset, DatasetColumn, TransformationConfig, ColumnDefinition } from '../../types/dataset.types';
 import { datasetAPI } from '../../services/api';
- // Usage in your datasetSlice.ts:
-import { mapApiColumnsToColumnDefinitions } from '../../utils/columnMapper';
+import { castDraft } from "immer";
+
 interface DatasetQueryResult {
   data: any[];
   columns: DatasetColumn[];
@@ -16,16 +16,16 @@ interface DatasetQueryResult {
 interface DatasetState {
   datasets: Dataset[];
   currentDataset: Dataset | null;
-  queryResults: Record<string, DatasetQueryResult>; // Cache query results by query hash
+  queryResults: Record<string, DatasetQueryResult>;
   transformations: TransformationConfig | null;
   preview: {
     data: any[];
-    columns: DatasetColumn[];
+    columns: ColumnDefinition[];
     loading: boolean;
     error: string | null;
   };
   schema: {
-    columns: DatasetColumn[];
+    columns: ColumnDefinition[];
     loading: boolean;
     error: string | null;
   };
@@ -204,7 +204,7 @@ const datasetSlice = createSlice({
   initialState,
   reducers: {
     setCurrentDataset: (state, action: PayloadAction<Dataset | null>) => {
-      state.currentDataset = action.payload;
+      state.currentDataset = action.payload ? castDraft(action.payload) : null;
       // Clear related data when switching datasets
       if (!action.payload) {
         state.transformations = null;
@@ -219,7 +219,7 @@ const datasetSlice = createSlice({
       state.schema.error = null;
     },
     setTransformations: (state, action: PayloadAction<TransformationConfig>) => {
-      state.transformations = action.payload;
+      state.transformations = castDraft(action.payload);
     },
     clearTransformations: (state) => {
       state.transformations = null;
@@ -228,11 +228,11 @@ const datasetSlice = createSlice({
       if (!state.transformations) {
         state.transformations = { steps: [] };
       }
-      state.transformations.steps.push(action.payload);
+      state.transformations.steps.push(castDraft(action.payload));
     },
     updateTransformationStep: (state, action: PayloadAction<{ index: number; step: any }>) => {
       if (state.transformations && state.transformations.steps[action.payload.index]) {
-        state.transformations.steps[action.payload.index] = action.payload.step;
+        state.transformations.steps[action.payload.index] = castDraft(action.payload.step);
       }
     },
     removeTransformationStep: (state, action: PayloadAction<number>) => {
@@ -248,16 +248,16 @@ const datasetSlice = createSlice({
       }
     },
     addDataset: (state, action: PayloadAction<Dataset>) => {
-      state.datasets.push(action.payload);
+      state.datasets.push(castDraft(action.payload));
     },
     updateDatasetLocal: (state, action: PayloadAction<Dataset>) => {
       const index = state.datasets.findIndex(d => d.id === action.payload.id);
       if (index !== -1) {
-        state.datasets[index] = action.payload;
+        state.datasets[index] = castDraft(action.payload);
       }
       // Update current dataset if it's the same one
       if (state.currentDataset?.id === action.payload.id) {
-        state.currentDataset = action.payload;
+        state.currentDataset = castDraft(action.payload);
       }
     },
     removeDataset: (state, action: PayloadAction<string>) => {
@@ -289,7 +289,7 @@ const datasetSlice = createSlice({
       })
       .addCase(fetchDatasets.fulfilled, (state, action) => {
         state.loading = false;
-        state.datasets = action.payload;
+        state.datasets = castDraft(action.payload);
         state.lastUpdated = new Date().toISOString();
       })
       .addCase(fetchDatasets.rejected, (state, action) => {
@@ -305,9 +305,9 @@ const datasetSlice = createSlice({
       })
       .addCase(fetchDataset.fulfilled, (state, action) => {
         state.loading = false;
-        state.currentDataset = action.payload;
+        state.currentDataset = castDraft(action.payload);
         if (action.payload.transformation_config) {
-          state.transformations = action.payload.transformation_config;
+          state.transformations = castDraft(action.payload.transformation_config);
         }
         state.lastUpdated = new Date().toISOString();
       })
@@ -324,7 +324,7 @@ const datasetSlice = createSlice({
       })
       .addCase(createDataset.fulfilled, (state, action) => {
         state.loading = false;
-        state.datasets.push(action.payload);
+        state.datasets.push(castDraft(action.payload));
         state.lastUpdated = new Date().toISOString();
       })
       .addCase(createDataset.rejected, (state, action) => {
@@ -342,12 +342,12 @@ const datasetSlice = createSlice({
         state.loading = false;
         // Update current dataset
         if (state.currentDataset?.id === action.payload.id) {
-          state.currentDataset = action.payload;
+          state.currentDataset = castDraft(action.payload);
         }
         // Update in datasets list
         const index = state.datasets.findIndex(d => d.id === action.payload.id);
         if (index !== -1) {
-          state.datasets[index] = action.payload;
+          state.datasets[index] = castDraft(action.payload);
         }
         state.lastUpdated = new Date().toISOString();
       })
@@ -384,7 +384,7 @@ const datasetSlice = createSlice({
       .addCase(queryDataset.fulfilled, (state, action) => {
         state.querying = false;
         const { queryId, result } = action.payload;
-        state.queryResults[queryId] = convertApiResponseToQueryResult(result as DatasetQueryApiResponse);
+        state.queryResults[queryId] = castDraft(result);
         state.lastUpdated = new Date().toISOString();
       })
       .addCase(queryDataset.rejected, (state, action) => {
@@ -399,12 +399,20 @@ const datasetSlice = createSlice({
         state.preview.loading = true;
         state.preview.error = null;
       })
-     .addCase(testDataset.fulfilled, (state, action) => {
-  state.testing = false;
-  state.preview.loading = false;
-  state.preview.data = action.payload.preview;
-  state.preview.columns = mapApiColumnsToColumnDefinitions(action.payload.columns);
-})
+      .addCase(testDataset.fulfilled, (state, action) => {
+        state.testing = false;
+        state.preview.loading = false;
+        state.preview.data = castDraft(action.payload.preview);
+        
+        // Transform API columns to ColumnDefinition format
+        state.preview.columns = (action.payload.columns || []).map((col: { name: string; type: string }) => ({
+          name: col.name,
+          data_type: col.type,
+          is_nullable: true,
+          is_primary_key: false,
+          display_name: col.name,
+        }));
+      })
       .addCase(testDataset.rejected, (state, action) => {
         state.testing = false;
         state.preview.loading = false;
@@ -419,7 +427,7 @@ const datasetSlice = createSlice({
       })
       .addCase(fetchDatasetSchema.fulfilled, (state, action) => {
         state.schema.loading = false;
-        state.schema.columns = action.payload.columns || [];
+        state.schema.columns = castDraft(action.payload.columns || []);
       })
       .addCase(fetchDatasetSchema.rejected, (state, action) => {
         state.schema.loading = false;

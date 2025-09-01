@@ -267,8 +267,24 @@ export const dashboardAPI = {
 
 // Chart API
 export const chartAPI = {
-  getCharts: async (dashboardId: string): Promise<{ success: boolean; charts: any[]; message?: string }> => {
-    const response = await apiClient.get(`/charts?dashboardId=${dashboardId}`);
+  getCharts: async (params: string | { workspaceId?: string; dashboardId?: string }): Promise<{ success: boolean; charts: any[]; message?: string }> => {
+    let queryParams = new URLSearchParams();
+    
+    if (typeof params === 'string') {
+      // Legacy support: dashboardId as string
+      queryParams.append('dashboard_id', params);
+    } else {
+      // New support: params object
+      if (params.workspaceId) {
+        queryParams.append('workspace_id', params.workspaceId);
+      }
+      if (params.dashboardId) {
+        queryParams.append('dashboard_id', params.dashboardId);
+      }
+    }
+    
+    const endpoint = queryParams.toString() ? `/charts?${queryParams.toString()}` : '/charts';
+    const response = await apiClient.get(endpoint);
     return response.data;
   },
 

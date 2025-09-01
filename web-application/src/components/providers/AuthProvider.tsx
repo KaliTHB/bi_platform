@@ -31,7 +31,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Check if user is authenticated on app load
     const token = localStorage.getItem('auth_token');
     if (token && !auth.isAuthenticated && !auth.isLoading) {
-      // Validate token
+      // Validate token - now properly typed with void parameter
       dispatch(validateToken());
     }
   }, [dispatch, auth.isAuthenticated, auth.isLoading]);
@@ -86,7 +86,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     user: auth.user,
     workspace: auth.workspace,
     permissions: auth.permissions || [],
-    loading: auth.isLoading, // Fixed: changed from auth.loading to auth.isLoading
+    loading: auth.isLoading,
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,

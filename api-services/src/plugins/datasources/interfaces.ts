@@ -124,7 +124,7 @@ export interface SchemaProperty {
   title: string;
   description?: string;
   default?: any;
-  enum?: any[];
+  enum?: readonly any[];
   minimum?: number;
   maximum?: number;
   pattern?: string;

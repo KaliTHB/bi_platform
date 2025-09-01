@@ -40,7 +40,7 @@ const transformUserForState = (apiUser: any): User => {
 };
 
 // Async thunks
-export const login = createAsyncThunk(
+export const login = createAsyncThunk<LoginResponse, LoginRequest>(
   'auth/login',
   async (credentials: LoginRequest, { rejectWithValue }) => {
     try {
@@ -59,7 +59,7 @@ export const login = createAsyncThunk(
   }
 );
 
-export const validateToken = createAsyncThunk(
+export const validateToken = createAsyncThunk<any, void>(
   'auth/validateToken',
   async (_, { rejectWithValue }) => {
     try {
@@ -78,7 +78,7 @@ export const validateToken = createAsyncThunk(
   }
 );
 
-export const switchWorkspace = createAsyncThunk(
+export const switchWorkspace = createAsyncThunk<any, string>(
   'auth/switchWorkspace',
   async (workspaceSlug: string, { rejectWithValue }) => {
     try {
@@ -104,7 +104,7 @@ export const switchWorkspace = createAsyncThunk(
   }
 );
 
-export const logout = createAsyncThunk(
+export const logout = createAsyncThunk<void, void>(
   'auth/logout',
   async (_, { getState }) => {
     try {
@@ -201,8 +201,6 @@ const authSlice = createSlice({
         state.user = transformUserForState(action.payload.user);
         state.token = action.payload.token;
         // validateToken doesn't return workspace/permissions, preserve existing ones
-        // state.workspace = action.payload.workspace; // This property doesn't exist
-        // state.permissions = action.payload.permissions || []; // This property doesn't exist
         state.isAuthenticated = true;
         state.lastActivity = Date.now();
         state.error = null;
