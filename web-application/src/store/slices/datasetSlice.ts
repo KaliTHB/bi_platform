@@ -59,7 +59,33 @@ const initialState: DatasetState = {
   lastUpdated: null,
 };
 
-// Async thunks
+// Helper function to convert API columns to ColumnDefinition (for schema API responses)
+const convertSchemaApiColumnsToColumnDefinitions = (
+  apiColumns: Array<{ 
+    name: string; 
+    type: string; 
+    nullable?: boolean; 
+    primaryKey?: boolean; 
+    description?: string;
+    display_name?: string;
+  }>
+): ColumnDefinition[] => {
+  return apiColumns.map(col => ({
+    name: col.name,
+    display_name: col.display_name || col.name,
+    data_type: col.type,
+    is_nullable: col.nullable !== undefined ? col.nullable : true,
+    is_primary_key: col.primaryKey !== undefined ? col.primaryKey : false,
+    default_value: undefined,
+    description: col.description,
+    format_hint: undefined,
+  }));
+};
+
+// ============================================================================
+// ASYNC THUNKS
+// ============================================================================
+
 export const fetchDatasets = createAsyncThunk(
   'dataset/fetchDatasets',
   async (workspaceId: string, { rejectWithValue }) => {
@@ -151,11 +177,12 @@ export const queryDataset = createAsyncThunk(
           queryId: `${datasetId}_${JSON.stringify(queryOptions)}`,
           result: {
             data: response.data,
-            columns: response.columns,
+            columns: convertSchemaApiColumnsToColumnDefinitions(response.columns || []),
             total_rows: response.total_rows,
             execution_time: response.execution_time,
-            cached: response.cached,
-          },
+            cached: response.cached
+            // query_id is optional and not provided by API, so omit it
+          } as DatasetQueryResult,
         };
       }
       return rejectWithValue(response.message || 'Failed to query dataset');
@@ -173,7 +200,7 @@ export const testDataset = createAsyncThunk(
       if (response.success) {
         return {
           preview: response.preview || [],
-          columns: response.columns || [],
+          columns: convertSchemaApiColumnsToColumnDefinitions(response.columns || []),
           execution_time: response.execution_time || 0,
         };
       }
@@ -190,7 +217,9 @@ export const fetchDatasetSchema = createAsyncThunk(
     try {
       const response = await datasetAPI.getDatasetSchema(datasetId);
       if (response.success) {
-        return response.schema;
+        return {
+          columns: convertSchemaApiColumnsToColumnDefinitions(response.schema?.columns || [])
+        };
       }
       return rejectWithValue(response.message || 'Failed to fetch dataset schema');
     } catch (error: any) {
@@ -199,87 +228,123 @@ export const fetchDatasetSchema = createAsyncThunk(
   }
 );
 
+// ============================================================================
+// DATASET SLICE
+// ============================================================================
+
 const datasetSlice = createSlice({
   name: 'dataset',
   initialState,
   reducers: {
+    // ========================================================================
+    // BASIC DATASET OPERATIONS
+    // ========================================================================
+    
     setCurrentDataset: (state, action: PayloadAction<Dataset | null>) => {
       state.currentDataset = action.payload ? castDraft(action.payload) : null;
-      // Clear related data when switching datasets
-      if (!action.payload) {
-        state.transformations = null;
-        state.preview.data = [];
-        state.preview.columns = [];
-        state.schema.columns = [];
-      }
     },
+
     clearError: (state) => {
       state.error = null;
-      state.preview.error = null;
-      state.schema.error = null;
     },
+
+    // ========================================================================
+    // TRANSFORMATION MANAGEMENT
+    // ========================================================================
+    
     setTransformations: (state, action: PayloadAction<TransformationConfig>) => {
       state.transformations = castDraft(action.payload);
     },
+
     clearTransformations: (state) => {
       state.transformations = null;
     },
+
     addTransformationStep: (state, action: PayloadAction<any>) => {
       if (!state.transformations) {
         state.transformations = { steps: [] };
       }
       state.transformations.steps.push(castDraft(action.payload));
     },
+
     updateTransformationStep: (state, action: PayloadAction<{ index: number; step: any }>) => {
       if (state.transformations && state.transformations.steps[action.payload.index]) {
         state.transformations.steps[action.payload.index] = castDraft(action.payload.step);
       }
     },
+
     removeTransformationStep: (state, action: PayloadAction<number>) => {
       if (state.transformations) {
         state.transformations.steps.splice(action.payload, 1);
       }
     },
-    clearQueryResults: (state, action: PayloadAction<string | undefined>) => {
-      if (action.payload) {
-        delete state.queryResults[action.payload];
-      } else {
-        state.queryResults = {};
-      }
+
+    // ========================================================================
+    // QUERY RESULTS MANAGEMENT
+    // ========================================================================
+    
+    clearQueryResults: (state) => {
+      state.queryResults = {};
     },
+
+    // ========================================================================
+    // LOCAL STATE MANAGEMENT
+    // ========================================================================
+    
     addDataset: (state, action: PayloadAction<Dataset>) => {
       state.datasets.push(castDraft(action.payload));
+      state.lastUpdated = new Date().toISOString();
     },
+
     updateDatasetLocal: (state, action: PayloadAction<Dataset>) => {
       const index = state.datasets.findIndex(d => d.id === action.payload.id);
       if (index !== -1) {
         state.datasets[index] = castDraft(action.payload);
       }
-      // Update current dataset if it's the same one
       if (state.currentDataset?.id === action.payload.id) {
         state.currentDataset = castDraft(action.payload);
       }
+      state.lastUpdated = new Date().toISOString();
     },
+
     removeDataset: (state, action: PayloadAction<string>) => {
       state.datasets = state.datasets.filter(d => d.id !== action.payload);
-      // Clear current dataset if it's the deleted one
       if (state.currentDataset?.id === action.payload) {
         state.currentDataset = null;
       }
+      state.lastUpdated = new Date().toISOString();
     },
+
+    // ========================================================================
+    // UI STATE MANAGEMENT
+    // ========================================================================
+    
     clearPreview: (state) => {
-      state.preview.data = [];
-      state.preview.columns = [];
-      state.preview.error = null;
+      state.preview = {
+        data: [],
+        columns: [],
+        loading: false,
+        error: null,
+      };
     },
+
     clearSchema: (state) => {
-      state.schema.columns = [];
-      state.schema.error = null;
+      state.schema = {
+        columns: [],
+        loading: false,
+        error: null,
+      };
     },
+
+    // ========================================================================
+    // UTILITIES
+    // ========================================================================
+    
     resetDatasetState: (state) => {
-      Object.assign(state, initialState);
+      return initialState;
     },
   },
+
   extraReducers: (builder) => {
     // Fetch datasets
     builder
@@ -306,10 +371,6 @@ const datasetSlice = createSlice({
       .addCase(fetchDataset.fulfilled, (state, action) => {
         state.loading = false;
         state.currentDataset = castDraft(action.payload);
-        if (action.payload.transformation_config) {
-          state.transformations = castDraft(action.payload.transformation_config);
-        }
-        state.lastUpdated = new Date().toISOString();
       })
       .addCase(fetchDataset.rejected, (state, action) => {
         state.loading = false;
@@ -403,15 +464,7 @@ const datasetSlice = createSlice({
         state.testing = false;
         state.preview.loading = false;
         state.preview.data = castDraft(action.payload.preview);
-        
-        // Transform API columns to ColumnDefinition format
-        state.preview.columns = (action.payload.columns || []).map((col: { name: string; type: string }) => ({
-          name: col.name,
-          data_type: col.type,
-          is_nullable: true,
-          is_primary_key: false,
-          display_name: col.name,
-        }));
+        state.preview.columns = castDraft(action.payload.columns);
       })
       .addCase(testDataset.rejected, (state, action) => {
         state.testing = false;
@@ -427,7 +480,7 @@ const datasetSlice = createSlice({
       })
       .addCase(fetchDatasetSchema.fulfilled, (state, action) => {
         state.schema.loading = false;
-        state.schema.columns = castDraft(action.payload.columns || []);
+        state.schema.columns = castDraft(action.payload.columns);
       })
       .addCase(fetchDatasetSchema.rejected, (state, action) => {
         state.schema.loading = false;

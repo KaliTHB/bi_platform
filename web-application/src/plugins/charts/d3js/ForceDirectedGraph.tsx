@@ -153,7 +153,7 @@ export const ForceDirectedGraph: React.FC<ChartProps> = ({
             type: 'click',
             data: d,
             dataIndex: nodes.indexOf(d)
-          });
+          } as ChartInteractionEvent);
         })
         .on('mouseover', (event, d) => {
           onInteraction?.({

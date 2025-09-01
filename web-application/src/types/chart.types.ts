@@ -1,3 +1,4 @@
+// src/types/chart.types.ts
 // =============================================================================
 // Chart System Type Definitions - Deduplicated and Consolidated
 // =============================================================================
@@ -191,25 +192,26 @@ export interface CacheConfig {
 }
 
 // =============================================================================
-// Core Data Interfaces
-// =============================================================================
-
-export interface ChartData {
-  rows: Record<string, any>[];
-  columns: ColumnDefinition[];
-  metadata?: Record<string, any>;
-}
-
-export interface ColumnDefinition {
-  name: string;
-  type: 'string' | 'number' | 'date' | 'boolean';
-  displayName?: string;
-  format?: string;
-}
-
-// =============================================================================
 // Chart Configuration Interfaces (Alternative/Legacy)
 // =============================================================================
+
+export interface ChartConfiguration {
+  title?: string;
+  subtitle?: string;
+  xAxis?: AxisConfiguration;
+  yAxis?: AxisConfiguration;
+  axes?: ChartAxes; // Support for both naming conventions
+  dimensions?: ChartDimensions;
+  series?: SeriesConfiguration[];
+  colors?: readonly string[];
+  legend?: LegendConfiguration;
+  tooltip?: TooltipConfiguration;
+  animation?: boolean;
+  animations?: boolean; // Support for both naming conventions
+  interactions?: InteractionConfiguration;
+  interactivity?: boolean; // Support for both naming conventions
+  [key: string]: any;
+}
 
 export interface AxisConfiguration {
   title?: string;
@@ -219,29 +221,39 @@ export interface AxisConfiguration {
   interval?: number;
   format?: string;
   show?: boolean;
+  field?: string; // For compatibility with ChartAxis
+  scale?: 'linear' | 'log' | 'time';
+  grid?: boolean;
+  labels?: boolean;
 }
 
 export interface SeriesConfiguration {
+  id?: string;
   name: string;
   type: string;
   dataKey: string;
+  data_field?: string; // For compatibility with ChartSeries
   color?: string;
   stack?: string;
   smooth?: boolean;
   symbol?: string;
   symbolSize?: number;
+  aggregation?: string;
+  visible?: boolean;
+  order_index?: number;
 }
 
 export interface LegendConfiguration {
   show?: boolean;
   position?: 'top' | 'bottom' | 'left' | 'right';
-  align?: 'left' | 'center' | 'right';
+  align?: 'left' | 'center' | 'right' | 'start' | 'end';
+  orientation?: 'horizontal' | 'vertical';
 }
 
 export interface TooltipConfiguration {
   show?: boolean;
-  trigger?: 'item' | 'axis';
-  formatter?: string;
+  trigger?: 'item' | 'axis' | 'none';
+  formatter?: string | Function;
 }
 
 export interface AnimationConfiguration {
@@ -253,133 +265,106 @@ export interface AnimationConfiguration {
 export interface InteractionConfiguration {
   zoom?: boolean;
   pan?: boolean;
+  selection?: boolean;
   brush?: boolean;
-  dataZoom?: boolean;
+  drilldown?: boolean;
+  tooltip?: boolean;
+  crossFilter?: boolean;
 }
 
 // =============================================================================
-// Chart Theme Interface
+// Core Data Interfaces
 // =============================================================================
 
-export interface ChartTheme {
-  name?: string;
-  backgroundColor?: string;
-  textColor?: string;
-  gridColor?: string;
-  colors?: readonly string[];
-  fontSize?: number;
-  fontFamily?: string;
-  borderRadius?: number;
-  opacity?: number;
+export interface ChartData {
+  rows?: Record<string, any>[]; // Support for both naming conventions
+  data?: any[]; // Support for both naming conventions
+  columns: ColumnDefinition[];
+  metadata?: Record<string, any>;
+}
+
+export interface ColumnDefinition {
+  name: string;
+  type?: 'string' | 'number' | 'date' | 'boolean';
+  data_type?: string; // Support for both naming conventions
+  displayName?: string;
+  display_name?: string; // Support for both naming conventions
+  format?: string;
+  nullable?: boolean;
+  is_nullable?: boolean; // Support for both naming conventions
+  primaryKey?: boolean;
+  is_primary_key?: boolean; // Support for both naming conventions
+  description?: string;
+  format_hint?: string;
+  default_value?: any;
+}
+
+export interface ColumnInfo {
+  name: string;
+  type: 'string' | 'number' | 'date' | 'boolean';
+  displayName?: string;
+  nullable?: boolean;
+  unique?: boolean;
+  sampleValues?: any[];
 }
 
 // =============================================================================
-// Chart Interaction Interfaces
+// Chart Interaction and Events
 // =============================================================================
 
-export interface ChartInteractionEvent {
-  type: 'click' | 'hover' | 'select' | 'zoom' | 'pan';
+export interface ChartInteraction {
+  type: 'click' | 'hover' | 'select' | 'zoom' | 'pan' | 'filter';
+  chartId: string;
   data?: any;
   dataIndex?: number;
   seriesIndex?: number;
+  timestamp?: number;
 }
 
-export interface ChartInteraction {
-  zoom: boolean;
-  pan: boolean;
-  select: boolean;
-  brush: boolean;
-  tooltip: boolean;
-  crossfilter: boolean;
-  click_action?: 'drill_down' | 'filter' | 'navigate' | 'custom';
+export interface ChartInteractionEvent extends ChartInteraction {
+  timestamp: number; // Make timestamp required for events
 }
 
-// =============================================================================
-// Chart Props Interfaces (React Component Props)
-// =============================================================================
-
-// Main ChartProps interface - Primary interface for chart components
-export interface ChartProps {
-  data: any[] | ChartData;
-  config: any | ChartConfiguration;
-  dimensions?: {
-    width: number;
-    height: number;
+export interface ChartTheme {
+  name: string;
+  colors: {
+    primary: string[];
+    background: string;
+    text: string;
+    grid: string;
+    axis: string;
   };
-  width?: number;
-  height?: number;
-  theme?: ChartTheme;
-  filters?: any[];
-  onInteraction?: (event: ChartInteractionEvent | ChartInteraction) => void;
-  onError?: (error: Error) => void;
-  isLoading?: boolean;
-  error?: string;
-}
-
-// Chart configuration props interface (for chart config forms/editors)
-export interface ChartConfigProps {
-  config: any;
-  data?: any[];
-  availableColumns?: ColumnInfo[];
-  chartType?: string;
-  chartLibrary?: string;
-  onConfigChange: (newConfig: any) => void;
-  onValidate?: (isValid: boolean, errors?: ValidationError[]) => void;
-  showPreview?: boolean;
-  previewDimensions?: { width: number; height: number };
-}
-
-// =============================================================================
-// Plugin System Interfaces
-// =============================================================================
-
-export interface ChartConfigSchema {
-  type: string; // More flexible - accepts any string, not just 'object'
-  properties: {
-    [key: string]: {
-      type: string; // More flexible - accepts any string, not just specific literals
-      required?: boolean;
-      default?: any;
-      title?: string;
-      description?: string;
-      options?: ReadonlyArray<{ label: string; value: any }>; // No readonly requirement
-      minimum?: number;
-      maximum?: number;
-      items?: {
-        type: string;
-        title?: string;
-      };
-      enum?: readonly any[]; // No readonly requirement
-      format?: string;
-      minItems?: number;
-      maxItems?: number;
+  fonts: {
+    family: string;
+    sizes: {
+      title: number;
+      subtitle: number;
+      axis: number;
+      legend: number;
+      tooltip: number;
     };
   };
-  required?: string[]; // No readonly requirement
 }
 
-// Alternative: Make the whole interface more permissive
-export interface ChartConfigSchemaFlexible {
-  type: string; // ✅ Just use string instead of literal type
-  properties: Record<string, any>; // ✅ More flexible properties
-  required?: string[]; // ✅ Allow mutable arrays too
-}
+// =============================================================================
+// Plugin System Interfaces - SINGLE DEFINITION
+// =============================================================================
 
 export interface ChartPluginConfig {
   name: string;
   displayName: string;
-  category: string; // ✅ Change from union to string
-  library: string;  // ✅ Change from union to string 
+  category: string; // Flexible string instead of union
+  library: string;  // Flexible string instead of union
   version: string;
   description?: string;
-  tags?: string[]; // ✅ Simplified from readonly string[]
+  tags?: string[];
   
   configSchema: ChartConfigSchema;
   dataRequirements: DataRequirements;
-  exportFormats: ExportFormat[]; // ✅ Not readonly - this fixes the casting error
+  exportFormats: ExportFormat[];
   component: React.ComponentType<ChartProps>;
   configComponent?: React.ComponentType<ChartConfigProps>;
-  previewComponent?: React.ComponentType<ChartPreviewProps>; // ✅ Added missing property
+  previewComponent?: React.ComponentType<ChartPreviewProps>;
   interactionSupport?: {
     zoom?: boolean;
     pan?: boolean;
@@ -394,16 +379,36 @@ export interface ChartPluginConfig {
 export interface DataRequirements {
   minColumns?: number;
   maxColumns?: number;
-  requiredFields?: readonly string[];
-  optionalFields?: readonly string[];
-  supportedTypes?: readonly string[];
+  requiredFields?: string[]; // Use mutable arrays for flexibility
+  optionalFields?: string[];
+  supportedTypes?: string[];
   aggregationSupport?: boolean;
   pivotSupport?: boolean;
+  specialRequirements?: string[];
 }
 
-export interface PluginConfigSchema {
+export interface ChartConfigSchema {
   type: string;
-  properties: Record<string, SchemaProperty>;
+  properties: {
+    [key: string]: {
+      type: string;
+      required?: boolean;
+      default?: any;
+      title?: string;
+      description?: string;
+      options?: ReadonlyArray<{ label: string; value: any }>;
+      minimum?: number;
+      maximum?: number;
+      items?: {
+        type: string;
+        title?: string;
+      };
+      enum?: readonly any[];
+      format?: string;
+      minItems?: number;
+      maxItems?: number;
+    };
+  };
   required?: string[];
 }
 
@@ -418,6 +423,56 @@ export interface SchemaProperty {
   required?: boolean;
   options?: ReadonlyArray<{ label: string; value: any }>;
   properties?: Record<string, SchemaProperty>;
+}
+
+// =============================================================================
+// React Component Props Interfaces
+// =============================================================================
+
+export interface ChartProps {
+  data: any[];
+  config: any; // Flexible config type to support both ChartConfig and ChartConfiguration
+  width?: number;
+  height?: number;
+  dimensions?: {
+    width: number;
+    height: number;
+  };
+  theme?: ChartTheme;
+  filters?: any[];
+  onInteraction?: (event: ChartInteractionEvent | ChartInteraction) => void;
+  onError?: (error: Error) => void;
+  isLoading?: boolean;
+  error?: string;
+}
+
+export interface ChartPreviewProps {
+  data?: any[];
+  config?: any;
+  width?: number;
+  height?: number;
+  dimensions?: {
+    width: number;
+    height: number;
+  };
+  theme?: any;
+  isPreview?: boolean;
+  showSampleData?: boolean;
+  sampleDataCount?: number;
+  chartType?: string;
+  chartLibrary?: string;
+}
+
+export interface ChartConfigProps {
+  config: any;
+  data?: any[];
+  availableColumns?: ColumnInfo[];
+  chartType?: string;
+  chartLibrary?: string;
+  onConfigChange: (newConfig: any) => void;
+  onValidate?: (isValid: boolean, errors?: ValidationError[]) => void;
+  showPreview?: boolean;
+  previewDimensions?: { width: number; height: number };
 }
 
 // =============================================================================
@@ -452,245 +507,14 @@ export interface DataRequest {
 }
 
 // =============================================================================
-// Core Data Interfaces
+// Type Aliases and Utility Types
 // =============================================================================
 
-export interface ChartData {
-  rows: Record<string, any>[];
-  columns: ColumnDefinition[];
-  metadata?: Record<string, any>;
-}
-
-export interface ColumnDefinition {
-  name: string;
-  type: 'string' | 'number' | 'date' | 'boolean';
-  displayName?: string;
-  format?: string;
-}
-
-export interface ColumnInfo {
-  name: string;
-  type: 'string' | 'number' | 'date' | 'boolean';
-  displayName?: string;
-  nullable?: boolean;
-  unique?: boolean;
-  sampleValues?: any[];
-}
-
-// =============================================================================
-// Chart Configuration Interfaces
-// =============================================================================
-
-export interface ChartConfiguration {
-  title?: string;
-  subtitle?: string;
-  xAxis?: AxisConfiguration;
-  yAxis?: AxisConfiguration;
-  series?: SeriesConfiguration[];
-  colors?: readonly string[];
-  legend?: LegendConfiguration;
-  tooltip?: TooltipConfiguration;
-  animation?: AnimationConfiguration;
-  interactions?: InteractionConfiguration;
-  [key: string]: any;
-}
-
-export interface AxisConfiguration {
-  title?: string;
-  type?: 'category' | 'value' | 'time' | 'log';
-  min?: number;
-  max?: number;
-  interval?: number;
-  format?: string;
-  show?: boolean;
-}
-
-export interface SeriesConfiguration {
-  name: string;
-  type: string;
-  dataKey: string;
-  color?: string;
-  stack?: string;
-  smooth?: boolean;
-  symbol?: string;
-  symbolSize?: number;
-}
-
-export interface LegendConfiguration {
-  show?: boolean;
-  position?: 'top' | 'bottom' | 'left' | 'right';
-  align?: 'left' | 'center' | 'right';
-}
-
-export interface TooltipConfiguration {
-  show?: boolean;
-  trigger?: 'item' | 'axis';
-  formatter?: string;
-}
-
-export interface AnimationConfiguration {
-  enabled?: boolean;
-  duration?: number;
-  easing?: string;
-}
-
-export interface InteractionConfiguration {
-  zoom?: boolean;
-  pan?: boolean;
-  brush?: boolean;
-  dataZoom?: boolean;
-}
-
-// =============================================================================
-// Chart Theme Interface
-// =============================================================================
-
-export interface ChartTheme {
-  name?: string;
-  backgroundColor?: string;
-  textColor?: string;
-  gridColor?: string;
-  colors?: readonly string[];
-  fontSize?: number;
-  fontFamily?: string;
-  borderRadius?: number;
-  opacity?: number;
-}
-
-// =============================================================================
-// Chart Interaction Interfaces
-// =============================================================================
-
-export interface ChartInteractionEvent {
-  type: 'click' | 'hover' | 'select' | 'zoom' | 'pan';
-  data?: any;
-  dataIndex?: number;
-  seriesIndex?: number;
-}
-
-export interface ChartInteraction {
-  type: 'click' | 'hover' | 'brush' | 'zoom' | 'pan';
-  data?: any;
-  event?: any;
-}
-
-// =============================================================================
-// Chart Props Interfaces (React Component Props)
-// =============================================================================
-
-// Main ChartProps interface - Primary interface for chart components
-export interface ChartProps {
-  data: any[] | ChartData;
-  config: any | ChartConfiguration;
-  dimensions?: {
-    width: number;
-    height: number;
-  };
-  width?: number;
-  height?: number;
-  theme?: ChartTheme;
-  filters?: any[];
-  onInteraction?: (event: ChartInteractionEvent | ChartInteraction) => void;
-  onError?: (error: Error) => void;
-  isLoading?: boolean;
-  error?: string;
-}
-
-export interface ChartPreviewProps {
-  data?: any[];
-  config?: any;
-  width?: number;
-  height?: number;
-  dimensions?: {
-    width: number;
-    height: number;
-  };
-  theme?: any;
-  isPreview?: boolean;
-  showSampleData?: boolean;
-  sampleDataCount?: number;
-  chartType?: string;
-  chartLibrary?: string;
-}
-
-// Chart configuration props interface (for chart config forms/editors)
-export interface ChartConfigProps {
-  config: any;
-  data?: any[];
-  availableColumns?: ColumnInfo[];
-  chartType?: string;
-  chartLibrary?: string;
-  onConfigChange: (newConfig: any) => void;
-  onValidate?: (isValid: boolean, errors?: ValidationError[]) => void;
-  showPreview?: boolean;
-  previewDimensions?: { width: number; height: number };
-}
-
-// =============================================================================
-// Plugin System Interfaces
-// =============================================================================
-
-
-export interface PluginConfigSchema {
-  type: string;
-  properties: Record<string, SchemaProperty>;
-  required?: string[];
-}
-
-export interface SchemaProperty {
-  type: string;
-  title: string;
-  description?: string;
-  default?: any;
-  enum?: readonly any[];
-  minimum?: number;
-  maximum?: number;
-  required?: boolean;
-  options?: ReadonlyArray<{ label: string; value: any }>;
-  properties?: Record<string, SchemaProperty>;
-}
-
-// =============================================================================
-// Validation and Error Handling
-// =============================================================================
-
-export interface ValidationError {
-  field: string;
-  message: string;
-  code?: string;
-  severity?: 'error' | 'warning' | 'info';
-}
-
-export interface DataRequirements {
-  minColumns?: number;
-  maxColumns?: number;
-  requiredFields?: string[]; // No readonly requirement
-  optionalFields?: string[]; // No readonly requirement
-  supportedTypes?: string[]; // No readonly requirement
-  aggregationSupport?: boolean;
-  pivotSupport?: boolean;
-  specialRequirements?: string[]; // Added for additional requirements
-}
-
-export interface SchemaProperty {
-  type: string; // More flexible
-  title: string;
-  description?: string;
-  default?: any;
-  enum?: readonly any[]; // No readonly requirement
-  minimum?: number;
-  maximum?: number;
-  required?: boolean;
-  options?: ReadonlyArray<{ label: string; value: any }>; // No readonly requirement
-  properties?: Record<string, SchemaProperty>;
-}
-
-// Keep the strict types for validation if needed elsewhere:
 export type ChartCategory = 'basic' | 'advanced' | 'statistical' | 'geographic' | 'financial' | 'custom';
 export type ChartLibrary = 'echarts' | 'd3js' | 'plotly' | 'chartjs' | 'nvd3js' | 'drilldown';
 export type ExportFormat = 'png' | 'svg' | 'pdf' | 'jpg' | 'html';
 
-// Helper function to validate chart configs at runtime if needed:
+// Helper functions for validation
 export function validateChartCategory(category: string): category is ChartCategory {
   return ['basic', 'advanced', 'statistical', 'geographic', 'financial', 'custom'].includes(category);
 }
@@ -701,20 +525,4 @@ export function validateChartLibrary(library: string): library is ChartLibrary {
 
 export function validateExportFormat(format: string): format is ExportFormat {
   return ['png', 'svg', 'pdf', 'jpg', 'html'].includes(format);
-}
-
-export interface ChartProps {
-  data: any[];
-  config: any;
-  width?: number;
-  height?: number;
-  dimensions?: {
-    width: number;
-    height: number;
-  };
-  theme?: any;
-  onInteraction?: (event: any) => void;
-  onError?: (error: Error) => void;
-  isLoading?: boolean;
-  error?: string;
 }

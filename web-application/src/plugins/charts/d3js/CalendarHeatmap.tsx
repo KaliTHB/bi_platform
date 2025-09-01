@@ -4,8 +4,8 @@
 
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import { ChartProps, ChartData } from '@/types/chart.types';
 import { getDataArray, hasDataContent } from '../utils/chartDataUtils';
+import { ChartProps, ChartData, ChartInteractionEvent } from '@/types/chart.types';
 
 interface CalendarHeatmapData {
   date: string;
@@ -124,16 +124,19 @@ export const CalendarHeatmap: React.FC<ChartProps> = ({
             type: 'click',
             data: { date: dateStr, value },
             dataIndex: days.indexOf(d)
-          });
+          } as ChartInteractionEvent);
         })
         .on('mouseover', (event, d) => {
           const dateStr = formatDate(d);
           const value = dataByDate.get(dateStr) || 0;
-          onInteraction?.({
+          const interactionEvent: ChartInteractionEvent = {
             type: 'hover',
             data: { date: dateStr, value },
-            dataIndex: days.indexOf(d)
-          });
+            dataIndex: days.indexOf(d),
+            chartId: '', // Add required property  
+            timestamp: Date.now() // Add required propert
+          };
+          onInteraction?.(interactionEvent);
         });
 
       // Add month labels

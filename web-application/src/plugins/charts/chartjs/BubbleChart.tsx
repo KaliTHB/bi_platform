@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import Chart from 'chart.js/auto';
-import { ChartProps, ChartData } from '@/types/chart.types';
+import { ChartProps, ChartData, ChartInteractionEvent } from '@/types/chart.types';
 
 export interface ChartJSBubbleConfig {
   xField: string;
@@ -31,7 +31,7 @@ const hasValidData = (data: any[] | ChartData): boolean => {
     return data.length > 0;
   }
   // For ChartData object, check if rows exist and have length
-  return data.rows && data.rows.length > 0;
+  return Boolean(data.rows && data.rows.length > 0);
 };
 
 export const ChartJSBubbleChart: React.FC<ChartProps> = ({
@@ -153,11 +153,11 @@ export const ChartJSBubbleChart: React.FC<ChartProps> = ({
               };
 
               onInteraction({
-                type: 'click',
-                data: clickedData,
-                dataIndex: index,
-                seriesIndex: datasetIndex
-              });
+      type: 'click',
+      data: clickedData,
+      dataIndex: index,
+      seriesIndex: datasetIndex
+    } as ChartInteractionEvent);
             }
           }
         }

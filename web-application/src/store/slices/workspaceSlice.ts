@@ -1,4 +1,4 @@
-// web-application/src/store/slices/workspaceSlice.ts
+// src/store/slices/workspaceSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { Workspace, WorkspaceMember, CreateWorkspaceRequest, UpdateWorkspaceRequest } from '../../types';
 import { workspaceAPI } from '../../services/api';
@@ -20,7 +20,10 @@ const initialState: WorkspaceState = {
   error: null,
 };
 
-// Async thunks
+// ============================================================================
+// ASYNC THUNKS
+// ============================================================================
+
 export const fetchWorkspaces = createAsyncThunk(
   'workspace/fetchWorkspaces',
   async (_, { rejectWithValue }) => {
@@ -99,6 +102,21 @@ export const deleteWorkspace = createAsyncThunk(
   }
 );
 
+export const fetchWorkspaceMembers = createAsyncThunk(
+  'workspace/fetchMembers',
+  async (workspaceId: string, { rejectWithValue }) => {
+    try {
+      const response = await workspaceAPI.getWorkspaceMembers(workspaceId);
+      if (response.success) {
+        return response.members;
+      }
+      return rejectWithValue(response.message || 'Failed to fetch workspace members');
+    } catch (error: any) {
+      return rejectWithValue(error.message || 'Failed to fetch workspace members');
+    }
+  }
+);
+
 export const addWorkspaceMember = createAsyncThunk(
   'workspace/addMember',
   async (
@@ -106,9 +124,9 @@ export const addWorkspaceMember = createAsyncThunk(
     { rejectWithValue }
   ) => {
     try {
-      const response = await workspaceAPI.addMember(workspaceId, email, role);
+      const response = await workspaceAPI.inviteUser(workspaceId, { email, role });
       if (response.success) {
-        return response.workspace;
+        return { workspaceId, email, role };
       }
       return rejectWithValue(response.message || 'Failed to add member');
     } catch (error: any) {
@@ -118,23 +136,53 @@ export const addWorkspaceMember = createAsyncThunk(
   }
 );
 
-export const removeUser = createAsyncThunk(
-  'workspace/removeUser',
-  async ({ workspaceId, userId }: { workspaceId: string; userId: string }, { rejectWithValue }) => {
+export const updateWorkspaceMemberRole = createAsyncThunk(
+  'workspace/updateMemberRole',
+  async (
+    { workspaceId, userId, roleIds }: { workspaceId: string; userId: string; roleIds: string[] },
+    { rejectWithValue }
+  ) => {
     try {
-      await workspaceAPI.removeUser(workspaceId, userId);
-      return userId;
+      const response = await workspaceAPI.updateUserRole(workspaceId, userId, { role_ids: roleIds });
+      if (response.success) {
+        return { workspaceId, userId, roleIds };
+      }
+      return rejectWithValue(response.message || 'Failed to update member role');
     } catch (error: any) {
-      const message = error.response?.data?.error || error.message || 'Failed to remove user';
+      const message = error.response?.data?.message || error.message || 'Failed to update member role';
       return rejectWithValue(message);
     }
   }
 );
 
+export const removeWorkspaceMember = createAsyncThunk(
+  'workspace/removeMember',
+  async ({ workspaceId, userId }: { workspaceId: string; userId: string }, { rejectWithValue }) => {
+    try {
+      const response = await workspaceAPI.removeUser(workspaceId, userId);
+      if (response.success) {
+        return userId;
+      }
+      return rejectWithValue(response.message || 'Failed to remove member');
+    } catch (error: any) {
+      const message = error.response?.data?.message || error.message || 'Failed to remove member';
+      return rejectWithValue(message);
+    }
+  }
+);
+
+// ============================================================================
+// WORKSPACE SLICE
+// ============================================================================
+
 const workspaceSlice = createSlice({
   name: 'workspace',
   initialState,
   reducers: {
+    // ========================================================================
+    // WORKSPACE MANAGEMENT
+    // ========================================================================
+    
     setWorkspace: (state, action: PayloadAction<Workspace>) => {
       state.currentWorkspace = castDraft(action.payload);
     },
@@ -168,6 +216,10 @@ const workspaceSlice = createSlice({
       }
     },
     
+    // ========================================================================
+    // MEMBER MANAGEMENT
+    // ========================================================================
+    
     setMembers: (state, action: PayloadAction<WorkspaceMember[]>) => {
       state.members = castDraft(action.payload);
     },
@@ -186,10 +238,21 @@ const workspaceSlice = createSlice({
         state.members[index] = castDraft(action.payload);
       }
     },
+
+    // ========================================================================
+    // UTILITIES
+    // ========================================================================
+    
+    resetWorkspaceState: (state) => {
+      return initialState;
+    },
   },
   
   extraReducers: (builder) => {
-    // Fetch workspaces
+    // ========================================================================
+    // FETCH WORKSPACES
+    // ========================================================================
+    
     builder
       .addCase(fetchWorkspaces.pending, (state) => {
         state.isLoading = true;
@@ -204,7 +267,10 @@ const workspaceSlice = createSlice({
         state.error = action.payload as string;
       });
 
-    // Fetch workspace
+    // ========================================================================
+    // FETCH WORKSPACE
+    // ========================================================================
+    
     builder
       .addCase(fetchWorkspace.pending, (state) => {
         state.isLoading = true;
@@ -219,7 +285,10 @@ const workspaceSlice = createSlice({
         state.error = action.payload as string;
       });
 
-    // Create workspace
+    // ========================================================================
+    // CREATE WORKSPACE
+    // ========================================================================
+    
     builder
       .addCase(createWorkspace.pending, (state) => {
         state.isLoading = true;
@@ -235,7 +304,10 @@ const workspaceSlice = createSlice({
         state.error = action.payload as string;
       });
 
-    // Update workspace
+    // ========================================================================
+    // UPDATE WORKSPACE
+    // ========================================================================
+    
     builder
       .addCase(updateWorkspace.pending, (state) => {
         state.isLoading = true;
@@ -256,7 +328,10 @@ const workspaceSlice = createSlice({
         state.error = action.payload as string;
       });
 
-    // Delete workspace
+    // ========================================================================
+    // DELETE WORKSPACE
+    // ========================================================================
+    
     builder
       .addCase(deleteWorkspace.pending, (state) => {
         state.isLoading = true;
@@ -274,7 +349,28 @@ const workspaceSlice = createSlice({
         state.error = action.payload as string;
       });
 
-    // Add member
+    // ========================================================================
+    // FETCH WORKSPACE MEMBERS
+    // ========================================================================
+    
+    builder
+      .addCase(fetchWorkspaceMembers.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(fetchWorkspaceMembers.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.members = castDraft(action.payload);
+      })
+      .addCase(fetchWorkspaceMembers.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload as string;
+      });
+
+    // ========================================================================
+    // ADD WORKSPACE MEMBER (INVITE)
+    // ========================================================================
+    
     builder
       .addCase(addWorkspaceMember.pending, (state) => {
         state.isLoading = true;
@@ -282,20 +378,47 @@ const workspaceSlice = createSlice({
       })
       .addCase(addWorkspaceMember.fulfilled, (state, action) => {
         state.isLoading = false;
-        if (state.currentWorkspace) {
-          state.currentWorkspace = castDraft(action.payload);
-        }
-        const index = state.workspaces.findIndex(w => w.id === action.payload.id);
-        if (index !== -1) {
-          state.workspaces[index] = castDraft(action.payload);
-        }
+        // action.payload is { workspaceId: string; email: string; role: string; }
+        // Since inviteUser only sends an invitation and doesn't return updated workspace data,
+        // we just update the loading state. The member will appear when they accept the invitation
+        // and when we next fetch the members list.
       })
       .addCase(addWorkspaceMember.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload as string;
       });
 
-    // Remove member
+    // ========================================================================
+    // UPDATE WORKSPACE MEMBER ROLE
+    // ========================================================================
+    
+    builder
+      .addCase(updateWorkspaceMemberRole.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(updateWorkspaceMemberRole.fulfilled, (state, action) => {
+        state.isLoading = false;
+        const { userId, roleIds } = action.payload;
+        const memberIndex = state.members.findIndex(m => m.user_id === userId);
+        if (memberIndex !== -1) {
+          // Update the member's role information
+          state.members[memberIndex] = castDraft({
+            ...state.members[memberIndex],
+            role_ids: roleIds,
+            updated_at: new Date().toISOString()
+          });
+        }
+      })
+      .addCase(updateWorkspaceMemberRole.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload as string;
+      });
+
+    // ========================================================================
+    // REMOVE WORKSPACE MEMBER
+    // ========================================================================
+    
     builder
       .addCase(removeWorkspaceMember.pending, (state) => {
         state.isLoading = true;
@@ -303,13 +426,8 @@ const workspaceSlice = createSlice({
       })
       .addCase(removeWorkspaceMember.fulfilled, (state, action) => {
         state.isLoading = false;
-        if (state.currentWorkspace) {
-          state.currentWorkspace = castDraft(action.payload);
-        }
-        const index = state.workspaces.findIndex(w => w.id === action.payload.id);
-        if (index !== -1) {
-          state.workspaces[index] = castDraft(action.payload);
-        }
+        // action.payload is the userId that was removed
+        state.members = state.members.filter(member => member.user_id !== action.payload);
       })
       .addCase(removeWorkspaceMember.rejected, (state, action) => {
         state.isLoading = false;
@@ -330,6 +448,7 @@ export const {
   addMember,
   removeMember,
   updateMember,
+  resetWorkspaceState,
 } = workspaceSlice.actions;
 
 export default workspaceSlice.reducer;

@@ -1,8 +1,10 @@
 // src/store/slices/chartSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import { Chart, ChartConfiguration, ChartData, ChartFilter, ChartError } from '../../types/chart.types';
+import { Chart, ChartConfig, ChartData, ChartFilter, ChartError } from '../../types/chart.types';
+// import { ChartConfiguration } from '../../types/chart.types'; // Uncomment if needed for conversion
 import { chartAPI } from '../../services/api';
 import { castDraft } from "immer";
+
 interface ChartQueryResult {
   data: any[];
   columns: any[];
@@ -31,7 +33,7 @@ interface ChartState {
   currentChart: Chart | null;
   selectedCharts: string[]; // For bulk operations
   chartData: Record<string, ChartQueryResult>; // Cache chart data by chart ID
-  chartConfigurations: Record<string, ChartConfiguration>; // Chart configs cache
+  chartConfigurations: Record<string, ChartConfig>; // Chart configs cache - changed to ChartConfig
   interactions: ChartInteractionEvent[]; // Chart interaction history
   filters: ChartFilter[]; // Global chart filters
   activeFilters: Record<string, any>; // Currently applied filters
@@ -48,7 +50,7 @@ interface ChartState {
     chartType: string | null;
     chartLibrary: string | null;
     data: any[] | null;
-    configuration: Partial<ChartConfiguration>;
+    configuration: Partial<ChartConfig>;  // Changed to ChartConfig
     preview: {
       enabled: boolean;
       data: any[] | null;
@@ -99,6 +101,80 @@ const initialState: ChartState = {
   lastUpdated: null,
 };
 
+// Helper function to convert ChartConfiguration to ChartConfig
+// Keep this if you need to convert from ChartConfiguration elsewhere in your app
+/*
+const convertToChartConfig = (config: ChartConfiguration): ChartConfig => {
+  // Handle null/undefined config
+  if (!config) {
+    return {
+      dimensions: { width: 400, height: 300, margin: { top: 20, right: 20, bottom: 20, left: 20 } },
+      series: [],
+      axes: {
+        x: { field: '', title: '', type: 'category', scale: 'linear', grid: true, labels: true },
+        y: { field: '', title: '', type: 'value', scale: 'linear', grid: true, labels: true }
+      },
+      legend: { show: true, position: 'top', align: 'center', orientation: 'horizontal' },
+      colors: [],
+      animations: true,
+      interactivity: true
+    };
+  }
+
+  return {
+    dimensions: config.dimensions || {
+      width: 400,
+      height: 300,
+      margin: { top: 20, right: 20, bottom: 20, left: 20 }
+    },
+    series: (config.series || []).map((series, index) => ({
+      id: series.id || `series-${Date.now()}-${index}`,
+      name: series.name || `Series ${index + 1}`,
+      type: series.type || 'line',
+      data_field: series.dataKey || series.data_field || '', // Handle both property names
+      aggregation: series.aggregation,
+      color: series.color,
+      visible: series.visible !== false, // Default to true unless explicitly false
+      order_index: series.order_index || index
+    })),
+    axes: config.axes || {
+      x: config.xAxis || {
+        field: '',
+        title: '',
+        type: 'category',
+        scale: 'linear',
+        grid: true,
+        labels: true
+      },
+      y: config.yAxis || {
+        field: '',
+        title: '',
+        type: 'value',
+        scale: 'linear',
+        grid: true,
+        labels: true
+      }
+    },
+    legend: config.legend ? {
+      show: config.legend.show !== false,
+      position: config.legend.position || 'top',
+      align: config.legend.align === 'left' ? 'start' : 
+             config.legend.align === 'right' ? 'end' : 'center',
+      orientation: 'horizontal'
+    } : {
+      show: true,
+      position: 'top',
+      align: 'center',
+      orientation: 'horizontal'
+    },
+    colors: config.colors || [],
+    animations: config.animation !== false,
+    interactivity: config.interactions !== undefined ? Object.keys(config.interactions).length > 0 : true,
+    ...config // Include any additional properties
+  };
+};
+*/
+
 // ============================================================================
 // ASYNC THUNKS
 // ============================================================================
@@ -111,42 +187,20 @@ export const fetchCharts = createAsyncThunk<
   'chart/fetchCharts',
   async (params: FetchChartsParams, { rejectWithValue }) => {
     try {
-      // This line (105) now has the correct types
       const response = await chartAPI.getCharts(params);
-      return response.charts || [];
-    } catch (error: any) {
-      const message = error.response?.data?.error || error.message || 'Failed to fetch charts';
-      return rejectWithValue(message);
-    }
-  }
-);
-
-export const fetchChart = createAsyncThunk(
-  'chart/fetchChart',
-  async (chartId: string, { rejectWithValue }) => {
-    try {
-      const response = await chartAPI.getChart(chartId);
       if (response.success) {
-        return response.chart;
+        return response.charts;
       }
-      return rejectWithValue(response.message || 'Failed to fetch chart');
+      return rejectWithValue(response.message || 'Failed to fetch charts');
     } catch (error: any) {
-      return rejectWithValue(error.message || 'Failed to fetch chart');
+      return rejectWithValue(error.message || 'Failed to fetch charts');
     }
   }
 );
 
 export const createChart = createAsyncThunk(
   'chart/createChart',
-  async (chartData: {
-    name: string;
-    chart_type: string;
-    chart_library: string;
-    dashboard_id: string;
-    dataset_ids: string[];
-    configuration: ChartConfiguration;
-    position?: any;
-  }, { rejectWithValue }) => {
+  async (chartData: Partial<Chart>, { rejectWithValue }) => {
     try {
       const response = await chartAPI.createChart(chartData);
       if (response.success) {
@@ -161,12 +215,9 @@ export const createChart = createAsyncThunk(
 
 export const updateChart = createAsyncThunk(
   'chart/updateChart',
-  async (params: {
-    chartId: string;
-    updates: Partial<Chart>;
-  }, { rejectWithValue }) => {
+  async (params: { chartId: string; data: Partial<Chart> }, { rejectWithValue }) => {
     try {
-      const response = await chartAPI.updateChart(params.chartId, params.updates);
+      const response = await chartAPI.updateChart(params.chartId, params.data);
       if (response.success) {
         return response.chart;
       }
@@ -192,7 +243,6 @@ export const deleteChart = createAsyncThunk(
   }
 );
 
-
 export const fetchChartData = createAsyncThunk(
   'chart/fetchChartData',
   async (params: {
@@ -208,7 +258,14 @@ export const fetchChartData = createAsyncThunk(
       if (response.success) {
         return {
           chartId: params.chartId,
-          data: response.data,
+          queryResult: {
+            data: response.data,
+            columns: response.columns || [],
+            total_rows: response.data?.length || 0,
+            execution_time: response.execution_time || 0,
+            cached: false, // API doesn't return cached flag in this response
+            query_id: undefined // API doesn't return query_id in this response
+          } as ChartQueryResult
         };
       }
       return rejectWithValue(response.message || 'Failed to fetch chart data');
@@ -226,11 +283,15 @@ export const exportChart = createAsyncThunk(
     options?: any;
   }, { rejectWithValue }) => {
     try {
-      const response = await chartAPI.exportChart(params.chartId, params.format, params.options);
+      const response = await chartAPI.exportChart(params.chartId, {
+        format: params.format,
+        ...params.options
+      });
       if (response.success) {
         return {
           chartId: params.chartId,
-          url: response.downloadUrl,
+          exportData: response.export.data,
+          filename: response.export.filename,
           format: params.format,
         };
       }
@@ -352,8 +413,8 @@ const chartSlice = createSlice({
     // CHART DATA MANAGEMENT
     // ========================================================================
     
-    setChartData: (state, action: PayloadAction<{ chartId: string; data: ChartQueryResult }>) => {
-      state.chartData[action.payload.chartId] = castDraft(action.payload.data);
+    setChartData: (state, action: PayloadAction<{ chartId: string; queryResult: ChartQueryResult }>) => {
+      state.chartData[action.payload.chartId] = castDraft(action.payload.queryResult);
     },
     
     clearChartData: (state, action: PayloadAction<string>) => {
@@ -370,9 +431,11 @@ const chartSlice = createSlice({
     
     updateChartConfiguration: (state, action: PayloadAction<{
       chartId: string;
-      configuration: ChartConfiguration;
+      configuration: ChartConfig;  // Changed to ChartConfig to match the error
     }>) => {
       const { chartId, configuration } = action.payload;
+      
+      // Store the ChartConfig in the cache
       state.chartConfigurations[chartId] = castDraft(configuration);
       
       // Update the chart if it exists
@@ -498,7 +561,7 @@ const chartSlice = createSlice({
       state.chartBuilder.preview.data = null;
     },
     
-    updateChartBuilderConfiguration: (state, action: PayloadAction<Partial<ChartConfiguration>>) => {
+    updateChartBuilderConfiguration: (state, action: PayloadAction<Partial<ChartConfig>>) => {
       state.chartBuilder.configuration = castDraft({
         ...state.chartBuilder.configuration,
         ...action.payload,
@@ -608,23 +671,21 @@ const chartSlice = createSlice({
     },
     
     // ========================================================================
-    // UTILITY ACTIONS
+    // UTILITIES
     // ========================================================================
     
-    refreshChartsData: (state) => {
-      // Clear cached data to force refresh
-      state.chartData = {};
-      state.lastUpdated = new Date().toISOString();
+    refreshChartsData: (state, action: PayloadAction<string[]>) => {
+      // Clear cached data for specified charts to force refresh
+      action.payload.forEach(chartId => {
+        delete state.chartData[chartId];
+        delete state.errors[chartId];
+      });
     },
     
     resetChartState: (state) => {
-      Object.assign(state, initialState);
+      return initialState;
     },
   },
-  
-  // ========================================================================
-  // EXTRA REDUCERS (Async Thunks)
-  // ========================================================================
   
   extraReducers: (builder) => {
     // Fetch charts
@@ -639,30 +700,6 @@ const chartSlice = createSlice({
       })
       .addCase(fetchCharts.rejected, (state, action) => {
         state.loading = false;
-        // Set global error state if needed
-      });
-
-    // Fetch single chart
-    builder
-      .addCase(fetchChart.pending, (state) => {
-        state.loading = true;
-      })
-      .addCase(fetchChart.fulfilled, (state, action) => {
-        state.loading = false;
-        state.currentChart = castDraft(action.payload);
-        
-        // Update chart in list if it exists
-        const index = state.charts.findIndex(c => c.id === action.payload.id);
-        if (index !== -1) {
-          state.charts[index] = castDraft(action.payload);
-        } else {
-          state.charts.push(castDraft(action.payload));
-        }
-        
-        state.lastUpdated = new Date().toISOString();
-      })
-      .addCase(fetchChart.rejected, (state, action) => {
-        state.loading = false;
       });
 
     // Create chart
@@ -673,13 +710,9 @@ const chartSlice = createSlice({
       .addCase(createChart.fulfilled, (state, action) => {
         state.saving = false;
         state.charts.push(castDraft(action.payload));
-        state.currentChart = castDraft(action.payload);
         state.lastUpdated = new Date().toISOString();
-        
-        // Close chart builder on successful creation
-        state.chartBuilder.isOpen = false;
       })
-      .addCase(createChart.rejected, (state, action) => {
+      .addCase(createChart.rejected, (state) => {
         state.saving = false;
       });
 
@@ -690,21 +723,16 @@ const chartSlice = createSlice({
       })
       .addCase(updateChart.fulfilled, (state, action) => {
         state.saving = false;
-        
-        // Update in charts list
         const index = state.charts.findIndex(c => c.id === action.payload.id);
         if (index !== -1) {
           state.charts[index] = castDraft(action.payload);
         }
-        
-        // Update current chart if it's the same one
         if (state.currentChart?.id === action.payload.id) {
           state.currentChart = castDraft(action.payload);
         }
-        
         state.lastUpdated = new Date().toISOString();
       })
-      .addCase(updateChart.rejected, (state, action) => {
+      .addCase(updateChart.rejected, (state) => {
         state.saving = false;
       });
 
@@ -712,15 +740,10 @@ const chartSlice = createSlice({
     builder
       .addCase(deleteChart.fulfilled, (state, action) => {
         const chartId = action.payload;
-        
-        // Remove from charts list
         state.charts = state.charts.filter(c => c.id !== chartId);
-        
-        // Clear current chart if it was deleted
         if (state.currentChart?.id === chartId) {
           state.currentChart = null;
         }
-        
         // Clean up related data
         delete state.chartData[chartId];
         delete state.chartConfigurations[chartId];
@@ -728,15 +751,6 @@ const chartSlice = createSlice({
         delete state.errors[chartId];
         delete state.exportState.inProgress[chartId];
         delete state.exportState.lastExported[chartId];
-        
-        state.selectedCharts = state.selectedCharts.filter(id => id !== chartId);
-        state.lastUpdated = new Date().toISOString();
-      });
-
-    // Duplicate chart
-    builder
-      .addCase(duplicateChart.fulfilled, (state, action) => {
-        state.charts.push(castDraft(action.payload));
         state.lastUpdated = new Date().toISOString();
       });
 
@@ -745,11 +759,12 @@ const chartSlice = createSlice({
       .addCase(fetchChartData.pending, (state, action) => {
         const chartId = action.meta.arg.chartId;
         state.rendering[chartId] = true;
+        delete state.errors[chartId];
       })
       .addCase(fetchChartData.fulfilled, (state, action) => {
-        const { chartId, data } = action.payload;
+        const { chartId, queryResult } = action.payload;
         state.rendering[chartId] = false;
-        state.chartData[chartId] = castDraft(data);
+        state.chartData[chartId] = castDraft(queryResult);
         delete state.errors[chartId];
       })
       .addCase(fetchChartData.rejected, (state, action) => {

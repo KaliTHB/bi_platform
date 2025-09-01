@@ -2,8 +2,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import Chart from 'chart.js/auto';
-import { ChartProps, ChartData } from '@/types/chart.types';
-
+import { ChartProps, ChartData, ChartInteractionEvent } from '@/types/chart.types';
 export interface ChartJSBarConfig {
   xField: string;
   yField: string;
@@ -32,7 +31,8 @@ const hasValidData = (data: any[] | ChartData): boolean => {
     return data.length > 0;
   }
   // For ChartData object, check if rows exist and have length
-  return data.rows && data.rows.length > 0;
+  // Explicitly convert to boolean to fix TypeScript error
+  return Boolean(data.rows && data.rows.length > 0);
 };
 
 export const ChartJSBarChart: React.FC<ChartProps> = ({
@@ -151,11 +151,11 @@ export const ChartJSBarChart: React.FC<ChartProps> = ({
               };
 
               onInteraction({
-                type: 'click',
-                data: clickedData,
-                dataIndex: index,
-                seriesIndex: datasetIndex
-              });
+  type: 'click',
+  data: clickedData,
+  dataIndex: index,
+  seriesIndex: datasetIndex
+} as ChartInteractionEvent);
             }
           }
         }

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import { ChartProps, ChartData } from '@/types/chart.types';
+import { ChartProps, ChartData, ChartInteractionEvent } from '@/types/chart.types';
 
 interface ChordData {
   source: string;
@@ -43,7 +43,7 @@ const hasValidData = (data: any[] | ChartData): boolean => {
   if (isDataArray(data)) {
     return data.length > 0;
   }
-  return data.rows && data.rows.length > 0;
+  return Boolean(data.rows && data.rows.length > 0);
 };
 
 export const ChordDiagram: React.FC<ChartProps> = ({
@@ -199,11 +199,11 @@ export const ChordDiagram: React.FC<ChartProps> = ({
           };
 
           onInteraction?.({
-            type: 'click',
-            data: nodeData,
-            dataIndex: d.index,
-            event
-          });
+    type: 'click',
+    data: nodeData,
+    dataIndex: d.index ,
+    event
+  } as ChartInteractionEvent);
         })
         .on('mouseover', (event, d) => {
           // Highlight related ribbons
@@ -224,13 +224,12 @@ export const ChordDiagram: React.FC<ChartProps> = ({
             startAngle: d.startAngle,
             endAngle: d.endAngle
           };
-
           onInteraction?.({
-            type: 'hover',
-            data: nodeData,
-            dataIndex: d.index,
-            event
-          });
+    type: 'hover',
+    data: nodeData,
+    dataIndex: d.index,
+    event
+  } as ChartInteractionEvent);
         })
         .on('mouseout', (event) => {
           // Reset ribbon opacity
@@ -294,7 +293,7 @@ export const ChordDiagram: React.FC<ChartProps> = ({
             data: ribbonData,
             dataIndex: chords.indexOf(d),
             event
-          });
+          } as ChartInteractionEvent);
         })
         .on('mouseover', (event, d) => {
           // Highlight this ribbon
@@ -322,13 +321,12 @@ export const ChordDiagram: React.FC<ChartProps> = ({
             },
             value: matrix[d.source.index][d.target.index]
           };
-
           onInteraction?.({
-            type: 'hover',
+            type: 'click',
             data: ribbonData,
             dataIndex: chords.indexOf(d),
             event
-          });
+          } as ChartInteractionEvent);
         })
         .on('mouseout', (event) => {
           // Reset ribbon highlight

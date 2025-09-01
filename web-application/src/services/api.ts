@@ -42,7 +42,6 @@ export const authAPI = {
   },
 
   logout: async (): Promise<{ success: boolean; message: string }> => {
-    // Fix: Add empty object as body parameter
     const response = await apiClient.post('/auth/logout', {});
     return response.data;
   },
@@ -96,7 +95,6 @@ export const workspaceAPI = {
   },
 
   getWorkspaceActivity: async (workspaceId: string, params?: any): Promise<{ success: boolean; activity: any[]; message?: string }> => {
-    // Fix: Build query string from params
     let endpoint = `/workspaces/${workspaceId}/activity`;
     
     if (params) {
@@ -117,12 +115,12 @@ export const workspaceAPI = {
   },
 
   inviteUser: async (workspaceId: string, userData: any): Promise<{ success: boolean; message: string }> => {
-    const response = await apiClient.post(`/workspaces/${workspaceId}/members`, userData);
+    const response = await apiClient.post(`/workspaces/${workspaceId}/invite`, userData);
     return response.data;
   },
 
-  updateUserRole: async (workspaceId: string, userId: string, data: { role_ids: string[] }): Promise<{ success: boolean; message: string }> => {
-    const response = await apiClient.put(`/workspaces/${workspaceId}/members/${userId}`, data);
+  updateUserRole: async (workspaceId: string, userId: string, roleData: { role_ids: string[] }): Promise<{ success: boolean; message: string }> => {
+    const response = await apiClient.put(`/workspaces/${workspaceId}/members/${userId}/roles`, roleData);
     return response.data;
   },
 
@@ -135,7 +133,6 @@ export const workspaceAPI = {
 // Dataset API
 export const datasetAPI = {
   getDatasets: async (workspaceId: string, params?: any): Promise<{ success: boolean; datasets: any[]; message?: string }> => {
-    // Fix: Build query string from params and workspaceId
     const allParams = { workspace_id: workspaceId, ...params };
     const queryParams = new URLSearchParams();
     
@@ -154,6 +151,37 @@ export const datasetAPI = {
     return response.data;
   },
 
+   getDatasetSchema: async (datasetId: string): Promise<{
+    success: boolean;
+    schema: {
+      columns: Array<{ 
+        name: string; 
+        type: string; 
+        nullable?: boolean;
+        primaryKey?: boolean;
+        description?: string;
+      }>;
+      table_info?: {
+        name: string;
+        row_count?: number;
+        size?: string;
+      };
+    };
+    message?: string;
+  }> => {
+    const response = await apiClient.get(`/datasets/${datasetId}/schema`);
+    return response.data;
+  },
+
+  refreshDataset: async (datasetId: string): Promise<{
+    success: boolean;
+    dataset: any;
+    message?: string;
+  }> => {
+    const response = await apiClient.post(`/datasets/${datasetId}/refresh`, {});
+    return response.data;
+  },
+
   createDataset: async (data: any): Promise<{ success: boolean; dataset: any; message: string }> => {
     const response = await apiClient.post('/datasets', data);
     return response.data;
@@ -169,10 +197,10 @@ export const datasetAPI = {
     return response.data;
   },
 
-  queryDataset: async (datasetId: string, queryOptions: any): Promise<{
+  queryDataset: async (datasetId: string, queryOptions: any): Promise<{ 
     success: boolean; 
-    data: any[];
-    columns: Array<{ name: string; type: string }>;
+    data: any[]; 
+    columns: Array<{ name: string; type: string }>; 
     total_rows: number;
     execution_time: number;
     cached: boolean;
@@ -182,20 +210,14 @@ export const datasetAPI = {
     return response.data;
   },
 
-  getDatasetSchema: async (datasetId: string): Promise<{ success: boolean; schema: any; message?: string }> => {
-    const response = await apiClient.get(`/datasets/${datasetId}/schema`);
-    return response.data;
-  },
-
   testDataset: async (datasetId: string): Promise<{
     success: boolean;
-    preview?: any[];
+    preview: any[];
     columns?: Array<{ name: string; type: string }>;
     execution_time?: number;
     error?: string;
     message?: string;
   }> => {
-    // Fix: Add empty object as body parameter
     const response = await apiClient.post(`/datasets/${datasetId}/test`, {});
     return response.data;
   },
@@ -204,7 +226,6 @@ export const datasetAPI = {
 // Dashboard API
 export const dashboardAPI = {
   getDashboards: async (workspaceId: string, params?: any): Promise<{ success: boolean; dashboards: any[]; message?: string }> => {
-    // Fix: Build query string from params and workspaceId
     const allParams = { workspace_id: workspaceId, ...params };
     const queryParams = new URLSearchParams();
     
@@ -244,7 +265,6 @@ export const dashboardAPI = {
   },
 
   getDashboardAnalytics: async (dashboardId: string, params?: any): Promise<{ success: boolean; analytics: any; message?: string }> => {
-    // Fix: Build query string from params
     let endpoint = `/dashboards/${dashboardId}/analytics`;
     
     if (params) {
@@ -265,7 +285,7 @@ export const dashboardAPI = {
   },
 };
 
-// Chart API
+// Chart API - UPDATED WITH REFRESH PARAMETER SUPPORT
 export const chartAPI = {
   getCharts: async (params: string | { workspaceId?: string; dashboardId?: string }): Promise<{ success: boolean; charts: any[]; message?: string }> => {
     let queryParams = new URLSearchParams();
@@ -308,25 +328,52 @@ export const chartAPI = {
     return response.data;
   },
 
-  duplicateChart: async (chartId: string, data: { name: string }): Promise<{ success: boolean; chart: any; message: string }> => {
+  duplicateChart: async (chartId: string, data: { name: string; dashboard_id?: string }): Promise<{ success: boolean; chart: any; message: string }> => {
     const response = await apiClient.post(`/charts/${chartId}/duplicate`, data);
     return response.data;
   },
 
   executeChartQuery: async (chartId: string): Promise<{ success: boolean; data: any[]; columns: any[]; message?: string }> => {
-    // Fix: Add empty object as body parameter
     const response = await apiClient.post(`/charts/${chartId}/execute`, {});
     return response.data;
   },
 
-  getChartData: async (chartId: string, options: { filters?: any[] } = {}): Promise<{
+  // UPDATED: getChartData now supports refresh parameter
+  getChartData: async (chartId: string, params?: { 
+    filters?: any[]; 
+    refresh?: boolean;
+    limit?: number;
+    offset?: number;
+    [key: string]: any; // Allow additional properties
+  }): Promise<{
     success: boolean; 
     data: any[];
     columns: Array<{ name: string; type: string }>;
     execution_time: number;
+    cached?: boolean;
+    total_rows?: number;
     message?: string;
   }> => {
-    const response = await apiClient.post(`/charts/${chartId}/data`, options);
+    let endpoint = `/charts/${chartId}/data`;
+    
+    if (params) {
+      const queryParams = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          if (key === 'filters') {
+            queryParams.append(key, JSON.stringify(value));
+          } else {
+            queryParams.append(key, value.toString());
+          }
+        }
+      });
+      
+      if (queryParams.toString()) {
+        endpoint += `?${queryParams.toString()}`;
+      }
+    }
+    
+    const response = await apiClient.get(endpoint);
     return response.data;
   },
 
@@ -343,6 +390,11 @@ export const chartAPI = {
     message?: string;
   }> => {
     const response = await apiClient.post(`/charts/${chartId}/export`, options);
+    return response.data;
+  },
+
+  refreshChart: async (chartId: string): Promise<{ success: boolean; data: any; message?: string }> => {
+    const response = await apiClient.post(`/charts/${chartId}/refresh`,{});
     return response.data;
   },
 };
@@ -411,103 +463,56 @@ export const pluginAPI = {
 
 // Category API
 export const categoryAPI = {
-  getCategories: async (workspaceId: string, params?: {
-    webview_id?: string;
-    include_dashboards?: boolean;
-    include_inactive?: boolean;
-    search?: string;
-  }): Promise<{
-    success: boolean;
-    categories: any[];
-    total_count: number;
-    message?: string;
-  }> => {
-    const queryParams = new URLSearchParams({
-      workspace_id: workspaceId,
-      include_dashboards: 'true',  // Default to true for webview usage
-      include_inactive: 'false'    // Default to false
+  getCategories: async (workspaceId: string, params?: any): Promise<{ success: boolean; categories: any[]; message?: string }> => {
+    const allParams = { workspace_id: workspaceId, ...params };
+    const queryParams = new URLSearchParams();
+    
+    Object.entries(allParams).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        queryParams.append(key, value.toString());
+      }
     });
-
-    if (params?.webview_id) queryParams.append('webview_id', params.webview_id);
-    if (params?.include_dashboards !== undefined) queryParams.set('include_dashboards', params.include_dashboards.toString());
-    if (params?.include_inactive !== undefined) queryParams.set('include_inactive', params.include_inactive.toString());
-    if (params?.search) queryParams.append('search', params.search);
-
+    
     const response = await apiClient.get(`/categories?${queryParams.toString()}`);
     return response.data;
   },
 
-  getCategory: async (categoryId: string, includeDashboards: boolean = false): Promise<{
-    success: boolean;
-    category: any;
-    message?: string;
-  }> => {
-    const params = includeDashboards ? '?include_dashboards=true' : '';
-    const response = await apiClient.get(`/categories/${categoryId}${params}`);
+  getCategory: async (categoryId: string): Promise<{ success: boolean; category: any; message?: string }> => {
+    const response = await apiClient.get(`/categories/${categoryId}`);
     return response.data;
   },
 
-  createCategory: async (data: {
-    workspace_id: string;
-    name: string;
-    display_name: string;
-    description?: string;
-    icon?: string;
-    color?: string;
-    parent_category_id?: string;
-    sort_order?: number;
-  }): Promise<{
-    success: boolean;
-    category: any;
-    message: string;
-  }> => {
+  createCategory: async (data: any): Promise<{ success: boolean; category: any; message: string }> => {
     const response = await apiClient.post('/categories', data);
     return response.data;
   },
 
-  updateCategory: async (categoryId: string, data: {
-    name?: string;
-    display_name?: string;
-    description?: string;
-    icon?: string;
-    color?: string;
-    parent_category_id?: string;
-    sort_order?: number;
-    is_active?: boolean;
-  }): Promise<{
-    success: boolean;
-    category: any;
-    message: string;
-  }> => {
+  updateCategory: async (categoryId: string, data: any): Promise<{ success: boolean; category: any; message: string }> => {
     const response = await apiClient.put(`/categories/${categoryId}`, data);
     return response.data;
   },
 
-  deleteCategory: async (categoryId: string): Promise<{
-    success: boolean;
-    message: string;
-  }> => {
+  deleteCategory: async (categoryId: string): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.delete(`/categories/${categoryId}`);
     return response.data;
   },
-
-  reorderCategories: async (workspaceId: string, categoryIds: string[]): Promise<{
-    success: boolean;
-    message: string;
-  }> => {
-    const response = await apiClient.post('/categories/reorder', {
-      workspace_id: workspaceId,
-      category_ids: categoryIds
-    });
-    return response.data;
-  }
 };
 
 // Webview API
 export const webviewAPI = {
+  getWebviews: async (): Promise<{ success: boolean; webviews: any[]; message?: string }> => {
+    const response = await apiClient.get('/webviews');
+    return response.data;
+  },
+
+  getWebview: async (webviewId: string): Promise<{ success: boolean; webview: any; message?: string }> => {
+    const response = await apiClient.get(`/webviews/${webviewId}`);
+    return response.data;
+  },
+
   getWebviewByName: async (webviewName: string): Promise<{
     success: boolean;
-    webview_config: any;
+    webview: any;
     message?: string;
   }> => {
     const response = await apiClient.get(`/webviews/by-name/${webviewName}`);

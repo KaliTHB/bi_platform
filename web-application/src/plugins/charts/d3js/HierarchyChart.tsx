@@ -107,7 +107,7 @@ export const HierarchyChart: React.FC<ChartProps> = ({
               type: 'click',
               data: d.data,
               dataIndex: d.index
-            });
+            } as ChartInteractionEvent);
           });
 
         node.append('text')
@@ -136,7 +136,7 @@ export const HierarchyChart: React.FC<ChartProps> = ({
               type: 'click',
               data: d.data,
               dataIndex: d.index
-            });
+            } as ChartInteractionEvent);
           });
 
       } else {
@@ -172,7 +172,7 @@ export const HierarchyChart: React.FC<ChartProps> = ({
               type: 'click',
               data: d.data,
               dataIndex: d.index
-            });
+            } as ChartInteractionEvent);
           });
 
         node.append('text')

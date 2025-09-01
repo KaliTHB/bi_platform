@@ -4,6 +4,7 @@ import Plot from 'react-plotly.js';
 import { PlotData, Config, Layout } from 'plotly.js';
 import { getDataArray, isChartDataEmpty } from '../utils/chartDataUtils';
 import { ChartProps,ChartPluginConfig,ChartConfiguration } from '@/types/chart.types';
+import { ChartData, ChartInteractionEvent } from '@/types/chart.types';
 
 interface Surface3DConfig extends ChartPluginConfig {
   title?: string;
@@ -285,15 +286,15 @@ export const Surface3D: React.FC<ChartProps> = ({
         layout={layout}
         config={plotConfig}
         onClick={(event: any) => {
-          if (onInteraction && event.points?.length > 0) {
-            const point = event.points[0];
-            onInteraction({
-              type: 'click',
-              data: { x: point.x, y: point.y, z: point.z },
-              dataIndex: point.pointIndex
-            });
-          }
-        }}
+  if (onInteraction && event.points?.length > 0) {
+    const point = event.points[0];
+    onInteraction({
+      type: 'click',
+      data: { x: point.x, y: point.y, z: point.z },
+      dataIndex: point.pointIndex
+    } as ChartInteractionEvent);
+  }
+}}
         onHover={(event: any) => {
           if (onInteraction && event.points?.length > 0) {
             const point = event.points[0];

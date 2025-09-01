@@ -307,7 +307,7 @@ export interface Chart {
   name: string;
   description?: string;
   chart_type: string;
-  configuration: ChartConfiguration;
+  configuration: ChartConfig;
   dataset_id: string;
   dashboard_id?: string;
   config_json: any;

@@ -4,6 +4,7 @@ import Plot from 'react-plotly.js';
 import { PlotData, Config, Layout } from 'plotly.js';
 import { getDataArray, isChartDataEmpty } from '../utils/chartDataUtils';
 import { ChartProps,ChartPluginConfig,ChartConfiguration } from '@/types/chart.types';
+import { ChartData, ChartInteractionEvent } from '@/types/chart.types';
 
 interface ViolinPlotConfig extends ChartPluginConfig {
   title?: string;
@@ -281,18 +282,18 @@ export const ViolinPlot: React.FC<ChartProps> = ({
         layout={layout}
         config={plotConfig}
         onClick={(event: any) => {
-          if (onInteraction && event.points?.length > 0) {
-            const point = event.points[0];
-            onInteraction({
-              type: 'click',
-              data: { 
-                group: point.data.name,
-                value: violinConfig.orientation === 'h' ? point.x : point.y
-              },
-              dataIndex: point.pointIndex
-            });
-          }
-        }}
+  if (onInteraction && event.points?.length > 0) {
+    const point = event.points[0];
+    onInteraction({
+      type: 'click',
+      data: { 
+        group: point.data.name,
+        value: violinConfig.orientation === 'h' ? point.x : point.y
+      },
+      dataIndex: point.pointIndex
+    } as ChartInteractionEvent);
+  }
+}}
         onHover={(event: any) => {
           if (onInteraction && event.points?.length > 0) {
             const point = event.points[0];

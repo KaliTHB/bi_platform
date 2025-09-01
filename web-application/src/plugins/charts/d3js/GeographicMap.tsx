@@ -43,7 +43,7 @@ const hasValidData = (data: any[] | ChartData): boolean => {
   if (isDataArray(data)) {
     return data.length > 0;
   }
-  return data.rows && data.rows.length > 0;
+  return Boolean(data.rows && data.rows.length > 0);
 };
 
 export const GeographicMap: React.FC<ChartProps> = ({
