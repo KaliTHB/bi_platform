@@ -1,7 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Box, Typography, CircularProgress, Alert } from '@mui/material';
-import * as Plotly from 'plotly.js-dist';
+import React, { useMemo } from 'react';
+import { Box, Typography, Alert, CircularProgress } from '@mui/material';
+import Plot from 'react-plotly.js';
+import { PlotData, Config, Layout } from 'plotly.js';
 import { ChartProps, ChartConfiguration } from '../../../types/chart.types';
+import { getDataArray, isChartDataEmpty } from '../utils/chartDataUtils';
 
 interface Surface3DConfig extends ChartConfiguration {
   title?: string;
@@ -61,340 +63,83 @@ interface Surface3DConfig extends ChartConfiguration {
   showlabels?: boolean;
 }
 
-interface Surface3DProps extends ChartProps {
-  config: Surface3DConfig;
-}
-
-export const Surface3D: React.FC<Surface3DProps> = ({
-  data,
-  config,
-  dimensions = { width: 800, height: 600 },
-  theme,
-  onInteraction,
+export const Surface3D: React.FC<ChartProps> = ({ 
+  data, 
+  config, 
+  dimensions, 
+  theme, 
+  onInteraction, 
   onError,
-  isLoading = false,
+  isLoading,
   error
 }) => {
-  const plotRef = useRef<HTMLDivElement>(null);
-  const [processedData, setProcessedData] = useState<{
-    x: number[];
-    y: number[];
-    z: number[][];
-    xUnique: number[];
-    yUnique: number[];
-  }>({
-    x: [],
-    y: [],
-    z: [],
-    xUnique: [],
-    yUnique: []
-  });
+  const surfaceConfig = config as Surface3DConfig;
 
-  // Process data for 3D surface
-  useEffect(() => {
-    if (!data || data.length === 0) {
-      setProcessedData({ x: [], y: [], z: [], xUnique: [], yUnique: [] });
-      return;
+  const processedData = useMemo(() => {
+    if (isChartDataEmpty(data)) {
+      return null;
     }
 
     try {
-      // Extract x, y, z values
-      const xValues = data.map(item => Number(item[config.xField]) || 0);
-      const yValues = data.map(item => Number(item[config.yField]) || 0);
-      const zValues = data.map(item => Number(item[config.zField]) || 0);
+      const dataArray = getDataArray(data);
+      
+      // Validate required fields
+      if (!surfaceConfig.xField || !surfaceConfig.yField || !surfaceConfig.zField) {
+        throw new Error('xField, yField, and zField are required for 3D surface plot');
+      }
 
-      // Get unique sorted values for x and y
+      // Extract and validate numeric values
+      const xValues = dataArray.map(item => Number(item[surfaceConfig.xField])).filter(val => !isNaN(val));
+      const yValues = dataArray.map(item => Number(item[surfaceConfig.yField])).filter(val => !isNaN(val));
+      const zValues = dataArray.map(item => Number(item[surfaceConfig.zField])).filter(val => !isNaN(val));
+
+      if (xValues.length === 0 || yValues.length === 0 || zValues.length === 0) {
+        throw new Error('No valid numeric data found for 3D surface plot');
+      }
+
+      // Get unique x and y values and sort them
       const xUnique = [...new Set(xValues)].sort((a, b) => a - b);
       const yUnique = [...new Set(yValues)].sort((a, b) => a - b);
 
-      // Create 2D grid for z values
-      const zGrid: number[][] = [];
-      
-      // Initialize grid with interpolated values
+      // Create z matrix for surface plot
+      const zMatrix: number[][] = [];
       for (let i = 0; i < yUnique.length; i++) {
-        zGrid[i] = new Array(xUnique.length);
+        zMatrix[i] = [];
         for (let j = 0; j < xUnique.length; j++) {
-          // Find exact match first
-          const exactMatch = data.find(item => 
-            Number(item[config.xField]) === xUnique[j] && 
-            Number(item[config.yField]) === yUnique[i]
-          );
+          // Find data points that match this x,y coordinate
+          const matchingItems = dataArray.filter(item => {
+            const x = Number(item[surfaceConfig.xField]);
+            const y = Number(item[surfaceConfig.yField]);
+            return Math.abs(x - xUnique[j]) < 0.001 && Math.abs(y - yUnique[i]) < 0.001;
+          });
           
-          if (exactMatch) {
-            zGrid[i][j] = Number(exactMatch[config.zField]) || 0;
+          if (matchingItems.length > 0) {
+            // Average z values if multiple points exist at same x,y
+            const avgZ = matchingItems.reduce((sum, item) => 
+              sum + Number(item[surfaceConfig.zField]), 0) / matchingItems.length;
+            zMatrix[i][j] = avgZ;
           } else {
-            // Simple interpolation: use average of nearest points
-            const nearbyPoints = data.filter(item => {
-              const x = Number(item[config.xField]);
-              const y = Number(item[config.yField]);
-              return Math.abs(x - xUnique[j]) <= (xUnique[1] - xUnique[0]) * 2 &&
-                     Math.abs(y - yUnique[i]) <= (yUnique[1] - yUnique[0]) * 2;
-            });
-            
-            if (nearbyPoints.length > 0) {
-              const avgZ = nearbyPoints.reduce((sum, point) => 
-                sum + (Number(point[config.zField]) || 0), 0) / nearbyPoints.length;
-              zGrid[i][j] = avgZ;
-            } else {
-              // Fallback: use overall average
-              const allZ = data.map(item => Number(item[config.zField]) || 0);
-              zGrid[i][j] = allZ.reduce((a, b) => a + b, 0) / allZ.length;
-            }
+            // Interpolate or use 0 for missing values
+            zMatrix[i][j] = 0;
           }
         }
       }
 
-      setProcessedData({
-        x: xValues,
-        y: yValues,
-        z: zGrid,
-        xUnique,
-        yUnique
-      });
+      return {
+        x: xUnique,
+        y: yUnique,
+        z: zMatrix
+      };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to process 3D surface data';
       onError?.(new Error(errorMessage));
-      setProcessedData({ x: [], y: [], z: [], xUnique: [], yUnique: [] });
+      return null;
     }
-  }, [data, config]);
-
-  // Initialize and update plot
-  useEffect(() => {
-    if (!plotRef.current || processedData.z.length === 0) return;
-
-    try {
-      const plotData: Plotly.Data[] = [{
-        type: 'surface',
-        x: processedData.xUnique,
-        y: processedData.yUnique,
-        z: processedData.z,
-        colorscale: config.colorscale || 'Viridis',
-        showscale: config.showscale !== false,
-        reversescale: config.reversescale || false,
-        opacity: config.opacity || 1,
-        surfacecolor: config.surfacecolor,
-        contours: config.contours ? {
-          x: config.contours.x ? {
-            show: config.contours.x.show !== false,
-            start: config.contours.x.start,
-            end: config.contours.x.end,
-            size: config.contours.x.size,
-            color: config.contours.x.color || '#636efa'
-          } : { show: false },
-          y: config.contours.y ? {
-            show: config.contours.y.show !== false,
-            start: config.contours.y.start,
-            end: config.contours.y.end,
-            size: config.contours.y.size,
-            color: config.contours.y.color || '#636efa'
-          } : { show: false },
-          z: config.contours.z ? {
-            show: config.contours.z.show !== false,
-            start: config.contours.z.start,
-            end: config.contours.z.end,
-            size: config.contours.z.size,
-            color: config.contours.z.color || '#636efa'
-          } : { show: false }
-        } : undefined,
-        lighting: config.lighting ? {
-          ambient: config.lighting.ambient || 0.8,
-          diffuse: config.lighting.diffuse || 0.8,
-          specular: config.lighting.specular || 0.2,
-          roughness: config.lighting.roughness || 0.5,
-          fresnel: config.lighting.fresnel || 0.2
-        } : {
-          ambient: 0.8,
-          diffuse: 0.8,
-          specular: 0.2,
-          roughness: 0.5,
-          fresnel: 0.2
-        },
-        lightposition: config.lightposition ? {
-          x: config.lightposition.x || 0,
-          y: config.lightposition.y || 0,
-          z: config.lightposition.z || 1e5
-        } : {
-          x: 0,
-          y: 0,
-          z: 1e5
-        },
-        colorbar: config.colorbar ? {
-          title: config.colorbar.title || config.zField,
-          titleside: config.colorbar.titleside || 'right',
-          len: config.colorbar.len || 1,
-          thickness: config.colorbar.thickness || 20,
-          x: config.colorbar.x,
-          y: config.colorbar.y,
-          titlefont: {
-            color: theme?.textColor || '#333'
-          },
-          tickfont: {
-            color: theme?.textColor || '#333'
-          }
-        } : {
-          title: config.zField,
-          titlefont: {
-            color: theme?.textColor || '#333'
-          },
-          tickfont: {
-            color: theme?.textColor || '#333'
-          }
-        },
-        hovertemplate: config.hovertemplate || 
-          `x: %{x}<br>y: %{y}<br>z: %{z}<extra></extra>`
-      }];
-
-      const layout: Partial<Plotly.Layout> = {
-        title: config.title ? {
-          text: config.subtitle ? `${config.title}<br><sub>${config.subtitle}</sub>` : config.title,
-          font: {
-            color: theme?.textColor || '#333'
-          }
-        } : undefined,
-        scene: {
-          xaxis: {
-            title: {
-              text: config.xField,
-              font: {
-                color: theme?.textColor || '#333'
-              }
-            },
-            tickfont: {
-              color: theme?.textColor || '#333'
-            },
-            gridcolor: theme?.gridColor || '#e0e6ed',
-            zerolinecolor: theme?.gridColor || '#e0e6ed',
-            showbackground: true,
-            backgroundcolor: 'rgba(230, 230, 230, 0.3)'
-          },
-          yaxis: {
-            title: {
-              text: config.yField,
-              font: {
-                color: theme?.textColor || '#333'
-              }
-            },
-            tickfont: {
-              color: theme?.textColor || '#333'
-            },
-            gridcolor: theme?.gridColor || '#e0e6ed',
-            zerolinecolor: theme?.gridColor || '#e0e6ed',
-            showbackground: true,
-            backgroundcolor: 'rgba(230, 230, 230, 0.3)'
-          },
-          zaxis: {
-            title: {
-              text: config.zField,
-              font: {
-                color: theme?.textColor || '#333'
-              }
-            },
-            tickfont: {
-              color: theme?.textColor || '#333'
-            },
-            gridcolor: theme?.gridColor || '#e0e6ed',
-            zerolinecolor: theme?.gridColor || '#e0e6ed',
-            showbackground: true,
-            backgroundcolor: 'rgba(230, 230, 230, 0.3)'
-          },
-          camera: {
-            eye: {
-              x: 1.2,
-              y: 1.2,
-              z: 1.2
-            }
-          },
-          aspectmode: 'cube'
-        },
-        width: dimensions.width,
-        height: dimensions.height,
-        paper_bgcolor: theme?.backgroundColor || 'transparent',
-        font: {
-          color: theme?.textColor || '#333'
-        },
-        margin: {
-          l: 20,
-          r: 20,
-          t: config.title ? 80 : 30,
-          b: 20
-        },
-        hoverlabel: {
-          bgcolor: 'rgba(255,255,255,0.9)',
-          bordercolor: theme?.gridColor || '#ccc',
-          font: {
-            color: '#333'
-          }
-        }
-      };
-
-      const plotConfig: Partial<Plotly.Config> = {
-        responsive: true,
-        displayModeBar: true,
-        modeBarButtonsToRemove: [],
-        displaylogo: false,
-        toImageButtonOptions: {
-          format: 'png',
-          filename: 'surface-3d',
-          height: dimensions.height,
-          width: dimensions.width,
-          scale: 1
-        }
-      };
-
-      // Create or update plot
-      Plotly.newPlot(plotRef.current, plotData, layout, plotConfig).then(() => {
-        // Handle interactions
-        if (onInteraction) {
-          plotRef.current!.on('plotly_click', (eventData: any) => {
-            if (eventData.points && eventData.points.length > 0) {
-              const point = eventData.points[0];
-              onInteraction({
-                type: 'click',
-                data: {
-                  x: point.x,
-                  y: point.y,
-                  z: point.z
-                },
-                dataIndex: point.pointIndex
-              });
-            }
-          });
-
-          plotRef.current!.on('plotly_hover', (eventData: any) => {
-            if (eventData.points && eventData.points.length > 0) {
-              const point = eventData.points[0];
-              onInteraction({
-                type: 'hover',
-                data: {
-                  x: point.x,
-                  y: point.y,
-                  z: point.z
-                },
-                dataIndex: point.pointIndex
-              });
-            }
-          });
-        }
-      });
-
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to render 3D surface plot';
-      onError?.(new Error(errorMessage));
-    }
-  }, [processedData, config, dimensions, theme, onInteraction]);
-
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      if (plotRef.current) {
-        Plotly.purge(plotRef.current);
-      }
-    };
-  }, []);
+  }, [data, surfaceConfig, onError]);
 
   if (error) {
     return (
-      <Alert severity="error" sx={{ width: dimensions.width, height: dimensions.height }}>
+      <Alert severity="error" sx={{ width: dimensions?.width, height: dimensions?.height }}>
         Chart Error: {error}
       </Alert>
     );
@@ -402,51 +147,166 @@ export const Surface3D: React.FC<Surface3DProps> = ({
 
   if (isLoading) {
     return (
-      <Box
-        sx={{
-          width: dimensions.width,
-          height: dimensions.height,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}
-      >
+      <Box sx={{ 
+        width: dimensions?.width, 
+        height: dimensions?.height, 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center' 
+      }}>
         <CircularProgress />
       </Box>
     );
   }
 
-  if (!data || data.length === 0) {
+  if (!processedData) {
     return (
-      <Box
-        sx={{
-          width: dimensions.width,
-          height: dimensions.height,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          border: '1px dashed #ccc',
-          borderRadius: 1
-        }}
-      >
-        <Typography variant="body2" color="text.secondary">
-          No data available for 3D surface plot
-        </Typography>
+      <Box sx={{ 
+        width: dimensions?.width, 
+        height: dimensions?.height, 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        border: '1px dashed #ccc',
+        borderRadius: 1
+      }}>
+        <Typography color="text.secondary">No data available for 3D surface plot</Typography>
       </Box>
     );
   }
 
+  const plotData: any[] = [{
+    type: 'surface',
+    x: processedData.x,
+    y: processedData.y,
+    z: processedData.z,
+    colorscale: surfaceConfig.colorscale || 'Viridis',
+    showscale: surfaceConfig.showscale !== false,
+    reversescale: surfaceConfig.reversescale || false,
+    opacity: surfaceConfig.opacity || 1,
+    surfacecolor: surfaceConfig.surfacecolor,
+    contours: surfaceConfig.contours ? {
+      x: surfaceConfig.contours.x ? {
+        show: surfaceConfig.contours.x.show !== false,
+        start: surfaceConfig.contours.x.start,
+        end: surfaceConfig.contours.x.end,
+        size: surfaceConfig.contours.x.size,
+        color: surfaceConfig.contours.x.color || theme?.colors?.[0] || '#636efa'
+      } : undefined,
+      y: surfaceConfig.contours.y ? {
+        show: surfaceConfig.contours.y.show !== false,
+        start: surfaceConfig.contours.y.start,
+        end: surfaceConfig.contours.y.end,
+        size: surfaceConfig.contours.y.size,
+        color: surfaceConfig.contours.y.color || theme?.colors?.[1] || '#ef553b'
+      } : undefined,
+      z: surfaceConfig.contours.z ? {
+        show: surfaceConfig.contours.z.show !== false,
+        start: surfaceConfig.contours.z.start,
+        end: surfaceConfig.contours.z.end,
+        size: surfaceConfig.contours.z.size,
+        color: surfaceConfig.contours.z.color || theme?.colors?.[2] || '#00cc96'
+      } : undefined
+    } : undefined,
+    lighting: surfaceConfig.lighting ? {
+      ambient: surfaceConfig.lighting.ambient || 0.8,
+      diffuse: surfaceConfig.lighting.diffuse || 0.8,
+      specular: surfaceConfig.lighting.specular || 0.05,
+      roughness: surfaceConfig.lighting.roughness || 0.5,
+      fresnel: surfaceConfig.lighting.fresnel || 0.2
+    } : {
+      ambient: 0.8,
+      diffuse: 0.8,
+      specular: 0.05,
+      roughness: 0.5,
+      fresnel: 0.2
+    },
+    lightposition: surfaceConfig.lightposition || { x: 100, y: 200, z: 0 },
+    colorbar: surfaceConfig.colorbar ? {
+      ...surfaceConfig.colorbar,
+      titlefont: { color: theme?.textColor || '#333' },
+      tickfont: { color: theme?.textColor || '#333' }
+    } : {
+      titlefont: { color: theme?.textColor || '#333' },
+      tickfont: { color: theme?.textColor || '#333' }
+    },
+    hovertemplate: surfaceConfig.hovertemplate || 
+      `${surfaceConfig.xField}: %{x}<br>${surfaceConfig.yField}: %{y}<br>${surfaceConfig.zField}: %{z}<extra></extra>`
+  }];
+
+  const layout: Partial<Layout> = {
+    width: dimensions?.width || 400,
+    height: dimensions?.height || 300,
+    title: {
+      text: surfaceConfig.title,
+      font: { color: theme?.textColor || '#333' }
+    },
+    scene: {
+      xaxis: { 
+        title: { text: surfaceConfig.xField },
+        color: theme?.textColor || '#333',
+        gridcolor: theme?.gridColor || '#e0e0e0'
+      },
+      yaxis: { 
+        title: { text: surfaceConfig.yField },
+        color: theme?.textColor || '#333',
+        gridcolor: theme?.gridColor || '#e0e0e0'
+      },
+      zaxis: { 
+        title: { text: surfaceConfig.zField },
+        color: theme?.textColor || '#333',
+        gridcolor: theme?.gridColor || '#e0e0e0'
+      },
+      bgcolor: theme?.backgroundColor || 'white'
+    },
+    plot_bgcolor: theme?.backgroundColor || 'white',
+    paper_bgcolor: theme?.backgroundColor || 'white',
+    margin: { l: 60, r: 60, t: 80, b: 60 }
+  };
+
+  const plotConfig: Partial<Config> = {
+    responsive: true,
+    displayModeBar: true,
+    displaylogo: false,
+    modeBarButtonsToRemove: ['pan2d', 'lasso2d', 'select2d'],
+    toImageButtonOptions: {
+      format: 'png',
+      filename: '3d-surface-plot',
+      height: dimensions?.height || 300,
+      width: dimensions?.width || 400,
+      scale: 1
+    }
+  };
+
   return (
-    <Box
-      ref={plotRef}
-      sx={{
-        width: dimensions.width,
-        height: dimensions.height,
-        '& .plotly-graph-div': {
-          borderRadius: 1
-        }
-      }}
-    />
+    <Box sx={{ width: dimensions?.width, height: dimensions?.height }}>
+      <Plot
+        data={plotData}
+        layout={layout}
+        config={plotConfig}
+        onClick={(event: any) => {
+          if (onInteraction && event.points?.length > 0) {
+            const point = event.points[0];
+            onInteraction({
+              type: 'click',
+              data: { x: point.x, y: point.y, z: point.z },
+              dataIndex: point.pointIndex
+            });
+          }
+        }}
+        onHover={(event: any) => {
+          if (onInteraction && event.points?.length > 0) {
+            const point = event.points[0];
+            onInteraction({
+              type: 'hover',
+              data: { x: point.x, y: point.y, z: point.z },
+              dataIndex: point.pointIndex
+            });
+          }
+        }}
+        style={{ width: '100%', height: '100%' }}
+      />
+    </Box>
   );
 };
 

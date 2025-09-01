@@ -2,6 +2,7 @@
 
 import React from 'react';
 
+import {ChartConfigSchema} from '@/types/chart.types'
 // Base chart props interface - matches what's expected by chart components
 export interface ChartProps {
   data: any[];
@@ -33,12 +34,15 @@ export interface ChartPluginConfig {
   dataRequirements: DataRequirements;
   exportFormats: readonly ExportFormat[];
   component: React.ComponentType<ChartProps>;
-}
-
-export interface ChartConfigSchema {
-  type: 'object';
-  properties: Record<string, SchemaProperty>;
-  required?: readonly string[];
+  interactionSupport?: {           // ✅ Added
+    zoom?: boolean;
+    pan?: boolean;
+    selection?: boolean;
+    brush?: boolean;
+    drilldown?: boolean;
+    tooltip?: boolean;
+    crossFilter?: boolean;
+  };
 }
 
 export interface SchemaProperty {

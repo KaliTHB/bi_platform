@@ -1,317 +1,131 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Box, Typography, CircularProgress, Alert } from '@mui/material';
-import * as Plotly from 'plotly.js-dist';
+import React, { useMemo } from 'react';
+import { Box, Typography, Alert, CircularProgress } from '@mui/material';
+import Plot from 'react-plotly.js';
+import { PlotData, Config, Layout } from 'plotly.js';
 import { ChartProps, ChartConfiguration } from '../../../types/chart.types';
+import { getDataArray, isChartDataEmpty } from '../utils/chartDataUtils';
 
 interface WaterfallChartConfig extends ChartConfiguration {
   title?: string;
   subtitle?: string;
-  xField: string;
-  yField: string;
-  measure?: 'relative' | 'absolute' | 'total';
-  measureField?: string; // Field that contains measure type for each data point
-  base?: number;
-  orientation?: 'v' | 'h';
+  categoryField: string;
+  valueField: string;
+  measureField?: string; // 'relative', 'absolute', or 'total'
+  textposition?: 'inside' | 'outside' | 'auto' | 'none';
+  textinfo?: 'label' | 'value' | 'label+value';
+  textfont?: {
+    size?: number;
+    color?: string;
+    family?: string;
+  };
   connector?: {
-    visible?: boolean;
     line?: {
       color?: string;
       width?: number;
       dash?: string;
     };
+    visible?: boolean;
   };
   increasing?: {
     marker?: {
       color?: string;
+      line?: {
+        color?: string;
+        width?: number;
+      };
     };
   };
   decreasing?: {
     marker?: {
       color?: string;
+      line?: {
+        color?: string;
+        width?: number;
+      };
     };
   };
   totals?: {
     marker?: {
       color?: string;
+      line?: {
+        color?: string;
+        width?: number;
+      };
     };
   };
-  textposition?: string;
-  texttemplate?: string;
   hovertemplate?: string;
   showlegend?: boolean;
-  constraintext?: 'inside' | 'outside' | 'both' | 'none';
+  orientation?: 'v' | 'h';
 }
 
-interface WaterfallChartProps extends ChartProps {
-  config: WaterfallChartConfig;
-}
-
-export const WaterfallChart: React.FC<WaterfallChartProps> = ({
-  data,
-  config,
-  dimensions = { width: 800, height: 600 },
-  theme,
-  onInteraction,
+export const WaterfallChart: React.FC<ChartProps> = ({ 
+  data, 
+  config, 
+  dimensions, 
+  theme, 
+  onInteraction, 
   onError,
-  isLoading = false,
+  isLoading,
   error
 }) => {
-  const plotRef = useRef<HTMLDivElement>(null);
-  const [processedData, setProcessedData] = useState<{
-    x: string[];
-    y: number[];
-    measure: string[];
-    text: string[];
-  }>({
-    x: [],
-    y: [],
-    measure: [],
-    text: []
-  });
+  const waterfallConfig = config as WaterfallChartConfig;
 
-  // Process data for waterfall chart
-  useEffect(() => {
-    if (!data || data.length === 0) {
-      setProcessedData({ x: [], y: [], measure: [], text: [] });
-      return;
+  const processedData = useMemo(() => {
+    if (isChartDataEmpty(data)) {
+      return null;
     }
 
     try {
-      const x: string[] = [];
-      const y: number[] = [];
-      const measure: string[] = [];
-      const text: string[] = [];
+      const dataArray = getDataArray(data);
+      
+      // Validate required fields
+      if (!waterfallConfig.categoryField || !waterfallConfig.valueField) {
+        throw new Error('categoryField and valueField are required for waterfall chart');
+      }
 
-      data.forEach((item, index) => {
-        const xValue = String(item[config.xField] || `Item ${index + 1}`);
-        const yValue = Number(item[config.yField]) || 0;
+      // Process data and determine measure types
+      const processedItems = dataArray.map((item, index) => {
+        const category = String(item[waterfallConfig.categoryField] || `Item ${index + 1}`);
+        const value = Number(item[waterfallConfig.valueField]) || 0;
         
         // Determine measure type
-        let measureType = config.measure || 'relative';
-        if (config.measureField && item[config.measureField]) {
-          measureType = String(item[config.measureField]).toLowerCase();
-        }
-
-        // Auto-detect total items (typically last item or items with specific keywords)
-        if (!config.measureField && !config.measure) {
-          if (index === data.length - 1 || 
-              xValue.toLowerCase().includes('total') ||
-              xValue.toLowerCase().includes('sum') ||
-              xValue.toLowerCase().includes('net')) {
-            measureType = 'total';
+        let measure = 'relative'; // default
+        if (waterfallConfig.measureField && item[waterfallConfig.measureField]) {
+          const measureValue = String(item[waterfallConfig.measureField]).toLowerCase();
+          if (['relative', 'absolute', 'total'].includes(measureValue)) {
+            measure = measureValue;
+          }
+        } else {
+          // Auto-detect totals based on category names
+          const categoryLower = category.toLowerCase();
+          if (categoryLower.includes('total') || categoryLower.includes('sum') || 
+              categoryLower.includes('final') || categoryLower.includes('net')) {
+            measure = 'total';
           }
         }
 
-        x.push(xValue);
-        y.push(yValue);
-        measure.push(measureType);
-        
-        // Generate text labels
-        const textValue = config.texttemplate 
-          ? config.texttemplate.replace('%{y}', yValue.toString()).replace('%{x}', xValue)
-          : yValue.toString();
-        text.push(textValue);
+        return {
+          category,
+          value,
+          measure
+        };
       });
 
-      setProcessedData({ x, y, measure, text });
+      if (processedItems.length === 0) {
+        throw new Error('No valid data found for waterfall chart');
+      }
+
+      return processedItems;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to process waterfall chart data';
       onError?.(new Error(errorMessage));
-      setProcessedData({ x: [], y: [], measure: [], text: [] });
+      return null;
     }
-  }, [data, config]);
-
-  // Initialize and update plot
-  useEffect(() => {
-    if (!plotRef.current || processedData.x.length === 0) return;
-
-    try {
-      const plotData: Plotly.Data[] = [{
-        type: 'waterfall',
-        x: processedData.x,
-        y: processedData.y,
-        measure: processedData.measure,
-        text: processedData.text,
-        textposition: config.textposition || 'outside',
-        texttemplate: config.texttemplate,
-        base: config.base,
-        orientation: config.orientation || 'v',
-        connector: config.connector ? {
-          visible: config.connector.visible !== false,
-          line: config.connector.line ? {
-            color: config.connector.line.color || theme?.gridColor || '#8c8c8c',
-            width: config.connector.line.width || 2,
-            dash: config.connector.line.dash || 'solid'
-          } : {
-            color: theme?.gridColor || '#8c8c8c',
-            width: 2
-          }
-        } : {
-          visible: true,
-          line: {
-            color: theme?.gridColor || '#8c8c8c',
-            width: 2
-          }
-        },
-        increasing: {
-          marker: {
-            color: config.increasing?.marker?.color || theme?.colors?.[0] || '#00cc96'
-          }
-        },
-        decreasing: {
-          marker: {
-            color: config.decreasing?.marker?.color || theme?.colors?.[1] || '#ff6692'
-          }
-        },
-        totals: {
-          marker: {
-            color: config.totals?.marker?.color || theme?.colors?.[2] || '#ab63fa'
-          }
-        },
-        hovertemplate: config.hovertemplate || 
-          `<b>%{x}</b><br>` +
-          `Value: %{y}<br>` +
-          `Type: %{measure}<br>` +
-          `<extra></extra>`,
-        showlegend: config.showlegend !== false,
-        constraintext: config.constraintext || 'both',
-        textfont: {
-          color: theme?.textColor || '#333'
-        }
-      }];
-
-      const layout: Partial<Plotly.Layout> = {
-        title: config.title ? {
-          text: config.subtitle ? `${config.title}<br><sub>${config.subtitle}</sub>` : config.title,
-          font: {
-            color: theme?.textColor || '#333'
-          }
-        } : undefined,
-        xaxis: {
-          title: {
-            text: config.xField,
-            font: {
-              color: theme?.textColor || '#333'
-            }
-          },
-          tickfont: {
-            color: theme?.textColor || '#333'
-          },
-          gridcolor: theme?.gridColor || '#e0e6ed',
-          zerolinecolor: theme?.gridColor || '#e0e6ed',
-          tickangle: processedData.x.some(label => label.length > 10) ? -45 : 0
-        },
-        yaxis: {
-          title: {
-            text: config.yField,
-            font: {
-              color: theme?.textColor || '#333'
-            }
-          },
-          tickfont: {
-            color: theme?.textColor || '#333'
-          },
-          gridcolor: theme?.gridColor || '#e0e6ed',
-          zerolinecolor: theme?.gridColor || '#e0e6ed'
-        },
-        width: dimensions.width,
-        height: dimensions.height,
-        paper_bgcolor: theme?.backgroundColor || 'transparent',
-        plot_bgcolor: theme?.backgroundColor || 'transparent',
-        font: {
-          color: theme?.textColor || '#333'
-        },
-        margin: {
-          l: 80,
-          r: 50,
-          t: config.title ? 80 : 30,
-          b: processedData.x.some(label => label.length > 10) ? 100 : 60
-        },
-        hoverlabel: {
-          bgcolor: 'rgba(255,255,255,0.9)',
-          bordercolor: theme?.gridColor || '#ccc',
-          font: {
-            color: '#333'
-          }
-        },
-        legend: config.showlegend !== false ? {
-          orientation: 'h',
-          x: 0,
-          y: -0.2,
-          font: {
-            color: theme?.textColor || '#333'
-          }
-        } : { showlegend: false }
-      };
-
-      const plotConfig: Partial<Plotly.Config> = {
-        responsive: true,
-        displayModeBar: true,
-        modeBarButtonsToRemove: ['pan2d', 'lasso2d', 'select2d'],
-        displaylogo: false,
-        toImageButtonOptions: {
-          format: 'png',
-          filename: 'waterfall-chart',
-          height: dimensions.height,
-          width: dimensions.width,
-          scale: 1
-        }
-      };
-
-      // Create or update plot
-      Plotly.newPlot(plotRef.current, plotData, layout, plotConfig).then(() => {
-        // Handle interactions
-        if (onInteraction) {
-          plotRef.current!.on('plotly_click', (eventData: any) => {
-            if (eventData.points && eventData.points.length > 0) {
-              const point = eventData.points[0];
-              onInteraction({
-                type: 'click',
-                data: {
-                  x: point.x,
-                  y: point.y,
-                  measure: processedData.measure[point.pointIndex]
-                },
-                dataIndex: point.pointIndex
-              });
-            }
-          });
-
-          plotRef.current!.on('plotly_hover', (eventData: any) => {
-            if (eventData.points && eventData.points.length > 0) {
-              const point = eventData.points[0];
-              onInteraction({
-                type: 'hover',
-                data: {
-                  x: point.x,
-                  y: point.y,
-                  measure: processedData.measure[point.pointIndex]
-                },
-                dataIndex: point.pointIndex
-              });
-            }
-          });
-        }
-      });
-
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to render waterfall chart';
-      onError?.(new Error(errorMessage));
-    }
-  }, [processedData, config, dimensions, theme, onInteraction]);
-
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      if (plotRef.current) {
-        Plotly.purge(plotRef.current);
-      }
-    };
-  }, []);
+  }, [data, waterfallConfig, onError]);
 
   if (error) {
     return (
-      <Alert severity="error" sx={{ width: dimensions.width, height: dimensions.height }}>
+      <Alert severity="error" sx={{ width: dimensions?.width, height: dimensions?.height }}>
         Chart Error: {error}
       </Alert>
     );
@@ -319,51 +133,204 @@ export const WaterfallChart: React.FC<WaterfallChartProps> = ({
 
   if (isLoading) {
     return (
-      <Box
-        sx={{
-          width: dimensions.width,
-          height: dimensions.height,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}
-      >
+      <Box sx={{ 
+        width: dimensions?.width, 
+        height: dimensions?.height, 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center' 
+      }}>
         <CircularProgress />
       </Box>
     );
   }
 
-  if (!data || data.length === 0) {
+  if (!processedData || processedData.length === 0) {
     return (
-      <Box
-        sx={{
-          width: dimensions.width,
-          height: dimensions.height,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          border: '1px dashed #ccc',
-          borderRadius: 1
-        }}
-      >
-        <Typography variant="body2" color="text.secondary">
-          No data available for waterfall chart
-        </Typography>
+      <Box sx={{ 
+        width: dimensions?.width, 
+        height: dimensions?.height, 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        border: '1px dashed #ccc',
+        borderRadius: 1
+      }}>
+        <Typography color="text.secondary">No data available for waterfall chart</Typography>
       </Box>
     );
   }
 
-  return (
-    <Box
-      ref={plotRef}
-      sx={{
-        width: dimensions.width,
-        height: dimensions.height,
-        '& .plotly-graph-div': {
-          borderRadius: 1
+  // Default colors
+  const defaultIncreasingColor = theme?.colors?.[0] || '#2E8B57'; // Sea Green
+  const defaultDecreasingColor = theme?.colors?.[1] || '#DC143C'; // Crimson
+  const defaultTotalColor = theme?.colors?.[2] || '#4682B4';      // Steel Blue
+
+  const plotData: any[] = [{
+    type: 'waterfall',
+    x: waterfallConfig.orientation === 'h' ? processedData.map(item => item.value) : processedData.map(item => item.category),
+    y: waterfallConfig.orientation === 'h' ? processedData.map(item => item.category) : processedData.map(item => item.value),
+    text: processedData.map(item => item.category),
+    textposition: waterfallConfig.textposition || 'outside',
+    textinfo: waterfallConfig.textinfo || 'label+value',
+    textfont: waterfallConfig.textfont ? {
+      size: waterfallConfig.textfont.size || 12,
+      color: waterfallConfig.textfont.color || theme?.textColor || '#333',
+      family: waterfallConfig.textfont.family || theme?.fontFamily || 'Arial, sans-serif'
+    } : {
+      size: 12,
+      color: theme?.textColor || '#333',
+      family: theme?.fontFamily || 'Arial, sans-serif'
+    },
+    measure: processedData.map(item => item.measure),
+    connector: waterfallConfig.connector ? {
+      line: {
+        color: waterfallConfig.connector.line?.color || theme?.gridColor || '#888',
+        width: waterfallConfig.connector.line?.width || 2,
+        dash: waterfallConfig.connector.line?.dash || 'solid'
+      },
+      visible: waterfallConfig.connector.visible !== false
+    } : {
+      line: {
+        color: theme?.gridColor || '#888',
+        width: 2,
+        dash: 'solid'
+      },
+      visible: true
+    },
+    increasing: {
+      marker: {
+        color: waterfallConfig.increasing?.marker?.color || defaultIncreasingColor,
+        line: {
+          color: waterfallConfig.increasing?.marker?.line?.color || '#fff',
+          width: waterfallConfig.increasing?.marker?.line?.width || 1
         }
-      }}
-    />
+      }
+    },
+    decreasing: {
+      marker: {
+        color: waterfallConfig.decreasing?.marker?.color || defaultDecreasingColor,
+        line: {
+          color: waterfallConfig.decreasing?.marker?.line?.color || '#fff',
+          width: waterfallConfig.decreasing?.marker?.line?.width || 1
+        }
+      }
+    },
+    totals: {
+      marker: {
+        color: waterfallConfig.totals?.marker?.color || defaultTotalColor,
+        line: {
+          color: waterfallConfig.totals?.marker?.line?.color || '#fff',
+          width: waterfallConfig.totals?.marker?.line?.width || 1
+        }
+      }
+    },
+    hovertemplate: waterfallConfig.hovertemplate || 
+      `<b>%{text}</b><br>` +
+      `${waterfallConfig.valueField}: %{y}<br>` +
+      `Type: %{measure}<br>` +
+      `<extra></extra>`,
+    showlegend: waterfallConfig.showlegend !== false
+  }];
+
+  const layout: Partial<Layout> = {
+    width: dimensions?.width || 400,
+    height: dimensions?.height || 300,
+    title: {
+      text: waterfallConfig.title,
+      font: { 
+        color: theme?.textColor || '#333',
+        size: 16
+      }
+    },
+    xaxis: {
+      title: { 
+        text: waterfallConfig.orientation === 'h' ? waterfallConfig.valueField : waterfallConfig.categoryField 
+      },
+      color: theme?.textColor || '#333',
+      gridcolor: theme?.gridColor || '#e0e0e0',
+      tickangle: waterfallConfig.orientation !== 'h' ? -45 : 0
+    },
+    yaxis: {
+      title: { 
+        text: waterfallConfig.orientation === 'h' ? waterfallConfig.categoryField : waterfallConfig.valueField 
+      },
+      color: theme?.textColor || '#333',
+      gridcolor: theme?.gridColor || '#e0e0e0'
+    },
+    font: {
+      color: theme?.textColor || '#333',
+      family: theme?.fontFamily || 'Arial, sans-serif'
+    },
+    plot_bgcolor: theme?.backgroundColor || 'white',
+    paper_bgcolor: theme?.backgroundColor || 'white',
+    showlegend: waterfallConfig.showlegend !== false,
+    legend: {
+      orientation: 'v',
+      x: 1.02,
+      y: 1,
+      font: { color: theme?.textColor || '#333' }
+    },
+    margin: { l: 80, r: 120, t: 80, b: 100 }
+  };
+
+  const plotConfig: Partial<Config> = {
+    responsive: true,
+    displayModeBar: true,
+    displaylogo: false,
+    modeBarButtonsToRemove: ['pan2d', 'lasso2d', 'select2d'],
+    toImageButtonOptions: {
+      format: 'png',
+      filename: 'waterfall-chart',
+      height: dimensions?.height || 300,
+      width: dimensions?.width || 400,
+      scale: 1
+    }
+  };
+
+  return (
+    <Box sx={{ width: dimensions?.width, height: dimensions?.height }}>
+      <Plot
+        data={plotData}
+        layout={layout}
+        config={plotConfig}
+        onClick={(event: any) => {
+          if (onInteraction && event.points?.length > 0) {
+            const point = event.points[0];
+            const dataIndex = point.pointNumber;
+            const item = processedData[dataIndex];
+            
+            onInteraction({
+              type: 'click',
+              data: {
+                category: item.category,
+                value: item.value,
+                measure: item.measure
+              },
+              dataIndex
+            });
+          }
+        }}
+        onHover={(event: any) => {
+          if (onInteraction && event.points?.length > 0) {
+            const point = event.points[0];
+            const dataIndex = point.pointNumber;
+            const item = processedData[dataIndex];
+            
+            onInteraction({
+              type: 'hover',
+              data: {
+                category: item.category,
+                value: item.value,
+                measure: item.measure
+              },
+              dataIndex
+            });
+          }
+        }}
+        style={{ width: '100%', height: '100%' }}
+      />
+    </Box>
   );
 };
 

@@ -1,7 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Box, Typography, CircularProgress, Alert } from '@mui/material';
-import * as Plotly from 'plotly.js-dist';
+import React, { useMemo } from 'react';
+import { Box, Typography, Alert, CircularProgress } from '@mui/material';
+import Plot from 'react-plotly.js';
+import { PlotData, Config, Layout } from 'plotly.js';
 import { ChartProps, ChartConfiguration } from '../../../types/chart.types';
+import { getDataArray, isChartDataEmpty } from '../utils/chartDataUtils';
 
 interface ContourPlotConfig extends ChartConfiguration {
   title?: string;
@@ -42,293 +44,82 @@ interface ContourPlotConfig extends ChartConfiguration {
   reversescale?: boolean;
 }
 
-interface ContourPlotProps extends ChartProps {
-  config: ContourPlotConfig;
-}
-
-export const ContourPlot: React.FC<ContourPlotProps> = ({
-  data,
-  config,
-  dimensions = { width: 800, height: 600 },
-  theme,
-  onInteraction,
+export const ContourPlot: React.FC<ChartProps> = ({ 
+  data, 
+  config, 
+  dimensions, 
+  theme, 
+  onInteraction, 
   onError,
-  isLoading = false,
+  isLoading,
   error
 }) => {
-  const plotRef = useRef<HTMLDivElement>(null);
-  const [processedData, setProcessedData] = useState<{
-    x: number[];
-    y: number[];
-    z: number[][];
-    xUnique: number[];
-    yUnique: number[];
-  }>({
-    x: [],
-    y: [],
-    z: [],
-    xUnique: [],
-    yUnique: []
-  });
+  const contourConfig = config as ContourPlotConfig;
 
-  // Process data for contour plot
-  useEffect(() => {
-    if (!data || data.length === 0) {
-      setProcessedData({ x: [], y: [], z: [], xUnique: [], yUnique: [] });
-      return;
+  const processedData = useMemo(() => {
+    if (isChartDataEmpty(data)) {
+      return null;
     }
 
     try {
-      // Extract x, y, z values
-      const xValues = data.map(item => Number(item[config.xField]) || 0);
-      const yValues = data.map(item => Number(item[config.yField]) || 0);
-      const zValues = data.map(item => Number(item[config.zField]) || 0);
+      const dataArray = getDataArray(data);
+      
+      // Validate required fields
+      if (!contourConfig.xField || !contourConfig.yField || !contourConfig.zField) {
+        throw new Error('xField, yField, and zField are required for contour plot');
+      }
 
-      // Get unique sorted values for x and y
+      // Extract values
+      const xValues = dataArray.map(item => Number(item[contourConfig.xField])).filter(val => !isNaN(val));
+      const yValues = dataArray.map(item => Number(item[contourConfig.yField])).filter(val => !isNaN(val));
+      const zValues = dataArray.map(item => Number(item[contourConfig.zField])).filter(val => !isNaN(val));
+
+      if (xValues.length === 0 || yValues.length === 0 || zValues.length === 0) {
+        throw new Error('No valid numeric data found for contour plot');
+      }
+
+      // Get unique x and y values and sort them
       const xUnique = [...new Set(xValues)].sort((a, b) => a - b);
       const yUnique = [...new Set(yValues)].sort((a, b) => a - b);
 
-      // Create 2D grid for z values
-      const zGrid: number[][] = [];
-      
-      // Initialize grid with null values
+      // Create z matrix
+      const zMatrix: number[][] = [];
       for (let i = 0; i < yUnique.length; i++) {
-        zGrid[i] = new Array(xUnique.length).fill(null);
-      }
-
-      // Fill grid with actual z values
-      data.forEach((item, index) => {
-        const x = Number(item[config.xField]) || 0;
-        const y = Number(item[config.yField]) || 0;
-        const z = Number(item[config.zField]) || 0;
-        
-        const xIndex = xUnique.indexOf(x);
-        const yIndex = yUnique.indexOf(y);
-        
-        if (xIndex !== -1 && yIndex !== -1) {
-          zGrid[yIndex][xIndex] = z;
-        }
-      });
-
-      // Handle missing values by interpolation or filling
-      for (let i = 0; i < zGrid.length; i++) {
-        for (let j = 0; j < zGrid[i].length; j++) {
-          if (zGrid[i][j] === null) {
-            // Simple strategy: use average of non-null neighbors or 0
-            let sum = 0;
-            let count = 0;
-            
-            // Check adjacent cells
-            const neighbors = [
-              [i-1, j], [i+1, j], [i, j-1], [i, j+1]
-            ];
-            
-            neighbors.forEach(([ni, nj]) => {
-              if (ni >= 0 && ni < zGrid.length && nj >= 0 && nj < zGrid[ni].length && zGrid[ni][nj] !== null) {
-                sum += zGrid[ni][nj]!;
-                count++;
-              }
-            });
-            
-            zGrid[i][j] = count > 0 ? sum / count : 0;
-          }
-        }
-      }
-
-      setProcessedData({
-        x: xValues,
-        y: yValues,
-        z: zGrid,
-        xUnique,
-        yUnique
-      });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to process contour plot data';
-      onError?.(new Error(errorMessage));
-      setProcessedData({ x: [], y: [], z: [], xUnique: [], yUnique: [] });
-    }
-  }, [data, config]);
-
-  // Initialize and update plot
-  useEffect(() => {
-    if (!plotRef.current || processedData.z.length === 0) return;
-
-    try {
-      const plotData: Plotly.Data[] = [{
-        type: 'contour',
-        x: processedData.xUnique,
-        y: processedData.yUnique,
-        z: processedData.z,
-        colorscale: config.colorscale || 'Viridis',
-        showscale: config.showscale !== false,
-        connectgaps: config.connectgaps !== false,
-        hoverongaps: config.hoverongaps !== false,
-        autocontour: config.autocontour !== false,
-        ncontours: config.ncontours || 15,
-        reversescale: config.reversescale || false,
-        contours: config.contours ? {
-          start: config.contours.start,
-          end: config.contours.end,
-          size: config.contours.size,
-          coloring: config.contours.coloring || 'fill',
-          showlines: config.contours.showlines !== false,
-          labelfont: config.contours.labelfont ? {
-            size: config.contours.labelfont.size || 12,
-            color: config.contours.labelfont.color || theme?.textColor || '#333'
-          } : undefined
-        } : undefined,
-        line: config.line ? {
-          color: config.line.color || theme?.colors?.[0] || '#636efa',
-          width: config.line.width || 0.5,
-          smoothing: config.line.smoothing || 1
-        } : undefined,
-        colorbar: config.colorbar ? {
-          title: config.colorbar.title,
-          titleside: config.colorbar.titleside || 'right',
-          tickmode: config.colorbar.tickmode,
-          tick0: config.colorbar.tick0,
-          dtick: config.colorbar.dtick,
-          titlefont: {
-            color: theme?.textColor || '#333'
-          },
-          tickfont: {
-            color: theme?.textColor || '#333'
-          }
-        } : {
-          titlefont: {
-            color: theme?.textColor || '#333'
-          },
-          tickfont: {
-            color: theme?.textColor || '#333'
-          }
-        },
-        hovertemplate: config.hovertemplate || 
-          `x: %{x}<br>y: %{y}<br>z: %{z}<extra></extra>`
-      }];
-
-      const layout: Partial<Plotly.Layout> = {
-        title: config.title ? {
-          text: config.subtitle ? `${config.title}<br><sub>${config.subtitle}</sub>` : config.title,
-          font: {
-            color: theme?.textColor || '#333'
-          }
-        } : undefined,
-        xaxis: {
-          title: {
-            text: config.xField,
-            font: {
-              color: theme?.textColor || '#333'
-            }
-          },
-          tickfont: {
-            color: theme?.textColor || '#333'
-          },
-          gridcolor: theme?.gridColor || '#e0e6ed',
-          zerolinecolor: theme?.gridColor || '#e0e6ed'
-        },
-        yaxis: {
-          title: {
-            text: config.yField,
-            font: {
-              color: theme?.textColor || '#333'
-            }
-          },
-          tickfont: {
-            color: theme?.textColor || '#333'
-          },
-          gridcolor: theme?.gridColor || '#e0e6ed',
-          zerolinecolor: theme?.gridColor || '#e0e6ed'
-        },
-        width: dimensions.width,
-        height: dimensions.height,
-        paper_bgcolor: theme?.backgroundColor || 'transparent',
-        plot_bgcolor: theme?.backgroundColor || 'transparent',
-        font: {
-          color: theme?.textColor || '#333'
-        },
-        margin: {
-          l: 60,
-          r: 50,
-          t: config.title ? 80 : 30,
-          b: 60
-        },
-        hoverlabel: {
-          bgcolor: 'rgba(255,255,255,0.9)',
-          bordercolor: theme?.gridColor || '#ccc',
-          font: {
-            color: '#333'
-          }
-        }
-      };
-
-      const plotConfig: Partial<Plotly.Config> = {
-        responsive: true,
-        displayModeBar: true,
-        modeBarButtonsToRemove: ['pan2d', 'lasso2d', 'select2d'],
-        displaylogo: false,
-        toImageButtonOptions: {
-          format: 'png',
-          filename: 'contour-plot',
-          height: dimensions.height,
-          width: dimensions.width,
-          scale: 1
-        }
-      };
-
-      // Create or update plot
-      Plotly.newPlot(plotRef.current, plotData, layout, plotConfig).then(() => {
-        // Handle interactions
-        if (onInteraction) {
-          plotRef.current!.on('plotly_click', (eventData: any) => {
-            if (eventData.points && eventData.points.length > 0) {
-              const point = eventData.points[0];
-              onInteraction({
-                type: 'click',
-                data: {
-                  x: point.x,
-                  y: point.y,
-                  z: point.z
-                },
-                dataIndex: point.pointIndex
-              });
-            }
+        zMatrix[i] = [];
+        for (let j = 0; j < xUnique.length; j++) {
+          // Find data points that match this x,y coordinate
+          const matchingItems = dataArray.filter(item => {
+            const x = Number(item[contourConfig.xField]);
+            const y = Number(item[contourConfig.yField]);
+            return Math.abs(x - xUnique[j]) < 0.001 && Math.abs(y - yUnique[i]) < 0.001;
           });
-
-          plotRef.current!.on('plotly_hover', (eventData: any) => {
-            if (eventData.points && eventData.points.length > 0) {
-              const point = eventData.points[0];
-              onInteraction({
-                type: 'hover',
-                data: {
-                  x: point.x,
-                  y: point.y,
-                  z: point.z
-                },
-                dataIndex: point.pointIndex
-              });
-            }
-          });
+          
+          if (matchingItems.length > 0) {
+            // Average z values if multiple points exist at same x,y
+            const avgZ = matchingItems.reduce((sum, item) => 
+              sum + Number(item[contourConfig.zField]), 0) / matchingItems.length;
+            zMatrix[i][j] = avgZ;
+          } else {
+            zMatrix[i][j] = 0;
+          }
         }
-      });
-
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to render contour plot';
-      onError?.(new Error(errorMessage));
-    }
-  }, [processedData, config, dimensions, theme, onInteraction]);
-
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      if (plotRef.current) {
-        Plotly.purge(plotRef.current);
       }
-    };
-  }, []);
+
+      return {
+        x: xUnique,
+        y: yUnique,
+        z: zMatrix
+      };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to process contour data';
+      onError?.(new Error(errorMessage));
+      return null;
+    }
+  }, [data, contourConfig, onError]);
 
   if (error) {
     return (
-      <Alert severity="error" sx={{ width: dimensions.width, height: dimensions.height }}>
+      <Alert severity="error" sx={{ width: dimensions?.width, height: dimensions?.height }}>
         Chart Error: {error}
       </Alert>
     );
@@ -336,51 +127,132 @@ export const ContourPlot: React.FC<ContourPlotProps> = ({
 
   if (isLoading) {
     return (
-      <Box
-        sx={{
-          width: dimensions.width,
-          height: dimensions.height,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}
-      >
+      <Box sx={{ 
+        width: dimensions?.width, 
+        height: dimensions?.height, 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center' 
+      }}>
         <CircularProgress />
       </Box>
     );
   }
 
-  if (!data || data.length === 0) {
+  if (!processedData) {
     return (
-      <Box
-        sx={{
-          width: dimensions.width,
-          height: dimensions.height,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          border: '1px dashed #ccc',
-          borderRadius: 1
-        }}
-      >
-        <Typography variant="body2" color="text.secondary">
-          No data available for contour plot
-        </Typography>
+      <Box sx={{ 
+        width: dimensions?.width, 
+        height: dimensions?.height, 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        border: '1px dashed #ccc',
+        borderRadius: 1
+      }}>
+        <Typography color="text.secondary">No data available for contour plot</Typography>
       </Box>
     );
   }
 
+  const plotData: any[] = [{
+    type: 'contour',
+    x: processedData.x,
+    y: processedData.y,
+    z: processedData.z,
+    colorscale: contourConfig.colorscale || 'Viridis',
+    showscale: contourConfig.showscale !== false,
+    connectgaps: contourConfig.connectgaps !== false,
+    hoverongaps: contourConfig.hoverongaps !== false,
+    autocontour: contourConfig.autocontour !== false,
+    ncontours: contourConfig.ncontours || 15,
+    reversescale: contourConfig.reversescale || false,
+    contours: contourConfig.contours ? {
+      start: contourConfig.contours.start,
+      end: contourConfig.contours.end,
+      size: contourConfig.contours.size,
+      coloring: contourConfig.contours.coloring || 'fill',
+      showlines: contourConfig.contours.showlines !== false,
+      labelfont: contourConfig.contours.labelfont
+    } : undefined,
+    line: contourConfig.line,
+    colorbar: contourConfig.colorbar ? {
+      ...contourConfig.colorbar,
+      titlefont: { color: theme?.textColor || '#333' },
+      tickfont: { color: theme?.textColor || '#333' }
+    } : {
+      titlefont: { color: theme?.textColor || '#333' },
+      tickfont: { color: theme?.textColor || '#333' }
+    },
+    hovertemplate: contourConfig.hovertemplate || 
+      `${contourConfig.xField}: %{x}<br>${contourConfig.yField}: %{y}<br>${contourConfig.zField}: %{z}<extra></extra>`
+  }];
+
+  const layout: Partial<Layout> = {
+    width: dimensions?.width || 400,
+    height: dimensions?.height || 300,
+    title: {
+      text: contourConfig.title,
+      font: { color: theme?.textColor || '#333' }
+    },
+    xaxis: {
+      title: { text: contourConfig.xField },
+      color: theme?.textColor || '#333',
+      gridcolor: theme?.gridColor || '#e0e0e0'
+    },
+    yaxis: {
+      title: { text: contourConfig.yField },
+      color: theme?.textColor || '#333',
+      gridcolor: theme?.gridColor || '#e0e0e0'
+    },
+    plot_bgcolor: theme?.backgroundColor || 'white',
+    paper_bgcolor: theme?.backgroundColor || 'white',
+    margin: { l: 80, r: 80, t: 80, b: 60 }
+  };
+
+  const plotConfig: Partial<Config> = {
+    responsive: true,
+    displayModeBar: true,
+    displaylogo: false,
+    modeBarButtonsToRemove: ['pan2d', 'lasso2d', 'select2d'],
+    toImageButtonOptions: {
+      format: 'png',
+      filename: 'contour-plot',
+      height: dimensions?.height || 300,
+      width: dimensions?.width || 400,
+      scale: 1
+    }
+  };
+
   return (
-    <Box
-      ref={plotRef}
-      sx={{
-        width: dimensions.width,
-        height: dimensions.height,
-        '& .plotly-graph-div': {
-          borderRadius: 1
-        }
-      }}
-    />
+    <Box sx={{ width: dimensions?.width, height: dimensions?.height }}>
+      <Plot
+        data={plotData}
+        layout={layout}
+        config={plotConfig}
+        onClick={(event: any) => {
+          if (onInteraction && event.points?.length > 0) {
+            const point = event.points[0];
+            onInteraction({
+              type: 'click',
+              data: { x: point.x, y: point.y, z: point.z },
+              dataIndex: point.pointIndex
+            });
+          }
+        }}
+        onHover={(event: any) => {
+          if (onInteraction && event.points?.length > 0) {
+            const point = event.points[0];
+            onInteraction({
+              type: 'hover',
+              data: { x: point.x, y: point.y, z: point.z },
+              dataIndex: point.pointIndex
+            });
+          }
+        }}
+        style={{ width: '100%', height: '100%' }}
+      />
+    </Box>
   );
 };
 
