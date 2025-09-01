@@ -44,7 +44,7 @@ export const bigqueryPlugin: DataSourcePlugin = {
       config,
       client: bigquery,
       isConnected: true,
-      lastActivity: new Date()
+      lastActivity: Date.now()
     };
   },
 
@@ -73,7 +73,7 @@ export const bigqueryPlugin: DataSourcePlugin = {
       await this.getTableColumns(connection, job.metadata.configuration.query.destinationTable) : 
       this.inferColumnsFromRows(rows);
 
-    connection.lastActivity = new Date();
+    connection.lastActivity = Date.now();
     
     return {
       rows: rows.map(row => this.normalizeRow(row)),

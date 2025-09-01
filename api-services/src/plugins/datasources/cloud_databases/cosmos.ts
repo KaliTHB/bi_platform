@@ -48,7 +48,7 @@ export const cosmosdbPlugin: DataSourcePlugin = {
       config,
       client: { cosmos: client, database },
       isConnected: true,
-      lastActivity: new Date()
+      lastActivity: Date.now()
     };
   },
 
@@ -100,7 +100,7 @@ export const cosmosdbPlugin: DataSourcePlugin = {
         });
       }
 
-      connection.lastActivity = new Date();
+      connection.lastActivity = Date.now();
       
       return {
         rows: resources,

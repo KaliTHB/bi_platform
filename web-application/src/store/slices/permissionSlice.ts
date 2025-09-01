@@ -21,7 +21,7 @@ const permissionSlice = createSlice({
   reducers: {
     setPermissions: (state, action: PayloadAction<string[]>) => {
       state.userPermissions = castDraft(action.payload);
-      state.lastUpdated = new Date();
+      state.lastUpdated = Date.now();
       state.error = null;
     },
     
@@ -48,7 +48,7 @@ const permissionSlice = createSlice({
     addPermission: (state, action: PayloadAction<string>) => {
       if (!state.userPermissions.includes(action.payload)) {
         state.userPermissions.push(action.payload);
-        state.lastUpdated = new Date();
+        state.lastUpdated = Date.now();
       }
     },
     
@@ -57,7 +57,7 @@ const permissionSlice = createSlice({
       state.userPermissions = state.userPermissions.filter(p => p !== action.payload);
       
       if (state.userPermissions.length !== initialLength) {
-        state.lastUpdated = new Date();
+        state.lastUpdated = Date.now();
       }
     },
     
@@ -66,7 +66,7 @@ const permissionSlice = createSlice({
       const newPermissions = action.payload.filter(p => !state.userPermissions.includes(p));
       if (newPermissions.length > 0) {
         state.userPermissions.push(...newPermissions);
-        state.lastUpdated = new Date();
+        state.lastUpdated = Date.now();
       }
     },
     
@@ -76,7 +76,7 @@ const permissionSlice = createSlice({
       state.userPermissions = state.userPermissions.filter(p => !permissionsToRemove.has(p));
       
       if (state.userPermissions.length !== originalLength) {
-        state.lastUpdated = new Date();
+        state.lastUpdated = Date.now();
       }
     },
     
@@ -87,7 +87,7 @@ const permissionSlice = createSlice({
       
       if (index !== -1) {
         state.userPermissions[index] = newPermission;
-        state.lastUpdated = new Date();
+        state.lastUpdated = Date.now();
       }
     },
     
@@ -102,12 +102,12 @@ const permissionSlice = createSlice({
         state.userPermissions.push(permission);
       }
       
-      state.lastUpdated = new Date();
+      state.lastUpdated = Date.now();
     },
     
     // Refresh permissions timestamp
     refreshPermissionsTimestamp: (state) => {
-      state.lastUpdated = new Date();
+      state.lastUpdated = Date.now();
     },
     
     // Permission validation helpers
@@ -118,7 +118,7 @@ const permissionSlice = createSlice({
       
       if (filteredPermissions.length !== state.userPermissions.length) {
         state.userPermissions = filteredPermissions;
-        state.lastUpdated = new Date();
+        state.lastUpdated = Date.now();
       }
     },
     
@@ -127,7 +127,7 @@ const permissionSlice = createSlice({
       const newPermissions = action.payload.permissions.filter(p => !state.userPermissions.includes(p));
       if (newPermissions.length > 0) {
         state.userPermissions.push(...newPermissions);
-        state.lastUpdated = new Date();
+        state.lastUpdated = Date.now();
       }
     },
     

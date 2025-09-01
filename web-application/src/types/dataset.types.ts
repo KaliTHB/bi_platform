@@ -23,6 +23,7 @@ export interface Dataset {
   refresh_status: 'pending' | 'running' | 'completed' | 'failed';
   is_active: boolean;
   version: number;
+  tags?: string[];  // ← Add this property
   created_by: string;
   created_at: string | Date;
   updated_at: string | Date;

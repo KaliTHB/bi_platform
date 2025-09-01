@@ -156,7 +156,7 @@ const EChartsRenderer: React.FC<ChartProps> = ({
       onError?.({
         code: 'ECHARTS_CONFIG_ERROR',
         message: error instanceof Error ? error.message : 'Unknown configuration error',
-        timestamp: new Date()
+        timestamp: Date.now()
       });
       return {};
     }
@@ -323,7 +323,7 @@ const EChartsRenderer: React.FC<ChartProps> = ({
       onError?.({
         code: 'ECHARTS_INIT_ERROR',
         message: error instanceof Error ? error.message : 'Failed to initialize chart',
-        timestamp: new Date()
+        timestamp: Date.now()
       });
     }
   }, [chartOptions, theme, onInteraction, onError, data]);
@@ -338,7 +338,7 @@ const EChartsRenderer: React.FC<ChartProps> = ({
         onError?.({
           code: 'ECHARTS_UPDATE_ERROR',
           message: error instanceof Error ? error.message : 'Failed to update chart',
-          timestamp: new Date()
+          timestamp: Date.now()
         });
       }
     }

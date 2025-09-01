@@ -39,7 +39,7 @@ export const icebergPlugin: DataSourcePlugin = {
       config,
       client: { catalogUri: config.catalogUri, warehouse: config.warehouse },
       isConnected: true,
-      lastActivity: new Date()
+      lastActivity: Date.now()
     };
   },
 

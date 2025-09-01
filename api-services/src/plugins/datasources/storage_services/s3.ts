@@ -46,7 +46,7 @@ export const s3Plugin: DataSourcePlugin = {
       config,
       client,
       isConnected: true,
-      lastActivity: new Date()
+      lastActivity: Date.now()
     };
   },
 
@@ -133,7 +133,7 @@ export const s3Plugin: DataSourcePlugin = {
       { name: 'storageClass', type: 'string', nullable: true, defaultValue: null }
     ];
 
-    connection.lastActivity = new Date();
+    connection.lastActivity = Date.now();
     
     return {
       rows,
@@ -179,7 +179,7 @@ export const s3Plugin: DataSourcePlugin = {
       { name: 'content', type: 'string', nullable: false, defaultValue: null }
     ];
 
-    connection.lastActivity = new Date();
+    connection.lastActivity = Date.now();
     
     return {
       rows,
@@ -225,7 +225,7 @@ export const s3Plugin: DataSourcePlugin = {
         }
       }
 
-      connection.lastActivity = new Date();
+      connection.lastActivity = Date.now();
       
       resolve({
         rows,

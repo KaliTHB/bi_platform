@@ -984,7 +984,7 @@ const useRealTimeChart = (websocketUrl: string) => {
     ws.onmessage = (event) => {
       const newData = JSON.parse(event.data);
       setData(prevData => [...prevData, ...newData]);
-      setLastUpdate(new Date());
+      setLastUpdate(Date.now());
     };
 
     return () => ws.close();

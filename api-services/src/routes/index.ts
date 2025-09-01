@@ -11,7 +11,7 @@ router.get('/', (req, res) => {
     success: true,
     message: 'BI Platform API v1.0.0',
     version: '1.0.0',
-    timestamp: new Date().toISOString(),
+    timestamp: Date.now().toISOString(),
   });
 });
 

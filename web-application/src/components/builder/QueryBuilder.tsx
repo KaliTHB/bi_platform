@@ -29,7 +29,7 @@ import {
   Save as SaveIcon,
   History as HistoryIcon,
   Code as CodeIcon,
-  Table as TableIcon,
+ TableChart as TableIcon,
   Info as InfoIcon,
   Clear as ClearIcon,
   Refresh as RefreshIcon

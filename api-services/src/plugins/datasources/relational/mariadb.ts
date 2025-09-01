@@ -48,7 +48,7 @@ export const mariadbPlugin: DataSourcePlugin = {
       config,
       pool,
       isConnected: true,
-      lastActivity: new Date()
+      lastActivity: Date.now()
     };
   },
 
@@ -77,7 +77,7 @@ export const mariadbPlugin: DataSourcePlugin = {
         defaultValue: null
       })) || [];
 
-      connection.lastActivity = new Date();
+      connection.lastActivity = Date.now();
       
       return {
         rows: Array.isArray(result) ? result : [result],

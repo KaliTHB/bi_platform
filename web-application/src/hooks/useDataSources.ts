@@ -164,7 +164,7 @@ const useDataSources = (): UseDataSourcesResult => {
             ...dataSource, 
             test_status: testResult.success ? 'success' : 'failed',
             test_error_message: testResult.success ? undefined : testResult.message,
-            last_tested: new Date().toISOString()
+            last_tested: Date.now().toISOString()
           } : dataSource
         )
       );
@@ -181,7 +181,7 @@ const useDataSources = (): UseDataSourcesResult => {
             ...dataSource, 
             test_status: 'failed',
             test_error_message: errorMessage,
-            last_tested: new Date().toISOString()
+            last_tested: Date.now().toISOString()
           } : dataSource
         )
       );

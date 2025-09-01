@@ -146,7 +146,7 @@ const dashboardSlice = createSlice({
     updateLayout: (state, action: PayloadAction<{ breakpoint: string; layout: any[] }>) => {
       const { breakpoint, layout } = action.payload;
       state.layouts[breakpoint] = layout;
-      state.lastUpdated = new Date().toISOString();
+      state.lastUpdated = Date.now().toISOString();
     },
     
     setGridBreakpoint: (state, action: PayloadAction<string>) => {
@@ -241,7 +241,7 @@ const dashboardSlice = createSlice({
       .addCase(fetchDashboards.fulfilled, (state, action) => {
         state.loading = false;
         state.dashboards = castDraft(action.payload);
-        state.lastUpdated = new Date().toISOString();
+        state.lastUpdated = Date.now().toISOString();
       })
       .addCase(fetchDashboards.rejected, (state, action) => {
         state.loading = false;
@@ -260,7 +260,7 @@ const dashboardSlice = createSlice({
         if (action.payload.filters) {
           state.filters = castDraft(action.payload.filters);
         }
-        state.lastUpdated = new Date().toISOString();
+        state.lastUpdated = Date.now().toISOString();
       })
       .addCase(fetchDashboard.rejected, (state, action) => {
         state.loading = false;
@@ -282,7 +282,7 @@ const dashboardSlice = createSlice({
         if (index !== -1) {
           state.dashboards[index] = castDraft(action.payload);
         }
-        state.lastUpdated = new Date().toISOString();
+        state.lastUpdated = Date.now().toISOString();
       })
       .addCase(saveDashboard.rejected, (state, action) => {
         state.saving = false;
@@ -298,7 +298,7 @@ const dashboardSlice = createSlice({
       .addCase(createDashboard.fulfilled, (state, action) => {
         state.loading = false;
         state.dashboards.push(castDraft(action.payload));
-        state.lastUpdated = new Date().toISOString();
+        state.lastUpdated = Date.now().toISOString();
       })
       .addCase(createDashboard.rejected, (state, action) => {
         state.loading = false;
@@ -317,7 +317,7 @@ const dashboardSlice = createSlice({
         if (state.currentDashboard?.id === action.payload) {
           state.currentDashboard = null;
         }
-        state.lastUpdated = new Date().toISOString();
+        state.lastUpdated = Date.now().toISOString();
       })
       .addCase(deleteDashboard.rejected, (state, action) => {
         state.loading = false;

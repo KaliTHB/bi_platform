@@ -46,7 +46,7 @@ export const dynamodbPlugin: DataSourcePlugin = {
       config,
       client: { dynamodb: client, doc: docClient },
       isConnected: true,
-      lastActivity: new Date()
+      lastActivity: Date.now()
     };
   },
 
@@ -106,7 +106,7 @@ export const dynamodbPlugin: DataSourcePlugin = {
         });
       }
 
-      connection.lastActivity = new Date();
+      connection.lastActivity = Date.now();
       
       return {
         rows: items,

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { formatDate } from '@/utils/dateUtils';
 import {
   Box,
   Card,
@@ -120,7 +121,6 @@ export const ChartList: React.FC<ChartListProps> = ({
         case 'name': return a.name.localeCompare(b.name);
         case 'updated_at': return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
         case 'type': return a.chart_type.localeCompare(b.chart_type);
-        case 'render_count': return (b.render_count || 0) - (a.render_count || 0);
         default: return 0;
       }
     });
@@ -290,18 +290,9 @@ export const ChartList: React.FC<ChartListProps> = ({
           </Box>
 
           <Box display="flex" alignItems="center" justifyContent="space-between" mt={2}>
-            <Box display="flex" alignItems="center" gap={1}>
-              <Visibility fontSize="small" color="action" />
-              <Typography variant="caption" color="text.secondary">
-                {chart.render_count || 0} renders
-              </Typography>
-            </Box>
             <Typography variant="caption" color="text.secondary">
-              {chart.last_rendered 
-                ? `Rendered ${new Date(chart.last_rendered).toLocaleDateString()}`
-                : 'Never rendered'
-              }
-            </Typography>
+  Last updated: {formatDate(chart.updated_at)}
+</Typography>
           </Box>
         </CardContent>
       </Card>
@@ -347,7 +338,7 @@ export const ChartList: React.FC<ChartListProps> = ({
                   variant="outlined"
                 />
                 <Typography variant="caption" color="text.secondary">
-                  {chart.render_count || 0} renders • Updated {new Date(chart.updated_at).toLocaleDateString()}
+                 Updated {new Date(chart.updated_at).toLocaleDateString()}
                 </Typography>
               </Box>
             </Box>

@@ -293,7 +293,7 @@ const datasetSlice = createSlice({
     
     addDataset: (state, action: PayloadAction<Dataset>) => {
       state.datasets.push(castDraft(action.payload));
-      state.lastUpdated = new Date().toISOString();
+      state.lastUpdated = Date.now().toISOString();
     },
 
     updateDatasetLocal: (state, action: PayloadAction<Dataset>) => {
@@ -304,7 +304,7 @@ const datasetSlice = createSlice({
       if (state.currentDataset?.id === action.payload.id) {
         state.currentDataset = castDraft(action.payload);
       }
-      state.lastUpdated = new Date().toISOString();
+      state.lastUpdated = Date.now().toISOString();
     },
 
     removeDataset: (state, action: PayloadAction<string>) => {
@@ -312,7 +312,7 @@ const datasetSlice = createSlice({
       if (state.currentDataset?.id === action.payload) {
         state.currentDataset = null;
       }
-      state.lastUpdated = new Date().toISOString();
+      state.lastUpdated = Date.now().toISOString();
     },
 
     // ========================================================================
@@ -355,7 +355,7 @@ const datasetSlice = createSlice({
       .addCase(fetchDatasets.fulfilled, (state, action) => {
         state.loading = false;
         state.datasets = castDraft(action.payload);
-        state.lastUpdated = new Date().toISOString();
+        state.lastUpdated = Date.now().toISOString();
       })
       .addCase(fetchDatasets.rejected, (state, action) => {
         state.loading = false;
@@ -386,7 +386,7 @@ const datasetSlice = createSlice({
       .addCase(createDataset.fulfilled, (state, action) => {
         state.loading = false;
         state.datasets.push(castDraft(action.payload));
-        state.lastUpdated = new Date().toISOString();
+        state.lastUpdated = Date.now().toISOString();
       })
       .addCase(createDataset.rejected, (state, action) => {
         state.loading = false;
@@ -410,7 +410,7 @@ const datasetSlice = createSlice({
         if (index !== -1) {
           state.datasets[index] = castDraft(action.payload);
         }
-        state.lastUpdated = new Date().toISOString();
+        state.lastUpdated = Date.now().toISOString();
       })
       .addCase(updateDataset.rejected, (state, action) => {
         state.loading = false;
@@ -429,7 +429,7 @@ const datasetSlice = createSlice({
         if (state.currentDataset?.id === action.payload) {
           state.currentDataset = null;
         }
-        state.lastUpdated = new Date().toISOString();
+        state.lastUpdated = Date.now().toISOString();
       })
       .addCase(deleteDataset.rejected, (state, action) => {
         state.loading = false;
@@ -446,7 +446,7 @@ const datasetSlice = createSlice({
         state.querying = false;
         const { queryId, result } = action.payload;
         state.queryResults[queryId] = castDraft(result);
-        state.lastUpdated = new Date().toISOString();
+        state.lastUpdated = Date.now().toISOString();
       })
       .addCase(queryDataset.rejected, (state, action) => {
         state.querying = false;

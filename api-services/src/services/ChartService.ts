@@ -423,7 +423,7 @@ class ChartService {
         metadata: {
           totalRows: processedData.length,
           executionTime: Date.now() - startTime,
-          lastUpdated: new Date(),
+          lastUpdated: Date.now(),
           cacheHit: false
         }
       };
@@ -608,7 +608,7 @@ class ChartService {
       },
       data: chartData.data,
       metadata: chartData.metadata,
-      exported_at: new Date().toISOString(),
+      exported_at: Date.now().toISOString(),
       exported_by: options.userId
     };
 
@@ -620,7 +620,7 @@ class ChartService {
       file_path: filePath,
       file_name: fileName,
       file_size: Buffer.byteLength(JSON.stringify(exportData), 'utf8'),
-      generated_at: new Date()
+      generated_at: Date.now()
     };
   }
 
@@ -639,7 +639,7 @@ class ChartService {
       file_path: `/exports/${fileName}`,
       file_name: fileName,
       file_size: 0, // Would be actual file size
-      generated_at: new Date()
+      generated_at: Date.now()
     };
   }
 
@@ -656,7 +656,7 @@ class ChartService {
       file_path: `/exports/${fileName}`,
       file_name: fileName,
       file_size: 0, // Would be actual file size
-      generated_at: new Date()
+      generated_at: Date.now()
     };
   }
 

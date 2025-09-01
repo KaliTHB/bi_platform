@@ -29,7 +29,7 @@ export const deltaTableAzurePlugin: DataSourcePlugin = {
       config,
       client: { deltaPath: config.deltaTablePath },
       isConnected: true,
-      lastUsed: new Date()
+      lastUsed: Date.now()
     };
   },
 

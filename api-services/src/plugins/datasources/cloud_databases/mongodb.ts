@@ -22,7 +22,7 @@ class MongoDBConnection implements Connection {
       serverSelectionTimeoutMS: 5000,
     });
     this.isConnected = false;
-    this.lastActivity = new Date();
+    this.lastActivity = Date.now();
   }
 }
 
@@ -86,7 +86,7 @@ export const MongoDBPlugin: DataSourcePlugin = {
       await connection.db.admin().ping();
       
       connection.isConnected = true;
-      connection.lastActivity = new Date();
+      connection.lastActivity = Date.now();
       
       return connection;
     } catch (error) {
@@ -140,7 +140,7 @@ export const MongoDBPlugin: DataSourcePlugin = {
       }
       
       const executionTime = Date.now() - startTime;
-      connection.lastActivity = new Date();
+      connection.lastActivity = Date.now();
       
       return {
         rows: result || [],

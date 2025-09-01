@@ -44,7 +44,7 @@ export const athenaPlugin: DataSourcePlugin = {
       config,
       client,
       isConnected: true,
-      lastActivity: new Date()
+      lastActivity: Date.now()
     };
   },
 
@@ -116,7 +116,7 @@ export const athenaPlugin: DataSourcePlugin = {
       });
     }
 
-    connection.lastActivity = new Date();
+    connection.lastActivity = Date.now();
     
     return {
       rows,

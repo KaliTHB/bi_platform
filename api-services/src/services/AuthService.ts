@@ -224,7 +224,7 @@ class AuthService {
       await this.auditService.logEvent({
         event_type: 'auth.logout',
         user_id: userId,
-        details: { logout_time: new Date() }
+        details: { logout_time: Date.now() }
       });
     } catch (error) {
       logger.error('Logout error:', error);
@@ -282,7 +282,7 @@ class AuthService {
         workspace_id: workspace.id,
         details: { 
           new_workspace: workspaceSlug,
-          switch_time: new Date()
+          switch_time: Date.now()
         }
       });
 

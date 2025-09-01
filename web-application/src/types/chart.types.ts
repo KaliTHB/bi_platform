@@ -85,20 +85,20 @@ export interface ChartConfig {
   [key: string]: any; // For chart-library-specific configs
 }
 
+
 export interface ChartLegend {
   show: boolean;
   position: 'top' | 'bottom' | 'left' | 'right';
   align: 'start' | 'center' | 'end';
-  orientation: 'horizontal' | 'vertical';
+  orient?: 'horizontal' | 'vertical';  // Make this optional
 }
-
 // =============================================================================
 // Chart Configuration - Core Interface
 // =============================================================================
 
 export interface ChartConfiguration {
   // Basic settings
-  title?: string;
+  title?: ChartTitle;
   subtitle?: string;
   description?: string;
   
@@ -107,7 +107,7 @@ export interface ChartConfiguration {
   
   // Visual configuration
   colors?: string[] | ColorConfiguration;
-  theme?: string;
+   theme?: ChartTheme; 
   
   // Axes configuration
   xAxis?: ChartAxis;
@@ -631,6 +631,12 @@ export interface ChartError {
 
 export interface ChartTheme {
   name: string;
+  darkMode?: boolean;
+  backgroundColor?: string;   // ← Add this if you use it
+  textColor?: string;        // ← Add this if you use it
+  gridColor?: string;        // ← Add this if you use it
+  axisColor?: string;        // ← Add this if you use it
+  colorPalette?: string[];   // ← Add this if you use it
   colors: {
     primary: string[];
     background: string;
@@ -811,6 +817,7 @@ export interface ChartTitle {
   borderWidth?: number;
   borderRadius?: number;
 }
+
 
 export interface ChartTextStyle {
   fontSize?: number;

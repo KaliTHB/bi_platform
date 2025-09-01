@@ -56,7 +56,7 @@ export const mssqlPlugin: DataSourcePlugin = {
       config,
       pool,
       isConnected: true,
-      lastActivity: new Date()
+      lastActivity: Date.now()
     };
   },
 
@@ -91,7 +91,7 @@ export const mssqlPlugin: DataSourcePlugin = {
       defaultValue: null
     })) : [];
 
-    connection.lastActivity = new Date();
+    connection.lastActivity = Date.now();
     
     return {
       rows: result.recordset || [],

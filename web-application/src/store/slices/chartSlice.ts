@@ -340,7 +340,7 @@ const chartSlice = createSlice({
     
     addChart: (state, action: PayloadAction<Chart>) => {
       state.charts.push(castDraft(action.payload));
-      state.lastUpdated = new Date().toISOString();
+      state.lastUpdated = Date.now().toISOString();
     },
     
     updateChartLocal: (state, action: PayloadAction<Chart>) => {
@@ -354,7 +354,7 @@ const chartSlice = createSlice({
         state.currentChart = castDraft(action.payload);
       }
       
-      state.lastUpdated = new Date().toISOString();
+      state.lastUpdated = Date.now().toISOString();
     },
     
     removeChart: (state, action: PayloadAction<string>) => {
@@ -373,7 +373,7 @@ const chartSlice = createSlice({
       delete state.exportState.inProgress[action.payload];
       delete state.exportState.lastExported[action.payload];
       
-      state.lastUpdated = new Date().toISOString();
+      state.lastUpdated = Date.now().toISOString();
     },
     
     // ========================================================================
@@ -449,7 +449,7 @@ const chartSlice = createSlice({
         state.currentChart.config_json = castDraft(configuration);
       }
       
-      state.lastUpdated = new Date().toISOString();
+      state.lastUpdated = Date.now().toISOString();
     },
     
     updateChartPosition: (state, action: PayloadAction<{
@@ -628,7 +628,7 @@ const chartSlice = createSlice({
           state.charts[index] = castDraft(updatedChart);
         }
       });
-      state.lastUpdated = new Date().toISOString();
+      state.lastUpdated = Date.now().toISOString();
     },
     
     bulkDeleteCharts: (state, action: PayloadAction<string[]>) => {
@@ -655,7 +655,7 @@ const chartSlice = createSlice({
         state.currentChart = null;
       }
       
-      state.lastUpdated = new Date().toISOString();
+      state.lastUpdated = Date.now().toISOString();
     },
     
     // ========================================================================
@@ -696,7 +696,7 @@ const chartSlice = createSlice({
       .addCase(fetchCharts.fulfilled, (state, action) => {
         state.loading = false;
         state.charts = castDraft(action.payload);
-        state.lastUpdated = new Date().toISOString();
+        state.lastUpdated = Date.now().toISOString();
       })
       .addCase(fetchCharts.rejected, (state, action) => {
         state.loading = false;
@@ -710,7 +710,7 @@ const chartSlice = createSlice({
       .addCase(createChart.fulfilled, (state, action) => {
         state.saving = false;
         state.charts.push(castDraft(action.payload));
-        state.lastUpdated = new Date().toISOString();
+        state.lastUpdated = Date.now().toISOString();
       })
       .addCase(createChart.rejected, (state) => {
         state.saving = false;
@@ -730,7 +730,7 @@ const chartSlice = createSlice({
         if (state.currentChart?.id === action.payload.id) {
           state.currentChart = castDraft(action.payload);
         }
-        state.lastUpdated = new Date().toISOString();
+        state.lastUpdated = Date.now().toISOString();
       })
       .addCase(updateChart.rejected, (state) => {
         state.saving = false;
@@ -751,7 +751,7 @@ const chartSlice = createSlice({
         delete state.errors[chartId];
         delete state.exportState.inProgress[chartId];
         delete state.exportState.lastExported[chartId];
-        state.lastUpdated = new Date().toISOString();
+        state.lastUpdated = Date.now().toISOString();
       });
 
     // Fetch chart data
@@ -785,7 +785,7 @@ const chartSlice = createSlice({
       .addCase(exportChart.fulfilled, (state, action) => {
         const { chartId } = action.payload;
         state.exportState.inProgress[chartId] = false;
-        state.exportState.lastExported[chartId] = new Date().toISOString();
+        state.exportState.lastExported[chartId] = Date.now().toISOString();
       })
       .addCase(exportChart.rejected, (state, action) => {
         const chartId = action.meta.arg.chartId;

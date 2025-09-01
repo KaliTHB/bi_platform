@@ -49,7 +49,7 @@ export const oraclePlugin: DataSourcePlugin = {
       config,
       pool,
       isConnected: true,
-      lastActivity: new Date()
+      lastActivity: Date.now()
     };
   },
 
@@ -78,7 +78,7 @@ export const oraclePlugin: DataSourcePlugin = {
         defaultValue: null
       })) || [];
 
-      connection.lastActivity = new Date();
+      connection.lastActivity = Date.now();
       
       return {
         rows: result.rows || [],

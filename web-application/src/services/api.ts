@@ -146,6 +146,67 @@ export const datasetAPI = {
     return response.data;
   },
 
+  getColumns: async (datasetId: string): Promise<Array<{ name: string; type: string }>> => {
+    try {
+      // Use the existing getDatasetSchema method to get column information
+      const schemaResponse = await datasetAPI.getDatasetSchema(datasetId);
+      
+      if (schemaResponse.success && schemaResponse.schema && schemaResponse.schema.columns) {
+        // Convert schema columns to the expected format
+        return schemaResponse.schema.columns.map(column => ({
+          name: column.name,
+          type: column.type || 'string'
+        }));
+      }
+      
+      throw new Error('Failed to get columns from schema');
+    } catch (error: any) {
+      // Fallback: try to get columns from preview
+      try {
+        const previewResponse = await datasetAPI.previewDataset(datasetId, { limit: 1 });
+        
+        if (previewResponse.success && previewResponse.columns) {
+          return previewResponse.columns;
+        }
+        
+        throw new Error('Failed to get columns from preview');
+      } catch (previewError) {
+        console.error('Failed to get columns:', error, previewError);
+        throw new Error(`Unable to get columns for dataset ${datasetId}`);
+      }
+    }
+  },
+
+   // Get dataset preview
+  previewDataset: async (datasetId: string, params?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    success: boolean;
+    preview: any[];
+    columns: Array<{ name: string; type: string }>;
+    total_rows: number;
+    message?: string;
+  }> => {
+    let endpoint = `/datasets/${datasetId}/preview`;
+    
+    if (params) {
+      const queryParams = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          queryParams.append(key, value.toString());
+        }
+      });
+      
+      if (queryParams.toString()) {
+        endpoint += `?${queryParams.toString()}`;
+      }
+    }
+    
+    const response = await apiClient.get(endpoint);
+    return response.data;
+  },
+
   getDataset: async (datasetId: string): Promise<{ success: boolean; dataset: any; message?: string }> => {
     const response = await apiClient.get(`/datasets/${datasetId}`);
     return response.data;
@@ -567,7 +628,7 @@ export const webviewAPI = {
   }> => {
     const response = await apiClient.post(`/webviews/${webviewId}/activity`, {
       ...activity,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now().toISOString()
     });
     return response.data;
   }

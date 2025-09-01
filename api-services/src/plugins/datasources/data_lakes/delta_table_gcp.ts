@@ -34,7 +34,7 @@ export const deltaTableGCPPlugin: DataSourcePlugin = {
       config,
       client: { deltaPath: config.deltaTablePath },
       isConnected: true,
-      lastActivity: new Date()
+      lastActivity: Date.now()
     };
   },
 

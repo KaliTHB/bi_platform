@@ -38,7 +38,7 @@ export const CalendarHeatmap: React.FC<ChartProps> = ({
         dateField = 'date',
         valueField = 'value',
         colorScheme = 'Blues',
-        year = new Date().getFullYear()
+        year = Date.now().getFullYear()
       } = config as CalendarHeatmapConfig;
 
       // Get the actual data array

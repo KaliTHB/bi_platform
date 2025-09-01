@@ -121,7 +121,7 @@ const D3ChartRenderer: React.FC<ChartProps> = ({
       onError?.({
         code: 'D3_RENDER_ERROR',
         message: error instanceof Error ? error.message : 'Failed to render D3 chart',
-        timestamp: new Date()
+        timestamp: Date.now()
       });
     }
   }, [svgRef, scales, dimensions, config, theme, onError]);

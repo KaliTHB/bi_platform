@@ -108,7 +108,7 @@ export class AuditController {
       });
 
       res.setHeader('Content-Type', format === 'csv' ? 'text/csv' : 'application/json');
-      res.setHeader('Content-Disposition', `attachment; filename="audit-logs-${new Date().toISOString().split('T')[0]}.${format}"`);
+      res.setHeader('Content-Disposition', `attachment; filename="audit-logs-${Date.now().toISOString().split('T')[0]}.${format}"`);
       res.send(exportData);
     } catch (error) {
       console.error('Error exporting audit logs:', error);

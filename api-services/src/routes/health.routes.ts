@@ -54,7 +54,7 @@ interface ServiceHealth {
 router.get('/', asyncHandler(async (req: express.Request, res: express.Response) => {
   res.status(200).json({
     status: 'healthy',
-    timestamp: new Date().toISOString(),
+    timestamp: Date.now().toISOString(),
     service: 'bi-platform-api'
   });
 }));
@@ -65,7 +65,7 @@ router.get('/detailed', asyncHandler(async (req: express.Request, res: express.R
   
   const healthCheck: HealthCheck = {
     status: 'healthy',
-    timestamp: new Date().toISOString(),
+    timestamp: Date.now().toISOString(),
     version: process.env.npm_package_version || '1.0.0',
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development',
@@ -106,7 +106,7 @@ router.get('/ready', asyncHandler(async (req: express.Request, res: express.Resp
     if (dbHealth.status === 'unhealthy' || cacheHealth.status === 'unhealthy') {
       return res.status(503).json({
         status: 'not_ready',
-        timestamp: new Date().toISOString(),
+        timestamp: Date.now().toISOString(),
         services: {
           database: dbHealth,
           cache: cacheHealth
@@ -116,12 +116,12 @@ router.get('/ready', asyncHandler(async (req: express.Request, res: express.Resp
 
     res.status(200).json({
       status: 'ready',
-      timestamp: new Date().toISOString()
+      timestamp: Date.now().toISOString()
     });
   } catch (error) {
     res.status(503).json({
       status: 'not_ready',
-      timestamp: new Date().toISOString(),
+      timestamp: Date.now().toISOString(),
       error: error.message
     });
   }
@@ -132,7 +132,7 @@ router.get('/live', asyncHandler(async (req: express.Request, res: express.Respo
   // Simple check to ensure process is running
   res.status(200).json({
     status: 'alive',
-    timestamp: new Date().toISOString(),
+    timestamp: Date.now().toISOString(),
     pid: process.pid,
     uptime: process.uptime()
   });
@@ -141,7 +141,7 @@ router.get('/live', asyncHandler(async (req: express.Request, res: express.Respo
 // System metrics endpoint
 router.get('/metrics', asyncHandler(async (req: express.Request, res: express.Response) => {
   const metrics = {
-    timestamp: new Date().toISOString(),
+    timestamp: Date.now().toISOString(),
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     cpu: process.cpuUsage(),

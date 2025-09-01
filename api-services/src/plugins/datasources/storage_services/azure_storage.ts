@@ -44,7 +44,7 @@ export const azureStoragePlugin: DataSourcePlugin = {
       config,
       client: blobServiceClient,
       isConnected: true,
-      lastActivity: new Date()
+      lastActivity: Date.now()
     };
   },
 
@@ -91,7 +91,7 @@ export const azureStoragePlugin: DataSourcePlugin = {
             { name: 'etag', type: 'string', nullable: true, defaultValue: null }
           ];
 
-          connection.lastActivity = new Date();
+          connection.lastActivity = Date.now();
           
           return {
             rows: blobs,
@@ -106,7 +106,7 @@ export const azureStoragePlugin: DataSourcePlugin = {
           const downloadResponse = await blobClient.download();
           const content = await this.streamToBuffer(downloadResponse.readableStreamBody!);
           
-          connection.lastActivity = new Date();
+          connection.lastActivity = Date.now();
           
           return {
             rows: [{ name: operation.blobName, content: content.toString('utf-8') }],

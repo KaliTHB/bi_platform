@@ -116,7 +116,7 @@ export const formatTime = (
  */
 export const getTimeDifference = (
   start: Date | string | number,
-  end: Date | string | number = new Date()
+  end: Date | string | number = Date.now()
 ) => {
   const startTime = new Date(start).getTime();
   const endTime = new Date(end).getTime();
@@ -136,7 +136,7 @@ export const getTimeDifference = (
  * @returns Boolean indicating if date is today
  */
 export const isToday = (date: Date | string | number): boolean => {
-  const today = new Date();
+  const today = Date.now();
   const checkDate = new Date(date);
   
   return (
@@ -152,7 +152,7 @@ export const isToday = (date: Date | string | number): boolean => {
  * @returns Boolean indicating if date is yesterday
  */
 export const isYesterday = (date: Date | string | number): boolean => {
-  const yesterday = new Date();
+  const yesterday = Date.now();
   yesterday.setDate(yesterday.getDate() - 1);
   const checkDate = new Date(date);
   

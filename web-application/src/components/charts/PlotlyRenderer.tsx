@@ -66,7 +66,7 @@ const PlotlyRenderer: React.FC<ChartProps> = ({
       onError?.({
         code: 'PLOTLY_DATA_ERROR',
         message: error instanceof Error ? error.message : 'Failed to generate chart data',
-        timestamp: new Date()
+        timestamp: Date.now()
       });
       return [];
     }
@@ -428,7 +428,7 @@ const PlotlyRenderer: React.FC<ChartProps> = ({
         onError?.({
           code: 'PLOTLY_INIT_ERROR',
           message: error instanceof Error ? error.message : 'Failed to initialize Plotly chart',
-          timestamp: new Date()
+          timestamp: Date.now()
         });
       }
     };

@@ -75,7 +75,7 @@ export const useWebview = (webviewName: string) => {
             screen_resolution: `${window.screen.width}x${window.screen.height}`,
             browser: navigator.userAgent
           },
-          timestamp: new Date().toISOString()
+          timestamp: Date.now().toISOString()
         }
       });
     }
@@ -97,7 +97,7 @@ export const useWebview = (webviewName: string) => {
             screen_resolution: `${window.screen.width}x${window.screen.height}`,
             browser: navigator.userAgent
           },
-          timestamp: new Date().toISOString()
+          timestamp: Date.now().toISOString()
         }
       });
     }
@@ -119,7 +119,7 @@ export const useWebview = (webviewName: string) => {
             screen_resolution: `${window.screen.width}x${window.screen.height}`,
             browser: navigator.userAgent
           },
-          timestamp: new Date().toISOString()
+          timestamp: Date.now().toISOString()
         }
       });
     }

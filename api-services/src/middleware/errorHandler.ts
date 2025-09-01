@@ -116,7 +116,7 @@ export const errorHandler = (error: ApiError, req: Request, res: Response, next:
     error: {
       message: error.message,
       code,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now().toISOString()
     }
   };
 
@@ -175,7 +175,7 @@ export const notFoundHandler = (req: Request, res: Response) => {
     error: {
       message: `Route ${req.method} ${req.path} not found`,
       code: 'ROUTE_NOT_FOUND',
-      timestamp: new Date().toISOString()
+      timestamp: Date.now().toISOString()
     }
   });
 };

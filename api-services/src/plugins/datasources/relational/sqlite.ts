@@ -48,7 +48,7 @@ export const sqlitePlugin: DataSourcePlugin = {
       config,
       client: db,
       isConnected: true,
-      lastActivity: new Date()
+      lastActivity: Date.now()
     };
   },
 
@@ -89,7 +89,7 @@ export const sqlitePlugin: DataSourcePlugin = {
       });
     }
 
-    connection.lastActivity = new Date();
+    connection.lastActivity = Date.now();
     
     return {
       rows: Array.isArray(result) ? result : [],

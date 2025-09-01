@@ -53,7 +53,7 @@ export const snowflakePlugin: DataSourcePlugin = {
             config,
             client: conn,
             isConnected: true,
-            lastActivity: new Date()
+            lastActivity: Date.now()
           });
         }
       });
@@ -89,7 +89,7 @@ export const snowflakePlugin: DataSourcePlugin = {
               defaultValue: null
             }));
 
-            connection.lastActivity = new Date();
+            connection.lastActivity = Date.now();
             
             resolve({
               rows: rows || [],

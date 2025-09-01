@@ -114,7 +114,7 @@ describe('PluginController', () => {
         id: 'config-id',
         workspace_id: 'test-workspace-id',
         created_at: new Date(),
-        updated_at: new Date()
+        updated_at: Date.now()
       };
 
       mockPermissionService.prototype.hasPermission.mockResolvedValue(true);

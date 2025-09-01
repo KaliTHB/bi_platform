@@ -160,7 +160,7 @@ const ChartBuilderPage: React.FC<ChartBuilderPageProps> = ({
       tags: [],
       created_by: 'current-user', // Replace with actual user
       created_at: new Date(),
-      updated_at: new Date(),
+      updated_at: Date.now(),
       is_active: true
     };
 
@@ -185,7 +185,7 @@ const ChartBuilderPage: React.FC<ChartBuilderPageProps> = ({
       const updatedChart: Chart = {
         ...state.selectedChart,
         dataset_ids: [dataset.id],
-        updated_at: new Date()
+        updated_at: Date.now()
       };
 
       setState(prev => ({

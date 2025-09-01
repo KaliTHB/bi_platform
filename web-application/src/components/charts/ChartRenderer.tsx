@@ -74,7 +74,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
       ? {
           code: 'CHART_RENDER_ERROR',
           message: errorInfo,
-          timestamp: new Date()
+          timestamp: Date.now()
         }
       : errorInfo;
 

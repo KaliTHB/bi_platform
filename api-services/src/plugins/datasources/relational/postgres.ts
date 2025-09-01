@@ -22,7 +22,7 @@ class PostgreSQLConnection implements Connection {
       idleTimeoutMillis: 30000,
     });
     this.isConnected = false;
-    this.lastActivity = new Date();
+    this.lastActivity = Date.now();
   }
 }
 
@@ -83,7 +83,7 @@ export const PostgreSQLPlugin: DataSourcePlugin = {
       client.release();
       
       connection.isConnected = true;
-      connection.lastActivity = new Date();
+      connection.lastActivity = Date.now();
       
       return connection;
     } catch (error) {
@@ -126,7 +126,7 @@ export const PostgreSQLPlugin: DataSourcePlugin = {
       const result = await connection.client.query(query, params);
       const executionTime = Date.now() - startTime;
       
-      connection.lastActivity = new Date();
+      connection.lastActivity = Date.now();
       
       return {
         rows: result.rows,

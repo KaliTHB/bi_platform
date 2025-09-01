@@ -94,7 +94,7 @@ const createMockHealthData = (): SystemHealthData => ({
       status: 'running',
       uptime: '5d 12h 30m',
       uptime_seconds: 466200,
-      last_check: new Date().toISOString(),
+      last_check: Date.now().toISOString(),
       version: '1.0.0',
       port: 3001
     },
@@ -103,7 +103,7 @@ const createMockHealthData = (): SystemHealthData => ({
       status: 'running',
       uptime: '15d 8h 45m',
       uptime_seconds: 1334700,
-      last_check: new Date().toISOString(),
+      last_check: Date.now().toISOString(),
       version: '15.3',
       port: 5432
     },
@@ -112,7 +112,7 @@ const createMockHealthData = (): SystemHealthData => ({
       status: 'running',
       uptime: '12d 20h 15m',
       uptime_seconds: 1115700,
-      last_check: new Date().toISOString(),
+      last_check: Date.now().toISOString(),
       version: '7.2.0',
       port: 6379
     },
@@ -121,7 +121,7 @@ const createMockHealthData = (): SystemHealthData => ({
       status: 'running',
       uptime: '3d 6h 20m',
       uptime_seconds: 283200,
-      last_check: new Date().toISOString()
+      last_check: Date.now().toISOString()
     }
   ],
   database: {
@@ -142,7 +142,7 @@ const createMockHealthData = (): SystemHealthData => ({
     expired_keys: 0
   },
   alerts: [],
-  last_updated: new Date().toISOString(),
+  last_updated: Date.now().toISOString(),
   uptime: 2592000, // 30 days
   version: '1.0.0'
 });
@@ -196,7 +196,7 @@ export const useSystemHealth = (workspaceId?: string) => {
         database: data.database || createMockHealthData().database,
         cache: data.cache || createMockHealthData().cache,
         alerts: data.alerts || [],
-        last_updated: data.last_updated || new Date().toISOString(),
+        last_updated: data.last_updated || Date.now().toISOString(),
         uptime: data.uptime || 0,
         version: data.version || '1.0.0'
       };

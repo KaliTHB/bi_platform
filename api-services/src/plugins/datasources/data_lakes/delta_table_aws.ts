@@ -27,7 +27,7 @@ export const deltaTableAWSPlugin: DataSourcePlugin = {
       config,
       client: { s3Path: config.s3Path },
       isConnected: true,
-      lastActivity: new Date()
+      lastActivity: Date.now()
     };
   },
 

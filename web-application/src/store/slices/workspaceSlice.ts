@@ -406,7 +406,7 @@ const workspaceSlice = createSlice({
           state.members[memberIndex] = castDraft({
             ...state.members[memberIndex],
             role_ids: roleIds,
-            updated_at: new Date().toISOString()
+            updated_at: Date.now().toISOString()
           });
         }
       })

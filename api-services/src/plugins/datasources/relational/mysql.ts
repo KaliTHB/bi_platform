@@ -23,7 +23,7 @@ class MySQLConnection implements Connection {
       timeout: 60000,
     });
     this.isConnected = false;
-    this.lastActivity = new Date();
+    this.lastActivity = Date.now();
   }
 }
 
@@ -82,7 +82,7 @@ export const MySQLPlugin: DataSourcePlugin = {
       const [rows] = await connection.client.execute('SELECT 1 as test');
       
       connection.isConnected = true;
-      connection.lastActivity = new Date();
+      connection.lastActivity = Date.now();
       
       return connection;
     } catch (error) {
@@ -123,7 +123,7 @@ export const MySQLPlugin: DataSourcePlugin = {
       const [rows, fields] = await connection.client.execute(query, params);
       const executionTime = Date.now() - startTime;
       
-      connection.lastActivity = new Date();
+      connection.lastActivity = Date.now();
       
       return {
         rows: rows as any[],

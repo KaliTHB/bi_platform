@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { ensureMutable } from '@/plugins/charts/utils/chartDataUtils';
 import {
   Drawer,
   Box,
@@ -147,19 +148,19 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
 
   // Initialize config when chart changes
   useEffect(() => {
-    if (chart) {
-      setConfig({
-        ...chart,
-        config_json: {
-          ...createDefaultChartConfig(),
-          ...chart.config_json
-        }
-      });
-    } else {
-      setConfig(null);
-    }
-    setValidationErrors([]);
-  }, [chart, createDefaultChartConfig]);
+  if (chart) {
+    setConfig({
+      ...chart,
+      config_json: {
+        ...chart.config_json,
+        // Use the utility function to ensure mutable arrays
+        colors: ensureMutable(chart.config_json?.colors as string[] | readonly string[] | undefined),
+        // Apply to other array fields as needed
+        series: chart.config_json?.series ? [...chart.config_json.series] : undefined
+      }
+    });
+  }
+}, [chart]);
 
   // Load dataset columns when chart dataset changes
   useEffect(() => {
@@ -320,8 +321,14 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
           <TextField
             fullWidth
             label="Chart Title"
-            value={config.config_json?.title?.text || ''}
-            onChange={(e) => handleConfigChange('config_json.title.text', e.target.value)}
+            value={(config.config_json?.title as any)?.text || config.config_json?.title || ''}
+            onChange={(e) => {
+  if (typeof config.config_json?.title === 'object') {
+    handleConfigChange('config_json.title.text', e.target.value);
+  } else {
+    handleConfigChange('config_json.title', { text: e.target.value });
+  }
+}}
           />
 
           <TextField
@@ -578,7 +585,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
           <FormControl fullWidth>
             <InputLabel>Orientation</InputLabel>
             <Select
-              value={config.config_json?.legend?.orientation || 'horizontal'}
+              value={config.config_json?.legend?.orient || 'horizontal'}
               onChange={(e) => handleConfigChange('config_json.legend.orientation', e.target.value)}
             >
               <MenuItem value="horizontal">Horizontal</MenuItem>
@@ -627,7 +634,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
               Color Palette
             </Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-              {(config.config_json?.colors || []).map((color, index) => (
+              {(Array.isArray(config.config_json?.colors) ? config.config_json?.colors : []).map((color, index) => (
                 <Box
                   key={index}
                   sx={{
@@ -721,7 +728,11 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
             <DialogTitle>Choose Color</DialogTitle>
             <DialogContent>
               <SketchPicker
-                color={config.config_json?.colors?.[parseInt(key.split('.')[1])] || '#3b82f6'}
+                color={
+  Array.isArray(config.config_json?.colors) 
+    ? config.config_json.colors[parseInt(key.split('.')[1])] || '#3b82f6'
+    : '#3b82f6'
+}
                 onChange={(color) => handleColorChange(key, color)}
               />
             </DialogContent>
