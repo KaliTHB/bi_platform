@@ -22,6 +22,7 @@ export interface WorkspaceSettings {
   language?: string;
   max_query_timeout?: number;
   max_export_rows?: number;
+  currency?: string;
   features?: {
     sql_editor?: boolean;
     dashboard_builder?: boolean;

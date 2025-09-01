@@ -58,7 +58,16 @@ export interface DashboardConfiguration {
     cache_duration: number;
   };
 }
-
+// Dashboard with Charts - for detailed dashboard views
+export interface DashboardWithCharts extends Dashboard {
+  charts: Chart[];
+  category?: {
+    id: string;
+    name: string;
+    color?: string;
+    icon?: string;
+  };
+}
 export interface DashboardTab {
   id: string;
   name: string;

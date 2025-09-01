@@ -55,36 +55,62 @@ export const WorkspaceSwitcher: React.FC = () => {
   // Transform workspace from auth format to workspace format
   const transformWorkspace = (authWorkspace: AuthWorkspace): Workspace => {
     // Provide default settings if missing
-    const defaultSettings: WorkspaceSettings = {
-      theme: 'light',
-      timezone: 'UTC',
-      date_format: 'YYYY-MM-DD',
-      number_format: 'en-US',
-      language: 'en',
-      max_query_timeout: 300,
-      max_export_rows: 10000,
-      features: {
-        sql_editor: true,
-        dashboard_builder: true,
-        data_exports: true,
-        api_access: false,
-        webhooks: false,
-      },
-    };
+  const defaultSettings: WorkspaceSettings = {
+    theme: 'light',
+    timezone: 'UTC',
+    date_format: 'YYYY-MM-DD',
+    number_format: 'en-US',
+    language: 'en',
+    max_query_timeout: 300,
+    max_export_rows: 10000,
+    features: {
+      sql_editor: true,
+      dashboard_builder: true,
+      data_exports: true,
+      api_access: false,
+      webhooks: false,
+    },
+  };
 
-    return {
-      id: authWorkspace.id,
-      name: authWorkspace.name,
-      slug: authWorkspace.slug,
-      description: authWorkspace.description,
-      logo_url: authWorkspace.logo_url,
-      settings: authWorkspace.settings || defaultSettings,
-      is_active: authWorkspace.is_active ?? true,
-      created_at: authWorkspace.created_at,
-      updated_at: authWorkspace.updated_at,
-      user_roles: [],
-      highest_role_level: 0,
-    };
+  // Helper function to validate and transform date format
+  const validateDateFormat = (format: string | undefined): 'YYYY-MM-DD' | 'MM/DD/YYYY' | 'DD/MM/YYYY' | undefined => {
+    if (!format) return undefined;
+    
+    const validFormats: ('YYYY-MM-DD' | 'MM/DD/YYYY' | 'DD/MM/YYYY')[] = [
+      'YYYY-MM-DD', 
+      'MM/DD/YYYY', 
+      'DD/MM/YYYY'
+    ];
+    
+    return validFormats.includes(format as any) ? format as any : 'YYYY-MM-DD';
+  };
+
+  // Transform auth settings to workspace settings
+  const transformedSettings: WorkspaceSettings = authWorkspace.settings ? {
+    theme: authWorkspace.settings.theme,
+    timezone: authWorkspace.settings.timezone,
+    date_format: validateDateFormat(authWorkspace.settings.date_format),
+    number_format: authWorkspace.settings.number_format,
+    language: authWorkspace.settings.language,
+    currency: authWorkspace.settings.currency,
+    max_query_timeout: authWorkspace.settings.max_query_timeout,
+    max_export_rows: authWorkspace.settings.max_export_rows,
+    features: authWorkspace.settings.features,
+  } : defaultSettings;
+
+     return {
+    id: authWorkspace.id,
+    name: authWorkspace.name,
+    slug: authWorkspace.slug,
+    description: authWorkspace.description,
+    logo_url: authWorkspace.logo_url,
+    settings: transformedSettings,
+    is_active: authWorkspace.is_active ?? true,
+    created_at: authWorkspace.created_at,
+    updated_at: authWorkspace.updated_at,
+    user_roles: [],
+    highest_role_level: 0,
+  };
   };
 
   const handleWorkspaceSwitch = (authWorkspace: AuthWorkspace) => {

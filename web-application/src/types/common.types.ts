@@ -15,6 +15,25 @@ export type Locale = 'en-US' | 'en-GB' | 'es-ES' | 'fr-FR' | 'de-DE' | 'ja-JP' |
 
 export type Currency = 'USD' | 'EUR' | 'GBP' | 'JPY' | 'CNY' | 'CAD' | 'AUD' | 'CHF' | 'SEK' | 'NOK' | 'DKK';
 
+
+export interface BaseWorkspaceSettings {
+  theme?: 'light' | 'dark' | 'auto';
+  timezone?: string;
+  date_format?: 'YYYY-MM-DD' | 'MM/DD/YYYY' | 'DD/MM/YYYY';
+  number_format?: string;
+  language?: string;
+  currency?: string;
+  max_query_timeout?: number;
+  max_export_rows?: number;
+  features?: {
+    sql_editor?: boolean;
+    dashboard_builder?: boolean;
+    data_exports?: boolean;
+    api_access?: boolean;
+    webhooks?: boolean;
+  };
+}
+
 // Base entity interface
 export interface BaseEntity {
   id: string;
