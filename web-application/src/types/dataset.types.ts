@@ -83,6 +83,60 @@ export interface DatasetRelationship {
   name?: string;
 }
 
+export interface ColumnDefinition {
+  name: string;
+  display_name?: string;
+  data_type: string;
+  is_nullable: boolean;
+  is_primary_key: boolean;
+  default_value?: any;
+  description?: string;
+  format_hint?: string;
+}
+
+// Add the alias RIGHT AFTER the ColumnDefinition interface
+export type DatasetColumn = ColumnDefinition;
+
+// Interface for what Redux state expects
+export interface DatasetQueryResult {
+  data: any[];
+  columns: ColumnDefinition[];
+  total_rows: number;
+  execution_time: number;
+  cached: boolean;
+  query_id?: string;
+}
+
+// Interface for what API actually returns
+export interface DatasetQueryApiResponse {
+  data: any[];
+  columns: Array<{ name: string; type: string; display_name?: string; }>;
+  total_rows: number;
+  execution_time: number;
+  cached: boolean;
+  query_id?: string;
+}
+
+// Converter function
+export function convertApiResponseToQueryResult(apiResponse: DatasetQueryApiResponse): DatasetQueryResult {
+  return {
+    data: apiResponse.data,
+    columns: apiResponse.columns.map(col => ({
+      name: col.name,
+      display_name: col.display_name || col.name,
+      data_type: col.type,
+      is_nullable: true,
+      is_primary_key: false,
+      default_value: null,
+      description: undefined,
+      format_hint: undefined
+    })),
+    total_rows: apiResponse.total_rows,
+    execution_time: apiResponse.execution_time,
+    cached: apiResponse.cached,
+    query_id: apiResponse.query_id
+  };
+}
 export interface RefreshSchedule {
   enabled: boolean;
   cron_expression: string;

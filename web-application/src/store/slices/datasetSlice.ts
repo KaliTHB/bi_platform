@@ -1,8 +1,9 @@
 // web-application/src/store/slices/datasetSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import { Dataset, DatasetColumn, TransformationConfig } from '../../types/dataset.types';
+import { Dataset, DatasetColumn, TransformationConfig,convertApiResponseToQueryResult ,DatasetQueryApiResponse} from '../../types/dataset.types';
 import { datasetAPI } from '../../services/api';
-
+ // Usage in your datasetSlice.ts:
+import { mapApiColumnsToColumnDefinitions } from '../../utils/columnMapper';
 interface DatasetQueryResult {
   data: any[];
   columns: DatasetColumn[];
@@ -383,7 +384,7 @@ const datasetSlice = createSlice({
       .addCase(queryDataset.fulfilled, (state, action) => {
         state.querying = false;
         const { queryId, result } = action.payload;
-        state.queryResults[queryId] = result;
+        state.queryResults[queryId] = convertApiResponseToQueryResult(result as DatasetQueryApiResponse);
         state.lastUpdated = new Date().toISOString();
       })
       .addCase(queryDataset.rejected, (state, action) => {
@@ -398,12 +399,12 @@ const datasetSlice = createSlice({
         state.preview.loading = true;
         state.preview.error = null;
       })
-      .addCase(testDataset.fulfilled, (state, action) => {
-        state.testing = false;
-        state.preview.loading = false;
-        state.preview.data = action.payload.preview;
-        state.preview.columns = action.payload.columns;
-      })
+     .addCase(testDataset.fulfilled, (state, action) => {
+  state.testing = false;
+  state.preview.loading = false;
+  state.preview.data = action.payload.preview;
+  state.preview.columns = mapApiColumnsToColumnDefinitions(action.payload.columns);
+})
       .addCase(testDataset.rejected, (state, action) => {
         state.testing = false;
         state.preview.loading = false;

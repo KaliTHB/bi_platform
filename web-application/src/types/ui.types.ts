@@ -90,7 +90,7 @@ export interface FilterOption {
   key: string;
   label: string;
   type: 'text' | 'select' | 'multiselect' | 'date' | 'daterange' | 'number' | 'numberrange' | 'boolean';
-  options?: Array<{ label: string; value: any }>;
+  options?: ReadonlyArray<{ label: string; value: any }>;
   placeholder?: string;
   defaultValue?: any;
 }

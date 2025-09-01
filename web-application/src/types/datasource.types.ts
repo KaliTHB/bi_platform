@@ -49,7 +49,7 @@ export interface SchemaProperty {
   maxLength?: number;
   pattern?: string;
   options?: Array<{ label: string; value: any } | string>;
-  enum?: any[];
+  enum?: readonly any[];
   validation?: {
     pattern?: string;
     min?: number;

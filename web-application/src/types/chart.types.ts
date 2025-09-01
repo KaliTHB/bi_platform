@@ -207,32 +207,9 @@ export interface ColumnDefinition {
   format?: string;
 }
 
-export interface ColumnInfo {
-  name: string;
-  type: 'string' | 'number' | 'date' | 'boolean';
-  displayName?: string;
-  nullable?: boolean;
-  unique?: boolean;
-  sampleValues?: readonly any[];
-}
-
 // =============================================================================
 // Chart Configuration Interfaces (Alternative/Legacy)
 // =============================================================================
-
-export interface ChartConfiguration {
-  title?: string;
-  subtitle?: string;
-  xAxis?: AxisConfiguration;
-  yAxis?: AxisConfiguration;
-  series?: readonly SeriesConfiguration[];
-  colors?: readonly string[];
-  legend?: LegendConfiguration;
-  tooltip?: TooltipConfiguration;
-  animation?: AnimationConfiguration;
-  interactions?: InteractionConfiguration;
-  [key: string]: any;
-}
 
 export interface AxisConfiguration {
   title?: string;
@@ -365,14 +342,14 @@ export interface ChartConfigSchema {
       default?: any;
       title?: string;
       description?: string;
-      options?: Array<{ label: string; value: any }>; // No readonly requirement
+      options?: ReadonlyArray<{ label: string; value: any }>; // No readonly requirement
       minimum?: number;
       maximum?: number;
       items?: {
         type: string;
         title?: string;
       };
-      enum?: any[]; // No readonly requirement
+      enum?: readonly any[]; // No readonly requirement
       format?: string;
       minItems?: number;
       maxItems?: number;
@@ -439,7 +416,7 @@ export interface SchemaProperty {
   minimum?: number;
   maximum?: number;
   required?: boolean;
-  options?: readonly Array<{ label: string; value: any }>;
+  options?: ReadonlyArray<{ label: string; value: any }>;
   properties?: Record<string, SchemaProperty>;
 }
 
@@ -510,7 +487,7 @@ export interface ChartConfiguration {
   xAxis?: AxisConfiguration;
   yAxis?: AxisConfiguration;
   series?: SeriesConfiguration[];
-  colors?: string[];
+  colors?: readonly string[];
   legend?: LegendConfiguration;
   tooltip?: TooltipConfiguration;
   animation?: AnimationConfiguration;
@@ -573,7 +550,7 @@ export interface ChartTheme {
   backgroundColor?: string;
   textColor?: string;
   gridColor?: string;
-  colors?: string[];
+  colors?: readonly string[];
   fontSize?: number;
   fontFamily?: string;
   borderRadius?: number;
@@ -665,11 +642,11 @@ export interface SchemaProperty {
   title: string;
   description?: string;
   default?: any;
-  enum?: any[];
+  enum?: readonly any[];
   minimum?: number;
   maximum?: number;
   required?: boolean;
-  options?: Array<{ label: string; value: any }>;
+  options?: ReadonlyArray<{ label: string; value: any }>;
   properties?: Record<string, SchemaProperty>;
 }
 
@@ -700,11 +677,11 @@ export interface SchemaProperty {
   title: string;
   description?: string;
   default?: any;
-  enum?: any[]; // No readonly requirement
+  enum?: readonly any[]; // No readonly requirement
   minimum?: number;
   maximum?: number;
   required?: boolean;
-  options?: Array<{ label: string; value: any }>; // No readonly requirement
+  options?: ReadonlyArray<{ label: string; value: any }>; // No readonly requirement
   properties?: Record<string, SchemaProperty>;
 }
 

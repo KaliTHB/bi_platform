@@ -1,7 +1,8 @@
-// File: web-application/src/store/slices/categorySlice.ts
+// Complete fixed version of your categorySlice.ts
 
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { createSlice, PayloadAction } from '@reduxjs/toolkit'; // ✅ Add castDraft import
 import { DashboardCategory, CategoryWithDashboards } from '../../types';
+import { castDraft } from "immer";
 
 interface CategoryState {
   categories: DashboardCategory[];
@@ -30,31 +31,33 @@ const categorySlice = createSlice({
       state.error = action.payload;
     },
     setCategories: (state, action: PayloadAction<DashboardCategory[]>) => {
-      state.categories = action.payload;
+      state.categories = castDraft(action.payload); // ✅ FIXED
     },
     setCategoriesWithDashboards: (state, action: PayloadAction<CategoryWithDashboards[]>) => {
-      state.categoriesWithDashboards = action.payload;
-    },
+  state.categoriesWithDashboards = castDraft(action.payload);
+},
     setCurrentCategory: (state, action: PayloadAction<DashboardCategory | null>) => {
-      state.currentCategory = action.payload;
+      state.currentCategory = action.payload ? castDraft(action.payload) : null; // ✅ FIXED
     },
     addCategory: (state, action: PayloadAction<DashboardCategory>) => {
-      state.categories.push(action.payload);
+      state.categories.push(castDraft(action.payload)); // ✅ FIXED
     },
     updateCategory: (state, action: PayloadAction<DashboardCategory>) => {
       const index = state.categories.findIndex(c => c.id === action.payload.id);
       if (index !== -1) {
-        state.categories[index] = action.payload;
+        state.categories[index] = castDraft(action.payload); // ✅ FIXED
       }
     },
     removeCategory: (state, action: PayloadAction<string>) => {
       state.categories = state.categories.filter(c => c.id !== action.payload);
       state.categoriesWithDashboards = state.categoriesWithDashboards.filter(c => c.id !== action.payload);
+      // ✅ Filter operations work fine as they create new arrays
     },
     clearCategories: (state) => {
       state.categories = [];
       state.categoriesWithDashboards = [];
       state.currentCategory = null;
+      // ✅ Direct assignment of primitives and empty arrays works fine
     },
   },
 });

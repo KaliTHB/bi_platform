@@ -96,9 +96,9 @@ export type {
   DashboardFilter,
   Chart,
   ChartConfiguration,
+  DashboardWithCharts, // Add this line
   ChartType,
   Dataset,
-  DatasetColumn,
   TransformationConfig,
   TransformationStep,
   DataSource,
@@ -236,3 +236,36 @@ export type { Workspace as WorkspaceType } from './workspace.types';
 export type { DashboardCategory as Category } from './category.types';
 
 export type { ChartPreviewProps } from './chart.types';
+
+// =============================================================================
+// Dataset System Types  
+// =============================================================================
+export type {
+  Dataset,
+  DatasetColumn,        // This should come from dataset.types, not dashboard.types
+  ColumnDefinition,
+  TransformationStage,
+  CalculatedColumn,
+  Measure,
+  DatasetRelationship,
+  RefreshSchedule,
+  CreateDatasetRequest,
+  UpdateDatasetRequest,
+  DatasetSchema,
+  DatasetPreview,
+  QueryTestResult,
+  //ValidationResult,
+  //ValidationError,
+  ValidationWarning,
+  RefreshResult,
+  CacheInfo,
+  DatasetAccess,
+  DatasetPermission,
+  //TransformationConfig,
+  //ValidationRule,
+  ExportConfig,
+  ExportResult,
+  DatasetQueryResult,
+  DatasetQueryApiResponse,
+  convertApiResponseToQueryResult
+} from './dataset.types';

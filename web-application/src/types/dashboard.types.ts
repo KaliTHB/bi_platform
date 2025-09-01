@@ -58,7 +58,11 @@ export interface DashboardConfiguration {
     cache_duration: number;
   };
 }
-// Dashboard with Charts - for detailed dashboard views
+
+
+// Add these interfaces to your ./src/types/dashboard.types.ts file
+
+// Extended dashboard interface with related data
 export interface DashboardWithCharts extends Dashboard {
   charts: Chart[];
   category?: {
@@ -67,6 +71,122 @@ export interface DashboardWithCharts extends Dashboard {
     color?: string;
     icon?: string;
   };
+  created_by_name?: string;
+}
+
+// Request interfaces for dashboard operations
+export interface CreateDashboardRequest {
+  name: string;
+  display_name?: string;
+  description?: string;
+  category_id?: string;
+  slug?: string;
+  config_json?: DashboardConfiguration;
+  tabs?: DashboardTab[];
+  global_filters?: GlobalFilter[];
+  filter_connections?: FilterConnection[];
+  theme_config?: DashboardTheme;
+  layout_config?: LayoutConfiguration;
+  responsive_settings?: ResponsiveSettings;
+  status?: 'draft' | 'published' | 'archived';
+  is_public?: boolean;
+  is_featured?: boolean;
+  tags?: string[];
+  
+  // Legacy support
+  layout?: DashboardLayout;
+  filter_config?: any;
+}
+
+export interface UpdateDashboardRequest {
+  name?: string;
+  display_name?: string;
+  description?: string;
+  category_id?: string;
+  slug?: string;
+  config_json?: DashboardConfiguration;
+  tabs?: DashboardTab[];
+  global_filters?: GlobalFilter[];
+  filter_connections?: FilterConnection[];
+  theme_config?: DashboardTheme;
+  layout_config?: LayoutConfiguration;
+  responsive_settings?: ResponsiveSettings;
+  status?: 'draft' | 'published' | 'archived';
+  is_public?: boolean;
+  is_featured?: boolean;
+  sort_order?: number;
+  tags?: string[];
+  
+  // Legacy support
+  layout?: DashboardLayout;
+  filter_config?: any;
+}
+
+export interface DuplicateDashboardRequest {
+  name: string;
+  description?: string;
+  target_workspace_id?: string;
+  copy_charts?: boolean;
+  copy_permissions?: boolean;
+  category_id?: string;
+  status?: 'draft' | 'published';
+  is_public?: boolean;
+  tags?: string[];
+}
+
+// Additional missing types that are exported from index.ts
+export type ChartType = 
+  | 'line' 
+  | 'bar' 
+  | 'pie' 
+  | 'scatter' 
+  | 'area' 
+  | 'column' 
+  | 'donut' 
+  | 'gauge' 
+  | 'funnel' 
+  | 'treemap' 
+  | 'heatmap' 
+  | 'histogram' 
+  | 'boxplot' 
+  | 'radar' 
+  | 'sankey' 
+  | 'waterfall' 
+  | 'candlestick'
+  | 'table'
+  | 'metric'
+  | 'text'
+  | 'custom';
+
+// Alias for ColumnInfo to match index.ts exports
+export type DatasetColumn = ColumnInfo;
+
+// SQL Query related interfaces
+export interface SqlQuery {
+  id: string;
+  name?: string;
+  query: string;
+  parameters?: Record<string, any>;
+  datasource_id: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface QueryExecution {
+  id: string;
+  query_id?: string;
+  query_text: string;
+  parameters?: Record<string, any>;
+  datasource_id: string;
+  executed_by: string;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  started_at: string;
+  completed_at?: string;
+  execution_time_ms?: number;
+  rows_returned?: number;
+  error_message?: string;
+  result_data?: QueryResult;
 }
 export interface DashboardTab {
   id: string;
@@ -178,7 +298,7 @@ export interface DashboardFilter {
   type: 'select' | 'multiselect' | 'date' | 'daterange' | 'text' | 'number';
   field: string;
   default_value?: any;
-  options?: Array<{ label: string; value: any }>;
+  options?: ReadonlyArray<{ label: string; value: any }>;
   required: boolean;
 }
 
