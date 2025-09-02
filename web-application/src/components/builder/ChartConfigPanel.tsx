@@ -145,7 +145,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
   
   // Use dataColumns from props or fetch from datasets
    const effectiveDataColumns = dataColumns.length > 0 ? dataColumns : derivedColumns;
-   
+
   // Initialize config when chart changes
   useEffect(() => {
   if (chart) {
@@ -247,7 +247,9 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
     }
 
     setValidationErrors([]);
-    onSave(config);
+    if (onSave) {
+      onSave(config);
+    }
   }, [config, onSave]);
 
   // Color picker handlers

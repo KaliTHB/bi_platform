@@ -49,7 +49,7 @@ import {
 import { Responsive, WidthProvider } from 'react-grid-layout';
 
 // API Services
-import { dashboardAPI, datasetAPI } from '../../services/api';
+import { dashboardAPI, datasetAPI } from '@/services/index';
 
 // Components
 import ChartContainer from '../dashboard/ChartContainer';
@@ -58,7 +58,7 @@ import ChartContainer from '../dashboard/ChartContainer';
 import type { 
   Dashboard as DashboardType, 
   Dataset as DatasetType
-} from '../../types/dashboard.types';
+} from '@/types/index';
 
 // Utils
 import {
@@ -188,7 +188,7 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
             }
             
             // Generate grid layout
-            const gridLayout = generateGridLayout(builderCharts);
+            const gridLayout = generateGridLayout(charts);
             setLayouts({ lg: gridLayout });
             
           } catch (error) {
@@ -200,12 +200,12 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
         // Load datasets
         try {
           const datasetsData = await datasetAPI.getDatasets(currentWorkspace.id);
-          if (datasetsData?.data) {
-            setDatasets(datasetsData.data);
-          } else {
-            setDatasets([]);
-            showError('No datasets available. Please create a dataset first.');
-          }
+            if (datasetsData?.datasets) {
+              setDatasets(datasetsData.datasets);
+            } else {
+              setDatasets([]);
+              showError('No datasets available. Please create a dataset first.');
+            }
         } catch (error) {
           console.error('Failed to load datasets:', error);
           setDatasets([]);
@@ -280,8 +280,8 @@ const DashboardBuilder: React.FC<DashboardBuilderProps> = ({
         showSuccess('Dashboard updated successfully');
       } else {
         const newDashboard = await dashboardAPI.createDashboard(dashboardData);
-        setDashboard(newDashboard);
-        router.replace(`/workspace/${currentWorkspace.slug}/dashboard-builder?id=${newDashboard.id}`);
+        setDashboard(newDashboard.dashboard);
+        router.replace(`/workspace/${currentWorkspace.slug}/dashboard-builder?id=${newDashboard.dashboard.id}`);
         showSuccess('Dashboard created successfully');
       }
     } catch (error) {
