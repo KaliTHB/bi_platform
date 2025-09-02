@@ -3,6 +3,7 @@
 
 import React from 'react';
 
+import {ColumnDefinition, Dataset } from '@/types/dataset.types';
 // =============================================================================
 // Core Chart Interfaces
 // =============================================================================
@@ -570,10 +571,10 @@ export interface ChartData {
   chartId: string;
   data: any[];
   columns: ColumnInfo[];
-  metadata: ChartDataMetadata;
+  metadata: ChartMetadata;
 }
 
-export interface ChartDataMetadata {
+export interface ChartMetadata {
   totalRows: number;
   executionTime: number;
   chartType: string;
@@ -1041,7 +1042,7 @@ export interface ChartContainerProps {
  */
 export interface ChartData {
   data: any[];
-  columns: ChartColumn[];
+  columns: ColumnInfo[];
   execution_time: number;
   metadata: ChartMetadata;
   query?: string;
@@ -1244,3 +1245,31 @@ export const isValidChartType = (type: string): type is ChartType => {
   ];
   return validTypes.includes(type as ChartType);
 };
+
+
+// =============================================================================
+// Chart Builder Interface
+// =============================================================================
+
+export interface ChartBuilderState {
+  // Chart Configuration
+  chart: Partial<Chart> | null;
+  chartConfiguration: ChartConfiguration | null;
+  
+  // Data Management
+  availableDatasets: Partial<Dataset>[]; // Changed from Dataset[] to Partial<Dataset>[]
+  selectedDatasetId: string | undefined;
+  chartData: any[] | null;
+  dataColumns: ColumnDefinition[];
+  
+  // UI State
+  activeStep: 'dataset' | 'query' | 'chart' | 'config' | 'preview';
+  loading: boolean;
+  queryLoading: boolean;
+  error: string | null;
+  
+  // Preview & Save
+  previewDimensions: ChartDimensions;
+  showPreview: boolean;
+  isDirty: boolean;
+}

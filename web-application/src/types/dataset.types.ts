@@ -19,12 +19,12 @@ export interface Dataset {
   schema_json: DatasetSchema;
   metadata_json: Record<string, any>;
   cache_ttl: number;
-  last_refreshed?: Date;
   row_count?: number;
   is_active: boolean;
   created_by: string;
-  created_at: Date;
-  updated_at: Date;
+  created_at: string | Date; // Allow both types
+  updated_at: string | Date;
+  last_refreshed?: string | Date;
   version: number;
 }
 

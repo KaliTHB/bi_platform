@@ -1,7 +1,7 @@
 // web-application/src/components/builder/AnalyticsPanel.tsx
 
 import React from "react";
-import type { Dataset } from "@/types/dashboard.types";
+import type { Dataset } from "@/types/index";
 
 interface AnalyticsPanelProps {
   datasets?: Dataset[];

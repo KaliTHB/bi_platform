@@ -323,20 +323,6 @@ export interface ChartConfiguration {
   filters?: QueryFilter[];
 }
 
-export interface Dataset {
-  id: string;
-  name: string;
-  description?: string;
-  query: string;
-  data_source_id: string;
-  transformation_config?: TransformationConfig;
-  cache_ttl: number;
-  workspace_id: string;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface TransformationConfig {
   steps: TransformationStep[];
   output_schema?: ColumnInfo[];

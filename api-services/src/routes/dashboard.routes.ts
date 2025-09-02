@@ -11,6 +11,7 @@ const dashboardController = new DashboardController();
 // Apply authentication to all routes
 router.use(authenticate);
 
+// ✅ EXISTING ROUTES
 // Get all dashboards in workspace
 router.get('/',
   validateWorkspaceAccess,
@@ -60,13 +61,67 @@ router.get('/:id/charts',
   asyncHandler(dashboardController.getDashboardCharts.bind(dashboardController))
 );
 
+// 🚀 NEW ROUTES - CRITICAL CACHE & FILTER OPERATIONS
+
+// Get dashboard data with caching and filtering support
+router.get('/:id/data',
+  validateWorkspaceAccess,
+  requireWorkspaceRole(['viewer', 'analyst', 'editor', 'admin', 'owner']),
+  asyncHandler(dashboardController.getDashboardData.bind(dashboardController))
+);
+
+// Refresh dashboard cache
+router.post('/:id/refresh',
+  validateWorkspaceAccess,
+  requireWorkspaceRole(['viewer', 'analyst', 'editor', 'admin', 'owner']),
+  asyncHandler(dashboardController.refreshDashboard.bind(dashboardController))
+);
+
+// Apply global filter to dashboard
+router.post('/:id/filter',
+  validateWorkspaceAccess,
+  requireWorkspaceRole(['viewer', 'analyst', 'editor', 'admin', 'owner']),
+  asyncHandler(dashboardController.applyGlobalFilter.bind(dashboardController))
+);
+
 // Export dashboard
-router.get('/:id/export',
+router.post('/:id/export',
   validateWorkspaceAccess,
   requireWorkspaceRole(['viewer', 'analyst', 'editor', 'admin', 'owner']),
   asyncHandler(dashboardController.exportDashboard.bind(dashboardController))
 );
 
+// 🔧 ADDITIONAL UTILITY ROUTES
+
+// Update dashboard layout
+router.put('/:id/layout',
+  validateWorkspaceAccess,
+  requireWorkspaceRole(['editor', 'admin', 'owner']),
+  asyncHandler(dashboardController.updateDashboardLayout.bind(dashboardController))
+);
+
+// Update dashboard filters
+router.put('/:id/filters',
+  validateWorkspaceAccess,
+  requireWorkspaceRole(['editor', 'admin', 'owner']),
+  asyncHandler(dashboardController.updateDashboardFilters.bind(dashboardController))
+);
+
+// Clear dashboard cache
+router.post('/:id/cache/clear',
+  validateWorkspaceAccess,
+  requireWorkspaceRole(['editor', 'admin', 'owner']),
+  asyncHandler(dashboardController.clearDashboardCache.bind(dashboardController))
+);
+
+// Get dashboard cache status
+router.get('/:id/cache/status',
+  validateWorkspaceAccess,
+  requireWorkspaceRole(['viewer', 'analyst', 'editor', 'admin', 'owner']),
+  asyncHandler(dashboardController.getDashboardCacheStatus.bind(dashboardController))
+);
+
+// ✅ EXISTING ROUTES (CONTINUED)
 // Share dashboard
 router.post('/:id/share',
   validateWorkspaceAccess,
@@ -79,6 +134,13 @@ router.put('/:id/share',
   validateWorkspaceAccess,
   requireWorkspaceRole(['editor', 'admin', 'owner']),
   asyncHandler(dashboardController.updateSharingSettings.bind(dashboardController))
+);
+
+// Get dashboard analytics
+router.get('/:id/analytics',
+  validateWorkspaceAccess,
+  requireWorkspaceRole(['viewer', 'analyst', 'editor', 'admin', 'owner']),
+  asyncHandler(dashboardController.getDashboardAnalytics.bind(dashboardController))
 );
 
 export default router;

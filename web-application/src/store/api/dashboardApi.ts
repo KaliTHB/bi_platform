@@ -1,214 +1,340 @@
 // web-application/src/store/api/dashboardApi.ts
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
-import type { RootState } from '../index';
-import { 
-  Dashboard, 
-  DashboardWithCharts, 
-  CreateDashboardRequest, 
-  UpdateDashboardRequest,
-  DuplicateDashboardRequest 
-} from '../../types/dashboard.types';
+import { Dashboard, DashboardWithCharts, CreateDashboardRequest, UpdateDashboardRequest } from '../../types/dashboard.types';
 
-// Response types
-interface DashboardListResponse {
-  success: boolean;
-  dashboards: Dashboard[];
-  total?: number;
-  page?: number;
-  limit?: number;
-  message?: string;
-}
+// Base query configuration
+const baseQuery = fetchBaseQuery({
+  baseUrl: '/api/dashboards',
+  prepareHeaders: (headers, { getState }) => {
+    const token = (getState() as any).auth.token;
+    if (token) {
+      headers.set('authorization', `Bearer ${token}`);
+    }
+    return headers;
+  },
+});
 
-interface DashboardResponse {
-  success: boolean;
-  dashboard: DashboardWithCharts;
-  message?: string;
-}
-
-interface DashboardCreateResponse {
-  success: boolean;
-  dashboard: Dashboard;
-  message: string;
-}
-
-interface DashboardUpdateResponse {
-  success: boolean;
-  dashboard: Dashboard;
-  message: string;
-}
-
-interface DashboardDeleteResponse {
-  success: boolean;
-  message: string;
-}
-
-interface DashboardAnalyticsResponse {
-  success: boolean;
-  analytics: {
-    views: number;
-    unique_viewers: number;
-    avg_session_time: number;
-    most_viewed_charts: Array<{
-      chart_id: string;
-      chart_name: string;
-      views: number;
-    }>;
-    recent_activity: Array<{
-      user_id: string;
-      user_name: string;
-      action: string;
-      timestamp: string;
-    }>;
-  };
-  message?: string;
-}
-
-// Query parameters
-interface GetDashboardsParams {
-  workspace_id?: string;
-  category_id?: string;
-  search?: string;
-  page?: number;
-  limit?: number;
-  sort_by?: 'name' | 'created_at' | 'updated_at' | 'views';
-  sort_direction?: 'asc' | 'desc';
-  status?: 'active' | 'archived';
-  created_by?: string;
-}
-
-interface GetDashboardAnalyticsParams {
-  date_from?: string;
-  date_to?: string;
-  granularity?: 'hour' | 'day' | 'week' | 'month';
-  include_charts?: boolean;
-}
-
+// Dashboard API slice
 export const dashboardApi = createApi({
   reducerPath: 'dashboardApi',
-  baseQuery: fetchBaseQuery({
-    baseUrl: '/api/dashboards',
-    prepareHeaders: (headers, { getState }) => {
-      const token = (getState() as RootState).auth.token;
-      const workspaceSlug = (getState() as RootState).workspace.currentWorkspace?.slug;
-      
-      if (token) {
-        headers.set('authorization', `Bearer ${token}`);
-      }
-      
-      if (workspaceSlug) {
-        headers.set('X-Workspace-Slug', workspaceSlug);
-      }
-      
-      return headers;
-    },
-  }),
-  tagTypes: ['Dashboard', 'DashboardList', 'DashboardAnalytics'],
+  baseQuery,
+  tagTypes: ['Dashboard', 'DashboardData', 'DashboardCharts', 'DashboardCache', 'DashboardAnalytics'],
   endpoints: (builder) => ({
-    // Get all dashboards with filtering and pagination
-    getDashboards: builder.query<DashboardListResponse, GetDashboardsParams>({
-      query: (params = {}) => {
-        const queryParams = new URLSearchParams();
-        
-        Object.entries(params).forEach(([key, value]) => {
-          if (value !== undefined && value !== null) {
-            queryParams.append(key, value.toString());
-          }
-        });
-        
-        return queryParams.toString() ? `?${queryParams.toString()}` : '';
-      },
-      providesTags: (result) =>
-        result
-          ? [
-              ...result.dashboards.map(({ id }) => ({ type: 'Dashboard' as const, id })),
-              { type: 'DashboardList', id: 'LIST' },
-            ]
-          : [{ type: 'DashboardList', id: 'LIST' }],
+    // ✅ EXISTING ENDPOINTS
+    getDashboards: builder.query<
+      { success: boolean; dashboards: Dashboard[]; pagination: any; message?: string },
+      { workspaceId: string; params?: any }
+    >({
+      query: ({ workspaceId, params = {} }) => ({
+        url: '',
+        method: 'GET',
+        params: { workspace_id: workspaceId, ...params },
+      }),
+      providesTags: ['Dashboard'],
     }),
 
-    // Get a specific dashboard by ID
-    getDashboard: builder.query<DashboardResponse, string>({
-      query: (dashboardId) => `/${dashboardId}`,
+    getDashboard: builder.query<
+      { success: boolean; dashboard: DashboardWithCharts; message?: string },
+      string
+    >({
+      query: (id) => `/${id}`,
       providesTags: (result, error, id) => [{ type: 'Dashboard', id }],
     }),
 
-    // Create a new dashboard
-    createDashboard: builder.mutation<DashboardCreateResponse, CreateDashboardRequest>({
-      query: (dashboardData) => ({
+    createDashboard: builder.mutation<
+      { success: boolean; dashboard: Dashboard; message: string },
+      CreateDashboardRequest
+    >({
+      query: (data) => ({
         url: '',
         method: 'POST',
-        body: dashboardData,
+        body: data,
       }),
-      invalidatesTags: [{ type: 'DashboardList', id: 'LIST' }],
+      invalidatesTags: ['Dashboard'],
     }),
 
-    // Update an existing dashboard
     updateDashboard: builder.mutation<
-      DashboardUpdateResponse,
-      { id: string; updates: UpdateDashboardRequest }
+      { success: boolean; dashboard: Dashboard; message: string },
+      { id: string; data: UpdateDashboardRequest }
     >({
-      query: ({ id, updates }) => ({
+      query: ({ id, data }) => ({
         url: `/${id}`,
         method: 'PUT',
-        body: updates,
+        body: data,
       }),
       invalidatesTags: (result, error, { id }) => [
         { type: 'Dashboard', id },
-        { type: 'DashboardList', id: 'LIST' },
+        'Dashboard',
+        { type: 'DashboardData', id },
+        { type: 'DashboardCache', id }
       ],
     }),
 
-    // Delete a dashboard
-    deleteDashboard: builder.mutation<DashboardDeleteResponse, string>({
-      query: (dashboardId) => ({
-        url: `/${dashboardId}`,
+    deleteDashboard: builder.mutation<
+      { success: boolean; message: string },
+      string
+    >({
+      query: (id) => ({
+        url: `/${id}`,
         method: 'DELETE',
       }),
-      invalidatesTags: (result, error, id) => [
-        { type: 'Dashboard', id },
-        { type: 'DashboardList', id: 'LIST' },
-      ],
+      invalidatesTags: ['Dashboard'],
     }),
 
-    // Duplicate a dashboard
     duplicateDashboard: builder.mutation<
-      DashboardCreateResponse,
-      { id: string; data: DuplicateDashboardRequest }
+      { success: boolean; dashboard: Dashboard; message: string },
+      { id: string; data: { name: string; slug: string } }
     >({
       query: ({ id, data }) => ({
         url: `/${id}/duplicate`,
         method: 'POST',
         body: data,
       }),
-      invalidatesTags: [{ type: 'DashboardList', id: 'LIST' }],
+      invalidatesTags: ['Dashboard'],
     }),
 
-    // Get dashboard analytics
     getDashboardAnalytics: builder.query<
-      DashboardAnalyticsResponse,
-      { dashboardId: string; params?: GetDashboardAnalyticsParams }
+      { success: boolean; analytics: any; message?: string },
+      { id: string; params?: any }
     >({
-      query: ({ dashboardId, params = {} }) => {
-        const queryParams = new URLSearchParams();
-        
-        Object.entries(params).forEach(([key, value]) => {
-          if (value !== undefined && value !== null) {
-            queryParams.append(key, value.toString());
-          }
-        });
-        
-        const queryString = queryParams.toString();
-        return `/${dashboardId}/analytics${queryString ? `?${queryString}` : ''}`;
+      query: ({ id, params }) => ({
+        url: `/${id}/analytics`,
+        method: 'GET',
+        params,
+      }),
+      providesTags: (result, error, { id }) => [{ type: 'DashboardAnalytics', id }],
+    }),
+
+    // 🚀 NEW ENDPOINTS - CRITICAL CACHE & FILTER OPERATIONS
+
+    getDashboardData: builder.query<
+      {
+        success: boolean;
+        data: {
+          charts: any[];
+          metadata: {
+            dashboard_id: string;
+            chart_count: number;
+            last_updated: Date;
+            cached: boolean;
+            execution_time_ms?: number;
+          };
+        };
+        message?: string;
       },
-      providesTags: (result, error, { dashboardId }) => [
-        { type: 'DashboardAnalytics', id: dashboardId },
+      {
+        id: string;
+        params?: {
+          refresh?: boolean;
+          filters?: any[];
+          limit?: number;
+          offset?: number;
+          [key: string]: any;
+        };
+      }
+    >({
+      query: ({ id, params }) => ({
+        url: `/${id}/data`,
+        method: 'GET',
+        params,
+      }),
+      providesTags: (result, error, { id }) => [{ type: 'DashboardData', id }],
+      // Keep cached data for 5 minutes unless refresh=true
+      keepUnusedDataFor: 300,
+    }),
+
+    refreshDashboard: builder.mutation<
+      {
+        success: boolean;
+        refresh_id: string;
+        status: 'initiated' | 'processing' | 'completed' | 'failed';
+        started_at: Date;
+        estimated_completion_time?: Date;
+        charts_to_refresh: number;
+        message?: string;
+      },
+      string
+    >({
+      query: (id) => ({
+        url: `/${id}/refresh`,
+        method: 'POST',
+        body: {},
+      }),
+      invalidatesTags: (result, error, id) => [
+        { type: 'DashboardData', id },
+        { type: 'DashboardCache', id },
+        { type: 'DashboardCharts', id }
       ],
     }),
 
-    // Publish/unpublish dashboard
+    applyGlobalFilter: builder.mutation<
+      {
+        success: boolean;
+        results: Array<{
+          chart_id: string;
+          success: boolean;
+          data?: any;
+          error?: string;
+          cache_invalidated?: boolean;
+        }>;
+        filter_id: string;
+        applied_value: any;
+        affected_charts: number;
+        message?: string;
+      },
+      {
+        id: string;
+        filter_id: string;
+        filter_value: any;
+      }
+    >({
+      query: ({ id, filter_id, filter_value }) => ({
+        url: `/${id}/filter`,
+        method: 'POST',
+        body: { filter_id, filter_value },
+      }),
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'DashboardData', id },
+        { type: 'DashboardCharts', id }
+      ],
+    }),
+
+    exportDashboard: builder.mutation<
+      {
+        success: boolean;
+        export: {
+          export_id: string;
+          format: string;
+          file_path?: string;
+          download_url?: string;
+          file_size_bytes?: number;
+          status: 'processing' | 'completed' | 'failed';
+          created_at: Date;
+        };
+        message?: string;
+      },
+      {
+        id: string;
+        options: {
+          format: 'pdf' | 'png' | 'svg' | 'xlsx' | 'json';
+          include_filters?: boolean;
+          page_size?: 'A4' | 'A3' | 'Letter' | 'Legal';
+          orientation?: 'portrait' | 'landscape';
+          width?: number;
+          height?: number;
+          quality?: number;
+          [key: string]: any;
+        };
+      }
+    >({
+      query: ({ id, options }) => ({
+        url: `/${id}/export`,
+        method: 'POST',
+        body: options,
+      }),
+    }),
+
+    // 🔧 ADDITIONAL UTILITY ENDPOINTS
+
+    getDashboardCharts: builder.query<
+      {
+        success: boolean;
+        charts: any[];
+        total: number;
+        message?: string;
+      },
+      string
+    >({
+      query: (id) => `/${id}/charts`,
+      providesTags: (result, error, id) => [{ type: 'DashboardCharts', id }],
+    }),
+
+    updateDashboardLayout: builder.mutation<
+      {
+        success: boolean;
+        layout: any;
+        message: string;
+      },
+      {
+        id: string;
+        layout: any;
+      }
+    >({
+      query: ({ id, layout }) => ({
+        url: `/${id}/layout`,
+        method: 'PUT',
+        body: { layout },
+      }),
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'Dashboard', id },
+        { type: 'DashboardData', id }
+      ],
+    }),
+
+    updateDashboardFilters: builder.mutation<
+      {
+        success: boolean;
+        filters: any[];
+        message: string;
+      },
+      {
+        id: string;
+        filters: any[];
+      }
+    >({
+      query: ({ id, filters }) => ({
+        url: `/${id}/filters`,
+        method: 'PUT',
+        body: { filters },
+      }),
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'Dashboard', id },
+        { type: 'DashboardData', id }
+      ],
+    }),
+
+    clearDashboardCache: builder.mutation<
+      {
+        success: boolean;
+        cache_cleared: boolean;
+        affected_charts: number;
+        message?: string;
+      },
+      string
+    >({
+      query: (id) => ({
+        url: `/${id}/cache/clear`,
+        method: 'POST',
+        body: {},
+      }),
+      invalidatesTags: (result, error, id) => [
+        { type: 'DashboardCache', id },
+        { type: 'DashboardData', id }
+      ],
+    }),
+
+    getDashboardCacheStatus: builder.query<
+      {
+        success: boolean;
+        cache_status: {
+          dashboard_cached: boolean;
+          charts_cached: number;
+          total_charts: number;
+          last_cache_update?: Date;
+          cache_size_mb?: number;
+        };
+        message?: string;
+      },
+      string
+    >({
+      query: (id) => `/${id}/cache/status`,
+      providesTags: (result, error, id) => [{ type: 'DashboardCache', id }],
+    }),
+
+    // ✅ EXISTING UTILITY ENDPOINTS
     toggleDashboardStatus: builder.mutation<
-      DashboardUpdateResponse,
-      { id: string; status: 'published' | 'draft' | 'archived' }
+      { success: boolean; dashboard: Dashboard; message: string },
+      { id: string; status: 'active' | 'inactive' | 'archived' }
     >({
       query: ({ id, status }) => ({
         url: `/${id}/status`,
@@ -217,78 +343,53 @@ export const dashboardApi = createApi({
       }),
       invalidatesTags: (result, error, { id }) => [
         { type: 'Dashboard', id },
-        { type: 'DashboardList', id: 'LIST' },
+        'Dashboard'
       ],
     }),
 
-    // Share dashboard (generate public link)
     shareDashboard: builder.mutation<
-      { success: boolean; share_url: string; expires_at?: string },
-      { id: string; share_config: { expires_in?: number; password?: string; public: boolean } }
+      {
+        success: boolean;
+        sharing_config: any;
+        message: string;
+      },
+      {
+        id: string;
+        shareData: {
+          share_type: 'public' | 'password' | 'private';
+          expires_at?: Date;
+          password?: string;
+        };
+      }
     >({
-      query: ({ id, share_config }) => ({
+      query: ({ id, shareData }) => ({
         url: `/${id}/share`,
         method: 'POST',
-        body: share_config,
+        body: shareData,
       }),
+      invalidatesTags: (result, error, { id }) => [{ type: 'Dashboard', id }],
     }),
 
-    // Add dashboard to favorites
     toggleDashboardFavorite: builder.mutation<
-      { success: boolean; is_favorite: boolean },
-      string
+      { success: boolean; dashboard: Dashboard; message: string },
+      { id: string; is_featured: boolean }
     >({
-      query: (dashboardId) => ({
-        url: `/${dashboardId}/favorite`,
-        method: 'POST',
+      query: ({ id, is_featured }) => ({
+        url: `/${id}/favorite`,
+        method: 'PATCH',
+        body: { is_featured },
       }),
-      invalidatesTags: (result, error, id) => [
+      invalidatesTags: (result, error, { id }) => [
         { type: 'Dashboard', id },
-        { type: 'DashboardList', id: 'LIST' },
+        'Dashboard'
       ],
-    }),
-
-    // Update dashboard layout
-    updateDashboardLayout: builder.mutation<
-      DashboardUpdateResponse,
-      { id: string; layout_config: any }
-    >({
-      query: ({ id, layout_config }) => ({
-        url: `/${id}/layout`,
-        method: 'PATCH',
-        body: { layout_config },
-      }),
-      invalidatesTags: (result, error, { id }) => [{ type: 'Dashboard', id }],
-    }),
-
-    // Update dashboard filters
-    updateDashboardFilters: builder.mutation<
-      DashboardUpdateResponse,
-      { id: string; filters: any[] }
-    >({
-      query: ({ id, filters }) => ({
-        url: `/${id}/filters`,
-        method: 'PATCH',
-        body: { filters },
-      }),
-      invalidatesTags: (result, error, { id }) => [{ type: 'Dashboard', id }],
-    }),
-
-    // Export dashboard
-    exportDashboard: builder.mutation<
-      { success: boolean; export_url: string; format: string },
-      { id: string; format: 'pdf' | 'png' | 'json'; options?: any }
-    >({
-      query: ({ id, format, options }) => ({
-        url: `/${id}/export`,
-        method: 'POST',
-        body: { format, options },
-      }),
     }),
   }),
 });
 
+// Export hooks for use in components
 export const {
+  // ✅ EXISTING HOOKS
   useGetDashboardsQuery,
   useGetDashboardQuery,
   useCreateDashboardMutation,
@@ -296,10 +397,22 @@ export const {
   useDeleteDashboardMutation,
   useDuplicateDashboardMutation,
   useGetDashboardAnalyticsQuery,
+  
+  // 🚀 NEW HOOKS - CRITICAL CACHE & FILTER OPERATIONS
+  useGetDashboardDataQuery,
+  useRefreshDashboardMutation,
+  useApplyGlobalFilterMutation,
+  useExportDashboardMutation,
+  
+  // 🔧 ADDITIONAL UTILITY HOOKS
+  useGetDashboardChartsQuery,
+  useUpdateDashboardLayoutMutation,
+  useUpdateDashboardFiltersMutation,
+  useClearDashboardCacheMutation,
+  useGetDashboardCacheStatusQuery,
+  
+  // ✅ EXISTING UTILITY HOOKS
   useToggleDashboardStatusMutation,
   useShareDashboardMutation,
   useToggleDashboardFavoriteMutation,
-  useUpdateDashboardLayoutMutation,
-  useUpdateDashboardFiltersMutation,
-  useExportDashboardMutation,
 } = dashboardApi;

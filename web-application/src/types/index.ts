@@ -90,7 +90,8 @@ export type {
   BuilderChart,
   ChartDimensions,
   ChartInteractionEvent,
-  ChartError
+  ChartError,
+  ChartBuilderState
 } from './chart.types';
 
 // =============================================================================
@@ -101,11 +102,9 @@ export type {
   DashboardLayout,
   DashboardComponent,
   DashboardFilter,
-  Chart,
   ChartConfiguration,
   DashboardWithCharts, // Add this line
   ChartType,
-  Dataset,
   TransformationConfig,
   TransformationStep,
   DataSource,

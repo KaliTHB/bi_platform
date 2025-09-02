@@ -31,9 +31,10 @@ import {
 } from '@/types/chart.types';
 import {
   Dashboard,
-  Dataset,
   ColumnDefinition
 } from '@/types';
+import { Dataset} from '@/types/dataset.types';
+
 import {
   dashboardAPI,
   chartAPI
@@ -52,7 +53,7 @@ import { ChartRenderer } from '@/components/charts/ChartRenderer';
 import { ChartSelector } from '@/components/builder/ChartSelector';
 import { QueryBuilder } from '@/components/builder/QueryBuilder';
 import { DatasetSelector } from '@/components/builder/DatasetSelector';
-
+import { ChartBuilderState } from '@/types/chart.types'
 // ============================================================================
 // Component Props & State Interfaces
 // ============================================================================
@@ -64,29 +65,6 @@ interface ChartBuilderProps {
   onSave?: (chart: Chart) => void;
   onCancel?: () => void;
   onPreview?: (chart: Chart) => void;
-}
-
-interface ChartBuilderState {
-  // Chart Configuration
-  chart: Partial<Chart> | null;
-  chartConfiguration: ChartConfiguration | null;
-  
-  // Data Management
-  availableDatasets: Dataset[];
-  selectedDatasetId: string | undefined;
-  chartData: any[] | null;
-  dataColumns: ColumnDefinition[];
-  
-  // UI State
-  activeStep: 'dataset' | 'query' | 'chart' | 'config' | 'preview';
-  loading: boolean;
-  queryLoading: boolean;
-  error: string | null;
-  
-  // Preview & Save
-  previewDimensions: ChartDimensions;
-  showPreview: boolean;
-  isDirty: boolean;
 }
 
 // ============================================================================
@@ -148,7 +126,7 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
       const datasetsResponse = await datasetAPI.getDatasets(workspaceId);
       
       // Handle different response structures
-      let datasets: Dataset[] = [];
+      let datasets: Partial<Dataset>[] = [];
       if (datasetsResponse.success) {
         datasets = datasetsResponse.datasets || [];
       } else {
