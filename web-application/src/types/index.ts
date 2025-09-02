@@ -88,6 +88,9 @@ export type {
 
 export type {
   BuilderChart,
+  ChartDimensions,
+  ChartInteractionEvent,
+  ChartError
 } from './chart.types';
 
 // =============================================================================

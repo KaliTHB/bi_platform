@@ -1,25 +1,28 @@
-'use client';
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/router';
 import {
   Box,
-  Card,
-  CardContent,
-  CardActions,
   Typography,
   Button,
-  IconButton,
-  Chip,
-  Menu,
-  MenuItem,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
+  Paper,
+  Grid,
   TextField,
+  InputAdornment,
   FormControl,
   InputLabel,
   Select,
+  MenuItem,
+  IconButton,
+  Card,
+  CardContent,
+  List,
+  ListItem,
+  ListItemAvatar,
+  ListItemText,
+  ListItemSecondaryAction,
+  Avatar,
+  Chip,
+  Menu,
   Table,
   TableBody,
   TableCell,
@@ -27,43 +30,53 @@ import {
   TableHead,
   TableRow,
   TablePagination,
-  Avatar,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Alert,
+  Divider,
   Tooltip,
-  LinearProgress,
-  Paper,
-  Grid,
-  InputAdornment,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  ListItemAvatar,
+  CircularProgress
 } from '@mui/material';
 import {
   Add,
+  Search,
+  MoreVert,
   Edit,
   Delete,
-  MoreVert,
   Visibility,
   Storage,
-  Transform,
   TableChart,
-  QueryBuilder,
-  Refresh,
-  Schedule,
-  TrendingUp,
-  Search,
-  FilterList,
-  ViewModule,
   ViewList,
-  DataObject,
+  ViewModule,
+  Refresh,
+  FilterList
 } from '@mui/icons-material';
-import { useRouter } from 'next/navigation';
-import { Dataset } from '@/types/dataset.types';
+
+// Hooks
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useDatasets } from '@/hooks/useDatasets';
-import PermissionGate from '@/components/shared/PermissionGate';
+
+// Components
+import { PermissionGate } from '@/components/shared/PermissionGate';
+
+// Types
+interface Dataset {
+  id: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  type: 'table' | 'query' | 'transformation';
+  status: 'active' | 'inactive' | 'error' | 'refreshing';
+  row_count_estimate?: number;
+  last_refreshed?: string;
+  created_at: string;
+  updated_at: string;
+  owner_id: string;
+  workspace_id: string;
+}
 
 interface DatasetListProps {
   onDatasetSelect?: (dataset: Dataset) => void;
@@ -72,7 +85,7 @@ interface DatasetListProps {
   selectionMode?: boolean;
   selectedDatasets?: string[];
   onSelectionChange?: (datasetIds: string[]) => void;
-  filterByType?: 'table' | 'query' | 'transformation';
+  filterByType?: string;
 }
 
 export const DatasetList: React.FC<DatasetListProps> = ({
@@ -90,12 +103,17 @@ export const DatasetList: React.FC<DatasetListProps> = ({
   const { 
     datasets, 
     loading, 
+    error: datasetError,
     createDataset, 
     updateDataset,
-    deleteDataset, 
-    refreshDataset 
+    deleteDataset,
+    refreshDataset
   } = useDatasets();
 
+  // ============================================================================
+  // State Management
+  // ============================================================================
+  
   const [currentViewMode, setCurrentViewMode] = useState(viewMode);
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -106,217 +124,259 @@ export const DatasetList: React.FC<DatasetListProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('updated_at');
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [rowsPerPage, setRowsPerPage] = useState(12);
+  const [refreshing, setRefreshing] = useState<string | null>(null);
 
   // Form states
   const [datasetName, setDatasetName] = useState('');
   const [datasetDescription, setDatasetDescription] = useState('');
   const [datasetType, setDatasetType] = useState<'table' | 'query' | 'transformation'>('table');
 
-  const filteredDatasets = datasets
-    .filter(dataset => {
-      if (typeFilter !== 'all' && dataset.type !== typeFilter) return false;
-      if (statusFilter !== 'all') {
-        if (statusFilter === 'active' && !dataset.is_active) return false;
-        if (statusFilter === 'inactive' && dataset.is_active) return false;
-      }
-      if (searchQuery && !dataset.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
-          !dataset.description?.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-      return true;
-    })
-    .sort((a, b) => {
+  // ============================================================================
+  // Data Processing
+  // ============================================================================
+  
+  const filteredDatasets = useMemo(() => {
+    if (!datasets?.data) return [];
+
+    return datasets.data.filter((dataset: Dataset) => {
+      const matchesSearch = !searchQuery || 
+        dataset.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        dataset.display_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        dataset.description?.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      const matchesType = typeFilter === 'all' || dataset.type === typeFilter;
+      const matchesStatus = statusFilter === 'all' || dataset.status === statusFilter;
+      
+      return matchesSearch && matchesType && matchesStatus;
+    });
+  }, [datasets?.data, searchQuery, typeFilter, statusFilter]);
+
+  const sortedDatasets = useMemo(() => {
+    return [...filteredDatasets].sort((a, b) => {
       switch (sortBy) {
-        case 'name': return a.name.localeCompare(b.name);
-        case 'updated_at': return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-        case 'type': return a.type.localeCompare(b.type);
-        case 'row_count': return (b.row_count_estimate || 0) - (a.row_count_estimate || 0);
-        default: return 0;
+        case 'name':
+          return a.name.localeCompare(b.name);
+        case 'type':
+          return a.type.localeCompare(b.type);
+        case 'updated_at':
+        default:
+          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
       }
     });
+  }, [filteredDatasets, sortBy]);
 
-  const paginatedDatasets = filteredDatasets.slice(
-    page * rowsPerPage,
-    page * rowsPerPage + rowsPerPage
-  );
+  const paginatedDatasets = useMemo(() => {
+    const startIndex = page * rowsPerPage;
+    return sortedDatasets.slice(startIndex, startIndex + rowsPerPage);
+  }, [sortedDatasets, page, rowsPerPage]);
 
-  const handleMenuClick = (event: React.MouseEvent<HTMLElement>, dataset: Dataset) => {
+  // ============================================================================
+  // Event Handlers
+  // ============================================================================
+  
+  const handleMenuClick = useCallback((event: React.MouseEvent<HTMLElement>, dataset: Dataset) => {
     event.stopPropagation();
-    setAnchorEl(event.currentTarget);
     setSelectedDataset(dataset);
-  };
+    setAnchorEl(event.currentTarget);
+  }, []);
 
-  const handleMenuClose = () => {
+  const handleMenuClose = useCallback(() => {
     setAnchorEl(null);
     setSelectedDataset(null);
-  };
+  }, []);
 
-  const handleEdit = () => {
-    if (selectedDataset) {
-      router.push(`/workspace/${currentWorkspace?.slug}/dataset/${selectedDataset.id}/edit`);
-    }
-    handleMenuClose();
-  };
-
-  const handleView = () => {
-    if (selectedDataset) {
-      if (onDatasetSelect) {
-        onDatasetSelect(selectedDataset);
-      } else {
-        router.push(`/workspace/${currentWorkspace?.slug}/dataset/${selectedDataset.id}`);
-      }
-    }
-    handleMenuClose();
-  };
-
-  const handleRefresh = async () => {
-    if (selectedDataset) {
-      await refreshDataset(selectedDataset.id);
-    }
-    handleMenuClose();
-  };
-
-  const handleDelete = async () => {
-    if (selectedDataset) {
-      await deleteDataset(selectedDataset.id);
-      setDeleteDialogOpen(false);
-    }
-    handleMenuClose();
-  };
-
-  const handleCreateDataset = async () => {
-    if (datasetName.trim()) {
-      await createDataset({
-        name: datasetName,
-        description: datasetDescription,
-        type: datasetType,
-      });
-      resetForm();
-      setCreateDialogOpen(false);
-    }
-  };
-
-  const resetForm = () => {
-    setDatasetName('');
-    setDatasetDescription('');
-    setDatasetType('table');
-  };
-
-  const handleDatasetClick = (dataset: Dataset) => {
+  const handleDatasetClick = useCallback((dataset: Dataset) => {
     if (selectionMode) {
-      const newSelection = selectedDatasets.includes(dataset.id)
+      const isSelected = selectedDatasets.includes(dataset.id);
+      const newSelection = isSelected
         ? selectedDatasets.filter(id => id !== dataset.id)
         : [...selectedDatasets, dataset.id];
       onSelectionChange?.(newSelection);
     } else {
       onDatasetSelect?.(dataset);
     }
-  };
+  }, [selectionMode, selectedDatasets, onSelectionChange, onDatasetSelect]);
 
+  const handleEdit = useCallback(() => {
+    if (selectedDataset) {
+      router.push(`/workspace/${currentWorkspace?.slug}/datasets/${selectedDataset.id}/edit`);
+    }
+    handleMenuClose();
+  }, [selectedDataset, router, currentWorkspace?.slug, handleMenuClose]);
+
+  const handleDelete = useCallback(async () => {
+    if (selectedDataset) {
+      try {
+        await deleteDataset(selectedDataset.id);
+        setDeleteDialogOpen(false);
+      } catch (error) {
+        console.error('Failed to delete dataset:', error);
+      }
+    }
+    handleMenuClose();
+  }, [selectedDataset, deleteDataset, handleMenuClose]);
+
+  const handleRefresh = useCallback(async (dataset: Dataset) => {
+    setRefreshing(dataset.id);
+    try {
+      await refreshDataset(dataset.id);
+    } catch (error) {
+      console.error('Failed to refresh dataset:', error);
+    } finally {
+      setRefreshing(null);
+    }
+    handleMenuClose();
+  }, [refreshDataset, handleMenuClose]);
+
+  const handleCreateDataset = useCallback(async () => {
+    if (datasetName.trim()) {
+      try {
+        await createDataset({
+          name: datasetName,
+          description: datasetDescription,
+          type: datasetType
+        });
+        resetForm();
+        setCreateDialogOpen(false);
+      } catch (error) {
+        console.error('Failed to create dataset:', error);
+      }
+    }
+  }, [datasetName, datasetDescription, datasetType, createDataset]);
+
+  const resetForm = useCallback(() => {
+    setDatasetName('');
+    setDatasetDescription('');
+    setDatasetType('table');
+  }, []);
+
+  // ============================================================================
+  // Helper Functions
+  // ============================================================================
+  
   const getTypeIcon = (type: string) => {
     switch (type) {
-      case 'table': return <TableChart />;
-      case 'query': return <QueryBuilder />;
-      case 'transformation': return <Transform />;
-      default: return <DataObject />;
+      case 'table':
+        return <TableChart fontSize="small" />;
+      case 'query':
+        return <Search fontSize="small" />;
+      case 'transformation':
+        return <FilterList fontSize="small" />;
+      default:
+        return <Storage fontSize="small" />;
     }
   };
 
-  const getTypeColor = (type: string) => {
+  const getTypeColor = (type: string): 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' => {
     switch (type) {
-      case 'table': return 'primary';
-      case 'query': return 'secondary';
-      case 'transformation': return 'info';
-      default: return 'default';
+      case 'table':
+        return 'primary';
+      case 'query':
+        return 'info';
+      case 'transformation':
+        return 'warning';
+      default:
+        return 'default';
     }
   };
 
-  const DatasetCard = ({ dataset }: { dataset: Dataset }) => {
+  const getStatusColor = (status: string): 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' => {
+    switch (status) {
+      case 'active':
+        return 'success';
+      case 'inactive':
+        return 'default';
+      case 'error':
+        return 'error';
+      case 'refreshing':
+        return 'info';
+      default:
+        return 'default';
+    }
+  };
+
+  // ============================================================================
+  // Render Functions
+  // ============================================================================
+  
+  const renderDatasetCard = (dataset: Dataset) => {
     const isSelected = selectionMode && selectedDatasets.includes(dataset.id);
     
     return (
-      <Card 
-        sx={{ 
-          height: '100%', 
-          display: 'flex', 
-          flexDirection: 'column',
-          cursor: 'pointer',
-          border: isSelected ? 2 : 1,
-          borderColor: isSelected ? 'primary.main' : 'divider',
-          '&:hover': {
-            boxShadow: 3,
-          },
-        }}
-        onClick={() => handleDatasetClick(dataset)}
-      >
-        <CardContent sx={{ flexGrow: 1, pb: 1 }}>
-          <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-            <Box display="flex" alignItems="center" gap={1} flex={1}>
-              {getTypeIcon(dataset.type)}
-              <Typography variant="h6" component="h3" noWrap>
-                {dataset.display_name || dataset.name}
-              </Typography>
+      <Grid item xs={12} sm={6} md={4} lg={3} key={dataset.id}>
+        <Card
+          sx={{
+            cursor: 'pointer',
+            border: isSelected ? 2 : 1,
+            borderColor: isSelected ? 'primary.main' : 'divider',
+            '&:hover': {
+              borderColor: 'primary.main',
+              boxShadow: 2,
+            },
+            transition: 'all 0.2s ease-in-out'
+          }}
+          onClick={() => handleDatasetClick(dataset)}
+        >
+          <CardContent>
+            <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
+              <Box display="flex" alignItems="center" gap={1}>
+                {getTypeIcon(dataset.type)}
+                <Typography variant="h6" component="div" noWrap>
+                  {dataset.display_name || dataset.name}
+                </Typography>
+              </Box>
+              <IconButton
+                size="small"
+                onClick={(e) => handleMenuClick(e, dataset)}
+              >
+                <MoreVert />
+              </IconButton>
             </Box>
-            <IconButton
-              size="small"
-              onClick={(e) => handleMenuClick(e, dataset)}
-            >
-              <MoreVert />
-            </IconButton>
-          </Box>
 
-          <Typography 
-            variant="body2" 
-            color="text.secondary" 
-            sx={{ 
-              mb: 2,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              minHeight: 32,
-            }}
-          >
-            {dataset.description || 'No description available'}
-          </Typography>
-
-          <Box display="flex" alignItems="center" gap={1} mb={2}>
-            <Chip 
-              label={dataset.type} 
-              size="small" 
-              color={getTypeColor(dataset.type) as any}
-            />
-            <Chip 
-              label={dataset.is_active ? 'Active' : 'Inactive'} 
-              size="small" 
-              color={dataset.is_active ? 'success' : 'default'}
-            />
-          </Box>
-
-          <Box display="flex" alignItems="center" justifyContent="space-between" mt={2}>
-            <Box display="flex" alignItems="center" gap={1}>
-              <Storage fontSize="small" color="action" />
-              <Typography variant="caption" color="text.secondary">
-                ~{dataset.row_count_estimate?.toLocaleString() || 0} rows
-              </Typography>
-            </Box>
-            <Typography variant="caption" color="text.secondary">
-              {dataset.last_refreshed 
-                ? `Refreshed ${new Date(dataset.last_refreshed).toLocaleDateString()}`
-                : 'Never refreshed'
-              }
+            <Typography variant="body2" color="text.secondary" paragraph>
+              {dataset.description || 'No description'}
             </Typography>
-          </Box>
-        </CardContent>
-      </Card>
+
+            <Box display="flex" gap={1} mb={2} flexWrap="wrap">
+              <Chip 
+                label={dataset.type} 
+                size="small" 
+                color={getTypeColor(dataset.type)}
+              />
+              <Chip 
+                label={dataset.status} 
+                size="small" 
+                color={getStatusColor(dataset.status)}
+              />
+            </Box>
+
+            <Box display="flex" alignItems="center" justifyContent="space-between" mt={2}>
+              <Box display="flex" alignItems="center" gap={1}>
+                <Storage fontSize="small" color="action" />
+                <Typography variant="caption" color="text.secondary">
+                  ~{dataset.row_count_estimate?.toLocaleString() || 0} rows
+                </Typography>
+              </Box>
+              <Typography variant="caption" color="text.secondary">
+                {dataset.last_refreshed 
+                  ? `Refreshed ${new Date(dataset.last_refreshed).toLocaleDateString()}`
+                  : 'Never refreshed'
+                }
+              </Typography>
+            </Box>
+          </CardContent>
+        </Card>
+      </Grid>
     );
   };
 
-  const DatasetListItem = ({ dataset }: { dataset: Dataset }) => {
+  const renderDatasetListItem = (dataset: Dataset) => {
     const isSelected = selectionMode && selectedDatasets.includes(dataset.id);
     
     return (
       <ListItem
+        key={dataset.id}
         button
         selected={isSelected}
         onClick={() => handleDatasetClick(dataset)}
@@ -339,11 +399,16 @@ export const DatasetList: React.FC<DatasetListProps> = ({
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                 {dataset.description || 'No description'}
               </Typography>
-              <Box display="flex" alignItems="center" gap={1}>
+              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
                 <Chip 
                   label={dataset.type} 
                   size="small" 
-                  color={getTypeColor(dataset.type) as any}
+                  color={getTypeColor(dataset.type)}
+                />
+                <Chip 
+                  label={dataset.status} 
+                  size="small" 
+                  color={getStatusColor(dataset.status)}
                 />
                 <Typography variant="caption" color="text.secondary">
                   {dataset.row_count_estimate?.toLocaleString() || 0} rows • 
@@ -365,11 +430,102 @@ export const DatasetList: React.FC<DatasetListProps> = ({
     );
   };
 
+  const renderTableView = () => (
+    <TableContainer component={Paper}>
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableCell>Name</TableCell>
+            <TableCell>Type</TableCell>
+            <TableCell>Description</TableCell>
+            <TableCell align="right">Rows</TableCell>
+            <TableCell>Last Refreshed</TableCell>
+            <TableCell>Status</TableCell>
+            <TableCell>Actions</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {paginatedDatasets.map((dataset) => {
+            const isSelected = selectionMode && selectedDatasets.includes(dataset.id);
+            return (
+              <TableRow 
+                key={dataset.id}
+                selected={isSelected}
+                hover
+                onClick={() => handleDatasetClick(dataset)}
+                sx={{ cursor: 'pointer' }}
+              >
+                <TableCell>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    {getTypeIcon(dataset.type)}
+                    <Typography variant="body2">
+                      {dataset.display_name || dataset.name}
+                    </Typography>
+                  </Box>
+                </TableCell>
+                <TableCell>
+                  <Chip 
+                    label={dataset.type} 
+                    size="small" 
+                    color={getTypeColor(dataset.type)}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2" color="text.secondary" noWrap>
+                    {dataset.description || 'No description'}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right">
+                  {dataset.row_count_estimate?.toLocaleString() || 0}
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2" color="text.secondary">
+                    {dataset.last_refreshed 
+                      ? new Date(dataset.last_refreshed).toLocaleDateString()
+                      : 'Never'
+                    }
+                  </Typography>
+                </TableCell>
+                <TableCell>
+                  <Chip 
+                    label={dataset.status} 
+                    size="small" 
+                    color={getStatusColor(dataset.status)}
+                  />
+                </TableCell>
+                <TableCell>
+                  <IconButton
+                    size="small"
+                    onClick={(e) => handleMenuClick(e, dataset)}
+                  >
+                    <MoreVert />
+                  </IconButton>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+
+  // ============================================================================
+  // Main Render
+  // ============================================================================
+  
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" p={4}>
-        <Typography>Loading datasets...</Typography>
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight={300}>
+        <CircularProgress />
       </Box>
+    );
+  }
+
+  if (datasetError) {
+    return (
+      <Alert severity="error" sx={{ mb: 3 }}>
+        Failed to load datasets: {datasetError}
+      </Alert>
     );
   }
 
@@ -386,6 +542,9 @@ export const DatasetList: React.FC<DatasetListProps> = ({
             onClick={() => setCurrentViewMode(
               currentViewMode === 'grid' ? 'list' : currentViewMode === 'list' ? 'table' : 'grid'
             )}
+            title={`Switch to ${
+              currentViewMode === 'grid' ? 'list' : currentViewMode === 'list' ? 'table' : 'grid'
+            } view`}
           >
             {currentViewMode === 'grid' ? <ViewList /> : currentViewMode === 'list' ? <TableChart /> : <ViewModule />}
           </IconButton>
@@ -449,10 +608,12 @@ export const DatasetList: React.FC<DatasetListProps> = ({
                 <MenuItem value="all">All</MenuItem>
                 <MenuItem value="active">Active</MenuItem>
                 <MenuItem value="inactive">Inactive</MenuItem>
+                <MenuItem value="error">Error</MenuItem>
+                <MenuItem value="refreshing">Refreshing</MenuItem>
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} md={2}>
             <FormControl fullWidth size="small">
               <InputLabel>Sort By</InputLabel>
               <Select
@@ -460,179 +621,46 @@ export const DatasetList: React.FC<DatasetListProps> = ({
                 label="Sort By"
                 onChange={(e) => setSortBy(e.target.value)}
               >
-                <MenuItem value="updated_at">Recently Updated</MenuItem>
+                <MenuItem value="updated_at">Last Updated</MenuItem>
                 <MenuItem value="name">Name</MenuItem>
                 <MenuItem value="type">Type</MenuItem>
-                <MenuItem value="row_count">Row Count</MenuItem>
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={2}>
+          <Grid item xs={12} md={3}>
             <Typography variant="body2" color="text.secondary">
-              {filteredDatasets.length} dataset(s)
+              Showing {filteredDatasets.length} dataset{filteredDatasets.length !== 1 ? 's' : ''}
             </Typography>
           </Grid>
         </Grid>
       </Paper>
 
-      {/* Dataset List */}
-      {filteredDatasets.length === 0 ? (
-        <Card>
-          <CardContent sx={{ textAlign: 'center', py: 8 }}>
-            <Storage sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-            <Typography variant="h6" color="text.secondary" gutterBottom>
-              No datasets found
-            </Typography>
-            <Typography variant="body2" color="text.secondary" mb={3}>
-              {searchQuery || typeFilter !== 'all' || statusFilter !== 'all'
-                ? 'Try adjusting your search or filters'
-                : 'Get started by creating your first dataset'
-              }
-            </Typography>
-            {showCreateButton && !searchQuery && typeFilter === 'all' && statusFilter === 'all' && (
-              <PermissionGate permissions={['dataset.create']}>
-                <Button
-                  variant="contained"
-                  startIcon={<Add />}
-                  onClick={() => setCreateDialogOpen(true)}
-                >
-                  Create Dataset
-                </Button>
-              </PermissionGate>
-            )}
-          </CardContent>
-        </Card>
-      ) : currentViewMode === 'grid' ? (
-        <>
-          <Grid container spacing={3}>
-            {paginatedDatasets.map((dataset) => (
-              <Grid item xs={12} sm={6} md={4} lg={3} key={dataset.id}>
-                <DatasetCard dataset={dataset} />
-              </Grid>
-            ))}
-          </Grid>
-          <TablePagination
-            component="div"
-            count={filteredDatasets.length}
-            page={page}
-            onPageChange={(_, newPage) => setPage(newPage)}
-            rowsPerPage={rowsPerPage}
-            onRowsPerPageChange={(e) => {
-              setRowsPerPage(parseInt(e.target.value, 10));
-              setPage(0);
-            }}
-            sx={{ mt: 3 }}
-          />
-        </>
+      {/* Content */}
+      {currentViewMode === 'grid' ? (
+        <Grid container spacing={3}>
+          {paginatedDatasets.map(renderDatasetCard)}
+        </Grid>
       ) : currentViewMode === 'list' ? (
-        <>
-          <List>
-            {paginatedDatasets.map((dataset) => (
-              <DatasetListItem key={dataset.id} dataset={dataset} />
-            ))}
-          </List>
-          <TablePagination
-            component="div"
-            count={filteredDatasets.length}
-            page={page}
-            onPageChange={(_, newPage) => setPage(newPage)}
-            rowsPerPage={rowsPerPage}
-            onRowsPerPageChange={(e) => {
-              setRowsPerPage(parseInt(e.target.value, 10));
-              setPage(0);
-            }}
-            sx={{ mt: 3 }}
-          />
-        </>
+        <List>
+          {paginatedDatasets.map(renderDatasetListItem)}
+        </List>
       ) : (
-        <TableContainer component={Paper}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Name</TableCell>
-                <TableCell>Type</TableCell>
-                <TableCell>Description</TableCell>
-                <TableCell align="right">Rows</TableCell>
-                <TableCell>Last Refreshed</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {paginatedDatasets.map((dataset) => {
-                const isSelected = selectionMode && selectedDatasets.includes(dataset.id);
-                return (
-                  <TableRow 
-                    key={dataset.id}
-                    selected={isSelected}
-                    hover
-                    onClick={() => handleDatasetClick(dataset)}
-                    sx={{ cursor: 'pointer' }}
-                  >
-                    <TableCell>
-                      <Box display="flex" alignItems="center" gap={1}>
-                        {getTypeIcon(dataset.type)}
-                        <Typography variant="body2">
-                          {dataset.display_name || dataset.name}
-                        </Typography>
-                      </Box>
-                    </TableCell>
-                    <TableCell>
-                      <Chip 
-                        label={dataset.type} 
-                        size="small" 
-                        color={getTypeColor(dataset.type) as any}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="text.secondary" noWrap>
-                        {dataset.description || 'No description'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      {dataset.row_count_estimate?.toLocaleString() || 0}
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="text.secondary">
-                        {dataset.last_refreshed 
-                          ? new Date(dataset.last_refreshed).toLocaleDateString()
-                          : 'Never'
-                        }
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Chip 
-                        label={dataset.is_active ? 'Active' : 'Inactive'} 
-                        size="small" 
-                        color={dataset.is_active ? 'success' : 'default'}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <IconButton
-                        size="small"
-                        onClick={(e) => handleMenuClick(e, dataset)}
-                      >
-                        <MoreVert />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-          <TablePagination
-            component="div"
-            count={filteredDatasets.length}
-            page={page}
-            onPageChange={(_, newPage) => setPage(newPage)}
-            rowsPerPage={rowsPerPage}
-            onRowsPerPageChange={(e) => {
-              setRowsPerPage(parseInt(e.target.value, 10));
-              setPage(0);
-            }}
-          />
-        </TableContainer>
+        renderTableView()
       )}
+
+      {/* Pagination */}
+      <TablePagination
+        component="div"
+        count={filteredDatasets.length}
+        page={page}
+        onPageChange={(_, newPage) => setPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(e) => {
+          setRowsPerPage(parseInt(e.target.value, 10));
+          setPage(0);
+        }}
+        sx={{ mt: 3 }}
+      />
 
       {/* Context Menu */}
       <Menu
@@ -640,98 +668,76 @@ export const DatasetList: React.FC<DatasetListProps> = ({
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
       >
-        <MenuItem onClick={handleView}>
-          <Visibility fontSize="small" sx={{ mr: 1 }} />
-          {onDatasetSelect ? 'Select' : 'View'}
+        <MenuItem onClick={handleEdit}>
+          <Edit fontSize="small" sx={{ mr: 1 }} />
+          Edit
         </MenuItem>
-        <PermissionGate permissions={['dataset.update']}>
-          <MenuItem onClick={handleEdit}>
-            <Edit fontSize="small" sx={{ mr: 1 }} />
-            Edit
-          </MenuItem>
-        </PermissionGate>
-        <PermissionGate permissions={['dataset.refresh']}>
-          <MenuItem onClick={handleRefresh}>
-            <Refresh fontSize="small" sx={{ mr: 1 }} />
-            Refresh Data
-          </MenuItem>
-        </PermissionGate>
-        <PermissionGate permissions={['dataset.delete']}>
-          <MenuItem 
-            onClick={() => setDeleteDialogOpen(true)}
-            sx={{ color: 'error.main' }}
-          >
-            <Delete fontSize="small" sx={{ mr: 1 }} />
-            Delete
-          </MenuItem>
-        </PermissionGate>
+        <MenuItem onClick={() => selectedDataset && handleRefresh(selectedDataset)}>
+          <Refresh fontSize="small" sx={{ mr: 1 }} />
+          {refreshing === selectedDataset?.id ? 'Refreshing...' : 'Refresh'}
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={() => setDeleteDialogOpen(true)} sx={{ color: 'error.main' }}>
+          <Delete fontSize="small" sx={{ mr: 1 }} />
+          Delete
+        </MenuItem>
       </Menu>
-
-      {/* Create Dataset Dialog */}
-      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Create New Dataset</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Dataset Name"
-            fullWidth
-            variant="outlined"
-            value={datasetName}
-            onChange={(e) => setDatasetName(e.target.value)}
-            sx={{ mb: 2 }}
-            required
-          />
-          <TextField
-            margin="dense"
-            label="Description"
-            fullWidth
-            multiline
-            rows={3}
-            variant="outlined"
-            value={datasetDescription}
-            onChange={(e) => setDatasetDescription(e.target.value)}
-            sx={{ mb: 2 }}
-          />
-          <FormControl fullWidth>
-            <InputLabel>Dataset Type</InputLabel>
-            <Select
-              value={datasetType}
-              label="Dataset Type"
-              onChange={(e) => setDatasetType(e.target.value as any)}
-            >
-              <MenuItem value="table">Table Dataset</MenuItem>
-              <MenuItem value="query">Query Dataset</MenuItem>
-              <MenuItem value="transformation">Transformation Dataset</MenuItem>
-            </Select>
-          </FormControl>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => { setCreateDialogOpen(false); resetForm(); }}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleCreateDataset} 
-            variant="contained"
-            disabled={!datasetName.trim()}
-          >
-            Create
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
         <DialogTitle>Delete Dataset</DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to delete "{selectedDataset?.name}"? This action cannot be undone and may affect dashboards and charts that depend on this dataset.
+            Are you sure you want to delete "{selectedDataset?.display_name || selectedDataset?.name}"?
+            This action cannot be undone and may affect dashboards and charts that depend on this dataset.
           </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleDelete} color="error" variant="contained">
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Create Dataset Dialog */}
+      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Create Dataset</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <TextField
+              fullWidth
+              label="Name"
+              value={datasetName}
+              onChange={(e) => setDatasetName(e.target.value)}
+              required
+            />
+            <TextField
+              fullWidth
+              label="Description"
+              multiline
+              rows={3}
+              value={datasetDescription}
+              onChange={(e) => setDatasetDescription(e.target.value)}
+            />
+            <FormControl fullWidth>
+              <InputLabel>Type</InputLabel>
+              <Select
+                value={datasetType}
+                label="Type"
+                onChange={(e) => setDatasetType(e.target.value as 'table' | 'query' | 'transformation')}
+              >
+                <MenuItem value="table">Table</MenuItem>
+                <MenuItem value="query">Query</MenuItem>
+                <MenuItem value="transformation">Transformation</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleCreateDataset} variant="contained" disabled={!datasetName.trim()}>
+            Create
           </Button>
         </DialogActions>
       </Dialog>

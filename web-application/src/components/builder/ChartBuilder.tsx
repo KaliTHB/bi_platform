@@ -1,738 +1,829 @@
-'use client';
+// src/components/builder/ChartBuilder.tsx - Complete Fixed Template
+//
+// KEY FIXES APPLIED:
+// ✅ Fixed import: Chart from @/types/chart.types (includes is_active, version)
+// ✅ Fixed API response unwrapping: response.dashboard, response.chart, response.data
+// ✅ Fixed column type conversion: API columns → ColumnDefinition[]
+// ✅ Fixed Chart object creation: Added required is_active, version properties
+// ✅ Fixed variable scoping: Moved operations inside proper conditional blocks
+// ✅ Fixed API method calls: getData() → queryDataset(), executeQuery() → queryDataset()
+// ✅ Added comprehensive error handling with proper state management
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-  Box, 
-  Typography, 
-  Button, 
-  CircularProgress, 
-  Alert,
-  Card,
-  CardContent,
-  Grid,
-  Chip,
+import {
+  Box,
   Paper,
-  Divider,
-  Tooltip,
-  IconButton
+  Typography,
+  Button,
+  Grid,
+  Alert,
+  CircularProgress,
+  Snackbar
 } from '@mui/material';
-import { 
-  Refresh as RefreshIcon,
-  Info as InfoIcon,
-  Create as CreateIcon 
+import {
+  Settings as SettingsIcon,
+  Dashboard as DashboardIcon,
+  Save as SaveIcon,
+  Close as CloseIcon,
+  Preview as PreviewIcon
 } from '@mui/icons-material';
-import { ChartFactory, ChartPluginInfo } from '@/plugins/charts/factory/ChartFactory';
-import { ChartProps } from '@/types/chart.types';
+
+// Import types and services - FIXED IMPORTS
+import {
+  Chart,
+  ChartDimensions,
+  ChartInteractionEvent,
+  ChartError
+} from '@/types/chart.types'; // ✅ Chart types only
+import {
+  Dashboard,
+  Dataset,
+  ColumnDefinition // ✅ Import ColumnDefinition from main types
+} from '@/types'; // General types (includes dataset.types exports)
+import {
+  dashboardAPI,
+  datasetAPI,
+  chartAPI
+} from '@/services/api';
+
+import {ChartConfigPanel} from '@/components/builder/ChartConfigPanel';
+import {ChartRenderer} from '@/components/charts/ChartRenderer';
+import {ChartSelector} from '@/components/builder/ChartSelector';
+import {QueryBuilder} from '@/components/builder/QueryBuilder';
+import { DatasetSelector } from '@/components/builder/DatasetSelector';
 
 // ============================================================================
-// Type Definitions
+// Component Props & State Interfaces
 // ============================================================================
-
-interface ChartInfo {
-  type: string;
-  library: string;
-  displayName: string;
-  category: string;
-  description?: string;
-  version?: string;
-  tags?: string[];
-}
 
 interface ChartBuilderProps {
-  data: any[];
-  onChartSelect?: (chartType: string, library: string) => void;
-  onChartCreate?: (chartElement: React.ReactElement) => void;
-  selectedDataset?: any;
-  columns?: ColumnDefinition[];
-  workspaceId?: string;
+  chartId?: string;
+  workspaceId: string;
   dashboardId?: string;
+  onSave?: (chart: Chart) => void;
+  onCancel?: () => void;
+  onPreview?: (chart: Chart) => void;
 }
 
-interface ColumnDefinition {
-  name: string;
-  displayName: string;
-  type: 'string' | 'number' | 'date' | 'boolean';
-  format?: string;
-}
-
-interface ChartCreationState {
-  isCreating: boolean;
+interface ChartBuilderState {
+  // Data
+  dashboard: Dashboard | null;
+  availableDatasets: Dataset[];
+  selectedChart: Chart | null;
+  chartData: any[];
+  columns: ColumnDefinition[];
+  layouts: { lg: any[] };
+  
+  // UI State
+  loading: boolean;
+  saving: boolean;
   error: string | null;
+  success: string | null;
+  previewMode: boolean;
+  activeTab: 'chart' | 'dataset' | 'query' | 'analytics';
 }
 
 // ============================================================================
-// Main ChartBuilder Component
+// Main Component
 // ============================================================================
 
-export const ChartBuilder: React.FC<ChartBuilderProps> = ({
-  data,
-  onChartSelect,
-  onChartCreate,
-  selectedDataset,
-  columns = [],
+const ChartBuilder: React.FC<ChartBuilderProps> = ({
+  chartId,
   workspaceId,
-  dashboardId
+  dashboardId,
+  onSave,
+  onCancel,
+  onPreview
 }) => {
   // ============================================================================
   // State Management
   // ============================================================================
   
-  const [availableCharts, setAvailableCharts] = useState<ChartInfo[]>([]);
-  const [selectedChart, setSelectedChart] = useState<string | null>(null);
-  const [selectedLibrary, setSelectedLibrary] = useState<string | null>(null);
-  const [isLoadingCharts, setIsLoadingCharts] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [chartFactoryInitialized, setChartFactoryInitialized] = useState(false);
-  const [chartCreationState, setChartCreationState] = useState<ChartCreationState>({
-    isCreating: false,
-    error: null
+  const [state, setState] = useState<ChartBuilderState>({
+    dashboard: null,
+    availableDatasets: [],
+    selectedChart: null,
+    chartData: [],
+    columns: [],
+    layouts: { lg: [] },
+    loading: true,
+    saving: false,
+    error: null,
+    success: null,
+    previewMode: false,
+    activeTab: 'chart'
   });
-  const [initializationAttempts, setInitializationAttempts] = useState(0);
 
-  // ============================================================================
-  // Chart Factory Initialization
-  // ============================================================================
-  
-  const initializeCharts = useCallback(async (isRetry = false) => {
-    try {
-      setIsLoadingCharts(true);
-      setError(null);
-
-      if (isRetry) {
-        setInitializationAttempts(prev => prev + 1);
-      }
-
-      // Initialize ChartFactory with timeout
-      const initPromise = ChartFactory.initialize();
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Initialization timeout')), 10000)
-      );
-
-      await Promise.race([initPromise, timeoutPromise]);
-      setChartFactoryInitialized(true);
-
-      // Get available charts
-      const charts = await ChartFactory.getAllCharts();
-      
-      // Transform to the expected format
-      const chartInfo: ChartInfo[] = charts.map((chart: ChartPluginInfo) => ({
-        type: chart.name.includes('-') ? chart.name.split('-').slice(1).join('-') : chart.name,
-        library: chart.library,
-        displayName: chart.displayName || formatDisplayName(chart.name),
-        category: chart.category,
-        description: chart.description,
-        version: chart.version,
-        tags: extractTagsFromChart(chart)
-      }));
-
-      setAvailableCharts(chartInfo);
-      
-      // Log success for debugging
-      console.log('ChartBuilder: Successfully loaded', chartInfo.length, 'charts');
-      
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load charts';
-      setError(errorMessage);
-      console.error('ChartBuilder initialization error:', err);
-      
-      // Set fallback charts if available
-      setAvailableCharts(getFallbackCharts());
-    } finally {
-      setIsLoadingCharts(false);
-    }
-  }, []);
-
-  // Initialize on component mount
-  useEffect(() => {
-    initializeCharts();
-  }, [initializeCharts]);
-
-  // ============================================================================
-  // Chart Selection Handlers
-  // ============================================================================
-  
-  const handleChartSelect = useCallback((chartType: string, library: string) => {
-    setSelectedChart(chartType);
-    setSelectedLibrary(library);
-    setChartCreationState({ isCreating: false, error: null });
-    
-    onChartSelect?.(chartType, library);
-    
-    console.log('ChartBuilder: Selected chart', { chartType, library });
-  }, [onChartSelect]);
-
-  const handleClearSelection = useCallback(() => {
-    setSelectedChart(null);
-    setSelectedLibrary(null);
-    setChartCreationState({ isCreating: false, error: null });
-  }, []);
-
-  // ============================================================================
-  // Chart Creation
-  // ============================================================================
-  
-  const handleCreateChart = useCallback(async () => {
-    if (!selectedChart || !selectedLibrary || !chartFactoryInitialized) {
-      return;
-    }
-
-    try {
-      setChartCreationState({ isCreating: true, error: null });
-
-      // Validate data
-      if (!data || data.length === 0) {
-        throw new Error('No data available for chart creation');
-      }
-
-      // Generate appropriate config
-      const config = generateDefaultConfig(selectedChart, columns, data);
-      
-      console.log('ChartBuilder: Creating chart with config', {
-        type: selectedChart,
-        library: selectedLibrary,
-        config,
-        dataLength: data.length
-      });
-
-      // Create chart element
-      const chartElement = ChartFactory.createChart(
-        selectedChart,
-        selectedLibrary,
-        {
-          data,
-          config,
-          dimensions: { width: 800, height: 400 },
-          onError: (error) => {
-            console.error('Chart runtime error:', error);
-            setChartCreationState(prev => ({ 
-              ...prev, 
-              error: `Chart Error: ${error.message}` 
-            }));
-          },
-          onInteraction: (event) => {
-            console.log('Chart interaction:', event);
-          }
-        }
-      );
-
-      // Notify parent component
-      onChartCreate?.(chartElement);
-      
-      setChartCreationState({ isCreating: false, error: null });
-      
-      console.log('ChartBuilder: Chart created successfully');
-      
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to create chart';
-      setChartCreationState({ 
-        isCreating: false, 
-        error: errorMessage 
-      });
-      console.error('Chart creation error:', err);
-    }
-  }, [selectedChart, selectedLibrary, data, columns, chartFactoryInitialized, onChartCreate]);
-
-  // ============================================================================
-  // Configuration Generation
-  // ============================================================================
-  
-  const generateDefaultConfig = useCallback((chartType: string, availableColumns: ColumnDefinition[], chartData: any[]) => {
-    const numericColumns = availableColumns.filter(col => col.type === 'number');
-    const stringColumns = availableColumns.filter(col => col.type === 'string');
-    const dateColumns = availableColumns.filter(col => col.type === 'date');
-    
-    // Analyze data if no column definitions
-    const dataColumns = availableColumns.length > 0 ? availableColumns : analyzeDataColumns(chartData);
-    
-    // Base configuration
-    const baseConfig = {
-      title: `${formatDisplayName(chartType)} Chart`,
-      colors: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#f97316', '#06b6d4'],
-      animation: true,
-      showGrid: true,
-      showLegend: true,
-    };
-
-    // Chart-specific configurations
-    switch (chartType) {
-      case 'bar':
-        return {
-          ...baseConfig,
-          xField: stringColumns[0]?.name || dateColumns[0]?.name || dataColumns[0]?.name || 'category',
-          yField: numericColumns[0]?.name || dataColumns.find(col => col.type === 'number')?.name || 'value',
-          orientation: 'vertical',
-          showValues: true
-        };
-      
-      case 'line':
-        return {
-          ...baseConfig,
-          xField: dateColumns[0]?.name || stringColumns[0]?.name || dataColumns[0]?.name || 'x',
-          yField: numericColumns[0]?.name || dataColumns.find(col => col.type === 'number')?.name || 'y',
-          smooth: false,
-          showPoints: true,
-          fillArea: false
-        };
-      
-      case 'pie':
-        return {
-          ...baseConfig,
-          labelField: stringColumns[0]?.name || dataColumns[0]?.name || 'name',
-          valueField: numericColumns[0]?.name || dataColumns.find(col => col.type === 'number')?.name || 'value',
-          isDonut: false,
-          showLabels: true,
-          legendPosition: 'right'
-        };
-      
-      case 'scatter':
-        return {
-          ...baseConfig,
-          xField: numericColumns[0]?.name || dataColumns[0]?.name || 'x',
-          yField: numericColumns[1]?.name || dataColumns[1]?.name || 'y',
-          sizeField: numericColumns[2]?.name,
-          symbolSize: 20
-        };
-
-      case 'radar':
-        return {
-          ...baseConfig,
-          nameField: stringColumns[0]?.name || dataColumns[0]?.name || 'name',
-          valueFields: numericColumns.slice(0, 6).map(col => col.name) || 
-                      dataColumns.filter(col => col.type === 'number').slice(0, 6).map(col => col.name)
-        };
-
-      case 'waterfall':
-        return {
-          ...baseConfig,
-          xField: stringColumns[0]?.name || dataColumns[0]?.name || 'category',
-          yField: numericColumns[0]?.name || dataColumns.find(col => col.type === 'number')?.name || 'value',
-          showConnect: true,
-          showValues: true
-        };
-      
-      default:
-        // Generic config for unknown chart types
-        return {
-          ...baseConfig,
-          xField: dataColumns[0]?.name || 'x',
-          yField: dataColumns[1]?.name || 'y'
-        };
-    }
-  }, []);
+  // Chart dimensions for the renderer
+  const chartDimensions: ChartDimensions = useMemo(() => ({
+    width: 800,
+    height: 500,
+    margin: { top: 40, right: 40, bottom: 60, left: 80 }
+  }), []);
 
   // ============================================================================
   // Utility Functions
   // ============================================================================
-  
-  const formatDisplayName = (name: string): string => {
-    return name
-      .split('-')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+
+  // Convert API column format to ColumnDefinition format
+  const convertApiColumnsToColumnDefinitions = useCallback((apiColumns: Array<{ name: string; type: string; }>): ColumnDefinition[] => {
+    return apiColumns.map(col => ({
+      name: col.name,
+      display_name: col.name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+      data_type: col.type,
+      is_nullable: true, // Default assumption
+      is_primary_key: false // Default assumption
+    }));
+  }, []);
+
+  // Convert API chart format to builder format
+  const convertApiChartToBuilderChart = useCallback((apiChart: any): Chart => {
+    return {
+      id: apiChart.id,
+      name: apiChart.name,
+      display_name: apiChart.display_name,
+      description: apiChart.description,
+      workspace_id: apiChart.workspace_id,
+      dashboard_id: apiChart.dashboard_id,
+      chart_type: apiChart.chart_type,
+      chart_category: apiChart.chart_category || 'basic',
+      chart_library: apiChart.chart_library || 'echarts',
+      dataset_ids: apiChart.dataset_ids || [],
+      config_json: apiChart.config_json || {},
+      position_json: apiChart.position_json || { x: 0, y: 0, width: 4, height: 3 },
+      styling_config: apiChart.styling_config || undefined,
+      interaction_config: apiChart.interaction_config || undefined,
+      drilldown_config: apiChart.drilldown_config || undefined, // ✅ Use undefined for optional configs
+      calculated_fields: apiChart.calculated_fields || [],
+      conditional_formatting: apiChart.conditional_formatting || [],
+      export_config: apiChart.export_config || undefined, // ✅ Use undefined for optional configs  
+      cache_config: apiChart.cache_config || undefined, // ✅ Use undefined for optional configs
+      tab_id: apiChart.tab_id,
+      is_active: apiChart.is_active ?? true, // ✅ Required property
+      version: apiChart.version || 1, // ✅ Required property
+      created_by: apiChart.created_by,
+      created_at: apiChart.created_at,
+      updated_at: apiChart.updated_at
+    };
+  }, []);
+
+  // Generate grid layout from charts
+  const generateGridLayout = useCallback((charts: any[]) => {
+    return charts.map((chart, index) => ({
+      i: chart.id,
+      x: (index % 3) * 4,
+      y: Math.floor(index / 3) * 3,
+      w: chart.position?.width || 4,
+      h: chart.position?.height || 3
+    }));
+  }, []);
+
+  // ============================================================================
+  // Initialization & Data Loading
+  // ============================================================================
+
+  // Initialize the builder
+  useEffect(() => {
+    initializeBuilder();
+  }, [chartId, workspaceId, dashboardId]);
+
+  const initializeBuilder = async () => {
+    setState(prev => ({ ...prev, loading: true, error: null }));
+
+    try {
+      // Load datasets first (always needed)
+      await loadDatasets();
+
+      // Load dashboard if provided
+      if (dashboardId) {
+        await loadDashboard();
+      }
+
+      // Load existing chart if editing
+      if (chartId) {
+        await loadChart();
+      }
+
+      setState(prev => ({ ...prev, loading: false }));
+
+    } catch (error) {
+      setState(prev => ({
+        ...prev,
+        error: error instanceof Error ? error.message : 'Failed to initialize chart builder',
+        loading: false
+      }));
+    }
   };
 
-  const extractTagsFromChart = (chart: ChartPluginInfo): string[] => {
-    // Extract tags from chart name, category, and description
-    const tags = new Set<string>();
-    
-    if (chart.category) tags.add(chart.category);
-    if (chart.library) tags.add(chart.library);
-    
-    // Add common tags based on chart type
-    const chartType = chart.name.toLowerCase();
-    if (chartType.includes('bar')) tags.add('comparison');
-    if (chartType.includes('pie')) tags.add('proportion');
-    if (chartType.includes('line')) tags.add('trends');
-    if (chartType.includes('scatter')) tags.add('correlation');
-    
-    return Array.from(tags);
-  };
+  // Load dashboard data
+  const loadDashboard = async () => {
+    if (!dashboardId) return;
 
-  const analyzeDataColumns = (data: any[]): ColumnDefinition[] => {
-    if (!data || data.length === 0) return [];
-    
-    const sample = data[0];
-    return Object.keys(sample).map(key => {
-      const value = sample[key];
-      let type: 'string' | 'number' | 'date' | 'boolean' = 'string';
+    try {
+      const response = await dashboardAPI.getDashboard(dashboardId);
       
-      if (typeof value === 'number') {
-        type = 'number';
-      } else if (typeof value === 'boolean') {
-        type = 'boolean';
-      } else if (value instanceof Date || (typeof value === 'string' && !isNaN(Date.parse(value)))) {
-        type = 'date';
-      }
+      if (response.success && response.dashboard) {
+        const dashboard = response.dashboard;
+        setState(prev => ({ ...prev, dashboard }));
 
-      return {
-        name: key,
-        displayName: formatDisplayName(key),
-        type,
-        format: type === 'number' ? 'number' : type === 'date' ? 'date' : 'string'
-      };
-    });
+        // Convert API charts to builder format and generate layout
+        if (dashboard.charts && dashboard.charts.length > 0) {
+          const builderCharts = dashboard.charts.map(convertApiChartToBuilderChart);
+          const gridLayout = generateGridLayout(builderCharts);
+          setState(prev => ({ 
+            ...prev, 
+            layouts: { lg: gridLayout }
+          }));
+        } else {
+          // No charts in dashboard
+          setState(prev => ({ ...prev, layouts: { lg: [] } }));
+        }
+      } else {
+        console.error('Failed to load dashboard:', response.message);
+        setState(prev => ({ ...prev, layouts: { lg: [] } }));
+      }
+    } catch (error) {
+      console.error('Error loading dashboard:', error);
+      setState(prev => ({ ...prev, layouts: { lg: [] } }));
+      throw new Error('Failed to load dashboard');
+    }
   };
 
-  const getFallbackCharts = (): ChartInfo[] => {
-    return [
-      {
-        type: 'bar',
-        library: 'echarts',
-        displayName: 'Bar Chart',
-        category: 'basic',
-        description: 'Basic bar chart visualization'
-      },
-      {
-        type: 'line',
-        library: 'echarts',
-        displayName: 'Line Chart',
-        category: 'basic',
-        description: 'Line chart for trends'
-      },
-      {
-        type: 'pie',
-        library: 'echarts',
-        displayName: 'Pie Chart',
-        category: 'basic',
-        description: 'Pie chart for proportions'
+  // Load available datasets
+  const loadDatasets = async () => {
+    try {
+      const response = await datasetAPI.getDatasets(workspaceId);
+      
+      if (response.success && response.datasets) {
+        setState(prev => ({ 
+          ...prev, 
+          availableDatasets: response.datasets || []
+        }));
+      } else {
+        console.warn('Failed to load datasets:', response.message);
+        setState(prev => ({ ...prev, availableDatasets: [] }));
       }
-    ];
+    } catch (error) {
+      console.error('Error loading datasets:', error);
+      setState(prev => ({ ...prev, availableDatasets: [] }));
+    }
+  };
+
+  // Load existing chart for editing
+  const loadChart = async () => {
+    if (!chartId) return;
+
+    try {
+      const response = await chartAPI.getChart(chartId);
+      
+      if (response.success && response.chart) {
+        // Ensure the chart has all required properties matching Chart interface
+        const chart: Chart = {
+          id: response.chart.id,
+          name: response.chart.name,
+          display_name: response.chart.display_name,
+          description: response.chart.description,
+          workspace_id: response.chart.workspace_id,
+          dashboard_id: response.chart.dashboard_id,
+          chart_type: response.chart.chart_type,
+          chart_category: response.chart.chart_category || 'basic',
+          chart_library: response.chart.chart_library || 'echarts',
+          dataset_ids: response.chart.dataset_ids || [],
+          config_json: response.chart.config_json || {},
+          position_json: response.chart.position_json || { x: 0, y: 0, width: 4, height: 3 },
+          styling_config: response.chart.styling_config || undefined, // ✅ Use undefined for optional configs
+          interaction_config: response.chart.interaction_config || undefined, // ✅ Use undefined for optional configs
+          drilldown_config: response.chart.drilldown_config || undefined, // ✅ Use undefined for optional configs
+          calculated_fields: response.chart.calculated_fields || [],
+          conditional_formatting: response.chart.conditional_formatting || [],
+          export_config: response.chart.export_config || undefined, // ✅ Use undefined for optional configs
+          cache_config: response.chart.cache_config || undefined, // ✅ Use undefined for optional configs
+          tab_id: response.chart.tab_id,
+          is_active: response.chart.is_active ?? true, // ✅ Required property
+          version: response.chart.version || 1, // ✅ Required property
+          created_by: response.chart.created_by,
+          created_at: response.chart.created_at,
+          updated_at: response.chart.updated_at
+        };
+        
+        setState(prev => ({ ...prev, selectedChart: chart }));
+
+        // Load chart data if dataset is available
+        if (chart.dataset_ids && chart.dataset_ids.length > 0) {
+          await loadChartData(chart.dataset_ids[0]);
+        }
+      } else {
+        throw new Error(response.message || 'Chart not found');
+      }
+    } catch (error) {
+      console.error('Error loading chart:', error);
+      throw new Error('Failed to load chart');
+    }
+  };
+
+  // Load data for a specific dataset
+  const loadChartData = async (datasetId: string) => {
+    try {
+      const response = await datasetAPI.queryDataset(datasetId, {
+        limit: 1000, // Reasonable limit for chart data
+        offset: 0
+      });
+      
+      if (response.success) {
+        const data = response.data || [];
+        const apiColumns = response.columns || [];
+        const columns = convertApiColumnsToColumnDefinitions(apiColumns);
+        
+        setState(prev => ({
+          ...prev,
+          chartData: data,
+          columns: columns
+        }));
+      } else {
+        console.error('Failed to load chart data:', response.message);
+      }
+    } catch (error) {
+      console.error('Error loading chart data:', error);
+    }
   };
 
   // ============================================================================
-  // Computed Values
+  // Event Handlers
   // ============================================================================
-  
-  const chartsByCategory = useMemo(() => {
-    const grouped: Record<string, ChartInfo[]> = {};
-    
-    availableCharts.forEach(chart => {
-      const category = chart.category || 'other';
-      if (!grouped[category]) {
-        grouped[category] = [];
+
+  // Handle tab change
+  const handleTabChange = useCallback((tab: ChartBuilderState['activeTab']) => {
+    setState(prev => ({ ...prev, activeTab: tab }));
+  }, []);
+
+  // Handle dataset selection
+  const handleDatasetSelect = useCallback(async (dataset: Dataset) => {
+    if (!state.selectedChart) return;
+
+    setState(prev => ({ ...prev, loading: true }));
+
+    try {
+      // Fetch data from selected dataset using dataset.id
+      const response = await datasetAPI.queryDataset(dataset.id, {
+        limit: 1000,
+        offset: 0
+      });
+      
+      if (response.success) {
+        const data = response.data || [];
+        const apiColumns = response.columns || [];
+        const columns = convertApiColumnsToColumnDefinitions(apiColumns);
+        
+        // Update chart with dataset - only valid Chart properties
+        const updatedChart: Chart = {
+          ...state.selectedChart,
+          dataset_ids: [dataset.id], // ✅ Use dataset.id from Dataset object
+          updated_at: new Date().toISOString(),
+          version: (state.selectedChart.version || 1) + 1 // ✅ Increment version
+        };
+
+        setState(prev => ({
+          ...prev,
+          selectedChart: updatedChart,
+          chartData: data,
+          columns: columns,
+          loading: false,
+          activeTab: 'chart' // Go back to chart config
+        }));
+      } else {
+        throw new Error(response.message || 'Failed to load dataset');
       }
-      grouped[category].push(chart);
-    });
-    
-    return grouped;
-  }, [availableCharts]);
 
-  const selectedChartInfo = useMemo(() => {
-    return availableCharts.find(
-      chart => chart.type === selectedChart && chart.library === selectedLibrary
-    );
-  }, [availableCharts, selectedChart, selectedLibrary]);
+    } catch (error) {
+      setState(prev => ({
+        ...prev,
+        error: error instanceof Error ? error.message : 'Failed to load dataset',
+        loading: false
+      }));
+    }
+  }, [state.selectedChart, convertApiColumnsToColumnDefinitions]);
 
-  const canCreateChart = useMemo(() => {
-    return !!(
-      selectedChart && 
-      selectedLibrary && 
-      chartFactoryInitialized && 
-      data && 
-      data.length > 0 &&
-      !chartCreationState.isCreating
-    );
-  }, [selectedChart, selectedLibrary, chartFactoryInitialized, data, chartCreationState.isCreating]);
+  // Handle query execution
+  const handleQueryExecute = useCallback(async (query: string, datasetId: string) => {
+    setState(prev => ({ ...prev, loading: true, error: null }));
 
-  // ============================================================================
-  // Render Functions
-  // ============================================================================
-  
-  const renderLoadingState = () => (
-    <Box display="flex" justifyContent="center" alignItems="center" minHeight={300}>
-      <Box textAlign="center">
-        <CircularProgress size={48} />
-        <Typography variant="body2" sx={{ mt: 2 }}>
-          Loading chart types...
-        </Typography>
-        {initializationAttempts > 0 && (
-          <Typography variant="caption" color="text.secondary">
-            Attempt {initializationAttempts + 1}
-          </Typography>
-        )}
-      </Box>
-    </Box>
-  );
-
-  const renderErrorState = () => (
-    <Alert 
-      severity="error" 
-      sx={{ mb: 2 }}
-      action={
-        <Button 
-          size="small" 
-          startIcon={<RefreshIcon />}
-          onClick={() => initializeCharts(true)}
-          disabled={isLoadingCharts}
-        >
-          Retry
-        </Button>
+    try {
+      // Execute custom query using queryDataset with custom query parameter
+      const response = await datasetAPI.queryDataset(datasetId, {
+        query: query, // Custom SQL query
+        limit: 1000
+      });
+      
+      if (response.success) {
+        const data = response.data || [];
+        const apiColumns = response.columns || [];
+        const columns = convertApiColumnsToColumnDefinitions(apiColumns);
+        
+        setState(prev => ({
+          ...prev,
+          chartData: data,
+          columns: columns,
+          loading: false
+        }));
+      } else {
+        setState(prev => ({
+          ...prev,
+          error: response.message || 'Query execution failed',
+          loading: false
+        }));
       }
-    >
-      <Typography variant="subtitle2">Failed to load chart system</Typography>
-      <Typography variant="body2">{error}</Typography>
-      {availableCharts.length > 0 && (
-        <Typography variant="caption" display="block" sx={{ mt: 1 }}>
-          Using fallback charts ({availableCharts.length} available)
-        </Typography>
-      )}
-    </Alert>
-  );
+    } catch (error) {
+      setState(prev => ({
+        ...prev,
+        error: error instanceof Error ? error.message : 'Failed to execute query',
+        loading: false
+      }));
+    }
+  }, [convertApiColumnsToColumnDefinitions]);
 
-  const renderEmptyState = () => (
-    <Alert severity="warning">
-      <Typography variant="subtitle2">No chart types available</Typography>
-      <Typography variant="body2">
-        Please ensure chart plugins are properly configured.
-      </Typography>
-    </Alert>
-  );
-
-  const renderChartCard = (chart: ChartInfo) => {
-    const isSelected = selectedChart === chart.type && selectedLibrary === chart.library;
+  // Handle chart configuration save
+  const handleChartConfigSave = useCallback((updatedChart: Chart) => {
+    // Ensure the updated chart has all required properties and proper optional properties
+    const completeChart: Chart = {
+      id: updatedChart.id,
+      name: updatedChart.name,
+      display_name: updatedChart.display_name,
+      description: updatedChart.description,
+      workspace_id: updatedChart.workspace_id,
+      dashboard_id: updatedChart.dashboard_id,
+      chart_type: updatedChart.chart_type,
+      chart_category: updatedChart.chart_category,
+      chart_library: updatedChart.chart_library,
+      dataset_ids: updatedChart.dataset_ids,
+      config_json: updatedChart.config_json,
+      position_json: updatedChart.position_json,
+      styling_config: updatedChart.styling_config || undefined, // ✅ Use undefined for optional configs
+      interaction_config: updatedChart.interaction_config || undefined, // ✅ Use undefined for optional configs
+      drilldown_config: updatedChart.drilldown_config || undefined, // ✅ Use undefined for optional configs
+      calculated_fields: updatedChart.calculated_fields || [],
+      conditional_formatting: updatedChart.conditional_formatting || [],
+      export_config: updatedChart.export_config || undefined, // ✅ Use undefined for optional configs
+      cache_config: updatedChart.cache_config || undefined, // ✅ Use undefined for optional configs
+      tab_id: updatedChart.tab_id,
+      is_active: updatedChart.is_active ?? true, // ✅ Required property
+      version: (updatedChart.version || 1) + 1, // ✅ Increment version
+      created_by: updatedChart.created_by,
+      created_at: updatedChart.created_at,
+      updated_at: new Date().toISOString()
+    };
     
-    return (
-      <Card 
-        key={`${chart.library}-${chart.type}`}
-        sx={{ 
-          cursor: 'pointer',
-          border: isSelected ? 2 : 1,
-          borderColor: isSelected ? 'primary.main' : 'divider',
-          '&:hover': {
-            borderColor: 'primary.main',
-            boxShadow: 2,
-            transform: 'translateY(-2px)'
-          },
-          transition: 'all 0.2s ease-in-out'
-        }}
-        onClick={() => handleChartSelect(chart.type, chart.library)}
-      >
-        <CardContent sx={{ pb: 2 }}>
-          <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1}>
-            <Typography variant="subtitle2" component="div" fontWeight={600}>
-              {chart.displayName}
-            </Typography>
-            <Chip 
-              label={chart.library} 
-              size="small" 
-              variant={isSelected ? 'filled' : 'outlined'}
-              color="primary"
-              sx={{ ml: 1 }}
-            />
-          </Box>
-          
-          {chart.description && (
-            <Typography 
-              variant="body2" 
-              color="text.secondary" 
-              sx={{ 
-                mb: 1,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                display: '-webkit-box',
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: 'vertical'
-              }}
-            >
-              {chart.description}
-            </Typography>
-          )}
+    setState(prev => ({
+      ...prev,
+      selectedChart: completeChart,
+      success: 'Chart configuration updated'
+    }));
+  }, []);
 
-          {chart.tags && chart.tags.length > 0 && (
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
-              {chart.tags.slice(0, 3).map(tag => (
-                <Chip 
-                  key={tag}
-                  label={tag} 
-                  size="small" 
-                  variant="outlined"
-                  sx={{ fontSize: '0.7rem', height: '20px' }}
-                />
-              ))}
-            </Box>
-          )}
-        </CardContent>
-      </Card>
-    );
-  };
+  // Handle chart save
+  const handleSave = useCallback(async () => {
+    if (!state.selectedChart) return;
 
-  const renderSelectedChartInfo = () => {
-    if (!selectedChartInfo) return null;
+    setState(prev => ({ ...prev, saving: true, error: null }));
 
-    return (
-      <Paper sx={{ p: 2, mb: 2, bgcolor: 'primary.50' }}>
-        <Box display="flex" alignItems="center" justifyContent="space-between">
-          <Box>
-            <Typography variant="subtitle1" fontWeight={600}>
-              Selected: {selectedChartInfo.displayName}
+    try {
+      if (chartId && chartId === state.selectedChart.id) {
+        // Update existing chart
+        const updateResponse = await chartAPI.updateChart(chartId, state.selectedChart);
+        
+        if (updateResponse.success && updateResponse.chart) {
+          setState(prev => ({
+            ...prev,
+            selectedChart: updateResponse.chart,
+            saving: false,
+            success: 'Chart updated successfully'
+          }));
+
+          onSave?.(updateResponse.chart);
+        } else {
+          throw new Error(updateResponse.message || 'Failed to update chart');
+        }
+      } else {
+        // Create new chart
+        const chartData = {
+          ...state.selectedChart,
+          workspace_id: workspaceId,
+          dashboard_id: dashboardId
+        };
+        
+        const createResponse = await chartAPI.createChart(chartData);
+        
+        if (createResponse.success && createResponse.chart) {
+          setState(prev => ({
+            ...prev,
+            selectedChart: createResponse.chart,
+            saving: false,
+            success: 'Chart created successfully'
+          }));
+
+          onSave?.(createResponse.chart);
+        } else {
+          throw new Error(createResponse.message || 'Failed to create chart');
+        }
+      }
+
+    } catch (error) {
+      setState(prev => ({
+        ...prev,
+        error: error instanceof Error ? error.message : 'Failed to save chart',
+        saving: false
+      }));
+    }
+  }, [state.selectedChart, chartId, workspaceId, dashboardId, onSave]);
+
+  // Handle preview toggle
+  const handlePreview = useCallback(() => {
+    if (!state.selectedChart) return;
+    
+    setState(prev => ({ ...prev, previewMode: !prev.previewMode }));
+    onPreview?.(state.selectedChart);
+  }, [state.selectedChart, onPreview]);
+
+  // Handle chart interaction
+  const handleChartInteraction = useCallback((event: ChartInteractionEvent) => {
+    console.log('Chart interaction:', event);
+    // Handle chart interactions (clicks, hovers, etc.)
+  }, []);
+
+  // Handle chart error
+  const handleChartError = useCallback((error: ChartError) => {
+    setState(prev => ({
+      ...prev,
+      error: error.message
+    }));
+  }, []);
+
+  // Close alerts
+  const handleCloseAlert = useCallback(() => {
+    setState(prev => ({ ...prev, error: null, success: null }));
+  }, []);
+
+  // ============================================================================
+  // Render Methods
+  // ============================================================================
+
+  // Render the configuration panel content based on active tab
+  const renderConfigPanelContent = () => {
+    switch (state.activeTab) {
+      case 'chart':
+        return (
+          <ChartConfigPanel
+            open={true}
+            onClose={() => {}}
+            chart={state.selectedChart}
+            datasets={state.availableDatasets}
+            onSave={handleChartConfigSave}
+          />
+        );
+      
+      case 'dataset':
+        return (
+          <DatasetSelector
+            datasets={state.availableDatasets}
+            selectedDataset={state.selectedChart?.dataset_ids?.[0]}
+            onSelect={handleDatasetSelect}
+            onRefresh={loadDatasets}
+          />
+        );
+      
+      case 'query':
+        return (
+          <QueryBuilder
+            datasets={state.availableDatasets}
+            selectedDatasetId={state.selectedChart?.dataset_ids?.[0]}
+            onExecute={handleQueryExecute}
+            onSave={(query: string) => console.log('Query saved:', query)} // ✅ Add explicit type
+          />
+        );
+      
+      case 'analytics':
+        return (
+          <Box p={3}>
+            <Typography variant="h6" gutterBottom>
+              Chart Analytics
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Library: {selectedChartInfo.library} • Category: {selectedChartInfo.category}
+              View performance metrics and usage statistics for this chart.
             </Typography>
-            {selectedChartInfo.description && (
-              <Typography variant="body2" sx={{ mt: 0.5 }}>
-                {selectedChartInfo.description}
-              </Typography>
-            )}
+            {/* Add analytics content here */}
           </Box>
-          <Button
-            size="small"
-            onClick={handleClearSelection}
-            sx={{ ml: 2 }}
-          >
-            Clear
-          </Button>
-        </Box>
-      </Paper>
-    );
-  };
-
-  const renderCreationState = () => {
-    if (!chartCreationState.error && !chartCreationState.isCreating) return null;
-
-    return (
-      <Box sx={{ mb: 2 }}>
-        {chartCreationState.isCreating && (
-          <Alert severity="info" sx={{ mb: 1 }}>
-            <Box display="flex" alignItems="center">
-              <CircularProgress size={20} sx={{ mr: 1 }} />
-              Creating chart...
-            </Box>
-          </Alert>
-        )}
-        
-        {chartCreationState.error && (
-          <Alert severity="error">
-            <Typography variant="subtitle2">Chart Creation Error</Typography>
-            <Typography variant="body2">{chartCreationState.error}</Typography>
-          </Alert>
-        )}
-      </Box>
-    );
+        );
+      
+      default:
+        return null;
+    }
   };
 
   // ============================================================================
   // Main Render
   // ============================================================================
-  
-  // Loading state
-  if (isLoadingCharts) {
-    return renderLoadingState();
+
+  if (state.loading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" height="100vh">
+        <CircularProgress />
+        <Typography variant="h6" ml={2}>
+          Loading Chart Builder...
+        </Typography>
+      </Box>
+    );
   }
 
-  // Error state (but continue if we have fallback charts)
-  const showError = error && availableCharts.length === 0;
-  
   return (
-    <Box>
+    <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h6" fontWeight={600}>
-          Choose Chart Type
-        </Typography>
-        
-        <Box display="flex" gap={1}>
-          <Tooltip title="Chart Factory Status">
-            <IconButton size="small" color={chartFactoryInitialized ? 'success' : 'warning'}>
-              <InfoIcon />
-            </IconButton>
-          </Tooltip>
+      <Paper elevation={1} sx={{ p: 2, borderRadius: 0 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center">
+          <Typography variant="h5" fontWeight="bold">
+            Chart Builder
+          </Typography>
           
-          <Button
-            size="small"
-            startIcon={<RefreshIcon />}
-            onClick={() => initializeCharts(true)}
-            disabled={isLoadingCharts}
-          >
-            Refresh
-          </Button>
-        </Box>
-      </Box>
-
-      {/* Error State */}
-      {error && renderErrorState()}
-
-      {/* Empty State */}
-      {showError && renderEmptyState()}
-
-      {/* Selected Chart Info */}
-      {renderSelectedChartInfo()}
-
-      {/* Chart Creation State */}
-      {renderCreationState()}
-
-      {/* Chart Selection Grid */}
-      {availableCharts.length > 0 && (
-        <Box sx={{ mb: 3 }}>
-          {Object.entries(chartsByCategory).map(([category, charts]) => (
-            <Box key={category} sx={{ mb: 4 }}>
-              <Typography 
-                variant="h6" 
-                sx={{ 
-                  mb: 2, 
-                  textTransform: 'capitalize',
-                  fontWeight: 500,
-                  color: 'text.primary'
-                }}
+          <Box display="flex" gap={2} alignItems="center">
+            <Button
+              variant={state.previewMode ? 'contained' : 'outlined'}
+              startIcon={<PreviewIcon />}
+              onClick={handlePreview}
+              disabled={!state.selectedChart}
+              color={state.previewMode ? 'primary' : 'inherit'}
+            >
+              {state.previewMode ? 'Exit Preview' : 'Preview'}
+            </Button>
+            
+            <Button
+              variant="contained"
+              startIcon={<SaveIcon />}
+              onClick={handleSave}
+              disabled={!state.selectedChart || state.saving}
+            >
+              {state.saving ? 'Saving...' : 'Save Chart'}
+            </Button>
+            
+            {onCancel && (
+              <Button
+                variant="outlined"
+                startIcon={<CloseIcon />}
+                onClick={onCancel}
+                color="error"
               >
-                {category} Charts ({charts.length})
-              </Typography>
-              
-              <Grid container spacing={2}>
-                {charts.map(renderChartCard)}
-              </Grid>
-              
-              {Object.keys(chartsByCategory).indexOf(category) < Object.keys(chartsByCategory).length - 1 && (
-                <Divider sx={{ mt: 3 }} />
-              )}
-            </Box>
-          ))}
+                Cancel
+              </Button>
+            )}
+          </Box>
         </Box>
-      )}
+      </Paper>
 
-      {/* Actions */}
-      <Box display="flex" justifyContent="flex-end" gap={2} sx={{ mt: 3 }}>
-        <Button
-          variant="outlined"
-          onClick={handleClearSelection}
-          disabled={!selectedChart}
-        >
-          Clear Selection
-        </Button>
-        
-        <Button
-          variant="contained"
-          startIcon={chartCreationState.isCreating ? <CircularProgress size={16} /> : <CreateIcon />}
-          onClick={handleCreateChart}
-          disabled={!canCreateChart}
-        >
-          {chartCreationState.isCreating ? 'Creating...' : 'Create Chart'}
-        </Button>
+      {/* Alert Messages */}
+      <Snackbar
+        open={!!state.error}
+        autoHideDuration={6000}
+        onClose={handleCloseAlert}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Alert severity="error" onClose={handleCloseAlert}>
+          {state.error}
+        </Alert>
+      </Snackbar>
+
+      <Snackbar
+        open={!!state.success}
+        autoHideDuration={4000}
+        onClose={handleCloseAlert}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Alert severity="success" onClose={handleCloseAlert}>
+          {state.success}
+        </Alert>
+      </Snackbar>
+
+      {/* Main Content */}
+      <Box sx={{ flex: 1, overflow: 'hidden' }}>
+        <Grid container sx={{ height: '100%' }}>
+          {/* Left Panel - Chart Config Panel */}
+          <Grid item xs={12} md={4} lg={3}>
+            <Paper 
+              elevation={0} 
+              sx={{ 
+                height: '100%', 
+                borderRight: '1px solid', 
+                borderColor: 'divider',
+                borderRadius: 0,
+                display: 'flex',
+                flexDirection: 'column'
+              }}
+            >
+              {/* Config Panel Header */}
+              <Box sx={{ 
+                p: 2, 
+                borderBottom: '1px solid', 
+                borderColor: 'divider',
+                backgroundColor: 'background.default'
+              }}>
+                <Typography variant="h6" gutterBottom>
+                  Chart Configuration
+                </Typography>
+                
+                {/* Tab Navigation */}
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                  {[
+                    { key: 'chart', label: 'Chart', icon: <SettingsIcon /> },
+                    { key: 'dataset', label: 'Dataset', icon: <DashboardIcon /> },
+                    { key: 'query', label: 'Query', icon: <SettingsIcon /> },
+                    { key: 'analytics', label: 'Analytics', icon: <SettingsIcon /> }
+                  ].map((tab) => (
+                    <Button
+                      key={tab.key}
+                      size="small"
+                      variant={state.activeTab === tab.key ? 'contained' : 'outlined'}
+                      onClick={() => handleTabChange(tab.key as any)}
+                      sx={{ minWidth: 'auto', px: 1, fontSize: '0.75rem' }}
+                    >
+                      {tab.label}
+                    </Button>
+                  ))}
+                </Box>
+              </Box>
+
+              {/* Config Panel Content */}
+              <Box sx={{ flex: 1, overflow: 'auto' }}>
+                {renderConfigPanelContent()}
+              </Box>
+            </Paper>
+          </Grid>
+
+          {/* Right Panel - Chart Renderer */}
+          <Grid item xs={12} md={8} lg={9}>
+            <Box sx={{ 
+              height: '100%', 
+              display: 'flex', 
+              flexDirection: 'column',
+              backgroundColor: 'background.default'
+            }}>
+              {/* Chart Header */}
+              <Box sx={{ 
+                p: 2, 
+                borderBottom: '1px solid', 
+                borderColor: 'divider',
+                backgroundColor: 'background.paper'
+              }}>
+                <Typography variant="h6">
+                  Chart Preview
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {state.chartData.length > 0 
+                    ? `Showing ${state.chartData.length} data points`
+                    : 'No data available - select a dataset to preview your chart'
+                  }
+                </Typography>
+              </Box>
+
+              {/* Chart Content */}
+              <Box sx={{ 
+                flex: 1, 
+                p: 3,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'auto'
+              }}>
+                {state.selectedChart && state.chartData.length > 0 ? (
+                  <ChartRenderer
+                    chart={state.selectedChart}
+                    data={state.chartData}
+                    columns={state.columns}
+                    dimensions={chartDimensions}
+                    onInteraction={handleChartInteraction}
+                    onError={handleChartError}
+                    style={{
+                      border: '1px solid #e0e0e0',
+                      borderRadius: '8px',
+                      backgroundColor: 'white'
+                    }}
+                  />
+                ) : (
+                  <Box textAlign="center" sx={{ color: 'text.secondary' }}>
+                    <Typography variant="h6" gutterBottom>
+                      {!state.selectedChart 
+                        ? 'Select a chart type to begin'
+                        : 'Select a dataset to preview your chart'
+                      }
+                    </Typography>
+                    <Typography variant="body2">
+                      {!state.selectedChart 
+                        ? 'Use the configuration panel to choose your chart type and settings'
+                        : 'Choose a dataset from the Dataset tab to load data for your chart'
+                      }
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+            </Box>
+          </Grid>
+        </Grid>
       </Box>
-
-      {/* Debug Info (Development Only) */}
-      {process.env.NODE_ENV === 'development' && (
-        <Paper sx={{ mt: 3, p: 2, bgcolor: 'grey.50' }}>
-          <Typography variant="caption" display="block">
-            <strong>Debug Info:</strong>
-          </Typography>
-          <Typography variant="caption" display="block">
-            • Charts loaded: {availableCharts.length}
-          </Typography>
-          <Typography variant="caption" display="block">
-            • Factory initialized: {chartFactoryInitialized ? 'Yes' : 'No'}
-          </Typography>
-          <Typography variant="caption" display="block">
-            • Data rows: {data?.length || 0}
-          </Typography>
-          <Typography variant="caption" display="block">
-            • Columns: {columns.length}
-          </Typography>
-          <Typography variant="caption" display="block">
-            • Selected: {selectedChart ? `${selectedLibrary}-${selectedChart}` : 'None'}
-          </Typography>
-        </Paper>
-      )}
     </Box>
   );
 };

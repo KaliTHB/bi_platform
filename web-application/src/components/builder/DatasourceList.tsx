@@ -1,73 +1,90 @@
-'use client';
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/router';
 import {
   Box,
-  Card,
-  CardContent,
-  CardActions,
   Typography,
   Button,
+  Paper,
+  Grid,
+  TextField,
+  InputAdornment,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
   IconButton,
+  Card,
+  CardContent,
+  List,
+  ListItem,
+  ListItemAvatar,
+  ListItemText,
+  ListItemSecondaryAction,
+  Avatar,
   Chip,
   Menu,
-  MenuItem,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TablePagination,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  Grid,
-  Paper,
-  InputAdornment,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  ListItemAvatar,
-  Avatar,
-  Tooltip,
-  CircularProgress,
   Alert,
+  Divider,
+  Tooltip,
+  CircularProgress
 } from '@mui/material';
 import {
   Add,
+  Search,
+  MoreVert,
   Edit,
   Delete,
-  MoreVert,
   Visibility,
   Storage,
   Cloud,
+  Database,
+  ViewList,
+  ViewModule,
+  TableChart,
+  Refresh,
   CheckCircle,
   Error,
-  Warning,
-  Search,
-  FilterList,
-  ViewModule,
-  ViewList,
-  Settings,
-  Cable,
+  Warning
 } from '@mui/icons-material';
-import StorageIcon from '@mui/icons-material/Storage';
-import ScienceIcon from '@mui/icons-material/Science';
-import { useRouter } from 'next/navigation';
-import { DataSource } from '@/types/datasource.types';
+
+// Hooks
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { usePermissions } from '@/hooks/usePermissions';
-import useDataSources from '@/hooks/useDataSources';
-import PermissionGate from '@/components/shared/PermissionGate';
+import { useDataSources } from '@/hooks/useDataSources';
 
-interface DataSourceListProps {
-  onDataSourceSelect?: (dataSource: DataSource) => void;
-  viewMode?: 'grid' | 'list';
-  showCreateButton?: boolean;
-  selectionMode?: boolean;
-  selectedDataSources?: string[];
-  onSelectionChange?: (dataSourceIds: string[]) => void;
-  filterByPlugin?: string;
+// Components
+import { PermissionGate } from '@/components/shared/PermissionGate';
+
+// Types
+interface DataSource {
+  id: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  plugin_name: string;
+  plugin_category: 'relational' | 'cloud_databases' | 'storage_services' | 'data_lakes';
+  status: 'connected' | 'disconnected' | 'error' | 'testing';
+  connection_config: Record<string, any>;
+  last_tested?: string;
+  test_result?: {
+    success: boolean;
+    message?: string;
+    tested_at: string;
+  };
+  created_at: string;
+  updated_at: string;
+  workspace_id: string;
 }
 
 interface Plugin {
@@ -92,6 +109,16 @@ interface SchemaProperty {
   maximum?: number;
 }
 
+interface DataSourceListProps {
+  onDataSourceSelect?: (dataSource: DataSource) => void;
+  viewMode?: 'grid' | 'list' | 'table';
+  showCreateButton?: boolean;
+  selectionMode?: boolean;
+  selectedDataSources?: string[];
+  onSelectionChange?: (dataSourceIds: string[]) => void;
+  filterByPlugin?: string;
+}
+
 export const DataSourceList: React.FC<DataSourceListProps> = ({
   onDataSourceSelect,
   viewMode = 'grid',
@@ -103,16 +130,21 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
 }) => {
   const router = useRouter();
   const { currentWorkspace } = useWorkspace();
-  const { hasPermission, hasAnyPermission, hasAllPermissions } = usePermissions();
+  const { hasPermission } = usePermissions();
   const { 
     dataSources, 
     loading, 
+    error: dataSourceError,
     createDataSource, 
     updateDataSource,
     deleteDataSource, 
     testConnection 
   } = useDataSources();
 
+  // ============================================================================
+  // State Management
+  // ============================================================================
+  
   const [currentViewMode, setCurrentViewMode] = useState(viewMode);
   const [selectedDataSource, setSelectedDataSource] = useState<DataSource | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -123,6 +155,8 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
   const [pluginFilter, setPluginFilter] = useState<string>(filterByPlugin || 'all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('updated_at');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(12);
   const [testResult, setTestResult] = useState<any>(null);
   const [testing, setTesting] = useState(false);
 
@@ -136,139 +170,150 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
   const [availablePlugins, setAvailablePlugins] = useState<Plugin[]>([]);
   const [pluginsLoading, setPluginsLoading] = useState(false);
 
-  // Load available plugins
-  const loadAvailablePlugins = async () => {
+  // ============================================================================
+  // Load Available Plugins
+  // ============================================================================
+  
+  const loadAvailablePlugins = useCallback(async () => {
     if (!currentWorkspace?.id) return;
     
     setPluginsLoading(true);
     try {
-      const response = await fetch(`/api/workspaces/${currentWorkspace.id}/plugins/datasources`);
-      if (response.ok) {
-        const plugins = await response.json();
-        setAvailablePlugins(plugins);
-      } else {
-        // Fallback plugins if API fails
-        setAvailablePlugins([
-          {
-            name: 'postgresql',
-            displayName: 'PostgreSQL',
-            category: 'relational',
-            configSchema: {
-              type: 'object',
-              properties: {
-                host: { type: 'string', title: 'Host' },
-                port: { type: 'number', title: 'Port', default: 5432 },
-                database: { type: 'string', title: 'Database' },
-                username: { type: 'string', title: 'Username' },
-                password: { type: 'password', title: 'Password' }
-              },
-              required: ['host', 'database', 'username', 'password']
-            }
-          },
-          {
-            name: 'mysql',
-            displayName: 'MySQL',
-            category: 'relational',
-            configSchema: {
-              type: 'object',
-              properties: {
-                host: { type: 'string', title: 'Host' },
-                port: { type: 'number', title: 'Port', default: 3306 },
-                database: { type: 'string', title: 'Database' },
-                username: { type: 'string', title: 'Username' },
-                password: { type: 'password', title: 'Password' }
-              },
-              required: ['host', 'database', 'username', 'password']
-            }
+      // This would be replaced with actual API call
+      const plugins: Plugin[] = [
+        {
+          name: 'postgresql',
+          displayName: 'PostgreSQL',
+          category: 'relational',
+          configSchema: {
+            type: 'object',
+            properties: {
+              host: { type: 'string', title: 'Host' },
+              port: { type: 'number', title: 'Port', default: 5432 },
+              database: { type: 'string', title: 'Database' },
+              username: { type: 'string', title: 'Username' },
+              password: { type: 'password', title: 'Password' },
+            },
+            required: ['host', 'database', 'username', 'password']
           }
-        ]);
-      }
+        },
+        {
+          name: 'mysql',
+          displayName: 'MySQL',
+          category: 'relational',
+          configSchema: {
+            type: 'object',
+            properties: {
+              host: { type: 'string', title: 'Host' },
+              port: { type: 'number', title: 'Port', default: 3306 },
+              database: { type: 'string', title: 'Database' },
+              username: { type: 'string', title: 'Username' },
+              password: { type: 'password', title: 'Password' },
+            },
+            required: ['host', 'database', 'username', 'password']
+          }
+        }
+      ];
+      setAvailablePlugins(plugins);
     } catch (error) {
-      console.error('Failed to load available plugins:', error);
+      console.error('Failed to load plugins:', error);
     } finally {
       setPluginsLoading(false);
     }
-  };
+  }, [currentWorkspace?.id]);
 
   useEffect(() => {
     loadAvailablePlugins();
-  }, [currentWorkspace?.id]);
+  }, [loadAvailablePlugins]);
 
-  const filteredDataSources = dataSources
-    .filter((ds) => {
-      // Search filter
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        const matchesSearch = 
-          ds.name.toLowerCase().includes(query) ||
-          ds.display_name?.toLowerCase().includes(query) ||
-          ds.description?.toLowerCase().includes(query) ||
-          ds.plugin_name.toLowerCase().includes(query);
-        if (!matchesSearch) return false;
-      }
+  // ============================================================================
+  // Data Processing
+  // ============================================================================
+  
+  const filteredDataSources = useMemo(() => {
+    if (!dataSources?.data) return [];
 
-      // Plugin filter
-      if (pluginFilter !== 'all' && ds.plugin_name !== pluginFilter) {
-        return false;
-      }
+    return dataSources.data.filter((dataSource: DataSource) => {
+      const matchesSearch = !searchQuery || 
+        dataSource.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        dataSource.display_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        dataSource.description?.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      const matchesPlugin = pluginFilter === 'all' || dataSource.plugin_name === pluginFilter;
+      const matchesStatus = statusFilter === 'all' || dataSource.status === statusFilter;
+      
+      return matchesSearch && matchesPlugin && matchesStatus;
+    });
+  }, [dataSources?.data, searchQuery, pluginFilter, statusFilter]);
 
-      // Status filter
-      if (statusFilter !== 'all') {
-        if (statusFilter === 'active' && !ds.is_active) return false;
-        if (statusFilter === 'inactive' && ds.is_active) return false;
-        if (statusFilter === 'success' && ds.test_status !== 'success') return false;
-        if (statusFilter === 'failed' && ds.test_status !== 'failed') return false;
-        if (statusFilter === 'pending' && ds.test_status !== 'pending') return false;
-      }
-
-      return true;
-    })
-    .sort((a, b) => {
+  const sortedDataSources = useMemo(() => {
+    return [...filteredDataSources].sort((a, b) => {
       switch (sortBy) {
         case 'name':
           return a.name.localeCompare(b.name);
         case 'plugin':
           return a.plugin_name.localeCompare(b.plugin_name);
         case 'status':
-          return a.test_status.localeCompare(b.test_status);
-        case 'created_at':
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        default: // updated_at
+          return a.status.localeCompare(b.status);
+        case 'updated_at':
+        default:
           return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
       }
     });
+  }, [filteredDataSources, sortBy]);
 
-  const uniquePlugins = Array.from(new Set(dataSources.map(ds => ds.plugin_name)));
+  const paginatedDataSources = useMemo(() => {
+    const startIndex = page * rowsPerPage;
+    return sortedDataSources.slice(startIndex, startIndex + rowsPerPage);
+  }, [sortedDataSources, page, rowsPerPage]);
 
-  const handleMenuClick = (event: React.MouseEvent<HTMLElement>, dataSource: DataSource) => {
+  // ============================================================================
+  // Event Handlers
+  // ============================================================================
+  
+  const handleMenuClick = useCallback((event: React.MouseEvent<HTMLElement>, dataSource: DataSource) => {
+    event.stopPropagation();
     setSelectedDataSource(dataSource);
     setAnchorEl(event.currentTarget);
-  };
+  }, []);
 
-  const handleMenuClose = () => {
+  const handleMenuClose = useCallback(() => {
     setAnchorEl(null);
     setSelectedDataSource(null);
-  };
+  }, []);
 
-  const handleEdit = () => {
+  const handleDataSourceClick = useCallback((dataSource: DataSource) => {
+    if (selectionMode) {
+      const isSelected = selectedDataSources.includes(dataSource.id);
+      const newSelection = isSelected
+        ? selectedDataSources.filter(id => id !== dataSource.id)
+        : [...selectedDataSources, dataSource.id];
+      onSelectionChange?.(newSelection);
+    } else {
+      onDataSourceSelect?.(dataSource);
+    }
+  }, [selectionMode, selectedDataSources, onSelectionChange, onDataSourceSelect]);
+
+  const handleEdit = useCallback(() => {
     if (selectedDataSource) {
       router.push(`/workspace/${currentWorkspace?.slug}/datasource/${selectedDataSource.id}/edit`);
     }
     handleMenuClose();
-  };
+  }, [selectedDataSource, router, currentWorkspace?.slug, handleMenuClose]);
 
-  const handleView = () => {
+  const handleDelete = useCallback(async () => {
     if (selectedDataSource) {
-      if (onDataSourceSelect) {
-        onDataSourceSelect(selectedDataSource);
-      } else {
-        router.push(`/workspace/${currentWorkspace?.slug}/datasource/${selectedDataSource.id}`);
+      try {
+        await deleteDataSource(selectedDataSource.id);
+        setDeleteDialogOpen(false);
+      } catch (error) {
+        console.error('Failed to delete data source:', error);
       }
     }
     handleMenuClose();
-  };
+  }, [selectedDataSource, deleteDataSource, handleMenuClose]);
 
-  const handleTest = async () => {
+  const handleTest = useCallback(async () => {
     if (selectedDataSource) {
       setTesting(true);
       setTestResult(null);
@@ -276,24 +321,20 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
         const result = await testConnection(selectedDataSource.id);
         setTestResult(result);
       } catch (error: any) {
-        setTestResult({ success: false, message: 'Connection test failed', error: error.message });
+        setTestResult({ 
+          success: false, 
+          message: 'Connection test failed', 
+          error: error.message 
+        });
       } finally {
         setTesting(false);
       }
       setTestDialogOpen(true);
     }
     handleMenuClose();
-  };
+  }, [selectedDataSource, testConnection, handleMenuClose]);
 
-  const handleDelete = async () => {
-    if (selectedDataSource) {
-      await deleteDataSource(selectedDataSource.id);
-      setDeleteDialogOpen(false);
-    }
-    handleMenuClose();
-  };
-
-  const handleCreateDataSource = async () => {
+  const handleCreateDataSource = useCallback(async () => {
     if (dataSourceName.trim() && selectedPlugin) {
       try {
         await createDataSource({
@@ -304,24 +345,64 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
         });
         resetForm();
         setCreateDialogOpen(false);
-      } catch (error: any) {
+      } catch (error) {
         console.error('Failed to create data source:', error);
       }
     }
-  };
+  }, [dataSourceName, dataSourceDescription, selectedPlugin, connectionConfig, createDataSource]);
 
-  const resetForm = () => {
+  const resetForm = useCallback(() => {
     setDataSourceName('');
     setDataSourceDescription('');
     setSelectedPlugin('');
     setConnectionConfig({});
-  };
+  }, []);
 
-  const handleConnectionConfigChange = (key: string, value: any) => {
+  const handleConnectionConfigChange = useCallback((key: string, value: any) => {
     setConnectionConfig(prev => ({
       ...prev,
       [key]: value
     }));
+  }, []);
+
+  // ============================================================================
+  // Helper Functions
+  // ============================================================================
+  
+  const getPluginIcon = (pluginName: string, category: string) => {
+    if (category === 'cloud_databases') return <Cloud fontSize="small" />;
+    if (category === 'relational') return <Database fontSize="small" />;
+    return <Storage fontSize="small" />;
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'connected':
+        return <CheckCircle fontSize="small" color="success" />;
+      case 'disconnected':
+        return <Error fontSize="small" color="disabled" />;
+      case 'error':
+        return <Error fontSize="small" color="error" />;
+      case 'testing':
+        return <CircularProgress size={16} />;
+      default:
+        return <Warning fontSize="small" color="warning" />;
+    }
+  };
+
+  const getStatusColor = (status: string): 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' => {
+    switch (status) {
+      case 'connected':
+        return 'success';
+      case 'disconnected':
+        return 'default';
+      case 'error':
+        return 'error';
+      case 'testing':
+        return 'info';
+      default:
+        return 'warning';
+    }
   };
 
   const renderConnectionConfigFields = () => {
@@ -375,169 +456,233 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
     });
   };
 
-  const handleDataSourceClick = (dataSource: DataSource) => {
-    if (selectionMode) {
-      const newSelection = selectedDataSources.includes(dataSource.id)
-        ? selectedDataSources.filter(id => id !== dataSource.id)
-        : [...selectedDataSources, dataSource.id];
-      onSelectionChange?.(newSelection);
-    } else {
-      onDataSourceSelect?.(dataSource);
-    }
-  };
-
-  const getPluginIcon = (pluginName: string) => {
-    switch (pluginName.toLowerCase()) {
-      case 'postgresql':
-      case 'mysql':
-      case 'sqlite':
-      case 'oracle':
-      case 'mariadb':
-        return <StorageIcon />;
-      case 'snowflake':
-      case 'bigquery':
-      case 'redshift':
-        return <Cloud />;
-      default:
-        return <Storage />;
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'success':
-        return <CheckCircle color="success" />;
-      case 'failed':
-        return <Error color="error" />;
-      case 'pending':
-        return <Warning color="warning" />;
-      default:
-        return <Warning color="disabled" />;
-    }
-  };
-
-  const DataSourceCard: React.FC<{ dataSource: DataSource }> = ({ dataSource }) => (
-    <Card 
-      sx={{ 
-        cursor: 'pointer',
-        '&:hover': { boxShadow: 4 },
-        opacity: dataSource.is_active ? 1 : 0.6
-      }}
-      onClick={() => handleDataSourceClick(dataSource)}
-    >
-      <CardContent>
-        <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
-          <Box display="flex" alignItems="center" gap={1}>
-            <Avatar sx={{ width: 32, height: 32 }}>
-              {getPluginIcon(dataSource.plugin_name)}
-            </Avatar>
-            <Box>
-              <Typography variant="h6" noWrap>
-                {dataSource.display_name || dataSource.name}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" noWrap>
-                {dataSource.plugin_name}
-              </Typography>
-            </Box>
-          </Box>
-          <Box display="flex" alignItems="center" gap={0.5}>
-            {getStatusIcon(dataSource.test_status)}
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleMenuClick(e, dataSource);
-              }}
-            >
-              <MoreVert />
-            </IconButton>
-          </Box>
-        </Box>
-        
-        {dataSource.description && (
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            {dataSource.description}
-          </Typography>
-        )}
-
-        <Box display="flex" justifyContent="space-between" alignItems="center">
-          <Chip
-            size="small"
-            label={dataSource.test_status}
-            color={
-              dataSource.test_status === 'success' ? 'success' :
-              dataSource.test_status === 'failed' ? 'error' : 'warning'
-            }
-            variant="outlined"
-          />
-          <Typography variant="caption" color="text.secondary">
-            {new Date(dataSource.updated_at).toLocaleDateString()}
-          </Typography>
-        </Box>
-      </CardContent>
-    </Card>
-  );
-
-  const DataSourceListItem: React.FC<{ dataSource: DataSource }> = ({ dataSource }) => (
-    <ListItem
-      button
-      onClick={() => handleDataSourceClick(dataSource)}
-      sx={{ opacity: dataSource.is_active ? 1 : 0.6 }}
-    >
-      <ListItemAvatar>
-        <Avatar>
-          {getPluginIcon(dataSource.plugin_name)}
-        </Avatar>
-      </ListItemAvatar>
-      <ListItemText
-        primary={
-          <Box display="flex" alignItems="center" gap={1}>
-            <Typography variant="subtitle1">
-              {dataSource.display_name || dataSource.name}
-            </Typography>
-            <Chip
-              size="small"
-              label={dataSource.test_status}
-              color={
-                dataSource.test_status === 'success' ? 'success' :
-                dataSource.test_status === 'failed' ? 'error' : 'warning'
-              }
-              variant="outlined"
-            />
-          </Box>
-        }
-        secondary={
-          <Box>
-            <Typography variant="body2" color="text.secondary">
-              {dataSource.plugin_name} • {dataSource.description || 'No description'}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Last tested: {
-                dataSource.last_tested 
-                  ? new Date(dataSource.last_tested).toLocaleDateString()
-                  : 'Never'
-              } • Updated {new Date(dataSource.updated_at).toLocaleDateString()}
-            </Typography>
-          </Box>
-        }
-      />
-      <ListItemSecondaryAction>
-        <IconButton
-          edge="end"
-          onClick={(e) => handleMenuClick(e, dataSource)}
+  // ============================================================================
+  // Render Functions
+  // ============================================================================
+  
+  const renderDataSourceCard = (dataSource: DataSource) => {
+    const isSelected = selectionMode && selectedDataSources.includes(dataSource.id);
+    
+    return (
+      <Grid item xs={12} sm={6} md={4} lg={3} key={dataSource.id}>
+        <Card
+          sx={{
+            cursor: 'pointer',
+            border: isSelected ? 2 : 1,
+            borderColor: isSelected ? 'primary.main' : 'divider',
+            '&:hover': {
+              borderColor: 'primary.main',
+              boxShadow: 2,
+            },
+            transition: 'all 0.2s ease-in-out'
+          }}
+          onClick={() => handleDataSourceClick(dataSource)}
         >
-          <MoreVert />
-        </IconButton>
-      </ListItemSecondaryAction>
-    </ListItem>
+          <CardContent>
+            <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
+              <Box display="flex" alignItems="center" gap={1}>
+                {getPluginIcon(dataSource.plugin_name, dataSource.plugin_category)}
+                <Typography variant="h6" component="div" noWrap>
+                  {dataSource.display_name || dataSource.name}
+                </Typography>
+              </Box>
+              <IconButton
+                size="small"
+                onClick={(e) => handleMenuClick(e, dataSource)}
+              >
+                <MoreVert />
+              </IconButton>
+            </Box>
+
+            <Typography variant="body2" color="text.secondary" paragraph>
+              {dataSource.description || 'No description'}
+            </Typography>
+
+            <Box display="flex" gap={1} mb={2} flexWrap="wrap">
+              <Chip 
+                label={dataSource.plugin_name} 
+                size="small" 
+                color="primary"
+                variant="outlined"
+              />
+              <Chip 
+                icon={getStatusIcon(dataSource.status)}
+                label={dataSource.status} 
+                size="small" 
+                color={getStatusColor(dataSource.status)}
+              />
+            </Box>
+
+            <Box display="flex" alignItems="center" justifyContent="space-between" mt={2}>
+              <Typography variant="caption" color="text.secondary">
+                Updated {new Date(dataSource.updated_at).toLocaleDateString()}
+              </Typography>
+              {dataSource.last_tested && (
+                <Typography variant="caption" color="text.secondary">
+                  Tested {new Date(dataSource.last_tested).toLocaleDateString()}
+                </Typography>
+              )}
+            </Box>
+          </CardContent>
+        </Card>
+      </Grid>
+    );
+  };
+
+  const renderDataSourceListItem = (dataSource: DataSource) => {
+    const isSelected = selectionMode && selectedDataSources.includes(dataSource.id);
+    
+    return (
+      <ListItem
+        key={dataSource.id}
+        button
+        selected={isSelected}
+        onClick={() => handleDataSourceClick(dataSource)}
+        sx={{
+          border: 1,
+          borderColor: 'divider',
+          borderRadius: 1,
+          mb: 1,
+        }}
+      >
+        <ListItemAvatar>
+          <Avatar sx={{ bgcolor: 'primary.main' }}>
+            {getPluginIcon(dataSource.plugin_name, dataSource.plugin_category)}
+          </Avatar>
+        </ListItemAvatar>
+        <ListItemText
+          primary={dataSource.display_name || dataSource.name}
+          secondary={
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                {dataSource.description || 'No description'}
+              </Typography>
+              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                <Chip 
+                  label={dataSource.plugin_name} 
+                  size="small" 
+                  color="primary"
+                  variant="outlined"
+                />
+                <Chip 
+                  icon={getStatusIcon(dataSource.status)}
+                  label={dataSource.status} 
+                  size="small" 
+                  color={getStatusColor(dataSource.status)}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Updated {new Date(dataSource.updated_at).toLocaleDateString()}
+                </Typography>
+              </Box>
+            </Box>
+          }
+        />
+        <ListItemSecondaryAction>
+          <IconButton
+            edge="end"
+            onClick={(e) => handleMenuClick(e, dataSource)}
+          >
+            <MoreVert />
+          </IconButton>
+        </ListItemSecondaryAction>
+      </ListItem>
+    );
+  };
+
+  const renderTableView = () => (
+    <TableContainer component={Paper}>
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableCell>Name</TableCell>
+            <TableCell>Plugin</TableCell>
+            <TableCell>Description</TableCell>
+            <TableCell>Status</TableCell>
+            <TableCell>Last Tested</TableCell>
+            <TableCell>Actions</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {paginatedDataSources.map((dataSource) => {
+            const isSelected = selectionMode && selectedDataSources.includes(dataSource.id);
+            return (
+              <TableRow 
+                key={dataSource.id}
+                selected={isSelected}
+                hover
+                onClick={() => handleDataSourceClick(dataSource)}
+                sx={{ cursor: 'pointer' }}
+              >
+                <TableCell>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    {getPluginIcon(dataSource.plugin_name, dataSource.plugin_category)}
+                    <Typography variant="body2">
+                      {dataSource.display_name || dataSource.name}
+                    </Typography>
+                  </Box>
+                </TableCell>
+                <TableCell>
+                  <Chip 
+                    label={dataSource.plugin_name} 
+                    size="small" 
+                    color="primary"
+                    variant="outlined"
+                  />
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2" color="text.secondary" noWrap>
+                    {dataSource.description || 'No description'}
+                  </Typography>
+                </TableCell>
+                <TableCell>
+                  <Chip 
+                    icon={getStatusIcon(dataSource.status)}
+                    label={dataSource.status} 
+                    size="small" 
+                    color={getStatusColor(dataSource.status)}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2" color="text.secondary">
+                    {dataSource.last_tested 
+                      ? new Date(dataSource.last_tested).toLocaleDateString()
+                      : 'Never'
+                    }
+                  </Typography>
+                </TableCell>
+                <TableCell>
+                  <IconButton
+                    size="small"
+                    onClick={(e) => handleMenuClick(e, dataSource)}
+                  >
+                    <MoreVert />
+                  </IconButton>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </TableContainer>
   );
 
+  // ============================================================================
+  // Main Render
+  // ============================================================================
+  
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" p={4}>
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight={300}>
         <CircularProgress />
-        <Typography sx={{ ml: 2 }}>Loading data sources...</Typography>
       </Box>
+    );
+  }
+
+  if (dataSourceError) {
+    return (
+      <Alert severity="error" sx={{ mb: 3 }}>
+        Failed to load data sources: {dataSourceError}
+      </Alert>
     );
   }
 
@@ -551,9 +696,14 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
         
         <Box display="flex" alignItems="center" gap={2}>
           <IconButton 
-            onClick={() => setCurrentViewMode(currentViewMode === 'grid' ? 'list' : 'grid')}
+            onClick={() => setCurrentViewMode(
+              currentViewMode === 'grid' ? 'list' : currentViewMode === 'list' ? 'table' : 'grid'
+            )}
+            title={`Switch to ${
+              currentViewMode === 'grid' ? 'list' : currentViewMode === 'list' ? 'table' : 'grid'
+            } view`}
           >
-            {currentViewMode === 'grid' ? <ViewList /> : <ViewModule />}
+            {currentViewMode === 'grid' ? <ViewList /> : currentViewMode === 'list' ? <TableChart /> : <ViewModule />}
           </IconButton>
           
           {showCreateButton && (
@@ -563,7 +713,7 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
                 startIcon={<Add />}
                 onClick={() => setCreateDialogOpen(true)}
               >
-                Add Data Source
+                Connect Data Source
               </Button>
             </PermissionGate>
           )}
@@ -598,9 +748,9 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
                 onChange={(e) => setPluginFilter(e.target.value)}
               >
                 <MenuItem value="all">All Plugins</MenuItem>
-                {uniquePlugins.map((plugin) => (
-                  <MenuItem key={plugin} value={plugin}>
-                    {plugin}
+                {availablePlugins.map(plugin => (
+                  <MenuItem key={plugin.name} value={plugin.name}>
+                    {plugin.displayName}
                   </MenuItem>
                 ))}
               </Select>
@@ -614,12 +764,11 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
                 label="Status"
                 onChange={(e) => setStatusFilter(e.target.value)}
               >
-                <MenuItem value="all">All Status</MenuItem>
-                <MenuItem value="active">Active</MenuItem>
-                <MenuItem value="inactive">Inactive</MenuItem>
-                <MenuItem value="success">Connected</MenuItem>
-                <MenuItem value="failed">Failed</MenuItem>
-                <MenuItem value="pending">Pending</MenuItem>
+                <MenuItem value="all">All</MenuItem>
+                <MenuItem value="connected">Connected</MenuItem>
+                <MenuItem value="disconnected">Disconnected</MenuItem>
+                <MenuItem value="error">Error</MenuItem>
+                <MenuItem value="testing">Testing</MenuItem>
               </Select>
             </FormControl>
           </Grid>
@@ -632,7 +781,6 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
                 onChange={(e) => setSortBy(e.target.value)}
               >
                 <MenuItem value="updated_at">Last Updated</MenuItem>
-                <MenuItem value="created_at">Created Date</MenuItem>
                 <MenuItem value="name">Name</MenuItem>
                 <MenuItem value="plugin">Plugin</MenuItem>
                 <MenuItem value="status">Status</MenuItem>
@@ -640,57 +788,39 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
             </FormControl>
           </Grid>
           <Grid item xs={12} md={3}>
-            <Box display="flex" justifyContent="flex-end" gap={1}>
-              <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center' }}>
-                {filteredDataSources.length} of {dataSources.length} sources
-              </Typography>
-            </Box>
+            <Typography variant="body2" color="text.secondary">
+              Showing {filteredDataSources.length} data source{filteredDataSources.length !== 1 ? 's' : ''}
+            </Typography>
           </Grid>
         </Grid>
       </Paper>
 
-      {/* Data Sources List/Grid */}
-      {filteredDataSources.length === 0 ? (
-        <Card>
-          <CardContent sx={{ textAlign: 'center', py: 8 }}>
-            <Cable sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-            <Typography variant="h6" color="text.secondary" gutterBottom>
-              No data sources found
-            </Typography>
-            <Typography variant="body2" color="text.secondary" mb={3}>
-              {searchQuery || pluginFilter !== 'all' || statusFilter !== 'all'
-                ? 'Try adjusting your search or filters'
-                : 'Get started by adding your first data source'
-              }
-            </Typography>
-            {showCreateButton && !searchQuery && pluginFilter === 'all' && statusFilter === 'all' && (
-              <PermissionGate permissions={['datasource.create']}>
-                <Button
-                  variant="contained"
-                  startIcon={<Add />}
-                  onClick={() => setCreateDialogOpen(true)}
-                >
-                  Add Data Source
-                </Button>
-              </PermissionGate>
-            )}
-          </CardContent>
-        </Card>
-      ) : currentViewMode === 'grid' ? (
+      {/* Content */}
+      {currentViewMode === 'grid' ? (
         <Grid container spacing={3}>
-          {filteredDataSources.map((dataSource) => (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={dataSource.id}>
-              <DataSourceCard dataSource={dataSource} />
-            </Grid>
-          ))}
+          {paginatedDataSources.map(renderDataSourceCard)}
         </Grid>
-      ) : (
+      ) : currentViewMode === 'list' ? (
         <List>
-          {filteredDataSources.map((dataSource) => (
-            <DataSourceListItem key={dataSource.id} dataSource={dataSource} />
-          ))}
+          {paginatedDataSources.map(renderDataSourceListItem)}
         </List>
+      ) : (
+        renderTableView()
       )}
+
+      {/* Pagination */}
+      <TablePagination
+        component="div"
+        count={filteredDataSources.length}
+        page={page}
+        onPageChange={(_, newPage) => setPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(e) => {
+          setRowsPerPage(parseInt(e.target.value, 10));
+          setPage(0);
+        }}
+        sx={{ mt: 3 }}
+      />
 
       {/* Context Menu */}
       <Menu
@@ -698,7 +828,7 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
       >
-        <MenuItem onClick={handleView}>
+        <MenuItem onClick={() => onDataSourceSelect ? onDataSourceSelect(selectedDataSource!) : handleEdit()}>
           <Visibility fontSize="small" sx={{ mr: 1 }} />
           {onDataSourceSelect ? 'Select' : 'View'}
         </MenuItem>
@@ -707,133 +837,111 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
           Edit
         </MenuItem>
         <MenuItem onClick={handleTest}>
-          <ScienceIcon fontSize="small" sx={{ mr: 1 }} />
-          Test Connection
+          <Refresh fontSize="small" sx={{ mr: 1 }} />
+          {testing ? 'Testing...' : 'Test Connection'}
         </MenuItem>
+        <Divider />
         <MenuItem onClick={() => setDeleteDialogOpen(true)} sx={{ color: 'error.main' }}>
           <Delete fontSize="small" sx={{ mr: 1 }} />
           Delete
         </MenuItem>
       </Menu>
 
-      {/* Create Data Source Dialog */}
-      <Dialog 
-        open={createDialogOpen} 
-        onClose={() => setCreateDialogOpen(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>Add Data Source</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="normal"
-            label="Name"
-            fullWidth
-            required
-            value={dataSourceName}
-            onChange={(e) => setDataSourceName(e.target.value)}
-            helperText="Internal identifier (lowercase, no spaces recommended)"
-          />
-          <TextField
-            margin="normal"
-            label="Description"
-            fullWidth
-            multiline
-            rows={2}
-            value={dataSourceDescription}
-            onChange={(e) => setDataSourceDescription(e.target.value)}
-            helperText="Optional description for this data source"
-          />
-          <FormControl fullWidth margin="normal" required>
-            <InputLabel>Plugin Type</InputLabel>
-            <Select
-              value={selectedPlugin}
-              label="Plugin Type"
-              onChange={(e) => {
-                setSelectedPlugin(e.target.value);
-                setConnectionConfig({}); // Reset config when plugin changes
-              }}
-              disabled={pluginsLoading}
-            >
-              {availablePlugins.map((plugin) => (
-                <MenuItem key={plugin.name} value={plugin.name}>
-                  {plugin.displayName} - {plugin.category}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          {selectedPlugin && (
-            <>
-              <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>
-                Connection Configuration
-              </Typography>
-              {renderConnectionConfigFields()}
-            </>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
-          <Button
-            onClick={handleCreateDataSource}
-            variant="contained"
-            disabled={!dataSourceName.trim() || !selectedPlugin}
-          >
-            Create
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Test Connection Dialog */}
-      <Dialog open={testDialogOpen} onClose={() => setTestDialogOpen(false)}>
-        <DialogTitle>Connection Test</DialogTitle>
-        <DialogContent>
-          {testing ? (
-            <Box display="flex" alignItems="center" gap={2} py={4}>
-              <CircularProgress size={24} />
-              <Typography>Testing connection...</Typography>
-            </Box>
-          ) : testResult ? (
-            <Alert 
-              severity={testResult.success ? 'success' : 'error'}
-              sx={{ mb: 2 }}
-            >
-              <Typography variant="body1" gutterBottom>
-                {testResult.message}
-              </Typography>
-              {testResult.details && (
-                <Typography variant="body2" color="text.secondary">
-                  {JSON.stringify(testResult.details, null, 2)}
-                </Typography>
-              )}
-              {testResult.error && (
-                <Typography variant="body2" color="error">
-                  {testResult.error}
-                </Typography>
-              )}
-            </Alert>
-          ) : null}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setTestDialogOpen(false)}>
-            Close
-          </Button>
-        </DialogActions>
-      </Dialog>
-
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
         <DialogTitle>Delete Data Source</DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to delete "{selectedDataSource?.name}"? This action cannot be undone and may affect datasets that depend on this data source.
+            Are you sure you want to delete "{selectedDataSource?.display_name || selectedDataSource?.name}"?
+            This action cannot be undone and may affect datasets that depend on this data source.
           </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleDelete} color="error" variant="contained">
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Test Result Dialog */}
+      <Dialog open={testDialogOpen} onClose={() => setTestDialogOpen(false)}>
+        <DialogTitle>Connection Test Result</DialogTitle>
+        <DialogContent>
+          {testing ? (
+            <Box display="flex" alignItems="center" gap={2}>
+              <CircularProgress size={24} />
+              <Typography>Testing connection...</Typography>
+            </Box>
+          ) : testResult ? (
+            <Alert severity={testResult.success ? 'success' : 'error'}>
+              {testResult.message || (testResult.success ? 'Connection successful!' : 'Connection failed!')}
+              {testResult.error && (
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  Error: {testResult.error}
+                </Typography>
+              )}
+            </Alert>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTestDialogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Create Data Source Dialog */}
+      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Connect New Data Source</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <TextField
+              fullWidth
+              label="Name"
+              value={dataSourceName}
+              onChange={(e) => setDataSourceName(e.target.value)}
+              required
+            />
+            <TextField
+              fullWidth
+              label="Description"
+              multiline
+              rows={2}
+              value={dataSourceDescription}
+              onChange={(e) => setDataSourceDescription(e.target.value)}
+            />
+            <FormControl fullWidth>
+              <InputLabel>Plugin</InputLabel>
+              <Select
+                value={selectedPlugin}
+                label="Plugin"
+                onChange={(e) => setSelectedPlugin(e.target.value)}
+              >
+                {availablePlugins.map(plugin => (
+                  <MenuItem key={plugin.name} value={plugin.name}>
+                    {plugin.displayName} ({plugin.category})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            
+            {selectedPlugin && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="h6" gutterBottom>
+                  Connection Configuration
+                </Typography>
+                {renderConnectionConfigFields()}
+              </Box>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+          <Button 
+            onClick={handleCreateDataSource} 
+            variant="contained" 
+            disabled={!dataSourceName.trim() || !selectedPlugin}
+          >
+            Connect
           </Button>
         </DialogActions>
       </Dialog>

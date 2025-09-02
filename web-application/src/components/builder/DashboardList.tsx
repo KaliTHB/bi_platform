@@ -1,77 +1,140 @@
-'use client';
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/router';
 import {
   Box,
-  Card,
-  CardContent,
-  CardActions,
   Typography,
   Button,
+  Paper,
   Grid,
+  TextField,
+  InputAdornment,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
   IconButton,
+  Card,
+  CardContent,
+  CardMedia,
+  List,
+  ListItem,
+  ListItemAvatar,
+  ListItemText,
+  ListItemSecondaryAction,
+  Avatar,
   Chip,
   Menu,
-  MenuItem,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TablePagination,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  Avatar,
-  Tooltip,
-  Fab,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
+  Alert,
   Divider,
-  Paper,
-  InputAdornment,
+  Tooltip,
+  CircularProgress,
+  Badge
 } from '@mui/material';
 import {
   Add,
+  Search,
+  MoreVert,
   Edit,
   Delete,
-  MoreVert,
   Visibility,
+  Dashboard,
   Share,
-  FileCopy,
-  Schedule,
-  TrendingUp,
-  Search,
-  FilterList,
-  ViewModule,
+  Star,
+  StarBorder,
   ViewList,
+  ViewModule,
+  TableChart,
+  Refresh,
+  Category,
+  BarChart,
+  DateRange,
+  Person,
+  Public,
+  Lock
 } from '@mui/icons-material';
-import { useRouter } from 'next/navigation';
-import { Dashboard } from '@/types/dashboard.types';
+
+// Hooks
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useDashboards } from '@/hooks/useDashboards';
-import PermissionGate from '@/components/shared/PermissionGate';
+import { useCategories } from '@/hooks/useCategories';
+
+// Components
+import { PermissionGate } from '@/components/shared/PermissionGate';
+
+// Types
+interface Dashboard {
+  id: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  category_id?: string;
+  category?: {
+    id: string;
+    name: string;
+    color?: string;
+    icon?: string;
+  };
+  status: 'draft' | 'published' | 'archived';
+  visibility: 'private' | 'workspace' | 'public';
+  is_featured: boolean;
+  chart_count: number;
+  thumbnail_url?: string;
+  last_viewed_at?: string;
+  view_count: number;
+  created_at: string;
+  updated_at: string;
+  owner_id: string;
+  owner?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  workspace_id: string;
+}
+
+interface DashboardCategory {
+  id: string;
+  name: string;
+  description?: string;
+  color?: string;
+  icon?: string;
+  dashboard_count: number;
+}
 
 interface DashboardListProps {
-  categoryId?: string;
   onDashboardSelect?: (dashboard: Dashboard) => void;
-  viewMode?: 'grid' | 'list';
+  viewMode?: 'grid' | 'list' | 'table';
   showCreateButton?: boolean;
   selectionMode?: boolean;
   selectedDashboards?: string[];
   onSelectionChange?: (dashboardIds: string[]) => void;
+  filterByCategory?: string;
+  isWebview?: boolean;
+  webviewName?: string;
 }
 
 export const DashboardList: React.FC<DashboardListProps> = ({
-  categoryId,
   onDashboardSelect,
   viewMode = 'grid',
   showCreateButton = true,
   selectionMode = false,
   selectedDashboards = [],
   onSelectionChange,
+  filterByCategory,
+  isWebview = false,
+  webviewName,
 }) => {
   const router = useRouter();
   const { currentWorkspace } = useWorkspace();
@@ -79,232 +142,374 @@ export const DashboardList: React.FC<DashboardListProps> = ({
   const { 
     dashboards, 
     loading, 
+    error: dashboardError,
     createDashboard, 
     updateDashboard,
-    deleteDashboard, 
-    duplicateDashboard 
+    deleteDashboard,
+    duplicateDashboard,
+    toggleFeatured
   } = useDashboards();
+  const { categories } = useCategories();
 
+  // ============================================================================
+  // State Management
+  // ============================================================================
+  
   const [currentViewMode, setCurrentViewMode] = useState(viewMode);
   const [selectedDashboard, setSelectedDashboard] = useState<Dashboard | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string>(filterByCategory || 'all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [visibilityFilter, setVisibilityFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('updated_at');
+  const [showFeaturedOnly, setShowFeaturedOnly] = useState(false);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(12);
 
   // Form states
   const [dashboardName, setDashboardName] = useState('');
   const [dashboardDescription, setDashboardDescription] = useState('');
-  const [dashboardCategory, setDashboardCategory] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('');
 
-  const filteredDashboards = dashboards
-    .filter(dashboard => {
-      if (categoryId && dashboard.category_id !== categoryId) return false;
-      if (statusFilter !== 'all' && dashboard.status !== statusFilter) return false;
-      if (searchQuery && !dashboard.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
-          !dashboard.description?.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-      return true;
-    })
-    .sort((a, b) => {
+  // ============================================================================
+  // Data Processing
+  // ============================================================================
+  
+  const filteredDashboards = useMemo(() => {
+    if (!dashboards?.data) return [];
+
+    return dashboards.data.filter((dashboard: Dashboard) => {
+      // Webview filter - only published dashboards
+      if (isWebview && dashboard.status !== 'published') return false;
+      
+      const matchesSearch = !searchQuery || 
+        dashboard.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        dashboard.display_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        dashboard.description?.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      const matchesCategory = categoryFilter === 'all' || dashboard.category_id === categoryFilter;
+      const matchesStatus = statusFilter === 'all' || dashboard.status === statusFilter;
+      const matchesVisibility = visibilityFilter === 'all' || dashboard.visibility === visibilityFilter;
+      const matchesFeatured = !showFeaturedOnly || dashboard.is_featured;
+      
+      return matchesSearch && matchesCategory && matchesStatus && matchesVisibility && matchesFeatured;
+    });
+  }, [dashboards?.data, searchQuery, categoryFilter, statusFilter, visibilityFilter, showFeaturedOnly, isWebview]);
+
+  const sortedDashboards = useMemo(() => {
+    return [...filteredDashboards].sort((a, b) => {
       switch (sortBy) {
-        case 'name': return a.name.localeCompare(b.name);
-        case 'updated_at': return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-        case 'view_count': return (b.view_count || 0) - (a.view_count || 0);
-        default: return 0;
+        case 'name':
+          return (a.display_name || a.name).localeCompare(b.display_name || b.name);
+        case 'category':
+          return (a.category?.name || '').localeCompare(b.category?.name || '');
+        case 'views':
+          return b.view_count - a.view_count;
+        case 'charts':
+          return b.chart_count - a.chart_count;
+        case 'created_at':
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        case 'updated_at':
+        default:
+          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
       }
     });
+  }, [filteredDashboards, sortBy]);
 
-  const handleMenuClick = (event: React.MouseEvent<HTMLElement>, dashboard: Dashboard) => {
+  const paginatedDashboards = useMemo(() => {
+    const startIndex = page * rowsPerPage;
+    return sortedDashboards.slice(startIndex, startIndex + rowsPerPage);
+  }, [sortedDashboards, page, rowsPerPage]);
+
+  // ============================================================================
+  // Event Handlers
+  // ============================================================================
+  
+  const handleMenuClick = useCallback((event: React.MouseEvent<HTMLElement>, dashboard: Dashboard) => {
     event.stopPropagation();
-    setAnchorEl(event.currentTarget);
     setSelectedDashboard(dashboard);
-  };
+    setAnchorEl(event.currentTarget);
+  }, []);
 
-  const handleMenuClose = () => {
+  const handleMenuClose = useCallback(() => {
     setAnchorEl(null);
     setSelectedDashboard(null);
-  };
+  }, []);
 
-  const handleEdit = () => {
-    if (selectedDashboard) {
-      setDashboardName(selectedDashboard.name);
-      setDashboardDescription(selectedDashboard.description || '');
-      setDashboardCategory(selectedDashboard.category_id || '');
-      setEditDialogOpen(true);
-    }
-    handleMenuClose();
-  };
-
-  const handleView = () => {
-    if (selectedDashboard) {
-      if (onDashboardSelect) {
-        onDashboardSelect(selectedDashboard);
-      } else {
-        router.push(`/workspace/${currentWorkspace?.slug}/dashboard/${selectedDashboard.slug}`);
-      }
-    }
-    handleMenuClose();
-  };
-
-  const handleDuplicate = async () => {
-    if (selectedDashboard) {
-      await duplicateDashboard(selectedDashboard.id);
-    }
-    handleMenuClose();
-  };
-
-  const handleDelete = async () => {
-    if (selectedDashboard) {
-      await deleteDashboard(selectedDashboard.id);
-      setDeleteDialogOpen(false);
-    }
-    handleMenuClose();
-  };
-
-  const handleCreateDashboard = async () => {
-    if (dashboardName.trim()) {
-      await createDashboard({
-        name: dashboardName,
-        description: dashboardDescription,
-        category_id: dashboardCategory || categoryId,
-      });
-      resetForm();
-      setCreateDialogOpen(false);
-    }
-  };
-
-  const handleUpdateDashboard = async () => {
-    if (selectedDashboard && dashboardName.trim()) {
-      await updateDashboard(selectedDashboard.id, {
-        name: dashboardName,
-        description: dashboardDescription,
-        category_id: dashboardCategory,
-      });
-      resetForm();
-      setEditDialogOpen(false);
-    }
-  };
-
-  const resetForm = () => {
-    setDashboardName('');
-    setDashboardDescription('');
-    setDashboardCategory('');
-  };
-
-  const handleDashboardClick = (dashboard: Dashboard) => {
+  const handleDashboardClick = useCallback((dashboard: Dashboard) => {
     if (selectionMode) {
-      const newSelection = selectedDashboards.includes(dashboard.id)
+      const isSelected = selectedDashboards.includes(dashboard.id);
+      const newSelection = isSelected
         ? selectedDashboards.filter(id => id !== dashboard.id)
         : [...selectedDashboards, dashboard.id];
       onSelectionChange?.(newSelection);
+    } else if (onDashboardSelect) {
+      onDashboardSelect(dashboard);
+    } else if (isWebview && webviewName) {
+      router.push(`/${webviewName}/${dashboard.name}`);
     } else {
-      onDashboardSelect?.(dashboard);
+      router.push(`/workspace/${currentWorkspace?.slug}/dashboard/${dashboard.name}`);
     }
-  };
+  }, [selectionMode, selectedDashboards, onSelectionChange, onDashboardSelect, isWebview, webviewName, router, currentWorkspace?.slug]);
 
-  const getStatusColor = (status: string) => {
+  const handleEdit = useCallback(() => {
+    if (selectedDashboard) {
+      router.push(`/workspace/${currentWorkspace?.slug}/dashboard-builder?id=${selectedDashboard.id}`);
+    }
+    handleMenuClose();
+  }, [selectedDashboard, router, currentWorkspace?.slug, handleMenuClose]);
+
+  const handleDelete = useCallback(async () => {
+    if (selectedDashboard) {
+      try {
+        await deleteDashboard(selectedDashboard.id);
+        setDeleteDialogOpen(false);
+      } catch (error) {
+        console.error('Failed to delete dashboard:', error);
+      }
+    }
+    handleMenuClose();
+  }, [selectedDashboard, deleteDashboard, handleMenuClose]);
+
+  const handleDuplicate = useCallback(async () => {
+    if (selectedDashboard) {
+      try {
+        await duplicateDashboard(selectedDashboard.id);
+      } catch (error) {
+        console.error('Failed to duplicate dashboard:', error);
+      }
+    }
+    handleMenuClose();
+  }, [selectedDashboard, duplicateDashboard, handleMenuClose]);
+
+  const handleToggleFeatured = useCallback(async () => {
+    if (selectedDashboard) {
+      try {
+        await toggleFeatured(selectedDashboard.id, !selectedDashboard.is_featured);
+      } catch (error) {
+        console.error('Failed to toggle featured status:', error);
+      }
+    }
+    handleMenuClose();
+  }, [selectedDashboard, toggleFeatured, handleMenuClose]);
+
+  const handleCreateDashboard = useCallback(async () => {
+    if (dashboardName.trim()) {
+      try {
+        const newDashboard = await createDashboard({
+          name: dashboardName,
+          description: dashboardDescription,
+          category_id: selectedCategory || undefined
+        });
+        resetForm();
+        setCreateDialogOpen(false);
+        
+        // Navigate to dashboard builder
+        router.push(`/workspace/${currentWorkspace?.slug}/dashboard-builder?id=${newDashboard.id}`);
+      } catch (error) {
+        console.error('Failed to create dashboard:', error);
+      }
+    }
+  }, [dashboardName, dashboardDescription, selectedCategory, createDashboard, resetForm, router, currentWorkspace?.slug]);
+
+  const resetForm = useCallback(() => {
+    setDashboardName('');
+    setDashboardDescription('');
+    setSelectedCategory('');
+  }, []);
+
+  // ============================================================================
+  // Helper Functions
+  // ============================================================================
+  
+  const getStatusColor = (status: string): 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' => {
     switch (status) {
-      case 'published': return 'success';
-      case 'draft': return 'warning';
-      case 'archived': return 'default';
-      default: return 'default';
+      case 'published':
+        return 'success';
+      case 'draft':
+        return 'warning';
+      case 'archived':
+        return 'default';
+      default:
+        return 'default';
     }
   };
 
-  const DashboardCard = ({ dashboard }: { dashboard: Dashboard }) => {
-    const isSelected = selectionMode && selectedDashboards.includes(dashboard.id);
+  const getVisibilityIcon = (visibility: string) => {
+    switch (visibility) {
+      case 'public':
+        return <Public fontSize="small" />;
+      case 'workspace':
+        return <Dashboard fontSize="small" />;
+      case 'private':
+      default:
+        return <Lock fontSize="small" />;
+    }
+  };
+
+  const getCategoryChip = (category: DashboardCategory | undefined) => {
+    if (!category) return null;
     
     return (
-      <Card 
-        sx={{ 
-          height: '100%', 
-          display: 'flex', 
-          flexDirection: 'column',
-          cursor: 'pointer',
-          border: isSelected ? 2 : 1,
-          borderColor: isSelected ? 'primary.main' : 'divider',
-          '&:hover': {
-            boxShadow: 3,
-          },
+      <Chip
+        icon={<Category fontSize="small" />}
+        label={category.name}
+        size="small"
+        sx={{
+          backgroundColor: category.color || 'primary.main',
+          color: 'white',
+          '& .MuiChip-icon': { color: 'white' }
         }}
-        onClick={() => handleDashboardClick(dashboard)}
-      >
-        {dashboard.thumbnail_url && (
-          <Box
-            component="img"
-            sx={{
-              height: 120,
-              objectFit: 'cover',
-            }}
-            src={dashboard.thumbnail_url}
-            alt={dashboard.display_name || dashboard.name}
-          />
-        )}
-        
-        <CardContent sx={{ flexGrow: 1, pb: 1 }}>
-          <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-            <Typography variant="h6" component="h3" noWrap sx={{ flex: 1 }}>
-              {dashboard.display_name || dashboard.name}
-            </Typography>
-            <IconButton
-              size="small"
-              onClick={(e) => handleMenuClick(e, dashboard)}
-            >
-              <MoreVert />
-            </IconButton>
-          </Box>
-
-          <Typography 
-            variant="body2" 
-            color="text.secondary" 
-            sx={{ 
-              mb: 2,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              minHeight: 32,
-            }}
-          >
-            {dashboard.description || 'No description available'}
-          </Typography>
-
-          <Box display="flex" alignItems="center" gap={1} mb={2}>
-            <Chip 
-              label={dashboard.status} 
-              size="small" 
-              color={getStatusColor(dashboard.status) as any}
-            />
-            {dashboard.is_featured && (
-              <Chip label="Featured" size="small" color="primary" />
-            )}
-          </Box>
-
-          <Box display="flex" alignItems="center" justifyContent="space-between" mt={2}>
-            <Box display="flex" alignItems="center" gap={1}>
-              <TrendingUp fontSize="small" color="action" />
-              <Typography variant="caption" color="text.secondary">
-                {dashboard.view_count || 0} views
-              </Typography>
-            </Box>
-            <Typography variant="caption" color="text.secondary">
-              {new Date(dashboard.updated_at).toLocaleDateString()}
-            </Typography>
-          </Box>
-        </CardContent>
-      </Card>
+      />
     );
   };
 
-  const DashboardListItem = ({ dashboard }: { dashboard: Dashboard }) => {
+  // ============================================================================
+  // Render Functions
+  // ============================================================================
+  
+  const renderDashboardCard = (dashboard: Dashboard) => {
+    const isSelected = selectionMode && selectedDashboards.includes(dashboard.id);
+    
+    return (
+      <Grid item xs={12} sm={6} md={4} lg={3} key={dashboard.id}>
+        <Card
+          sx={{
+            cursor: 'pointer',
+            border: isSelected ? 2 : 1,
+            borderColor: isSelected ? 'primary.main' : 'divider',
+            '&:hover': {
+              borderColor: 'primary.main',
+              boxShadow: 3,
+              transform: 'translateY(-2px)'
+            },
+            transition: 'all 0.2s ease-in-out',
+            position: 'relative'
+          }}
+          onClick={() => handleDashboardClick(dashboard)}
+        >
+          {dashboard.thumbnail_url ? (
+            <CardMedia
+              component="img"
+              height="120"
+              image={dashboard.thumbnail_url}
+              alt={dashboard.display_name || dashboard.name}
+              sx={{ objectFit: 'cover' }}
+            />
+          ) : (
+            <Box
+              sx={{
+                height: 120,
+                backgroundColor: 'grey.100',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <Dashboard sx={{ fontSize: 48, color: 'grey.400' }} />
+            </Box>
+          )}
+          
+          {dashboard.is_featured && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                backgroundColor: 'warning.main',
+                borderRadius: '50%',
+                p: 0.5,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <Star sx={{ fontSize: 16, color: 'white' }} />
+            </Box>
+          )}
+
+          <CardContent>
+            <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1}>
+              <Typography variant="h6" component="div" noWrap>
+                {dashboard.display_name || dashboard.name}
+              </Typography>
+              <IconButton
+                size="small"
+                onClick={(e) => handleMenuClick(e, dashboard)}
+                sx={{ ml: 1 }}
+              >
+                <MoreVert />
+              </IconButton>
+            </Box>
+
+            <Typography variant="body2" color="text.secondary" paragraph>
+              {dashboard.description || 'No description'}
+            </Typography>
+
+            <Box display="flex" gap={1} mb={2} flexWrap="wrap">
+              {getCategoryChip(dashboard.category)}
+              <Chip 
+                label={dashboard.status} 
+                size="small" 
+                color={getStatusColor(dashboard.status)}
+              />
+              <Chip 
+                icon={getVisibilityIcon(dashboard.visibility)}
+                label={dashboard.visibility} 
+                size="small" 
+                variant="outlined"
+              />
+            </Box>
+
+            <Box display="flex" alignItems="center" justifyContent="space-between" mt={2}>
+              <Box display="flex" alignItems="center" gap={2}>
+                <Tooltip title="Charts">
+                  <Box display="flex" alignItems="center" gap={0.5}>
+                    <BarChart fontSize="small" color="action" />
+                    <Typography variant="caption" color="text.secondary">
+                      {dashboard.chart_count}
+                    </Typography>
+                  </Box>
+                </Tooltip>
+                <Tooltip title="Views">
+                  <Box display="flex" alignItems="center" gap={0.5}>
+                    <Visibility fontSize="small" color="action" />
+                    <Typography variant="caption" color="text.secondary">
+                      {dashboard.view_count}
+                    </Typography>
+                  </Box>
+                </Tooltip>
+              </Box>
+              
+              <Typography variant="caption" color="text.secondary">
+                {new Date(dashboard.updated_at).toLocaleDateString()}
+              </Typography>
+            </Box>
+
+            {dashboard.owner && !isWebview && (
+              <Box display="flex" alignItems="center" gap={1} mt={1}>
+                <Person fontSize="small" color="action" />
+                <Typography variant="caption" color="text.secondary" noWrap>
+                  {dashboard.owner.name}
+                </Typography>
+              </Box>
+            )}
+          </CardContent>
+        </Card>
+      </Grid>
+    );
+  };
+
+  const renderDashboardListItem = (dashboard: Dashboard) => {
     const isSelected = selectionMode && selectedDashboards.includes(dashboard.id);
     
     return (
       <ListItem
+        key={dashboard.id}
         button
         selected={isSelected}
         onClick={() => handleDashboardClick(dashboard)}
@@ -315,21 +520,46 @@ export const DashboardList: React.FC<DashboardListProps> = ({
           mb: 1,
         }}
       >
+        <ListItemAvatar>
+          <Avatar 
+            src={dashboard.thumbnail_url}
+            sx={{ 
+              bgcolor: dashboard.category?.color || 'primary.main',
+              width: 56,
+              height: 56
+            }}
+          >
+            {dashboard.thumbnail_url ? null : <Dashboard />}
+          </Avatar>
+        </ListItemAvatar>
         <ListItemText
-          primary={dashboard.display_name || dashboard.name}
+          primary={
+            <Box display="flex" alignItems="center" gap={1}>
+              {dashboard.display_name || dashboard.name}
+              {dashboard.is_featured && <Star fontSize="small" color="warning" />}
+            </Box>
+          }
           secondary={
             <Box>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                 {dashboard.description || 'No description'}
               </Typography>
-              <Box display="flex" alignItems="center" gap={1}>
+              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                {getCategoryChip(dashboard.category)}
                 <Chip 
                   label={dashboard.status} 
                   size="small" 
-                  color={getStatusColor(dashboard.status) as any}
+                  color={getStatusColor(dashboard.status)}
+                />
+                <Chip 
+                  icon={getVisibilityIcon(dashboard.visibility)}
+                  label={dashboard.visibility} 
+                  size="small" 
+                  variant="outlined"
                 />
                 <Typography variant="caption" color="text.secondary">
-                  {dashboard.view_count || 0} views • Updated {new Date(dashboard.updated_at).toLocaleDateString()}
+                  {dashboard.chart_count} charts • {dashboard.view_count} views • 
+                  Updated {new Date(dashboard.updated_at).toLocaleDateString()}
                 </Typography>
               </Box>
             </Box>
@@ -347,11 +577,111 @@ export const DashboardList: React.FC<DashboardListProps> = ({
     );
   };
 
+  const renderTableView = () => (
+    <TableContainer component={Paper}>
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableCell>Name</TableCell>
+            <TableCell>Category</TableCell>
+            <TableCell>Status</TableCell>
+            <TableCell>Visibility</TableCell>
+            <TableCell align="center">Charts</TableCell>
+            <TableCell align="center">Views</TableCell>
+            <TableCell>Last Updated</TableCell>
+            {!isWebview && <TableCell>Owner</TableCell>}
+            <TableCell>Actions</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {paginatedDashboards.map((dashboard) => {
+            const isSelected = selectionMode && selectedDashboards.includes(dashboard.id);
+            return (
+              <TableRow 
+                key={dashboard.id}
+                selected={isSelected}
+                hover
+                onClick={() => handleDashboardClick(dashboard)}
+                sx={{ cursor: 'pointer' }}
+              >
+                <TableCell>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Dashboard fontSize="small" />
+                    <Typography variant="body2">
+                      {dashboard.display_name || dashboard.name}
+                    </Typography>
+                    {dashboard.is_featured && <Star fontSize="small" color="warning" />}
+                  </Box>
+                </TableCell>
+                <TableCell>
+                  {getCategoryChip(dashboard.category)}
+                </TableCell>
+                <TableCell>
+                  <Chip 
+                    label={dashboard.status} 
+                    size="small" 
+                    color={getStatusColor(dashboard.status)}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Chip 
+                    icon={getVisibilityIcon(dashboard.visibility)}
+                    label={dashboard.visibility} 
+                    size="small" 
+                    variant="outlined"
+                  />
+                </TableCell>
+                <TableCell align="center">
+                  {dashboard.chart_count}
+                </TableCell>
+                <TableCell align="center">
+                  {dashboard.view_count}
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2" color="text.secondary">
+                    {new Date(dashboard.updated_at).toLocaleDateString()}
+                  </Typography>
+                </TableCell>
+                {!isWebview && (
+                  <TableCell>
+                    <Typography variant="body2" color="text.secondary">
+                      {dashboard.owner?.name || 'Unknown'}
+                    </Typography>
+                  </TableCell>
+                )}
+                <TableCell>
+                  <IconButton
+                    size="small"
+                    onClick={(e) => handleMenuClick(e, dashboard)}
+                  >
+                    <MoreVert />
+                  </IconButton>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+
+  // ============================================================================
+  // Main Render
+  // ============================================================================
+  
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" p={4}>
-        <Typography>Loading dashboards...</Typography>
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight={300}>
+        <CircularProgress />
       </Box>
+    );
+  }
+
+  if (dashboardError) {
+    return (
+      <Alert severity="error" sx={{ mb: 3 }}>
+        Failed to load dashboards: {dashboardError}
+      </Alert>
     );
   }
 
@@ -360,15 +690,32 @@ export const DashboardList: React.FC<DashboardListProps> = ({
       {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h5" component="h1">
-          Dashboards
+          {isWebview ? 'Dashboards' : 'Dashboard Library'}
         </Typography>
         
         <Box display="flex" alignItems="center" gap={2}>
-          <IconButton onClick={() => setCurrentViewMode(currentViewMode === 'grid' ? 'list' : 'grid')}>
-            {currentViewMode === 'grid' ? <ViewList /> : <ViewModule />}
+          <IconButton 
+            onClick={() => setCurrentViewMode(
+              currentViewMode === 'grid' ? 'list' : currentViewMode === 'list' ? 'table' : 'grid'
+            )}
+            title={`Switch to ${
+              currentViewMode === 'grid' ? 'list' : currentViewMode === 'list' ? 'table' : 'grid'
+            } view`}
+          >
+            {currentViewMode === 'grid' ? <ViewList /> : currentViewMode === 'list' ? <TableChart /> : <ViewModule />}
           </IconButton>
           
-          {showCreateButton && (
+          {!isWebview && (
+            <IconButton
+              onClick={() => setShowFeaturedOnly(!showFeaturedOnly)}
+              title={showFeaturedOnly ? 'Show all dashboards' : 'Show featured only'}
+              color={showFeaturedOnly ? 'warning' : 'default'}
+            >
+              {showFeaturedOnly ? <Star /> : <StarBorder />}
+            </IconButton>
+          )}
+          
+          {showCreateButton && !isWebview && (
             <PermissionGate permissions={['dashboard.create']}>
               <Button
                 variant="contained"
@@ -385,7 +732,7 @@ export const DashboardList: React.FC<DashboardListProps> = ({
       {/* Filters */}
       <Paper sx={{ p: 2, mb: 3 }}>
         <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={4}>
+          <Grid item xs={12} md={3}>
             <TextField
               fullWidth
               size="small"
@@ -401,22 +748,58 @@ export const DashboardList: React.FC<DashboardListProps> = ({
               }}
             />
           </Grid>
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} md={2}>
             <FormControl fullWidth size="small">
-              <InputLabel>Status</InputLabel>
+              <InputLabel>Category</InputLabel>
               <Select
-                value={statusFilter}
-                label="Status"
-                onChange={(e) => setStatusFilter(e.target.value)}
+                value={categoryFilter}
+                label="Category"
+                onChange={(e) => setCategoryFilter(e.target.value)}
               >
-                <MenuItem value="all">All</MenuItem>
-                <MenuItem value="published">Published</MenuItem>
-                <MenuItem value="draft">Draft</MenuItem>
-                <MenuItem value="archived">Archived</MenuItem>
+                <MenuItem value="all">All Categories</MenuItem>
+                {categories?.data?.map((category: DashboardCategory) => (
+                  <MenuItem key={category.id} value={category.id}>
+                    {category.name} ({category.dashboard_count})
+                  </MenuItem>
+                ))}
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={3}>
+          {!isWebview && (
+            <>
+              <Grid item xs={12} md={2}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Status</InputLabel>
+                  <Select
+                    value={statusFilter}
+                    label="Status"
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                  >
+                    <MenuItem value="all">All</MenuItem>
+                    <MenuItem value="published">Published</MenuItem>
+                    <MenuItem value="draft">Draft</MenuItem>
+                    <MenuItem value="archived">Archived</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={2}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Visibility</InputLabel>
+                  <Select
+                    value={visibilityFilter}
+                    label="Visibility"
+                    onChange={(e) => setVisibilityFilter(e.target.value)}
+                  >
+                    <MenuItem value="all">All</MenuItem>
+                    <MenuItem value="public">Public</MenuItem>
+                    <MenuItem value="workspace">Workspace</MenuItem>
+                    <MenuItem value="private">Private</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+            </>
+          )}
+          <Grid item xs={12} md={2}>
             <FormControl fullWidth size="small">
               <InputLabel>Sort By</InputLabel>
               <Select
@@ -424,64 +807,49 @@ export const DashboardList: React.FC<DashboardListProps> = ({
                 label="Sort By"
                 onChange={(e) => setSortBy(e.target.value)}
               >
-                <MenuItem value="updated_at">Recently Updated</MenuItem>
+                <MenuItem value="updated_at">Last Updated</MenuItem>
+                <MenuItem value="created_at">Created</MenuItem>
                 <MenuItem value="name">Name</MenuItem>
-                <MenuItem value="view_count">Most Viewed</MenuItem>
+                <MenuItem value="category">Category</MenuItem>
+                <MenuItem value="views">Views</MenuItem>
+                <MenuItem value="charts">Charts</MenuItem>
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={2}>
+          <Grid item xs={12} md={1}>
             <Typography variant="body2" color="text.secondary">
-              {filteredDashboards.length} dashboard(s)
+              {filteredDashboards.length} found
             </Typography>
           </Grid>
         </Grid>
       </Paper>
 
-      {/* Dashboard List */}
-      {filteredDashboards.length === 0 ? (
-        <Card>
-          <CardContent sx={{ textAlign: 'center', py: 8 }}>
-            <Typography variant="h6" color="text.secondary" gutterBottom>
-              No dashboards found
-            </Typography>
-            <Typography variant="body2" color="text.secondary" mb={3}>
-              {searchQuery || statusFilter !== 'all' 
-                ? 'Try adjusting your search or filters'
-                : 'Get started by creating your first dashboard'
-              }
-            </Typography>
-            {showCreateButton && !searchQuery && statusFilter === 'all' && (
-              <PermissionGate permissions={['dashboard.create']}>
-                <Button
-                  variant="contained"
-                  startIcon={<Add />}
-                  onClick={() => setCreateDialogOpen(true)}
-                >
-                  Create Dashboard
-                </Button>
-              </PermissionGate>
-            )}
-          </CardContent>
-        </Card>
-      ) : currentViewMode === 'grid' ? (
+      {/* Content */}
+      {currentViewMode === 'grid' ? (
         <Grid container spacing={3}>
-          {filteredDashboards.map((dashboard) => (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={dashboard.id}>
-              <DashboardCard dashboard={dashboard} />
-            </Grid>
-          ))}
+          {paginatedDashboards.map(renderDashboardCard)}
         </Grid>
-      ) : (
+      ) : currentViewMode === 'list' ? (
         <List>
-          {filteredDashboards.map((dashboard, index) => (
-            <React.Fragment key={dashboard.id}>
-              <DashboardListItem dashboard={dashboard} />
-              {index < filteredDashboards.length - 1 && <Divider sx={{ my: 1 }} />}
-            </React.Fragment>
-          ))}
+          {paginatedDashboards.map(renderDashboardListItem)}
         </List>
+      ) : (
+        renderTableView()
       )}
+
+      {/* Pagination */}
+      <TablePagination
+        component="div"
+        count={filteredDashboards.length}
+        page={page}
+        onPageChange={(_, newPage) => setPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(e) => {
+          setRowsPerPage(parseInt(e.target.value, 10));
+          setPage(0);
+        }}
+        sx={{ mt: 3 }}
+      />
 
       {/* Context Menu */}
       <Menu
@@ -489,147 +857,48 @@ export const DashboardList: React.FC<DashboardListProps> = ({
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
       >
-        <MenuItem onClick={handleView}>
+        <MenuItem onClick={() => onDashboardSelect ? onDashboardSelect(selectedDashboard!) : handleDashboardClick(selectedDashboard!)}>
           <Visibility fontSize="small" sx={{ mr: 1 }} />
           {onDashboardSelect ? 'Select' : 'View'}
         </MenuItem>
-        <PermissionGate permissions={['dashboard.update']}>
-          <MenuItem onClick={handleEdit}>
-            <Edit fontSize="small" sx={{ mr: 1 }} />
-            Edit
-          </MenuItem>
-        </PermissionGate>
-        <PermissionGate permissions={['dashboard.create']}>
-          <MenuItem onClick={handleDuplicate}>
-            <FileCopy fontSize="small" sx={{ mr: 1 }} />
-            Duplicate
-          </MenuItem>
-        </PermissionGate>
-        <MenuItem>
-          <Share fontSize="small" sx={{ mr: 1 }} />
-          Share
-        </MenuItem>
-        <PermissionGate permissions={['dashboard.delete']}>
-          <MenuItem 
-            onClick={() => setDeleteDialogOpen(true)}
-            sx={{ color: 'error.main' }}
-          >
-            <Delete fontSize="small" sx={{ mr: 1 }} />
-            Delete
-          </MenuItem>
-        </PermissionGate>
+        {!isWebview && (
+          <>
+            <MenuItem onClick={handleEdit}>
+              <Edit fontSize="small" sx={{ mr: 1 }} />
+              Edit
+            </MenuItem>
+            <MenuItem onClick={handleDuplicate}>
+              <Add fontSize="small" sx={{ mr: 1 }} />
+              Duplicate
+            </MenuItem>
+            <MenuItem onClick={() => setShareDialogOpen(true)}>
+              <Share fontSize="small" sx={{ mr: 1 }} />
+              Share
+            </MenuItem>
+            <MenuItem onClick={handleToggleFeatured}>
+              {selectedDashboard?.is_featured ? (
+                <StarBorder fontSize="small" sx={{ mr: 1 }} />
+              ) : (
+                <Star fontSize="small" sx={{ mr: 1 }} />
+              )}
+              {selectedDashboard?.is_featured ? 'Remove from Featured' : 'Add to Featured'}
+            </MenuItem>
+            <Divider />
+            <MenuItem onClick={() => setDeleteDialogOpen(true)} sx={{ color: 'error.main' }}>
+              <Delete fontSize="small" sx={{ mr: 1 }} />
+              Delete
+            </MenuItem>
+          </>
+        )}
       </Menu>
-
-      {/* Create Dashboard Dialog */}
-      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Create New Dashboard</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Dashboard Name"
-            fullWidth
-            variant="outlined"
-            value={dashboardName}
-            onChange={(e) => setDashboardName(e.target.value)}
-            sx={{ mb: 2 }}
-            required
-          />
-          <TextField
-            margin="dense"
-            label="Description"
-            fullWidth
-            multiline
-            rows={3}
-            variant="outlined"
-            value={dashboardDescription}
-            onChange={(e) => setDashboardDescription(e.target.value)}
-            sx={{ mb: 2 }}
-          />
-          <FormControl fullWidth>
-            <InputLabel>Category (Optional)</InputLabel>
-            <Select
-              value={dashboardCategory}
-              label="Category (Optional)"
-              onChange={(e) => setDashboardCategory(e.target.value)}
-            >
-              <MenuItem value="">None</MenuItem>
-              {/* Add category options here */}
-            </Select>
-          </FormControl>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => { setCreateDialogOpen(false); resetForm(); }}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleCreateDashboard} 
-            variant="contained"
-            disabled={!dashboardName.trim()}
-          >
-            Create
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Edit Dashboard Dialog */}
-      <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Edit Dashboard</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Dashboard Name"
-            fullWidth
-            variant="outlined"
-            value={dashboardName}
-            onChange={(e) => setDashboardName(e.target.value)}
-            sx={{ mb: 2 }}
-            required
-          />
-          <TextField
-            margin="dense"
-            label="Description"
-            fullWidth
-            multiline
-            rows={3}
-            variant="outlined"
-            value={dashboardDescription}
-            onChange={(e) => setDashboardDescription(e.target.value)}
-            sx={{ mb: 2 }}
-          />
-          <FormControl fullWidth>
-            <InputLabel>Category</InputLabel>
-            <Select
-              value={dashboardCategory}
-              label="Category"
-              onChange={(e) => setDashboardCategory(e.target.value)}
-            >
-              <MenuItem value="">None</MenuItem>
-              {/* Add category options here */}
-            </Select>
-          </FormControl>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => { setEditDialogOpen(false); resetForm(); }}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleUpdateDashboard} 
-            variant="contained"
-            disabled={!dashboardName.trim()}
-          >
-            Update
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
         <DialogTitle>Delete Dashboard</DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to delete "{selectedDashboard?.name}"? This action cannot be undone and will also delete all associated charts.
+            Are you sure you want to delete "{selectedDashboard?.display_name || selectedDashboard?.name}"?
+            This action cannot be undone.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -640,23 +909,50 @@ export const DashboardList: React.FC<DashboardListProps> = ({
         </DialogActions>
       </Dialog>
 
-      {/* Floating Action Button for Create (mobile) */}
-      {showCreateButton && (
-        <PermissionGate permissions={['dashboard.create']}>
-          <Fab
-            color="primary"
-            sx={{
-              position: 'fixed',
-              bottom: 16,
-              right: 16,
-              display: { xs: 'flex', md: 'none' },
-            }}
-            onClick={() => setCreateDialogOpen(true)}
-          >
-            <Add />
-          </Fab>
-        </PermissionGate>
-      )}
+      {/* Create Dashboard Dialog */}
+      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Create New Dashboard</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <TextField
+              fullWidth
+              label="Name"
+              value={dashboardName}
+              onChange={(e) => setDashboardName(e.target.value)}
+              required
+            />
+            <TextField
+              fullWidth
+              label="Description"
+              multiline
+              rows={3}
+              value={dashboardDescription}
+              onChange={(e) => setDashboardDescription(e.target.value)}
+            />
+            <FormControl fullWidth>
+              <InputLabel>Category (Optional)</InputLabel>
+              <Select
+                value={selectedCategory}
+                label="Category (Optional)"
+                onChange={(e) => setSelectedCategory(e.target.value)}
+              >
+                <MenuItem value="">None</MenuItem>
+                {categories?.data?.map((category: DashboardCategory) => (
+                  <MenuItem key={category.id} value={category.id}>
+                    {category.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleCreateDashboard} variant="contained" disabled={!dashboardName.trim()}>
+            Create
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

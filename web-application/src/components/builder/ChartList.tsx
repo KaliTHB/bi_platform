@@ -112,7 +112,7 @@ const getChartDisplayInfo = (chart: Chart) => {
 const getUniqueChartTypes = (charts: Chart[]): string[] => {
   const types = new Set<string>();
   charts.forEach(chart => {
-    const type = chart.chart_type || chart.type;
+    const type = chart.chart_type ;
     if (type) types.add(type);
   });
   return Array.from(types).sort();
@@ -203,7 +203,7 @@ const ChartList: React.FC<ChartListProps> = ({
 
         // Type filter
         if (typeFilter !== 'all') {
-          const chartType = chart.chart_type || chart.type;
+          const chartType = chart.chart_type ;
           if (chartType !== typeFilter) return false;
         }
 
