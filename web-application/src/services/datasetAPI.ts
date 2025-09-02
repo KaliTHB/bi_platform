@@ -1,4 +1,5 @@
-// File: web-application/src/services/datasetAPI.ts
+// File: ./src/services/datasetAPI.ts
+// Add this method to your existing datasetAPI object
 
 import { apiClient } from '../utils/apiUtils';
 import { 
@@ -74,6 +75,16 @@ export const datasetAPI = {
     [key: string]: any;
   }): Promise<DatasetQueryResponse> => {
     const response = await apiClient.post(`/datasets/${datasetId}/query`, queryOptions);
+    return response.data;
+  },
+
+  // ADD THIS NEW METHOD - Execute custom SQL query
+  executeQuery: async (datasetId: string, query: string, params?: any): Promise<DatasetQueryResponse> => {
+    const response = await apiClient.post(`/datasets/${datasetId}/query`, {
+      customQuery: query,
+      parameters: params,
+      limit: 10000 // Safe default limit
+    });
     return response.data;
   },
 

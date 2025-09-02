@@ -1,4 +1,4 @@
-// File: web-application/src/components/builder/QueryBuilder.tsx
+// File: ./src/components/builder/QueryBuilder.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -22,22 +22,28 @@ import {
   Divider,
   CircularProgress,
   FormControlLabel,
-  Switch
+  Switch,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from '@mui/material';
 import {
   PlayArrow as RunIcon,
   Save as SaveIcon,
   History as HistoryIcon,
   Code as CodeIcon,
- TableChart as TableIcon,
+  TableChart as TableIcon,
   Info as InfoIcon,
   Clear as ClearIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Delete as DeleteIcon,
+  Edit as EditIcon
 } from '@mui/icons-material';
 
 interface QueryBuilderProps {
   datasetId?: string;
-  onExecute: (query: string, datasetId: string) => void;
+  onExecute: (query: string, datasetId: string) => Promise<void>;
   onSave: (query: string) => void;
   loading?: boolean;
 }
@@ -74,43 +80,74 @@ export const QueryBuilder: React.FC<QueryBuilderProps> = ({
   const [queryHistory, setQueryHistory] = useState<string[]>([]);
   const [autoLimit, setAutoLimit] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [executing, setExecuting] = useState(false);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [queryName, setQueryName] = useState('');
+  const [queryDescription, setQueryDescription] = useState('');
 
-  // Load saved queries and history
+  // Load saved queries and history on mount
   useEffect(() => {
     loadSavedQueries();
     loadQueryHistory();
   }, [datasetId]);
 
+  // Load from localStorage or API
   const loadSavedQueries = () => {
-    // Mock saved queries - in real app, load from API
-    setSavedQueries([
-      {
-        id: '1',
-        name: 'Top 10 Records',
-        query: 'SELECT * FROM dataset ORDER BY id DESC LIMIT 10',
-        created_at: new Date('2024-01-15'),
-        description: 'Get the most recent 10 records'
-      },
-      {
-        id: '2', 
-        name: 'Sales Summary',
-        query: 'SELECT category, SUM(amount) as total FROM dataset GROUP BY category',
-        created_at: new Date('2024-01-10'),
-        description: 'Aggregate sales by category'
+    try {
+      const stored = localStorage.getItem(`savedQueries_${datasetId || 'default'}`);
+      if (stored) {
+        const queries = JSON.parse(stored).map((q: any) => ({
+          ...q,
+          created_at: new Date(q.created_at)
+        }));
+        setSavedQueries(queries);
+      } else {
+        // Default queries for first time users
+        setSavedQueries([
+          {
+            id: '1',
+            name: 'Sample Query',
+            query: 'SELECT * FROM dataset LIMIT 10',
+            created_at: new Date(),
+            description: 'Basic select query with limit'
+          }
+        ]);
       }
-    ]);
+    } catch (error) {
+      console.error('Failed to load saved queries:', error);
+      setSavedQueries([]);
+    }
   };
 
   const loadQueryHistory = () => {
-    // Mock query history - in real app, load from localStorage or API
-    setQueryHistory([
-      'SELECT * FROM dataset WHERE status = "active"',
-      'SELECT category, COUNT(*) FROM dataset GROUP BY category',
-      'SELECT * FROM dataset ORDER BY created_at DESC LIMIT 50'
-    ]);
+    try {
+      const stored = localStorage.getItem(`queryHistory_${datasetId || 'default'}`);
+      if (stored) {
+        setQueryHistory(JSON.parse(stored));
+      }
+    } catch (error) {
+      console.error('Failed to load query history:', error);
+      setQueryHistory([]);
+    }
   };
 
-  const handleExecuteQuery = () => {
+  // Save to localStorage
+  const saveToStorage = (queries: SavedQuery[], history: string[]) => {
+    try {
+      localStorage.setItem(
+        `savedQueries_${datasetId || 'default'}`,
+        JSON.stringify(queries)
+      );
+      localStorage.setItem(
+        `queryHistory_${datasetId || 'default'}`,
+        JSON.stringify(history)
+      );
+    } catch (error) {
+      console.error('Failed to save to storage:', error);
+    }
+  };
+
+  const handleExecuteQuery = async () => {
     if (!datasetId) {
       setError('Please select a dataset first');
       return;
@@ -122,38 +159,72 @@ export const QueryBuilder: React.FC<QueryBuilderProps> = ({
     }
 
     setError(null);
+    setExecuting(true);
     
-    let finalQuery = query;
-    if (autoLimit && !query.toLowerCase().includes('limit')) {
-      finalQuery = `${query} LIMIT 1000`;
-    }
+    try {
+      let finalQuery = query.trim();
+      
+      // Add LIMIT if auto-limit is enabled and no LIMIT exists
+      if (autoLimit && !finalQuery.toLowerCase().includes('limit')) {
+        finalQuery = `${finalQuery} LIMIT 1000`;
+      }
 
-    onExecute(finalQuery, datasetId);
-    
-    // Add to history
-    if (!queryHistory.includes(finalQuery)) {
-      setQueryHistory(prev => [finalQuery, ...prev.slice(0, 9)]); // Keep last 10
+      await onExecute(finalQuery, datasetId);
+      
+      // Add to history (avoid duplicates)
+      const newHistory = [finalQuery, ...queryHistory.filter(q => q !== finalQuery)].slice(0, 10);
+      setQueryHistory(newHistory);
+      saveToStorage(savedQueries, newHistory);
+
+    } catch (error) {
+      console.error('Query execution failed:', error);
+      setError(error instanceof Error ? error.message : 'Query execution failed');
+    } finally {
+      setExecuting(false);
     }
   };
 
   const handleSaveQuery = () => {
-    if (!query.trim()) return;
+    if (!query.trim()) {
+      setError('Please enter a query to save');
+      return;
+    }
     
+    setSaveDialogOpen(true);
+    setQueryName(`Query ${savedQueries.length + 1}`);
+    setQueryDescription('');
+  };
+
+  const confirmSaveQuery = () => {
     const newQuery: SavedQuery = {
       id: Date.now().toString(),
-      name: `Query ${savedQueries.length + 1}`,
-      query: query,
+      name: queryName || `Query ${savedQueries.length + 1}`,
+      query: query.trim(),
       created_at: new Date(),
-      description: 'Custom query'
+      description: queryDescription || undefined
     };
     
-    setSavedQueries(prev => [newQuery, ...prev]);
+    const newSavedQueries = [newQuery, ...savedQueries];
+    setSavedQueries(newSavedQueries);
+    saveToStorage(newSavedQueries, queryHistory);
+    
+    setSaveDialogOpen(false);
     onSave(query);
+    
+    // Switch to saved tab to show the new query
+    setActiveTab(1);
   };
 
   const handleLoadQuery = (queryToLoad: string) => {
     setQuery(queryToLoad);
+    setError(null);
     setActiveTab(0); // Switch to editor tab
+  };
+
+  const handleDeleteSavedQuery = (queryId: string) => {
+    const newSavedQueries = savedQueries.filter(q => q.id !== queryId);
+    setSavedQueries(newSavedQueries);
+    saveToStorage(newSavedQueries, queryHistory);
   };
 
   const handleClearQuery = () => {
@@ -161,11 +232,22 @@ export const QueryBuilder: React.FC<QueryBuilderProps> = ({
     setError(null);
   };
 
+  const handleClearHistory = () => {
+    setQueryHistory([]);
+    saveToStorage(savedQueries, []);
+  };
+
   const formatDate = (date: Date) => {
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { 
       hour: '2-digit', 
       minute: '2-digit' 
     });
+  };
+
+  const getQueryPreview = (queryText: string, maxLength: number = 50) => {
+    return queryText.length > maxLength 
+      ? queryText.substring(0, maxLength) + '...' 
+      : queryText;
   };
 
   return (
@@ -178,14 +260,29 @@ export const QueryBuilder: React.FC<QueryBuilderProps> = ({
         <Typography variant="body2" color="text.secondary">
           Write custom SQL queries to filter and transform your data
         </Typography>
+        {datasetId && (
+          <Chip 
+            label={`Dataset: ${datasetId}`} 
+            size="small" 
+            sx={{ mt: 1 }}
+            color="primary"
+            variant="outlined"
+          />
+        )}
       </Box>
 
       {/* Tabs */}
       <Box sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
         <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
           <Tab icon={<CodeIcon />} label="Editor" />
-          <Tab icon={<SaveIcon />} label="Saved" />
-          <Tab icon={<HistoryIcon />} label="History" />
+          <Tab 
+            icon={<SaveIcon />} 
+            label={`Saved (${savedQueries.length})`} 
+          />
+          <Tab 
+            icon={<HistoryIcon />} 
+            label={`History (${queryHistory.length})`} 
+          />
         </Tabs>
       </Box>
 
@@ -199,23 +296,29 @@ export const QueryBuilder: React.FC<QueryBuilderProps> = ({
               <TextField
                 fullWidth
                 multiline
-                rows={8}
+                rows={10}
                 variant="outlined"
                 label="SQL Query"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Enter your SQL query here..."
                 sx={{
+                  height: '100%',
                   '& .MuiOutlinedInput-root': {
                     fontFamily: 'monospace',
-                    fontSize: '14px'
+                    fontSize: '14px',
+                    height: '100%'
+                  },
+                  '& .MuiOutlinedInput-input': {
+                    height: '100% !important',
+                    overflow: 'auto !important'
                   }
                 }}
               />
             </Box>
 
             {/* Options */}
-            <Box sx={{ mb: 2 }}>
+            <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <FormControlLabel
                 control={
                   <Switch
@@ -225,6 +328,15 @@ export const QueryBuilder: React.FC<QueryBuilderProps> = ({
                 }
                 label="Auto-add LIMIT clause for safety"
               />
+              
+              <Button
+                size="small"
+                startIcon={<ClearIcon />}
+                onClick={handleClearQuery}
+                disabled={!query.trim()}
+              >
+                Clear
+              </Button>
             </Box>
 
             {/* Error Display */}
@@ -235,49 +347,32 @@ export const QueryBuilder: React.FC<QueryBuilderProps> = ({
             )}
 
             {/* Actions */}
-            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'space-between' }}>
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button
-                  variant="contained"
-                  startIcon={loading ? <CircularProgress size={16} /> : <RunIcon />}
-                  onClick={handleExecuteQuery}
-                  disabled={loading || !datasetId}
-                >
-                  {loading ? 'Running...' : 'Run Query'}
-                </Button>
-                
-                <Button
-                  variant="outlined"
-                  startIcon={<SaveIcon />}
-                  onClick={handleSaveQuery}
-                  disabled={!query.trim()}
-                >
-                  Save
-                </Button>
-              </Box>
-
+            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-start' }}>
+              <Button
+                variant="contained"
+                size="large"
+                startIcon={
+                  (loading || executing) ? (
+                    <CircularProgress size={16} color="inherit" />
+                  ) : (
+                    <RunIcon />
+                  )
+                }
+                onClick={handleExecuteQuery}
+                disabled={loading || executing || !datasetId || !query.trim()}
+              >
+                {loading || executing ? 'Executing...' : 'Execute Query'}
+              </Button>
+              
               <Button
                 variant="outlined"
-                startIcon={<ClearIcon />}
-                onClick={handleClearQuery}
-                color="error"
+                startIcon={<SaveIcon />}
+                onClick={handleSaveQuery}
+                disabled={!query.trim()}
               >
-                Clear
+                Save Query
               </Button>
             </Box>
-
-            {/* Help Text */}
-            <Paper variant="outlined" sx={{ p: 2, mt: 2, bgcolor: 'background.default' }}>
-              <Typography variant="subtitle2" gutterBottom>
-                Query Tips:
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                • Use <code>SELECT * FROM dataset</code> to get all columns<br/>
-                • Add <code>WHERE</code> clauses to filter data<br/>
-                • Use <code>GROUP BY</code> for aggregations<br/>
-                • Always include <code>LIMIT</code> for large datasets
-              </Typography>
-            </Paper>
           </Box>
         </TabPanel>
 
@@ -286,40 +381,70 @@ export const QueryBuilder: React.FC<QueryBuilderProps> = ({
           <Box sx={{ height: '100%', overflow: 'auto' }}>
             {savedQueries.length === 0 ? (
               <Box sx={{ p: 3, textAlign: 'center' }}>
+                <SaveIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   No saved queries yet
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  Save queries from the editor to reuse them later
+                  Save frequently used queries for quick access
                 </Typography>
               </Box>
             ) : (
               <List>
                 {savedQueries.map((savedQuery, index) => (
                   <React.Fragment key={savedQuery.id}>
-                    <ListItem disablePadding>
+                    <ListItem
+                      secondaryAction={
+                        <Box>
+                          <Tooltip title="Load query">
+                            <IconButton 
+                              size="small" 
+                              onClick={() => handleLoadQuery(savedQuery.query)}
+                            >
+                              <EditIcon />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete query">
+                            <IconButton 
+                              size="small" 
+                              onClick={() => handleDeleteSavedQuery(savedQuery.id)}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      }
+                    >
                       <ListItemButton onClick={() => handleLoadQuery(savedQuery.query)}>
                         <ListItemIcon>
-                          <CodeIcon />
+                          <SaveIcon />
                         </ListItemIcon>
                         <ListItemText
                           primary={savedQuery.name}
                           secondary={
                             <Box>
-                              <Typography variant="body2" color="text.secondary" gutterBottom>
-                                {savedQuery.description}
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  fontFamily: 'monospace',
+                                  display: 'block',
+                                  color: 'text.secondary',
+                                  mb: 0.5
+                                }}
+                              >
+                                {getQueryPreview(savedQuery.query, 60)}
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
-                                {formatDate(savedQuery.created_at)}
+                                Created: {formatDate(savedQuery.created_at)}
                               </Typography>
+                              {savedQuery.description && (
+                                <Typography variant="caption" display="block" color="text.secondary">
+                                  {savedQuery.description}
+                                </Typography>
+                              )}
                             </Box>
                           }
                         />
-                        <Tooltip title="Load query">
-                          <IconButton size="small">
-                            <RefreshIcon />
-                          </IconButton>
-                        </Tooltip>
                       </ListItemButton>
                     </ListItem>
                     {index < savedQueries.length - 1 && <Divider />}
@@ -333,8 +458,25 @@ export const QueryBuilder: React.FC<QueryBuilderProps> = ({
         {/* Query History Tab */}
         <TabPanel value={activeTab} index={2}>
           <Box sx={{ height: '100%', overflow: 'auto' }}>
+            {/* History Header */}
+            <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="subtitle2">
+                Recent Queries
+              </Typography>
+              {queryHistory.length > 0 && (
+                <Button
+                  size="small"
+                  startIcon={<ClearIcon />}
+                  onClick={handleClearHistory}
+                >
+                  Clear History
+                </Button>
+              )}
+            </Box>
+
             {queryHistory.length === 0 ? (
               <Box sx={{ p: 3, textAlign: 'center' }}>
+                <HistoryIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   No query history
                 </Typography>
@@ -365,7 +507,7 @@ export const QueryBuilder: React.FC<QueryBuilderProps> = ({
                               {historyQuery}
                             </Typography>
                           }
-                          secondary={`Query ${index + 1}`}
+                          secondary={`Executed query #${index + 1}`}
                         />
                         <Tooltip title="Load query">
                           <IconButton size="small">
@@ -383,7 +525,7 @@ export const QueryBuilder: React.FC<QueryBuilderProps> = ({
         </TabPanel>
       </Box>
 
-      {/* Footer */}
+      {/* Footer Warning */}
       {!datasetId && (
         <Paper sx={{ p: 2, bgcolor: 'warning.50', borderTop: '1px solid', borderColor: 'divider' }}>
           <Typography variant="body2" color="warning.dark">
@@ -391,6 +533,63 @@ export const QueryBuilder: React.FC<QueryBuilderProps> = ({
           </Typography>
         </Paper>
       )}
+
+      {/* Save Query Dialog */}
+      <Dialog open={saveDialogOpen} onClose={() => setSaveDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Save Query</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Query Name"
+            fullWidth
+            variant="outlined"
+            value={queryName}
+            onChange={(e) => setQueryName(e.target.value)}
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            margin="dense"
+            label="Description (optional)"
+            fullWidth
+            multiline
+            rows={3}
+            variant="outlined"
+            value={queryDescription}
+            onChange={(e) => setQueryDescription(e.target.value)}
+            sx={{ mb: 2 }}
+          />
+          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Query Preview:
+            </Typography>
+            <Typography
+              variant="body2"
+              sx={{
+                fontFamily: 'monospace',
+                fontSize: '12px',
+                maxHeight: '100px',
+                overflow: 'auto',
+                whiteSpace: 'pre-wrap'
+              }}
+            >
+              {query}
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSaveDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={confirmSaveQuery} 
+            variant="contained"
+            disabled={!queryName.trim()}
+          >
+            Save Query
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
