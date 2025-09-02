@@ -1,498 +1,691 @@
+// api-services/src/services/DashboardService.ts
 import { v4 as uuidv4 } from 'uuid';
-import { db } from '../config/database';
-import { cache } from '../config/redis';
 import { logger } from '../utils/logger';
-import { PermissionService } from './PermissionService';
-import { AuditService } from './AuditService';
-
-interface CreateDashboardRequest {
-  name: string;
-  description?: string;
-  category_id?: string;
-  layout_config: any;
-  filter_config?: any;
-  theme_config?: any;
-  is_public?: boolean;
-  tags?: string[];
-}
 
 interface Dashboard {
   id: string;
-  name: string;
-  description?: string;
   workspace_id: string;
+  name: string;
+  display_name: string;
+  description?: string;
   category_id?: string;
   layout_config: any;
-  filter_config?: any;
   theme_config?: any;
   is_public: boolean;
+  is_featured: boolean;
   tags: string[];
+  auto_refresh_interval?: number;
   created_by: string;
+  updated_by?: string;
   created_at: Date;
   updated_at: Date;
-  is_active: boolean;
-  slug: string;
+  last_viewed_at?: Date;
+  view_count: number;
+  status: 'active' | 'inactive' | 'archived';
+  charts?: DashboardChart[];
+  sharing_config?: SharingConfig;
 }
 
-interface DashboardWithCharts extends Dashboard {
-  charts: Array<{
+interface DashboardChart {
+  id: string;
+  chart_id: string;
+  dashboard_id: string;
+  position: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  title?: string;
+  description?: string;
+  order_index: number;
+  is_visible: boolean;
+  chart?: {
     id: string;
     name: string;
-    chart_type: string;
-    config_json: any;
-    dataset_ids: string[];
-    position: any;
-  }>;
-  category?: {
-    id: string;
-    name: string;
-    color: string;
-    icon: string;
+    type: string;
+    dataset_id: string;
   };
 }
 
-class DashboardService {
-  private permissionService: PermissionService;
-  private auditService: AuditService;
+interface SharingConfig {
+  id: string;
+  dashboard_id: string;
+  share_type: 'public' | 'password' | 'private';
+  share_token: string;
+  expires_at?: Date;
+  password_hash?: string;
+  is_active: boolean;
+  created_by: string;
+  created_at: Date;
+  access_count: number;
+  last_accessed_at?: Date;
+}
+
+interface DashboardCreateData {
+  workspace_id: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  category_id?: string;
+  layout_config?: any;
+  theme_config?: any;
+  is_public?: boolean;
+  is_featured?: boolean;
+  tags?: string[];
+  auto_refresh_interval?: number;
+  created_by: string;
+}
+
+interface DashboardUpdateData {
+  name?: string;
+  display_name?: string;
+  description?: string;
+  category_id?: string;
+  layout_config?: any;
+  theme_config?: any;
+  is_public?: boolean;
+  is_featured?: boolean;
+  tags?: string[];
+  auto_refresh_interval?: number;
+}
+
+interface GetDashboardsOptions {
+  page: number;
+  limit: number;
+  filters: {
+    category_id?: string;
+    created_by?: string;
+    is_public?: boolean;
+    is_featured?: boolean;
+    search?: string;
+  };
+  include_charts?: boolean;
+}
+
+interface ExportResult {
+  export_id: string;
+  format: string;
+  file_path?: string;
+  download_url?: string;
+  file_size_bytes?: number;
+  status: 'processing' | 'completed' | 'failed';
+  error_message?: string;
+  created_at: Date;
+  completed_at?: Date;
+}
+
+interface ShareDashboardData {
+  share_type: 'public' | 'password' | 'private';
+  expires_at?: Date;
+  password?: string;
+  created_by: string;
+}
+
+export class DashboardService {
+  private dashboards: Map<string, Dashboard> = new Map();
+  private dashboardCharts: Map<string, DashboardChart[]> = new Map();
+  private sharingConfigs: Map<string, SharingConfig> = new Map();
 
   constructor() {
-    this.permissionService = new PermissionService();
-    this.auditService = new AuditService();
+    // Initialize with some sample data for development
+    this.initializeSampleData();
   }
 
-  async createDashboard(userId: string, workspaceId: string, data: CreateDashboardRequest): Promise<Dashboard> {
-    try {
-      // Check permissions
-      const hasPermission = await this.permissionService.hasPermission(userId, workspaceId, 'dashboard.create');
-      if (!hasPermission) {
-        throw new Error('Insufficient permissions to create dashboard');
+  private initializeSampleData(): void {
+    // Sample dashboard
+    const sampleDashboard: Dashboard = {
+      id: uuidv4(),
+      workspace_id: 'sample-workspace',
+      name: 'sales_overview',
+      display_name: 'Sales Overview',
+      description: 'Monthly sales performance dashboard',
+      category_id: 'sales-category',
+      layout_config: {
+        grid: { columns: 12, rows: 8, gap: 16 },
+        responsive: true
+      },
+      theme_config: {
+        primary_color: '#007bff',
+        background_color: '#ffffff'
+      },
+      is_public: false,
+      is_featured: true,
+      tags: ['sales', 'revenue', 'kpi'],
+      auto_refresh_interval: 300, // 5 minutes
+      created_by: 'sample-user',
+      created_at: new Date(),
+      updated_at: new Date(),
+      view_count: 45,
+      status: 'active'
+    };
+
+    this.dashboards.set(sampleDashboard.id, sampleDashboard);
+
+    // Sample dashboard charts
+    const sampleCharts: DashboardChart[] = [
+      {
+        id: uuidv4(),
+        chart_id: 'sample-chart-1',
+        dashboard_id: sampleDashboard.id,
+        position: { x: 0, y: 0, width: 6, height: 4 },
+        title: 'Monthly Revenue',
+        order_index: 0,
+        is_visible: true
+      },
+      {
+        id: uuidv4(),
+        chart_id: 'sample-chart-2',
+        dashboard_id: sampleDashboard.id,
+        position: { x: 6, y: 0, width: 6, height: 4 },
+        title: 'Sales by Region',
+        order_index: 1,
+        is_visible: true
       }
+    ];
 
-      const dashboardId = uuidv4();
-      const slug = this.generateSlug(data.name);
-      
-      const query = `
-        INSERT INTO dashboards (
-          id, name, description, workspace_id, category_id, layout_config, 
-          filter_config, theme_config, is_public, tags, created_by, 
-          created_at, updated_at, is_active, slug
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW(), true, $12
-        ) RETURNING *
-      `;
-      
-      const values = [
-        dashboardId,
-        data.name,
-        data.description,
-        workspaceId,
-        data.category_id,
-        JSON.stringify(data.layout_config),
-        data.filter_config ? JSON.stringify(data.filter_config) : null,
-        data.theme_config ? JSON.stringify(data.theme_config) : null,
-        data.is_public || false,
-        data.tags || [],
-        userId,
-        slug
-      ];
-
-      const result = await db.query(query, values);
-      const dashboard = result.rows[0];
-
-      // Log audit event
-      await this.auditService.logEvent({
-        event_type: 'dashboard.created',
-        user_id: userId,
-        workspace_id: workspaceId,
-        resource_id: dashboardId,
-        details: { dashboard_name: data.name, slug }
-      });
-
-      return dashboard;
-    } catch (error) {
-      logger.error('Create dashboard error:', error);
-      throw error;
-    }
+    this.dashboardCharts.set(sampleDashboard.id, sampleCharts);
   }
 
-  async getDashboards(userId: string, workspaceId: string, filters?: any): Promise<Dashboard[]> {
+  async getDashboards(workspaceId: string, options: GetDashboardsOptions): Promise<{
+    dashboards: Dashboard[];
+    total: number;
+    page: number;
+    limit: number;
+    pages: number;
+  }> {
     try {
-      let query = `
-        SELECT d.*, u.display_name as created_by_name, c.name as category_name, c.color as category_color, c.icon as category_icon
-        FROM dashboards d
-        INNER JOIN users u ON d.created_by = u.id
-        LEFT JOIN dashboard_categories c ON d.category_id = c.id
-        WHERE d.workspace_id = $1 AND d.is_active = true
-      `;
-      const params = [workspaceId];
-      let paramIndex = 2;
+      logger.info('Getting dashboards', { workspaceId, options });
 
-      // Add filters
-      if (filters?.search) {
-        query += ` AND (d.name ILIKE $${paramIndex} OR d.description ILIKE $${paramIndex})`;
-        params.push(`%${filters.search}%`);
-        paramIndex++;
+      // Filter dashboards by workspace
+      let allDashboards = Array.from(this.dashboards.values())
+        .filter(dashboard => dashboard.workspace_id === workspaceId);
+
+      // Apply filters
+      if (options.filters.category_id) {
+        allDashboards = allDashboards.filter(d => d.category_id === options.filters.category_id);
       }
-
-      if (filters?.category_id) {
-        query += ` AND d.category_id = $${paramIndex}`;
-        params.push(filters.category_id);
-        paramIndex++;
+      if (options.filters.created_by) {
+        allDashboards = allDashboards.filter(d => d.created_by === options.filters.created_by);
       }
-
-      if (filters?.tags && filters.tags.length > 0) {
-        query += ` AND d.tags && $${paramIndex}`;
-        params.push(filters.tags);
-        paramIndex++;
+      if (options.filters.is_public !== undefined) {
+        allDashboards = allDashboards.filter(d => d.is_public === options.filters.is_public);
       }
-
-      if (filters?.is_public !== undefined) {
-        query += ` AND d.is_public = $${paramIndex}`;
-        params.push(filters.is_public);
-        paramIndex++;
+      if (options.filters.is_featured !== undefined) {
+        allDashboards = allDashboards.filter(d => d.is_featured === options.filters.is_featured);
       }
-
-      query += ' ORDER BY d.updated_at DESC';
-
-      if (filters?.limit) {
-        query += ` LIMIT $${paramIndex}`;
-        params.push(filters.limit);
-        paramIndex++;
-      }
-
-      if (filters?.offset) {
-        query += ` OFFSET $${paramIndex}`;
-        params.push(filters.offset);
-      }
-
-      const result = await db.query(query, params);
-      
-      // Filter dashboards based on permissions
-      const accessibleDashboards = [];
-      for (const dashboard of result.rows) {
-        const hasAccess = await this.permissionService.hasDashboardAccess(
-          userId, workspaceId, dashboard.id, 'read'
+      if (options.filters.search) {
+        const searchTerm = options.filters.search.toLowerCase();
+        allDashboards = allDashboards.filter(d => 
+          d.name.toLowerCase().includes(searchTerm) ||
+          d.display_name.toLowerCase().includes(searchTerm) ||
+          (d.description && d.description.toLowerCase().includes(searchTerm)) ||
+          d.tags.some(tag => tag.toLowerCase().includes(searchTerm))
         );
-        if (hasAccess) {
-          accessibleDashboards.push(dashboard);
-        }
       }
 
-      return accessibleDashboards;
-    } catch (error) {
-      logger.error('Get dashboards error:', error);
-      throw error;
+      // Sort by created_at desc
+      allDashboards.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+
+      const total = allDashboards.length;
+      const pages = Math.ceil(total / options.limit);
+      const offset = (options.page - 1) * options.limit;
+      let dashboards = allDashboards.slice(offset, offset + options.limit);
+
+      // Include charts if requested
+      if (options.include_charts) {
+        dashboards = dashboards.map(dashboard => ({
+          ...dashboard,
+          charts: this.dashboardCharts.get(dashboard.id) || []
+        }));
+      }
+
+      return {
+        dashboards,
+        total,
+        page: options.page,
+        limit: options.limit,
+        pages
+      };
+    } catch (error: any) {
+      logger.error('Error getting dashboards:', error);
+      throw new Error(`Failed to get dashboards: ${error.message}`);
     }
   }
 
-  async getDashboard(userId: string, workspaceId: string, dashboardId: string): Promise<DashboardWithCharts | null> {
+  async createDashboard(workspaceId: string, dashboardData: DashboardCreateData): Promise<Dashboard> {
     try {
-      // Check permissions
-      const hasAccess = await this.permissionService.hasDashboardAccess(
-        userId, workspaceId, dashboardId, 'read'
-      );
-      if (!hasAccess) {
-        throw new Error('Insufficient permissions to access dashboard');
+      logger.info('Creating dashboard', { workspaceId, name: dashboardData.name });
+
+      // Validate name uniqueness within workspace
+      const existingDashboard = Array.from(this.dashboards.values())
+        .find(d => d.workspace_id === workspaceId && d.name === dashboardData.name);
+
+      if (existingDashboard) {
+        throw new Error(`Dashboard with name '${dashboardData.name}' already exists in this workspace`);
       }
 
-      // Get dashboard
-      const dashboardQuery = `
-        SELECT d.*, u.display_name as created_by_name, c.name as category_name, c.color as category_color, c.icon as category_icon
-        FROM dashboards d
-        INNER JOIN users u ON d.created_by = u.id
-        LEFT JOIN dashboard_categories c ON d.category_id = c.id
-        WHERE d.id = $1 AND d.workspace_id = $2 AND d.is_active = true
-      `;
-      
-      const dashboardResult = await db.query(dashboardQuery, [dashboardId, workspaceId]);
-      
-      if (dashboardResult.rows.length === 0) {
-        return null;
-      }
-
-      const dashboard = dashboardResult.rows[0];
-
-      // Get charts
-      const chartsQuery = `
-        SELECT c.id, c.name, c.chart_type, c.config_json, c.dataset_ids, dc.position
-        FROM charts c
-        INNER JOIN dashboard_charts dc ON c.id = dc.chart_id
-        WHERE dc.dashboard_id = $1 AND c.is_active = true
-        ORDER BY dc.position->>'order' ASC
-      `;
-      
-      const chartsResult = await db.query(chartsQuery, [dashboardId]);
-
-      const result: DashboardWithCharts = {
-        ...dashboard,
-        charts: chartsResult.rows,
-        category: dashboard.category_name ? {
-          id: dashboard.category_id,
-          name: dashboard.category_name,
-          color: dashboard.category_color,
-          icon: dashboard.category_icon
-        } : undefined
+      const dashboard: Dashboard = {
+        id: uuidv4(),
+        workspace_id: workspaceId,
+        name: dashboardData.name,
+        display_name: dashboardData.display_name || dashboardData.name,
+        description: dashboardData.description,
+        category_id: dashboardData.category_id,
+        layout_config: dashboardData.layout_config || {
+          grid: { columns: 12, rows: 8, gap: 16 },
+          responsive: true
+        },
+        theme_config: dashboardData.theme_config,
+        is_public: dashboardData.is_public || false,
+        is_featured: dashboardData.is_featured || false,
+        tags: dashboardData.tags || [],
+        auto_refresh_interval: dashboardData.auto_refresh_interval,
+        created_by: dashboardData.created_by,
+        created_at: new Date(),
+        updated_at: new Date(),
+        view_count: 0,
+        status: 'active'
       };
 
-      return result;
-    } catch (error) {
-      logger.error('Get dashboard error:', error);
-      throw error;
+      this.dashboards.set(dashboard.id, dashboard);
+      this.dashboardCharts.set(dashboard.id, []);
+
+      logger.info('Dashboard created successfully', { id: dashboard.id, name: dashboard.name });
+      return dashboard;
+    } catch (error: any) {
+      logger.error('Error creating dashboard:', error);
+      throw new Error(`Failed to create dashboard: ${error.message}`);
     }
   }
 
-  async getDashboardBySlug(userId: string, workspaceId: string, slug: string): Promise<DashboardWithCharts | null> {
+  async getDashboardById(id: string, includeCharts: boolean = false): Promise<Dashboard | null> {
     try {
-      // Get dashboard by slug
-      const dashboardQuery = `
-        SELECT id FROM dashboards 
-        WHERE slug = $1 AND workspace_id = $2 AND is_active = true
-      `;
-      
-      const result = await db.query(dashboardQuery, [slug, workspaceId]);
-      
-      if (result.rows.length === 0) {
+      const dashboard = this.dashboards.get(id);
+      if (!dashboard) {
         return null;
       }
 
-      return this.getDashboard(userId, workspaceId, result.rows[0].id);
-    } catch (error) {
-      logger.error('Get dashboard by slug error:', error);
-      throw error;
+      const result = { ...dashboard };
+      if (includeCharts) {
+        result.charts = this.dashboardCharts.get(id) || [];
+      }
+
+      // Update last viewed
+      dashboard.last_viewed_at = new Date();
+      dashboard.view_count += 1;
+      this.dashboards.set(id, dashboard);
+
+      return result;
+    } catch (error: any) {
+      logger.error('Error getting dashboard by ID:', error);
+      throw new Error(`Failed to get dashboard: ${error.message}`);
     }
   }
 
-  async updateDashboard(userId: string, workspaceId: string, dashboardId: string, updates: Partial<CreateDashboardRequest>): Promise<Dashboard> {
+  async updateDashboard(id: string, updateData: DashboardUpdateData): Promise<Dashboard> {
     try {
-      // Check permissions
-      const hasAccess = await this.permissionService.hasDashboardAccess(
-        userId, workspaceId, dashboardId, 'write'
-      );
-      if (!hasAccess) {
-        throw new Error('Insufficient permissions to update dashboard');
-      }
+      logger.info('Updating dashboard', { id, updateData });
 
-      const allowedFields = ['name', 'description', 'category_id', 'layout_config', 'filter_config', 'theme_config', 'is_public', 'tags'];
-      const updateFields = [];
-      const values = [];
-      let paramIndex = 1;
-
-      for (const [key, value] of Object.entries(updates)) {
-        if (allowedFields.includes(key) && value !== undefined) {
-          if (['layout_config', 'filter_config', 'theme_config'].includes(key)) {
-            updateFields.push(`${key} = $${paramIndex}`);
-            values.push(JSON.stringify(value));
-          } else {
-            updateFields.push(`${key} = $${paramIndex}`);
-            values.push(value);
-          }
-          paramIndex++;
-        }
-      }
-
-      if (updateFields.length === 0) {
-        throw new Error('No valid fields to update');
-      }
-
-      // Update slug if name changed
-      if (updates.name) {
-        const newSlug = this.generateSlug(updates.name);
-        updateFields.push(`slug = $${paramIndex}`);
-        values.push(newSlug);
-        paramIndex++;
-      }
-
-      updateFields.push(`updated_at = NOW()`);
-
-      const query = `
-        UPDATE dashboards 
-        SET ${updateFields.join(', ')}
-        WHERE id = $${paramIndex} AND workspace_id = $${paramIndex + 1} AND is_active = true
-        RETURNING *
-      `;
-
-      values.push(dashboardId, workspaceId);
-
-      const result = await db.query(query, values);
-      
-      if (result.rows.length === 0) {
+      const dashboard = this.dashboards.get(id);
+      if (!dashboard) {
         throw new Error('Dashboard not found');
       }
 
-      // Log audit event
-      await this.auditService.logEvent({
-        event_type: 'dashboard.updated',
-        user_id: userId,
-        workspace_id: workspaceId,
-        resource_id: dashboardId,
-        details: { updated_fields: Object.keys(updates) }
-      });
-
-      return result.rows[0];
-    } catch (error) {
-      logger.error('Update dashboard error:', error);
-      throw error;
-    }
-  }
-
-  async deleteDashboard(userId: string, workspaceId: string, dashboardId: string): Promise<void> {
-    try {
-      // Check permissions
-      const hasAccess = await this.permissionService.hasDashboardAccess(
-        userId, workspaceId, dashboardId, 'delete'
-      );
-      if (!hasAccess) {
-        throw new Error('Insufficient permissions to delete dashboard');
-      }
-
-      await db.transaction(async (client) => {
-        // Remove charts from dashboard
-        await client.query(
-          'DELETE FROM dashboard_charts WHERE dashboard_id = $1',
-          [dashboardId]
-        );
-
-        // Soft delete dashboard
-        await client.query(
-          'UPDATE dashboards SET is_active = false, updated_at = NOW() WHERE id = $1',
-          [dashboardId]
-        );
-      });
-
-      // Log audit event
-      await this.auditService.logEvent({
-        event_type: 'dashboard.deleted',
-        user_id: userId,
-        workspace_id: workspaceId,
-        resource_id: dashboardId,
-        details: { deletion_type: 'soft' }
-      });
-    } catch (error) {
-      logger.error('Delete dashboard error:', error);
-      throw error;
-    }
-  }
-
-  async addChartToDashboard(userId: string, workspaceId: string, dashboardId: string, chartId: string, position: any): Promise<void> {
-    try {
-      // Check dashboard permissions
-      const hasAccess = await this.permissionService.hasDashboardAccess(
-        userId, workspaceId, dashboardId, 'write'
-      );
-      if (!hasAccess) {
-        throw new Error('Insufficient permissions to modify dashboard');
-      }
-
-      // Verify chart exists and user has access
-      const chartQuery = `
-        SELECT id, dataset_ids FROM charts 
-        WHERE id = $1 AND workspace_id = $2 AND is_active = true
-      `;
-      
-      const chartResult = await db.query(chartQuery, [chartId, workspaceId]);
-      if (chartResult.rows.length === 0) {
-        throw new Error('Chart not found');
-      }
-
-      const chart = chartResult.rows[0];
-
-      // Check if user has access to all datasets used by the chart
-      for (const datasetId of chart.dataset_ids) {
-        const hasDatasetAccess = await this.permissionService.hasDatasetAccess(
-          userId, workspaceId, datasetId, 'read'
-        );
-        if (!hasDatasetAccess) {
-          throw new Error('Insufficient permissions to access chart datasets');
+      // Validate name uniqueness if name is being updated
+      if (updateData.name && updateData.name !== dashboard.name) {
+        const existingDashboard = Array.from(this.dashboards.values())
+          .find(d => d.workspace_id === dashboard.workspace_id && d.name === updateData.name);
+        
+        if (existingDashboard) {
+          throw new Error(`Dashboard with name '${updateData.name}' already exists in this workspace`);
         }
       }
 
-      // Add chart to dashboard
-      const insertQuery = `
-        INSERT INTO dashboard_charts (dashboard_id, chart_id, position, created_at)
-        VALUES ($1, $2, $3, NOW())
-        ON CONFLICT (dashboard_id, chart_id) 
-        DO UPDATE SET position = $3, updated_at = NOW()
-      `;
-      
-      await db.query(insertQuery, [dashboardId, chartId, JSON.stringify(position)]);
+      const updatedDashboard: Dashboard = {
+        ...dashboard,
+        ...updateData,
+        updated_at: new Date()
+      };
 
-      // Log audit event
-      await this.auditService.logEvent({
-        event_type: 'dashboard.chart_added',
-        user_id: userId,
-        workspace_id: workspaceId,
-        resource_id: dashboardId,
-        details: { chart_id: chartId, position }
-      });
-    } catch (error) {
-      logger.error('Add chart to dashboard error:', error);
-      throw error;
+      this.dashboards.set(id, updatedDashboard);
+
+      logger.info('Dashboard updated successfully', { id });
+      return updatedDashboard;
+    } catch (error: any) {
+      logger.error('Error updating dashboard:', error);
+      throw new Error(`Failed to update dashboard: ${error.message}`);
     }
   }
 
-  async removeChartFromDashboard(userId: string, workspaceId: string, dashboardId: string, chartId: string): Promise<void> {
+  async deleteDashboard(id: string): Promise<void> {
     try {
-      // Check permissions
-      const hasAccess = await this.permissionService.hasDashboardAccess(
-        userId, workspaceId, dashboardId, 'write'
-      );
-      if (!hasAccess) {
-        throw new Error('Insufficient permissions to modify dashboard');
+      logger.info('Deleting dashboard', { id });
+
+      const dashboard = this.dashboards.get(id);
+      if (!dashboard) {
+        throw new Error('Dashboard not found');
       }
 
-      const query = `
-        DELETE FROM dashboard_charts 
-        WHERE dashboard_id = $1 AND chart_id = $2
-      `;
+      // Clean up related data
+      this.dashboards.delete(id);
+      this.dashboardCharts.delete(id);
       
-      await db.query(query, [dashboardId, chartId]);
-
-      // Log audit event
-      await this.auditService.logEvent({
-        event_type: 'dashboard.chart_removed',
-        user_id: userId,
-        workspace_id: workspaceId,
-        resource_id: dashboardId,
-        details: { chart_id: chartId }
-      });
-    } catch (error) {
-      logger.error('Remove chart from dashboard error:', error);
-      throw error;
-    }
-  }
-
-  async updateChartPosition(userId: string, workspaceId: string, dashboardId: string, chartId: string, position: any): Promise<void> {
-    try {
-      // Check permissions
-      const hasAccess = await this.permissionService.hasDashboardAccess(
-        userId, workspaceId, dashboardId, 'write'
-      );
-      if (!hasAccess) {
-        throw new Error('Insufficient permissions to modify dashboard');
+      // Clean up sharing configs
+      for (const [shareId, shareConfig] of this.sharingConfigs.entries()) {
+        if (shareConfig.dashboard_id === id) {
+          this.sharingConfigs.delete(shareId);
+        }
       }
 
-      const query = `
-        UPDATE dashboard_charts 
-        SET position = $1, updated_at = NOW()
-        WHERE dashboard_id = $2 AND chart_id = $3
-      `;
-      
-      await db.query(query, [JSON.stringify(position), dashboardId, chartId]);
-    } catch (error) {
-      logger.error('Update chart position error:', error);
-      throw error;
+      logger.info('Dashboard deleted successfully', { id });
+    } catch (error: any) {
+      logger.error('Error deleting dashboard:', error);
+      throw new Error(`Failed to delete dashboard: ${error.message}`);
     }
   }
 
-  private generateSlug(name: string): string {
-    return name
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .trim()
-      .substring(0, 50);
+  async duplicateDashboard(
+    sourceId: string, 
+    createdBy: string, 
+    newName?: string, 
+    includeCharts: boolean = true
+  ): Promise<Dashboard> {
+    try {
+      logger.info('Duplicating dashboard', { sourceId, newName, includeCharts });
+
+      const sourceDashboard = this.dashboards.get(sourceId);
+      if (!sourceDashboard) {
+        throw new Error('Source dashboard not found');
+      }
+
+      const duplicatedName = newName || `${sourceDashboard.name}_copy_${Date.now()}`;
+
+      // Check name uniqueness
+      const existingDashboard = Array.from(this.dashboards.values())
+        .find(d => d.workspace_id === sourceDashboard.workspace_id && d.name === duplicatedName);
+
+      if (existingDashboard) {
+        throw new Error(`Dashboard with name '${duplicatedName}' already exists in this workspace`);
+      }
+
+      const duplicatedDashboard: Dashboard = {
+        ...sourceDashboard,
+        id: uuidv4(),
+        name: duplicatedName,
+        display_name: newName || `${sourceDashboard.display_name} (Copy)`,
+        created_by: createdBy,
+        created_at: new Date(),
+        updated_at: new Date(),
+        last_viewed_at: undefined,
+        view_count: 0,
+        is_featured: false // Don't duplicate featured status
+      };
+
+      this.dashboards.set(duplicatedDashboard.id, duplicatedDashboard);
+
+      // Duplicate charts if requested
+      if (includeCharts) {
+        const sourceCharts = this.dashboardCharts.get(sourceId) || [];
+        const duplicatedCharts = sourceCharts.map(chart => ({
+          ...chart,
+          id: uuidv4(),
+          dashboard_id: duplicatedDashboard.id
+        }));
+
+        this.dashboardCharts.set(duplicatedDashboard.id, duplicatedCharts);
+      } else {
+        this.dashboardCharts.set(duplicatedDashboard.id, []);
+      }
+
+      logger.info('Dashboard duplicated successfully', { 
+        sourceId, 
+        duplicatedId: duplicatedDashboard.id 
+      });
+      return duplicatedDashboard;
+    } catch (error: any) {
+      logger.error('Error duplicating dashboard:', error);
+      throw new Error(`Failed to duplicate dashboard: ${error.message}`);
+    }
+  }
+
+  async getDashboardCharts(dashboardId: string): Promise<DashboardChart[]> {
+    try {
+      const charts = this.dashboardCharts.get(dashboardId) || [];
+      
+      // In a real implementation, this would also fetch chart details
+      return charts.map(chart => ({
+        ...chart,
+        chart: {
+          id: chart.chart_id,
+          name: `Chart ${chart.chart_id}`,
+          type: 'bar',
+          dataset_id: 'sample-dataset'
+        }
+      }));
+    } catch (error: any) {
+      logger.error('Error getting dashboard charts:', error);
+      throw new Error(`Failed to get dashboard charts: ${error.message}`);
+    }
+  }
+
+  async exportDashboard(
+    dashboardId: string, 
+    format: string, 
+    includeData: boolean = false
+  ): Promise<ExportResult> {
+    try {
+      logger.info('Exporting dashboard', { dashboardId, format, includeData });
+
+      const dashboard = this.dashboards.get(dashboardId);
+      if (!dashboard) {
+        throw new Error('Dashboard not found');
+      }
+
+      const exportResult: ExportResult = {
+        export_id: uuidv4(),
+        format,
+        status: 'processing',
+        created_at: new Date()
+      };
+
+      // Simulate async export processing
+      setTimeout(async () => {
+        try {
+          const fileName = `dashboard_${dashboard.name}_${Date.now()}.${format}`;
+          const mockFilePath = `/exports/${fileName}`;
+          const mockDownloadUrl = `https://api.example.com/exports/${fileName}`;
+
+          exportResult.status = 'completed';
+          exportResult.file_path = mockFilePath;
+          exportResult.download_url = mockDownloadUrl;
+          exportResult.file_size_bytes = Math.floor(Math.random() * 1000000) + 100000;
+          exportResult.completed_at = new Date();
+
+          logger.info('Dashboard export completed', { exportId: exportResult.export_id });
+        } catch (error) {
+          logger.error('Error in export processing:', error);
+          exportResult.status = 'failed';
+          exportResult.error_message = 'Export processing failed';
+        }
+      }, 2000);
+
+      return exportResult;
+    } catch (error: any) {
+      logger.error('Error exporting dashboard:', error);
+      throw new Error(`Failed to export dashboard: ${error.message}`);
+    }
+  }
+
+  async shareDashboard(dashboardId: string, shareData: ShareDashboardData): Promise<SharingConfig> {
+    try {
+      logger.info('Sharing dashboard', { dashboardId, shareType: shareData.share_type });
+
+      const dashboard = this.dashboards.get(dashboardId);
+      if (!dashboard) {
+        throw new Error('Dashboard not found');
+      }
+
+      // Check if sharing already exists
+      let existingShare: SharingConfig | undefined;
+      for (const shareConfig of this.sharingConfigs.values()) {
+        if (shareConfig.dashboard_id === dashboardId && shareConfig.is_active) {
+          existingShare = shareConfig;
+          break;
+        }
+      }
+
+      let passwordHash: string | undefined;
+      if (shareData.password) {
+        // In a real implementation, use proper password hashing (bcrypt)
+        passwordHash = Buffer.from(shareData.password).toString('base64');
+      }
+
+      const shareConfig: SharingConfig = {
+        id: existingShare?.id || uuidv4(),
+        dashboard_id: dashboardId,
+        share_type: shareData.share_type,
+        share_token: uuidv4().replace(/-/g, ''),
+        expires_at: shareData.expires_at,
+        password_hash: passwordHash,
+        is_active: true,
+        created_by: shareData.created_by,
+        created_at: existingShare?.created_at || new Date(),
+        access_count: existingShare?.access_count || 0,
+        last_accessed_at: existingShare?.last_accessed_at
+      };
+
+      this.sharingConfigs.set(shareConfig.id, shareConfig);
+
+      logger.info('Dashboard shared successfully', { 
+        dashboardId, 
+        shareId: shareConfig.id,
+        shareToken: shareConfig.share_token 
+      });
+      return shareConfig;
+    } catch (error: any) {
+      logger.error('Error sharing dashboard:', error);
+      throw new Error(`Failed to share dashboard: ${error.message}`);
+    }
+  }
+
+  async updateSharingSettings(dashboardId: string, settings: Partial<ShareDashboardData>): Promise<SharingConfig> {
+    try {
+      logger.info('Updating sharing settings', { dashboardId, settings });
+
+      // Find existing sharing config
+      let existingShare: SharingConfig | undefined;
+      for (const shareConfig of this.sharingConfigs.values()) {
+        if (shareConfig.dashboard_id === dashboardId && shareConfig.is_active) {
+          existingShare = shareConfig;
+          break;
+        }
+      }
+
+      if (!existingShare) {
+        throw new Error('No active sharing configuration found for this dashboard');
+      }
+
+      let passwordHash: string | undefined = existingShare.password_hash;
+      if (settings.password) {
+        passwordHash = Buffer.from(settings.password).toString('base64');
+      } else if (settings.password === null) {
+        passwordHash = undefined;
+      }
+
+      const updatedShareConfig: SharingConfig = {
+        ...existingShare,
+        share_type: settings.share_type || existingShare.share_type,
+        expires_at: settings.expires_at !== undefined ? settings.expires_at : existingShare.expires_at,
+        password_hash: passwordHash
+      };
+
+      this.sharingConfigs.set(updatedShareConfig.id, updatedShareConfig);
+
+      logger.info('Sharing settings updated successfully', { 
+        dashboardId, 
+        shareId: updatedShareConfig.id 
+      });
+      return updatedShareConfig;
+    } catch (error: any) {
+      logger.error('Error updating sharing settings:', error);
+      throw new Error(`Failed to update sharing settings: ${error.message}`);
+    }
+  }
+
+  async addChartToDashboard(
+    dashboardId: string, 
+    chartId: string, 
+    position: { x: number; y: number; width: number; height: number },
+    title?: string
+  ): Promise<DashboardChart> {
+    try {
+      logger.info('Adding chart to dashboard', { dashboardId, chartId });
+
+      const dashboard = this.dashboards.get(dashboardId);
+      if (!dashboard) {
+        throw new Error('Dashboard not found');
+      }
+
+      const charts = this.dashboardCharts.get(dashboardId) || [];
+      const nextOrderIndex = Math.max(...charts.map(c => c.order_index), -1) + 1;
+
+      const dashboardChart: DashboardChart = {
+        id: uuidv4(),
+        chart_id: chartId,
+        dashboard_id: dashboardId,
+        position,
+        title,
+        order_index: nextOrderIndex,
+        is_visible: true
+      };
+
+      charts.push(dashboardChart);
+      this.dashboardCharts.set(dashboardId, charts);
+
+      // Update dashboard modified time
+      dashboard.updated_at = new Date();
+      this.dashboards.set(dashboardId, dashboard);
+
+      logger.info('Chart added to dashboard successfully', { 
+        dashboardId, 
+        chartId,
+        dashboardChartId: dashboardChart.id 
+      });
+      return dashboardChart;
+    } catch (error: any) {
+      logger.error('Error adding chart to dashboard:', error);
+      throw new Error(`Failed to add chart to dashboard: ${error.message}`);
+    }
+  }
+
+  async removeChartFromDashboard(dashboardId: string, dashboardChartId: string): Promise<void> {
+    try {
+      logger.info('Removing chart from dashboard', { dashboardId, dashboardChartId });
+
+      const charts = this.dashboardCharts.get(dashboardId) || [];
+      const updatedCharts = charts.filter(c => c.id !== dashboardChartId);
+
+      if (charts.length === updatedCharts.length) {
+        throw new Error('Chart not found in dashboard');
+      }
+
+      this.dashboardCharts.set(dashboardId, updatedCharts);
+
+      // Update dashboard modified time
+      const dashboard = this.dashboards.get(dashboardId);
+      if (dashboard) {
+        dashboard.updated_at = new Date();
+        this.dashboards.set(dashboardId, dashboard);
+      }
+
+      logger.info('Chart removed from dashboard successfully', { 
+        dashboardId, 
+        dashboardChartId 
+      });
+    } catch (error: any) {
+      logger.error('Error removing chart from dashboard:', error);
+      throw new Error(`Failed to remove chart from dashboard: ${error.message}`);
+    }
   }
 }
-
-export { DashboardService };

@@ -1,615 +1,986 @@
-// File: api-services/src/services/PluginService.ts
-import { Pool, PoolClient } from 'pg';
-import { CacheService } from './CacheService';
+// api-services/src/services/PluginService.ts
+import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger';
-import { PluginManager, DataSourcePlugin, ConnectionConfig, TestResult } from './PluginManager';
 
-export interface DataSourceConfiguration {
+interface DataSourcePlugin {
+  name: string;
+  displayName: string;
+  category: 'relational' | 'cloud_databases' | 'storage_services' | 'data_lakes' | 'nosql' | 'files' | 'apis';
+  version: string;
+  description?: string;
+  author?: string;
+  license?: string;
+  configSchema: PluginConfigSchema;
+  capabilities?: DataSourceCapabilities;
+  icon?: string;
+  tags?: string[];
+  isActive: boolean;
+}
+
+interface ChartPlugin {
+  name: string;
+  displayName: string;
+  category: 'basic' | 'advanced' | 'statistical' | 'geographic' | 'custom';
+  version: string;
+  description?: string;
+  author?: string;
+  license?: string;
+  configSchema: PluginConfigSchema;
+  capabilities?: ChartCapabilities;
+  icon?: string;
+  tags?: string[];
+  isActive: boolean;
+}
+
+interface PluginConfigSchema {
+  [key: string]: {
+    type: 'string' | 'number' | 'boolean' | 'password' | 'select' | 'array' | 'object';
+    required?: boolean;
+    default?: any;
+    options?: string[] | Array<{ label: string; value: string }>;
+    validation?: {
+      pattern?: string;
+      min?: number;
+      max?: number;
+      minLength?: number;
+      maxLength?: number;
+    };
+    description?: string;
+    placeholder?: string;
+    helpText?: string;
+    group?: string;
+    conditional?: {
+      field: string;
+      value: any;
+    };
+  };
+}
+
+interface DataSourceCapabilities {
+  supportsBulkInsert?: boolean;
+  supportsTransactions?: boolean;
+  supportsStoredProcedures?: boolean;
+  supportsCustomFunctions?: boolean;
+  maxConcurrentConnections?: number;
+  supportsStreaming?: boolean;
+  supportsRealTime?: boolean;
+  supportedDataTypes?: string[];
+  supportsJoins?: boolean;
+  supportsAggregations?: boolean;
+}
+
+interface ChartCapabilities {
+  supportsDimensions?: number; // Max dimensions supported
+  supportsMeasures?: number; // Max measures supported
+  supportsFiltering?: boolean;
+  supportsSorting?: boolean;
+  supportsGrouping?: boolean;
+  supportsInteractivity?: boolean;
+  supportsAnimation?: boolean;
+  supportsRealTime?: boolean;
+  supportedDataTypes?: string[];
+  requiredFields?: string[];
+}
+
+interface PluginConfiguration {
   id: string;
   workspace_id: string;
+  plugin_type: 'datasource' | 'chart';
   plugin_name: string;
-  name: string;
-  display_name: string;
-  description?: string;
-  connection_config: any;
-  test_query?: string;
-  connection_pool_config?: any;
-  performance_config?: any;
+  configuration: any;
   is_active: boolean;
-  last_tested?: Date;
-  test_status: 'pending' | 'success' | 'failed';
-  test_error_message?: string;
   created_by: string;
+  updated_by?: string;
   created_at: Date;
   updated_at: Date;
+  version: string;
 }
 
-export interface CreateDataSourceRequest {
-  plugin_name: string;
-  name: string;
-  display_name: string;
-  description?: string;
-  connection_config: any;
-  test_query?: string;
-  connection_pool_config?: any;
-  performance_config?: any;
-}
-
-export interface UpdateDataSourceRequest {
-  name?: string;
-  display_name?: string;
-  description?: string;
-  connection_config?: any;
-  test_query?: string;
-  connection_pool_config?: any;
-  performance_config?: any;
-}
-
-export interface ConnectionTestResult {
-  success: boolean;
+interface ConnectionTestResult {
+  isValid: boolean;
   message: string;
-  error_code?: string;
-  response_time?: number;
+  error?: string;
+  details?: {
+    connection_time_ms?: number;
+    server_version?: string;
+    database_count?: number;
+    table_count?: number;
+  };
 }
 
-/**
- * Plugin Service - Handles ONLY DataSource plugin operations
- * Chart plugins are handled by frontend components
- */
+interface PluginUsage {
+  plugin_name: string;
+  plugin_type: 'datasource' | 'chart';
+  period: string;
+  usage_count: number;
+  unique_users: number;
+  error_rate: number;
+  avg_execution_time_ms: number;
+  last_used_at?: Date;
+  top_users: Array<{
+    user_id: string;
+    usage_count: number;
+  }>;
+}
+
+interface ValidationResult {
+  isValid: boolean;
+  errors: Array<{
+    field: string;
+    message: string;
+    code: string;
+  }>;
+  warnings: Array<{
+    field: string;
+    message: string;
+    code: string;
+  }>;
+}
+
 export class PluginService {
-  private db: Pool;
-  private cacheService: CacheService;
+  private dataSourcePlugins: Map<string, DataSourcePlugin> = new Map();
+  private chartPlugins: Map<string, ChartPlugin> = new Map();
+  private pluginConfigurations: Map<string, PluginConfiguration> = new Map();
+  private pluginUsageStats: Map<string, PluginUsage> = new Map();
 
   constructor() {
-    this.db = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      max: 10,
-      idleTimeoutMillis: 30000,
+    // Initialize with available plugins
+    this.initializePlugins();
+  }
+
+  private initializePlugins(): void {
+    // Initialize data source plugins
+    this.registerDataSourcePlugins();
+    // Initialize chart plugins
+    this.registerChartPlugins();
+  }
+
+  private registerDataSourcePlugins(): void {
+    const dataSourcePlugins: DataSourcePlugin[] = [
+      {
+        name: 'postgresql',
+        displayName: 'PostgreSQL',
+        category: 'relational',
+        version: '1.0.0',
+        description: 'Connect to PostgreSQL databases',
+        author: 'BI Platform Team',
+        license: 'MIT',
+        icon: 'database',
+        tags: ['sql', 'relational', 'postgresql'],
+        isActive: true,
+        configSchema: {
+          host: {
+            type: 'string',
+            required: true,
+            description: 'Database host',
+            placeholder: 'localhost'
+          },
+          port: {
+            type: 'number',
+            required: true,
+            default: 5432,
+            description: 'Database port',
+            validation: { min: 1, max: 65535 }
+          },
+          database: {
+            type: 'string',
+            required: true,
+            description: 'Database name'
+          },
+          username: {
+            type: 'string',
+            required: true,
+            description: 'Username'
+          },
+          password: {
+            type: 'password',
+            required: true,
+            description: 'Password'
+          },
+          ssl: {
+            type: 'boolean',
+            default: false,
+            description: 'Use SSL connection'
+          },
+          connection_timeout: {
+            type: 'number',
+            default: 30,
+            description: 'Connection timeout in seconds',
+            validation: { min: 1, max: 300 }
+          }
+        },
+        capabilities: {
+          supportsBulkInsert: true,
+          supportsTransactions: true,
+          supportsStoredProcedures: true,
+          supportsCustomFunctions: true,
+          maxConcurrentConnections: 100,
+          supportsStreaming: false,
+          supportsRealTime: false,
+          supportsJoins: true,
+          supportsAggregations: true,
+          supportedDataTypes: ['string', 'number', 'boolean', 'date', 'json']
+        }
+      },
+      {
+        name: 'mysql',
+        displayName: 'MySQL',
+        category: 'relational',
+        version: '1.0.0',
+        description: 'Connect to MySQL databases',
+        author: 'BI Platform Team',
+        license: 'MIT',
+        icon: 'database',
+        tags: ['sql', 'relational', 'mysql'],
+        isActive: true,
+        configSchema: {
+          host: {
+            type: 'string',
+            required: true,
+            description: 'Database host',
+            placeholder: 'localhost'
+          },
+          port: {
+            type: 'number',
+            required: true,
+            default: 3306,
+            description: 'Database port',
+            validation: { min: 1, max: 65535 }
+          },
+          database: {
+            type: 'string',
+            required: true,
+            description: 'Database name'
+          },
+          username: {
+            type: 'string',
+            required: true,
+            description: 'Username'
+          },
+          password: {
+            type: 'password',
+            required: true,
+            description: 'Password'
+          },
+          ssl: {
+            type: 'boolean',
+            default: false,
+            description: 'Use SSL connection'
+          }
+        },
+        capabilities: {
+          supportsBulkInsert: true,
+          supportsTransactions: true,
+          supportsStoredProcedures: true,
+          supportsCustomFunctions: true,
+          maxConcurrentConnections: 100,
+          supportsJoins: true,
+          supportsAggregations: true,
+          supportedDataTypes: ['string', 'number', 'boolean', 'date', 'json']
+        }
+      },
+      {
+        name: 'csv_file',
+        displayName: 'CSV File',
+        category: 'files',
+        version: '1.0.0',
+        description: 'Import data from CSV files',
+        author: 'BI Platform Team',
+        license: 'MIT',
+        icon: 'file-text',
+        tags: ['csv', 'file', 'import'],
+        isActive: true,
+        configSchema: {
+          file_path: {
+            type: 'string',
+            required: true,
+            description: 'Path to CSV file'
+          },
+          delimiter: {
+            type: 'select',
+            options: [
+              { label: 'Comma (,)', value: ',' },
+              { label: 'Semicolon (;)', value: ';' },
+              { label: 'Tab', value: '\t' },
+              { label: 'Pipe (|)', value: '|' }
+            ],
+            default: ',',
+            description: 'Field delimiter'
+          },
+          has_header: {
+            type: 'boolean',
+            default: true,
+            description: 'First row contains headers'
+          },
+          encoding: {
+            type: 'select',
+            options: ['utf-8', 'iso-8859-1', 'windows-1252'],
+            default: 'utf-8',
+            description: 'File encoding'
+          }
+        },
+        capabilities: {
+          supportsBulkInsert: false,
+          supportsTransactions: false,
+          supportsJoins: false,
+          supportsAggregations: false,
+          supportedDataTypes: ['string', 'number', 'date']
+        }
+      }
+    ];
+
+    dataSourcePlugins.forEach(plugin => {
+      this.dataSourcePlugins.set(plugin.name, plugin);
     });
-    this.cacheService = new CacheService();
   }
 
-  /**
-   * Get all available data source plugins
-   */
-  async getAvailableDataSourcePlugins(): Promise<DataSourcePlugin[]> {
+  private registerChartPlugins(): void {
+    const chartPlugins: ChartPlugin[] = [
+      {
+        name: 'bar_chart',
+        displayName: 'Bar Chart',
+        category: 'basic',
+        version: '1.0.0',
+        description: 'Vertical and horizontal bar charts',
+        author: 'BI Platform Team',
+        license: 'MIT',
+        icon: 'bar-chart',
+        tags: ['basic', 'comparison', 'categorical'],
+        isActive: true,
+        configSchema: {
+          orientation: {
+            type: 'select',
+            options: [
+              { label: 'Vertical', value: 'vertical' },
+              { label: 'Horizontal', value: 'horizontal' }
+            ],
+            default: 'vertical',
+            description: 'Bar orientation'
+          },
+          stacked: {
+            type: 'boolean',
+            default: false,
+            description: 'Stack bars'
+          },
+          show_values: {
+            type: 'boolean',
+            default: true,
+            description: 'Show values on bars'
+          },
+          color_scheme: {
+            type: 'select',
+            options: ['blue', 'green', 'red', 'purple', 'orange', 'custom'],
+            default: 'blue',
+            description: 'Color scheme'
+          }
+        },
+        capabilities: {
+          supportsDimensions: 2,
+          supportsMeasures: 5,
+          supportsFiltering: true,
+          supportsSorting: true,
+          supportsGrouping: true,
+          supportsInteractivity: true,
+          supportsAnimation: true,
+          supportedDataTypes: ['string', 'number', 'date'],
+          requiredFields: ['x_axis', 'y_axis']
+        }
+      },
+      {
+        name: 'line_chart',
+        displayName: 'Line Chart',
+        category: 'basic',
+        version: '1.0.0',
+        description: 'Line charts for time series and trends',
+        author: 'BI Platform Team',
+        license: 'MIT',
+        icon: 'trending-up',
+        tags: ['basic', 'trends', 'time-series'],
+        isActive: true,
+        configSchema: {
+          smooth_lines: {
+            type: 'boolean',
+            default: false,
+            description: 'Smooth line curves'
+          },
+          show_points: {
+            type: 'boolean',
+            default: true,
+            description: 'Show data points'
+          },
+          fill_area: {
+            type: 'boolean',
+            default: false,
+            description: 'Fill area under line'
+          },
+          line_width: {
+            type: 'number',
+            default: 2,
+            description: 'Line width in pixels',
+            validation: { min: 1, max: 10 }
+          }
+        },
+        capabilities: {
+          supportsDimensions: 1,
+          supportsMeasures: 10,
+          supportsFiltering: true,
+          supportsSorting: true,
+          supportsGrouping: true,
+          supportsInteractivity: true,
+          supportsAnimation: true,
+          supportsRealTime: true,
+          supportedDataTypes: ['date', 'number'],
+          requiredFields: ['x_axis', 'y_axis']
+        }
+      },
+      {
+        name: 'pie_chart',
+        displayName: 'Pie Chart',
+        category: 'basic',
+        version: '1.0.0',
+        description: 'Pie and donut charts for proportional data',
+        author: 'BI Platform Team',
+        license: 'MIT',
+        icon: 'pie-chart',
+        tags: ['basic', 'proportional', 'categorical'],
+        isActive: true,
+        configSchema: {
+          chart_type: {
+            type: 'select',
+            options: [
+              { label: 'Pie', value: 'pie' },
+              { label: 'Donut', value: 'donut' }
+            ],
+            default: 'pie',
+            description: 'Chart style'
+          },
+          show_labels: {
+            type: 'boolean',
+            default: true,
+            description: 'Show labels'
+          },
+          show_values: {
+            type: 'boolean',
+            default: true,
+            description: 'Show values'
+          },
+          show_percentages: {
+            type: 'boolean',
+            default: true,
+            description: 'Show percentages'
+          }
+        },
+        capabilities: {
+          supportsDimensions: 1,
+          supportsMeasures: 1,
+          supportsFiltering: true,
+          supportsSorting: true,
+          supportsInteractivity: true,
+          supportsAnimation: true,
+          supportedDataTypes: ['string', 'number'],
+          requiredFields: ['dimension', 'measure']
+        }
+      },
+      {
+        name: 'table',
+        displayName: 'Table',
+        category: 'basic',
+        version: '1.0.0',
+        description: 'Data tables with sorting and pagination',
+        author: 'BI Platform Team',
+        license: 'MIT',
+        icon: 'table',
+        tags: ['basic', 'tabular', 'detailed'],
+        isActive: true,
+        configSchema: {
+          page_size: {
+            type: 'number',
+            default: 20,
+            description: 'Rows per page',
+            validation: { min: 5, max: 1000 }
+          },
+          show_search: {
+            type: 'boolean',
+            default: true,
+            description: 'Show search box'
+          },
+          show_pagination: {
+            type: 'boolean',
+            default: true,
+            description: 'Show pagination'
+          },
+          striped_rows: {
+            type: 'boolean',
+            default: true,
+            description: 'Alternate row colors'
+          }
+        },
+        capabilities: {
+          supportsDimensions: 20,
+          supportsMeasures: 20,
+          supportsFiltering: true,
+          supportsSorting: true,
+          supportsGrouping: false,
+          supportsInteractivity: true,
+          supportedDataTypes: ['string', 'number', 'date', 'boolean'],
+          requiredFields: []
+        }
+      }
+    ];
+
+    chartPlugins.forEach(plugin => {
+      this.chartPlugins.set(plugin.name, plugin);
+    });
+  }
+
+  async getDataSourcePlugins(category?: string): Promise<DataSourcePlugin[]> {
     try {
-      // Ensure PluginManager is initialized
-      if (!PluginManager.isInitialized()) {
-        await PluginManager.initialize();
+      logger.info('Getting data source plugins', { category });
+
+      let plugins = Array.from(this.dataSourcePlugins.values())
+        .filter(plugin => plugin.isActive);
+
+      if (category) {
+        plugins = plugins.filter(plugin => plugin.category === category);
       }
 
-      return PluginManager.getAllDataSourcePlugins();
-    } catch (error) {
-      logger.error('Failed to get available data source plugins:', error);
-      throw new Error('Failed to load data source plugins');
+      return plugins.sort((a, b) => a.displayName.localeCompare(b.displayName));
+    } catch (error: any) {
+      logger.error('Error getting data source plugins:', error);
+      throw new Error(`Failed to get data source plugins: ${error.message}`);
     }
   }
 
-  /**
-   * Get data source plugins by category
-   */
-  async getDataSourcePluginsByCategory(category: string): Promise<DataSourcePlugin[]> {
+  async getChartPlugins(category?: string): Promise<ChartPlugin[]> {
     try {
-      if (!PluginManager.isInitialized()) {
-        await PluginManager.initialize();
+      logger.info('Getting chart plugins', { category });
+
+      let plugins = Array.from(this.chartPlugins.values())
+        .filter(plugin => plugin.isActive);
+
+      if (category) {
+        plugins = plugins.filter(plugin => plugin.category === category);
       }
 
-      return PluginManager.getDataSourcePluginsByCategory(category);
-    } catch (error) {
-      logger.error('Failed to get data source plugins by category:', error);
-      throw new Error(`Failed to load data source plugins for category: ${category}`);
+      return plugins.sort((a, b) => a.displayName.localeCompare(b.displayName));
+    } catch (error: any) {
+      logger.error('Error getting chart plugins:', error);
+      throw new Error(`Failed to get chart plugins: ${error.message}`);
     }
   }
 
-  /**
-   * Get specific data source plugin
-   */
-  async getDataSourcePlugin(pluginName: string): Promise<DataSourcePlugin | null> {
+  async testDataSourceConnection(pluginName: string, connectionConfig: any): Promise<ConnectionTestResult> {
     try {
-      if (!PluginManager.isInitialized()) {
-        await PluginManager.initialize();
-      }
+      logger.info('Testing data source connection', { pluginName });
 
-      return PluginManager.getDataSourcePlugin(pluginName);
-    } catch (error) {
-      logger.error('Failed to get data source plugin:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Get all data sources for a workspace
-   */
-  async getWorkspaceDataSources(workspaceId: string): Promise<DataSourceConfiguration[]> {
-    const cacheKey = `workspace-datasources:${workspaceId}`;
-    
-    // Try cache first
-    let dataSources = await this.cacheService.get<DataSourceConfiguration[]>(cacheKey);
-    
-    if (dataSources) {
-      return dataSources;
-    }
-
-    const query = `
-      SELECT 
-        id, workspace_id, plugin_name, name, display_name, description,
-        connection_config, test_query, connection_pool_config, performance_config,
-        is_active, last_tested, test_status, test_error_message,
-        created_by, created_at, updated_at
-      FROM datasources
-      WHERE workspace_id = $1 AND is_active = true
-      ORDER BY name
-    `;
-
-    const result = await this.db.query(query, [workspaceId]);
-    dataSources = result.rows.map(row => this.formatDataSource(row));
-
-    // Cache for 5 minutes
-    await this.cacheService.set(cacheKey, dataSources, 300);
-
-    return dataSources;
-  }
-
-  /**
-   * Get specific data source by ID
-   */
-  async getDataSourceById(dataSourceId: string, workspaceId: string): Promise<DataSourceConfiguration | null> {
-    const query = `
-      SELECT 
-        id, workspace_id, plugin_name, name, display_name, description,
-        connection_config, test_query, connection_pool_config, performance_config,
-        is_active, last_tested, test_status, test_error_message,
-        created_by, created_at, updated_at
-      FROM datasources
-      WHERE id = $1 AND workspace_id = $2 AND is_active = true
-    `;
-
-    const result = await this.db.query(query, [dataSourceId, workspaceId]);
-    
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return this.formatDataSource(result.rows[0]);
-  }
-
-  /**
-   * Create new data source
-   */
-  async createDataSource(
-    workspaceId: string,
-    dataSourceData: CreateDataSourceRequest,
-    createdBy: string
-  ): Promise<DataSourceConfiguration> {
-    const client = await this.db.connect();
-    
-    try {
-      await client.query('BEGIN');
-
-      // Validate plugin exists
-      const plugin = await this.getDataSourcePlugin(dataSourceData.plugin_name);
+      const plugin = this.dataSourcePlugins.get(pluginName);
       if (!plugin) {
-        throw new Error(`Data source plugin '${dataSourceData.plugin_name}' not found`);
+        return {
+          isValid: false,
+          message: 'Plugin not found',
+          error: `Data source plugin '${pluginName}' not found`
+        };
       }
+
+      // Validate configuration against schema
+      const validation = await this.validatePluginConfiguration('datasource', pluginName, connectionConfig);
+      if (!validation.isValid) {
+        return {
+          isValid: false,
+          message: 'Configuration validation failed',
+          error: validation.errors.map(e => e.message).join(', ')
+        };
+      }
+
+      // Mock connection test based on plugin type
+      const startTime = Date.now();
+      let testResult: ConnectionTestResult;
+
+      switch (pluginName) {
+        case 'postgresql':
+        case 'mysql':
+          // Simulate database connection test
+          await this.simulateDelay(1000, 3000);
+          testResult = {
+            isValid: Math.random() > 0.1, // 90% success rate for demo
+            message: 'Connection test completed',
+            details: {
+              connection_time_ms: Date.now() - startTime,
+              server_version: pluginName === 'postgresql' ? '13.4' : '8.0.25',
+              database_count: Math.floor(Math.random() * 10) + 1,
+              table_count: Math.floor(Math.random() * 100) + 10
+            }
+          };
+          break;
+
+        case 'csv_file':
+          // Simulate file access test
+          await this.simulateDelay(500, 1500);
+          testResult = {
+            isValid: Math.random() > 0.05, // 95% success rate for demo
+            message: 'File access test completed',
+            details: {
+              connection_time_ms: Date.now() - startTime
+            }
+          };
+          break;
+
+        default:
+          testResult = {
+            isValid: false,
+            message: 'Unsupported plugin',
+            error: `Connection test not implemented for plugin '${pluginName}'`
+          };
+      }
+
+      if (!testResult.isValid && !testResult.error) {
+        testResult.error = 'Connection failed - please check your configuration';
+      }
+
+      return testResult;
+    } catch (error: any) {
+      logger.error('Error testing data source connection:', error);
+      return {
+        isValid: false,
+        message: 'Connection test failed',
+        error: error.message
+      };
+    }
+  }
+
+  async getPluginConfiguration(
+    workspaceId: string,
+    pluginType: 'datasource' | 'chart',
+    pluginName: string
+  ): Promise<PluginConfiguration | null> {
+    try {
+      const configKey = `${workspaceId}:${pluginType}:${pluginName}`;
+      const configuration = this.pluginConfigurations.get(configKey);
+
+      if (!configuration) {
+        // Return default configuration based on plugin schema
+        const plugin = pluginType === 'datasource' 
+          ? this.dataSourcePlugins.get(pluginName)
+          : this.chartPlugins.get(pluginName);
+
+        if (!plugin) {
+          return null;
+        }
+
+        // Create default configuration from schema
+        const defaultConfig: any = {};
+        Object.entries(plugin.configSchema).forEach(([key, schema]) => {
+          if (schema.default !== undefined) {
+            defaultConfig[key] = schema.default;
+          }
+        });
+
+        return {
+          id: uuidv4(),
+          workspace_id: workspaceId,
+          plugin_type: pluginType,
+          plugin_name: pluginName,
+          configuration: defaultConfig,
+          is_active: true,
+          created_by: 'system',
+          created_at: new Date(),
+          updated_at: new Date(),
+          version: plugin.version
+        };
+      }
+
+      return configuration;
+    } catch (error: any) {
+      logger.error('Error getting plugin configuration:', error);
+      throw new Error(`Failed to get plugin configuration: ${error.message}`);
+    }
+  }
+
+  async updatePluginConfiguration(
+    workspaceId: string,
+    pluginType: 'datasource' | 'chart',
+    pluginName: string,
+    configurationData: any,
+    updatedBy: string
+  ): Promise<PluginConfiguration> {
+    try {
+      logger.info('Updating plugin configuration', { workspaceId, pluginType, pluginName });
 
       // Validate configuration
-      const validation = PluginManager.validatePluginConfig(
-        dataSourceData.plugin_name,
-        dataSourceData.connection_config
-      );
-
-      if (!validation.valid) {
-        throw new Error(`Invalid configuration: ${validation.errors.join(', ')}`);
+      const validation = await this.validatePluginConfiguration(pluginType, pluginName, configurationData);
+      if (!validation.isValid) {
+        throw new Error(`Configuration validation failed: ${validation.errors.map(e => e.message).join(', ')}`);
       }
 
-      // Check for duplicate names in workspace
-      const duplicateCheck = await client.query(
-        'SELECT id FROM datasources WHERE workspace_id = $1 AND name = $2 AND is_active = true',
-        [workspaceId, dataSourceData.name]
-      );
+      const configKey = `${workspaceId}:${pluginType}:${pluginName}`;
+      const existingConfig = this.pluginConfigurations.get(configKey);
 
-      if (duplicateCheck.rows.length > 0) {
-        throw new Error(`Data source with name '${dataSourceData.name}' already exists in this workspace`);
+      const plugin = pluginType === 'datasource' 
+        ? this.dataSourcePlugins.get(pluginName)
+        : this.chartPlugins.get(pluginName);
+
+      if (!plugin) {
+        throw new Error(`Plugin '${pluginName}' not found`);
       }
 
-      // Insert new data source
-      const insertQuery = `
-        INSERT INTO datasources (
-          workspace_id, plugin_name, name, display_name, description,
-          connection_config, test_query, connection_pool_config, performance_config,
-          created_by
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING *
-      `;
+      const updatedConfiguration: PluginConfiguration = {
+        id: existingConfig?.id || uuidv4(),
+        workspace_id: workspaceId,
+        plugin_type: pluginType,
+        plugin_name: pluginName,
+        configuration: configurationData,
+        is_active: true,
+        created_by: existingConfig?.created_by || updatedBy,
+        updated_by: updatedBy,
+        created_at: existingConfig?.created_at || new Date(),
+        updated_at: new Date(),
+        version: plugin.version
+      };
 
-      const result = await client.query(insertQuery, [
-        workspaceId,
-        dataSourceData.plugin_name,
-        dataSourceData.name,
-        dataSourceData.display_name,
-        dataSourceData.description,
-        JSON.stringify(dataSourceData.connection_config),
-        dataSourceData.test_query,
-        JSON.stringify(dataSourceData.connection_pool_config || {}),
-        JSON.stringify(dataSourceData.performance_config || {}),
-        createdBy
-      ]);
+      this.pluginConfigurations.set(configKey, updatedConfiguration);
 
-      await client.query('COMMIT');
-
-      // Invalidate cache
-      await this.cacheService.delete(`workspace-datasources:${workspaceId}`);
-
-      const createdDataSource = this.formatDataSource(result.rows[0]);
-      
-      logger.info('Data source created successfully', {
-        id: createdDataSource.id,
-        name: createdDataSource.name,
-        plugin: createdDataSource.plugin_name,
-        workspace: workspaceId
+      logger.info('Plugin configuration updated successfully', { 
+        workspaceId, 
+        pluginType, 
+        pluginName 
       });
-
-      return createdDataSource;
-
-    } catch (error) {
-      await client.query('ROLLBACK');
-      logger.error('Failed to create data source:', error);
-      throw error;
-    } finally {
-      client.release();
+      return updatedConfiguration;
+    } catch (error: any) {
+      logger.error('Error updating plugin configuration:', error);
+      throw new Error(`Failed to update plugin configuration: ${error.message}`);
     }
   }
 
-  /**
-   * Update data source
-   */
-  async updateDataSource(
-    dataSourceId: string,
+  async resetPluginConfiguration(
     workspaceId: string,
-    updates: UpdateDataSourceRequest,
-    updatedBy: string
-  ): Promise<DataSourceConfiguration> {
-    const client = await this.db.connect();
-    
+    pluginType: 'datasource' | 'chart',
+    pluginName: string
+  ): Promise<void> {
     try {
-      await client.query('BEGIN');
+      logger.info('Resetting plugin configuration', { workspaceId, pluginType, pluginName });
 
-      // Check if data source exists
-      const existingResult = await client.query(
-        'SELECT plugin_name FROM datasources WHERE id = $1 AND workspace_id = $2 AND is_active = true',
-        [dataSourceId, workspaceId]
-      );
+      const configKey = `${workspaceId}:${pluginType}:${pluginName}`;
+      this.pluginConfigurations.delete(configKey);
 
-      if (existingResult.rows.length === 0) {
-        throw new Error('Data source not found');
+      logger.info('Plugin configuration reset successfully', { 
+        workspaceId, 
+        pluginType, 
+        pluginName 
+      });
+    } catch (error: any) {
+      logger.error('Error resetting plugin configuration:', error);
+      throw new Error(`Failed to reset plugin configuration: ${error.message}`);
+    }
+  }
+
+  async getPluginUsage(
+    workspaceId: string,
+    pluginType: 'datasource' | 'chart',
+    pluginName: string,
+    period: string
+  ): Promise<PluginUsage> {
+    try {
+      const usageKey = `${workspaceId}:${pluginType}:${pluginName}:${period}`;
+      const existingUsage = this.pluginUsageStats.get(usageKey);
+
+      if (existingUsage) {
+        return existingUsage;
       }
 
-      const pluginName = existingResult.rows[0].plugin_name;
+      // Generate mock usage statistics
+      const mockUsage: PluginUsage = {
+        plugin_name: pluginName,
+        plugin_type: pluginType,
+        period,
+        usage_count: Math.floor(Math.random() * 1000) + 10,
+        unique_users: Math.floor(Math.random() * 20) + 1,
+        error_rate: Math.random() * 0.1, // 0-10% error rate
+        avg_execution_time_ms: Math.floor(Math.random() * 2000) + 100,
+        last_used_at: new Date(Date.now() - Math.random() * 86400000), // Within last day
+        top_users: Array.from({ length: 3 }, (_, i) => ({
+          user_id: `user-${i + 1}`,
+          usage_count: Math.floor(Math.random() * 100) + 10
+        }))
+      };
 
-      // If connection config is being updated, validate it
-      if (updates.connection_config) {
-        const validation = PluginManager.validatePluginConfig(pluginName, updates.connection_config);
-        if (!validation.valid) {
-          throw new Error(`Invalid configuration: ${validation.errors.join(', ')}`);
+      this.pluginUsageStats.set(usageKey, mockUsage);
+      return mockUsage;
+    } catch (error: any) {
+      logger.error('Error getting plugin usage:', error);
+      throw new Error(`Failed to get plugin usage: ${error.message}`);
+    }
+  }
+
+  async validatePluginConfiguration(
+    pluginType: 'datasource' | 'chart',
+    pluginName: string,
+    configuration: any
+  ): Promise<ValidationResult> {
+    try {
+      const plugin = pluginType === 'datasource' 
+        ? this.dataSourcePlugins.get(pluginName)
+        : this.chartPlugins.get(pluginName);
+
+      if (!plugin) {
+        return {
+          isValid: false,
+          errors: [{
+            field: 'plugin',
+            message: `Plugin '${pluginName}' not found`,
+            code: 'PLUGIN_NOT_FOUND'
+          }],
+          warnings: []
+        };
+      }
+
+      const errors: Array<{ field: string; message: string; code: string }> = [];
+      const warnings: Array<{ field: string; message: string; code: string }> = [];
+
+      // Validate each field in the configuration
+      Object.entries(plugin.configSchema).forEach(([fieldName, schema]) => {
+        const value = configuration[fieldName];
+
+        // Check required fields
+        if (schema.required && (value === undefined || value === null || value === '')) {
+          errors.push({
+            field: fieldName,
+            message: `Field '${fieldName}' is required`,
+            code: 'REQUIRED_FIELD_MISSING'
+          });
+          return;
         }
-      }
 
-      // Check for duplicate names if name is being updated
-      if (updates.name) {
-        const duplicateCheck = await client.query(
-          'SELECT id FROM datasources WHERE workspace_id = $1 AND name = $2 AND id != $3 AND is_active = true',
-          [workspaceId, updates.name, dataSourceId]
-        );
-
-        if (duplicateCheck.rows.length > 0) {
-          throw new Error(`Data source with name '${updates.name}' already exists in this workspace`);
+        // Skip validation if field is not provided and not required
+        if (value === undefined || value === null) {
+          return;
         }
-      }
 
-      // Build update query dynamically
-      const updateFields = [];
-      const updateValues = [];
-      let paramIndex = 1;
+        // Type validation
+        const expectedType = schema.type;
+        const actualType = typeof value;
 
-      if (updates.name !== undefined) {
-        updateFields.push(`name = $${paramIndex++}`);
-        updateValues.push(updates.name);
-      }
-      if (updates.display_name !== undefined) {
-        updateFields.push(`display_name = $${paramIndex++}`);
-        updateValues.push(updates.display_name);
-      }
-      if (updates.description !== undefined) {
-        updateFields.push(`description = $${paramIndex++}`);
-        updateValues.push(updates.description);
-      }
-      if (updates.connection_config !== undefined) {
-        updateFields.push(`connection_config = $${paramIndex++}`);
-        updateValues.push(JSON.stringify(updates.connection_config));
-      }
-      if (updates.test_query !== undefined) {
-        updateFields.push(`test_query = $${paramIndex++}`);
-        updateValues.push(updates.test_query);
-      }
-      if (updates.connection_pool_config !== undefined) {
-        updateFields.push(`connection_pool_config = $${paramIndex++}`);
-        updateValues.push(JSON.stringify(updates.connection_pool_config));
-      }
-      if (updates.performance_config !== undefined) {
-        updateFields.push(`performance_config = $${paramIndex++}`);
-        updateValues.push(JSON.stringify(updates.performance_config));
-      }
+        switch (expectedType) {
+          case 'string':
+            if (actualType !== 'string') {
+              errors.push({
+                field: fieldName,
+                message: `Field '${fieldName}' must be a string`,
+                code: 'INVALID_TYPE'
+              });
+            } else if (schema.validation) {
+              if (schema.validation.minLength && value.length < schema.validation.minLength) {
+                errors.push({
+                  field: fieldName,
+                  message: `Field '${fieldName}' must be at least ${schema.validation.minLength} characters long`,
+                  code: 'MIN_LENGTH_VIOLATION'
+                });
+              }
+              if (schema.validation.maxLength && value.length > schema.validation.maxLength) {
+                errors.push({
+                  field: fieldName,
+                  message: `Field '${fieldName}' must not exceed ${schema.validation.maxLength} characters`,
+                  code: 'MAX_LENGTH_VIOLATION'
+                });
+              }
+              if (schema.validation.pattern && !new RegExp(schema.validation.pattern).test(value)) {
+                errors.push({
+                  field: fieldName,
+                  message: `Field '${fieldName}' does not match the required pattern`,
+                  code: 'PATTERN_VIOLATION'
+                });
+              }
+            }
+            break;
 
-      if (updateFields.length === 0) {
-        throw new Error('No fields to update');
-      }
+          case 'number':
+            if (actualType !== 'number' || isNaN(value)) {
+              errors.push({
+                field: fieldName,
+                message: `Field '${fieldName}' must be a valid number`,
+                code: 'INVALID_TYPE'
+              });
+            } else if (schema.validation) {
+              if (schema.validation.min !== undefined && value < schema.validation.min) {
+                errors.push({
+                  field: fieldName,
+                  message: `Field '${fieldName}' must be at least ${schema.validation.min}`,
+                  code: 'MIN_VALUE_VIOLATION'
+                });
+              }
+              if (schema.validation.max !== undefined && value > schema.validation.max) {
+                errors.push({
+                  field: fieldName,
+                  message: `Field '${fieldName}' must not exceed ${schema.validation.max}`,
+                  code: 'MAX_VALUE_VIOLATION'
+                });
+              }
+            }
+            break;
 
-      updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
-      updateValues.push(dataSourceId, workspaceId);
+          case 'boolean':
+            if (actualType !== 'boolean') {
+              errors.push({
+                field: fieldName,
+                message: `Field '${fieldName}' must be a boolean`,
+                code: 'INVALID_TYPE'
+              });
+            }
+            break;
 
-      const updateQuery = `
-        UPDATE datasources 
-        SET ${updateFields.join(', ')}
-        WHERE id = $${paramIndex++} AND workspace_id = $${paramIndex++}
-        RETURNING *
-      `;
+          case 'select':
+            if (schema.options) {
+              const validOptions = Array.isArray(schema.options) && schema.options.length > 0 && typeof schema.options[0] === 'object'
+                ? schema.options.map((opt: any) => opt.value)
+                : schema.options;
+              
+              if (!validOptions.includes(value)) {
+                errors.push({
+                  field: fieldName,
+                  message: `Field '${fieldName}' must be one of: ${validOptions.join(', ')}`,
+                  code: 'INVALID_OPTION'
+                });
+              }
+            }
+            break;
+        }
 
-      const result = await client.query(updateQuery, updateValues);
-
-      await client.query('COMMIT');
-
-      // Invalidate cache
-      await this.cacheService.delete(`workspace-datasources:${workspaceId}`);
-
-      const updatedDataSource = this.formatDataSource(result.rows[0]);
-      
-      logger.info('Data source updated successfully', {
-        id: updatedDataSource.id,
-        name: updatedDataSource.name,
-        workspace: workspaceId
+        // Check conditional fields
+        if (schema.conditional) {
+          const conditionalFieldValue = configuration[schema.conditional.field];
+          if (conditionalFieldValue !== schema.conditional.value && value !== undefined) {
+            warnings.push({
+              field: fieldName,
+              message: `Field '${fieldName}' is only relevant when '${schema.conditional.field}' is '${schema.conditional.value}'`,
+              code: 'CONDITIONAL_FIELD_WARNING'
+            });
+          }
+        }
       });
 
-      return updatedDataSource;
-
-    } catch (error) {
-      await client.query('ROLLBACK');
-      logger.error('Failed to update data source:', error);
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  /**
-   * Delete data source (soft delete)
-   */
-  async deleteDataSource(dataSourceId: string, workspaceId: string): Promise<void> {
-    const client = await this.db.connect();
-    
-    try {
-      await client.query('BEGIN');
-
-      // Check if data source exists and is not being used
-      const dependencyCheck = await client.query(`
-        SELECT COUNT(*) as usage_count
-        FROM datasets 
-        WHERE data_source_id = $1 AND is_active = true
-      `, [dataSourceId]);
-
-      if (parseInt(dependencyCheck.rows[0].usage_count) > 0) {
-        throw new Error('Cannot delete data source: it is being used by active datasets');
-      }
-
-      // Soft delete
-      const result = await client.query(
-        'UPDATE datasources SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND workspace_id = $2 RETURNING name',
-        [dataSourceId, workspaceId]
-      );
-
-      if (result.rows.length === 0) {
-        throw new Error('Data source not found');
-      }
-
-      await client.query('COMMIT');
-
-      // Invalidate cache
-      await this.cacheService.delete(`workspace-datasources:${workspaceId}`);
-      
-      logger.info('Data source deleted successfully', {
-        id: dataSourceId,
-        name: result.rows[0].name,
-        workspace: workspaceId
+      // Check for unknown fields
+      Object.keys(configuration).forEach(fieldName => {
+        if (!plugin.configSchema[fieldName]) {
+          warnings.push({
+            field: fieldName,
+            message: `Unknown field '${fieldName}' will be ignored`,
+            code: 'UNKNOWN_FIELD'
+          });
+        }
       });
 
-    } catch (error) {
-      await client.query('ROLLBACK');
-      logger.error('Failed to delete data source:', error);
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  /**
-   * Test data source connection
-   */
-  async testConnectionConfig(pluginName: string, config: ConnectionConfig): Promise<ConnectionTestResult> {
-    try {
-      const startTime = Date.now();
-      const result = await PluginManager.testDataSourceConnection(pluginName, config);
-      const responseTime = Date.now() - startTime;
-
       return {
-        success: result.success,
-        message: result.message,
-        error_code: result.error_code,
-        response_time: responseTime
+        isValid: errors.length === 0,
+        errors,
+        warnings
       };
-    } catch (error) {
-      logger.error('Error testing connection config:', error);
-      return {
-        success: false,
-        message: error instanceof Error ? error.message : 'Connection test failed',
-        error_code: 'TEST_CONNECTION_ERROR'
-      };
+    } catch (error: any) {
+      logger.error('Error validating plugin configuration:', error);
+      throw new Error(`Failed to validate plugin configuration: ${error.message}`);
     }
   }
 
-  /**
-   * Test existing data source connection
-   */
-  async testDataSourceConnection(dataSourceId: string, workspaceId: string): Promise<ConnectionTestResult> {
-    const dataSource = await this.getDataSourceById(dataSourceId, workspaceId);
-    if (!dataSource) {
-      return {
-        success: false,
-        message: 'Data source not found',
-        error_code: 'DATASOURCE_NOT_FOUND'
-      };
-    }
-
-    const result = await this.testConnectionConfig(dataSource.plugin_name, dataSource.connection_config);
-
-    // Update test status in database
-    await this.updateDataSourceTestStatus(dataSourceId, result);
-
-    return result;
-  }
-
-  /**
-   * Update data source test status
-   */
-  private async updateDataSourceTestStatus(dataSourceId: string, testResult: ConnectionTestResult): Promise<void> {
-    try {
-      await this.db.query(`
-        UPDATE datasources 
-        SET 
-          last_tested = CURRENT_TIMESTAMP,
-          test_status = $2,
-          test_error_message = $3,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
-      `, [
-        dataSourceId,
-        testResult.success ? 'success' : 'failed',
-        testResult.success ? null : testResult.message
-      ]);
-    } catch (error) {
-      logger.error('Failed to update data source test status:', error);
-    }
-  }
-
-  /**
-   * Get data source usage statistics
-   */
-  async getDataSourceUsage(dataSourceId: string): Promise<{
-    dataset_count: number;
-    chart_count: number;
-    dashboard_count: number;
-    last_used?: Date;
-  }> {
-    try {
-      const result = await this.db.query(`
-        SELECT 
-          COUNT(DISTINCT ds.id) as dataset_count,
-          COUNT(DISTINCT c.id) as chart_count,
-          COUNT(DISTINCT d.id) as dashboard_count,
-          MAX(ds.updated_at) as last_used
-        FROM datasources dsrc
-        LEFT JOIN datasets ds ON dsrc.id = ds.data_source_id AND ds.is_active = true
-        LEFT JOIN charts c ON ds.id = ANY(c.dataset_ids) AND c.is_active = true
-        LEFT JOIN dashboards d ON c.dashboard_id = d.id AND d.is_active = true
-        WHERE dsrc.id = $1
-      `, [dataSourceId]);
-
-      return {
-        dataset_count: parseInt(result.rows[0].dataset_count) || 0,
-        chart_count: parseInt(result.rows[0].chart_count) || 0,
-        dashboard_count: parseInt(result.rows[0].dashboard_count) || 0,
-        last_used: result.rows[0].last_used
-      };
-    } catch (error) {
-      logger.error('Error fetching data source usage:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get plugin statistics
-   */
-  async getPluginStatistics(workspaceId?: string): Promise<{
-    available_plugins: number;
-    configured_datasources: number;
-    plugin_categories: string[];
-    plugins_by_category: Record<string, number>;
-    workspace_usage?: Record<string, number>;
-  }> {
-    try {
-      const pluginStats = PluginManager.getPluginStats();
-      
-      let workspaceUsage = {};
-      let configuredDataSources = 0;
-
-      if (workspaceId) {
-        // Get workspace-specific usage
-        const usageResult = await this.db.query(`
-          SELECT plugin_name, COUNT(*) as usage_count
-          FROM datasources 
-          WHERE workspace_id = $1 AND is_active = true
-          GROUP BY plugin_name
-        `, [workspaceId]);
-
-        workspaceUsage = usageResult.rows.reduce((acc, row) => {
-          acc[row.plugin_name] = parseInt(row.usage_count);
-          return acc;
-        }, {});
-
-        configuredDataSources = Object.values(workspaceUsage).reduce((sum: number, count: any) => sum + count, 0);
-      }
-
-      return {
-        available_plugins: pluginStats.dataSourcePlugins,
-        configured_datasources: configuredDataSources,
-        plugin_categories: pluginStats.categories,
-        plugins_by_category: pluginStats.pluginsByCategory,
-        workspace_usage: Object.keys(workspaceUsage).length > 0 ? workspaceUsage : undefined
-      };
-    } catch (error) {
-      logger.error('Error getting plugin statistics:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Format data source from database row
-   */
-  private formatDataSource(row: any): DataSourceConfiguration {
-    return {
-      id: row.id,
-      workspace_id: row.workspace_id,
-      plugin_name: row.plugin_name,
-      name: row.name,
-      display_name: row.display_name,
-      description: row.description,
-      connection_config: typeof row.connection_config === 'string' 
-        ? JSON.parse(row.connection_config) 
-        : row.connection_config,
-      test_query: row.test_query,
-      connection_pool_config: typeof row.connection_pool_config === 'string' 
-        ? JSON.parse(row.connection_pool_config) 
-        : row.connection_pool_config,
-      performance_config: typeof row.performance_config === 'string' 
-        ? JSON.parse(row.performance_config) 
-        : row.performance_config,
-      is_active: row.is_active,
-      last_tested: row.last_tested,
-      test_status: row.test_status,
-      test_error_message: row.test_error_message,
-      created_by: row.created_by,
-      created_at: row.created_at,
-      updated_at: row.updated_at
-    };
+  private async simulateDelay(minMs: number, maxMs: number): Promise<void> {
+    const delay = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+    return new Promise(resolve => setTimeout(resolve, delay));
   }
 }

@@ -1,265 +1,423 @@
-// File: api-services/src/controllers/PluginController.ts
+// api-services/src/controllers/PluginController.ts
 import { Request, Response } from 'express';
 import { PluginService } from '../services/PluginService';
 import { PermissionService } from '../services/PermissionService';
-import { CacheService } from '../services/CacheService';
 import { logger } from '../utils/logger';
-import { validateRequest } from '../utils/validation';
-import { Joi } from 'joi';
+
+interface AuthenticatedRequest extends Request {
+  user?: {
+    user_id: string;
+    email: string;
+    workspace_id: string;
+  };
+}
 
 export class PluginController {
   private pluginService: PluginService;
   private permissionService: PermissionService;
-  private cacheService: CacheService;
 
   constructor() {
     this.pluginService = new PluginService();
     this.permissionService = new PermissionService();
-    this.cacheService = new CacheService();
   }
 
-  // Get all available plugins
-  async getAvailablePlugins(req: Request, res: Response) {
+  getDataSourcePlugins = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const cacheKey = 'available-plugins';
-      
-      // Try cache first
-      let plugins = await this.cacheService.get(cacheKey);
-      
-      if (!plugins) {
-        plugins = await this.pluginService.getAvailablePlugins();
-        // Cache for 1 hour
-        await this.cacheService.set(cacheKey, plugins, 3600);
-      }
+      const { category } = req.query;
 
-      res.json({
+      const plugins = await this.pluginService.getDataSourcePlugins(category as string);
+
+      res.status(200).json({
         success: true,
-        data: { plugins }
+        plugins,
+        message: 'Data source plugins retrieved successfully'
       });
-    } catch (error) {
-      logger.error('Error getting available plugins:', error);
+    } catch (error: any) {
+      logger.error('Get data source plugins error:', error);
       res.status(500).json({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to get available plugins' }
+        message: 'Failed to retrieve data source plugins',
+        errors: [{ code: 'GET_DATASOURCE_PLUGINS_FAILED', message: error.message }]
       });
     }
-  }
+  };
 
-  // Get workspace plugin configurations
-  async getWorkspaceConfigurations(req: Request, res: Response) {
+  getChartPlugins = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const { workspace_id } = req.params;
-      
+      const { category } = req.query;
+
+      const plugins = await this.pluginService.getChartPlugins(category as string);
+
+      res.status(200).json({
+        success: true,
+        plugins,
+        message: 'Chart plugins retrieved successfully'
+      });
+    } catch (error: any) {
+      logger.error('Get chart plugins error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve chart plugins',
+        errors: [{ code: 'GET_CHART_PLUGINS_FAILED', message: error.message }]
+      });
+    }
+  };
+
+  testDataSourceConnection = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const { type, connection_config } = req.body;
+
+      if (!type || !connection_config) {
+        res.status(400).json({
+          success: false,
+          message: 'Missing required fields',
+          errors: [{ code: 'VALIDATION_ERROR', message: 'Type and connection_config are required' }]
+        });
+        return;
+      }
+
+      const testResult = await this.pluginService.testDataSourceConnection(type, connection_config);
+
+      res.status(200).json({
+        success: true,
+        connection_valid: testResult.isValid,
+        message: testResult.message,
+        error: testResult.error,
+        details: testResult.details
+      });
+    } catch (error: any) {
+      logger.error('Test data source connection error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to test data source connection',
+        errors: [{ code: 'CONNECTION_TEST_FAILED', message: error.message }]
+      });
+    }
+  };
+
+  getPluginConfiguration = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const { type, name } = req.params;
+      const workspaceId = req.headers['x-workspace-id'] as string;
+      const userId = req.user?.user_id;
+
+      if (!workspaceId) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace ID is required',
+          errors: [{ code: 'MISSING_WORKSPACE_ID', message: 'Workspace ID header is required' }]
+        });
+        return;
+      }
+
+      // Validate plugin type
+      if (!['datasource', 'chart'].includes(type)) {
+        res.status(400).json({
+          success: false,
+          message: 'Invalid plugin type',
+          errors: [{ code: 'INVALID_PLUGIN_TYPE', message: 'Plugin type must be "datasource" or "chart"' }]
+        });
+        return;
+      }
+
       // Check permissions
       const hasPermission = await this.permissionService.hasPermission(
-        req.user.id,
-        workspace_id,
-        'can_read'
+        userId!,
+        workspaceId,
+        'plugin.read'
       );
 
       if (!hasPermission) {
-        return res.status(403).json({
+        res.status(403).json({
           success: false,
-          error: { code: 'ACCESS_DENIED', message: 'Insufficient permissions' }
+          message: 'Insufficient permissions',
+          errors: [{ code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to view plugin configurations' }]
         });
+        return;
       }
 
-      const configurations = await this.pluginService.getWorkspaceConfigurations(workspace_id);
-
-      res.json({
-        success: true,
-        data: { configurations }
-      });
-    } catch (error) {
-      logger.error('Error getting workspace configurations:', error);
-      res.status(500).json({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to get configurations' }
-      });
-    }
-  }
-
-  // Update plugin configuration
-  async updatePluginConfiguration(req: Request, res: Response) {
-    try {
-      const { workspace_id } = req.params;
-      const validation = validateRequest(req.body, Joi.object({
-        plugin_type: Joi.string().valid('datasource', 'chart').required(),
-        plugin_name: Joi.string().required(),
-        configuration: Joi.object().required(),
-        is_enabled: Joi.boolean().default(true)
-      }));
-
-      if (!validation.valid) {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: validation.errors.join(', ') }
-        });
-      }
-
-      // Check permissions
-      const hasPermission = await this.permissionService.hasPermission(
-        req.user.id,
-        workspace_id,
-        'can_configure'
+      const configuration = await this.pluginService.getPluginConfiguration(
+        workspaceId,
+        type as 'datasource' | 'chart',
+        name
       );
 
-      if (!hasPermission) {
-        return res.status(403).json({
+      if (!configuration) {
+        res.status(404).json({
           success: false,
-          error: { code: 'ACCESS_DENIED', message: 'Insufficient permissions' }
+          message: 'Plugin configuration not found',
+          errors: [{ code: 'CONFIGURATION_NOT_FOUND', message: `Configuration for ${type} plugin "${name}" not found` }]
         });
+        return;
       }
 
-      const { plugin_type, plugin_name, configuration, is_enabled } = validation.data;
-
-      const result = await this.pluginService.updatePluginConfiguration({
-        workspace_id,
-        plugin_type,
-        plugin_name,
+      res.status(200).json({
+        success: true,
         configuration,
-        is_enabled,
-        updated_by: req.user.id
+        message: 'Plugin configuration retrieved successfully'
       });
-
-      // Invalidate cache
-      await this.cacheService.delete(`workspace-configs-${workspace_id}`);
-
-      res.json({
-        success: true,
-        data: { configuration: result }
-      });
-    } catch (error) {
-      logger.error('Error updating plugin configuration:', error);
+    } catch (error: any) {
+      logger.error('Get plugin configuration error:', error);
       res.status(500).json({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to update configuration' }
+        message: 'Failed to retrieve plugin configuration',
+        errors: [{ code: 'GET_PLUGIN_CONFIG_FAILED', message: error.message }]
       });
     }
-  }
+  };
 
-  // Test plugin connection
-  async testPluginConnection(req: Request, res: Response) {
+  updatePluginConfiguration = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const { workspace_id } = req.params;
-      const validation = validateRequest(req.body, Joi.object({
-        plugin_name: Joi.string().required(),
-        configuration: Joi.object().required()
-      }));
+      const { type, name } = req.params;
+      const workspaceId = req.headers['x-workspace-id'] as string;
+      const userId = req.user?.user_id;
+      const configurationData = req.body;
 
-      if (!validation.valid) {
-        return res.status(400).json({
+      if (!workspaceId) {
+        res.status(400).json({
           success: false,
-          error: { code: 'VALIDATION_ERROR', message: validation.errors.join(', ') }
+          message: 'Workspace ID is required',
+          errors: [{ code: 'MISSING_WORKSPACE_ID', message: 'Workspace ID header is required' }]
         });
+        return;
+      }
+
+      // Validate plugin type
+      if (!['datasource', 'chart'].includes(type)) {
+        res.status(400).json({
+          success: false,
+          message: 'Invalid plugin type',
+          errors: [{ code: 'INVALID_PLUGIN_TYPE', message: 'Plugin type must be "datasource" or "chart"' }]
+        });
+        return;
       }
 
       // Check permissions
       const hasPermission = await this.permissionService.hasPermission(
-        req.user.id,
-        workspace_id,
-        'can_test'
+        userId!,
+        workspaceId,
+        'plugin.configure'
       );
 
       if (!hasPermission) {
-        return res.status(403).json({
+        res.status(403).json({
           success: false,
-          error: { code: 'ACCESS_DENIED', message: 'Insufficient permissions' }
+          message: 'Insufficient permissions',
+          errors: [{ code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to configure plugins' }]
         });
+        return;
       }
 
-      const { plugin_name, configuration } = validation.data;
-
-      const testResult = await this.pluginService.testPluginConnection(
-        plugin_name,
-        configuration
+      const updatedConfiguration = await this.pluginService.updatePluginConfiguration(
+        workspaceId,
+        type as 'datasource' | 'chart',
+        name,
+        configurationData,
+        userId!
       );
 
-      res.json({
+      res.status(200).json({
         success: true,
-        data: testResult
+        configuration: updatedConfiguration,
+        message: 'Plugin configuration updated successfully'
       });
-    } catch (error) {
-      logger.error('Error testing plugin connection:', error);
-      res.status(500).json({
+    } catch (error: any) {
+      logger.error('Update plugin configuration error:', error);
+      res.status(400).json({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to test connection' }
+        message: 'Failed to update plugin configuration',
+        errors: [{ code: 'UPDATE_PLUGIN_CONFIG_FAILED', message: error.message }]
       });
     }
-  }
+  };
 
-  // Get plugin statistics
-  async getPluginStatistics(req: Request, res: Response) {
+  resetPluginConfiguration = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const { workspace_id } = req.params;
-      
+      const { type, name } = req.params;
+      const workspaceId = req.headers['x-workspace-id'] as string;
+      const userId = req.user?.user_id;
+
+      if (!workspaceId) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace ID is required',
+          errors: [{ code: 'MISSING_WORKSPACE_ID', message: 'Workspace ID header is required' }]
+        });
+        return;
+      }
+
+      // Validate plugin type
+      if (!['datasource', 'chart'].includes(type)) {
+        res.status(400).json({
+          success: false,
+          message: 'Invalid plugin type',
+          errors: [{ code: 'INVALID_PLUGIN_TYPE', message: 'Plugin type must be "datasource" or "chart"' }]
+        });
+        return;
+      }
+
       // Check permissions
       const hasPermission = await this.permissionService.hasPermission(
-        req.user.id,
-        workspace_id,
-        'can_monitor'
+        userId!,
+        workspaceId,
+        'plugin.configure'
       );
 
       if (!hasPermission) {
-        return res.status(403).json({
+        res.status(403).json({
           success: false,
-          error: { code: 'ACCESS_DENIED', message: 'Insufficient permissions' }
+          message: 'Insufficient permissions',
+          errors: [{ code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to configure plugins' }]
         });
+        return;
       }
 
-      const statistics = await this.pluginService.getPluginStatistics(workspace_id);
+      await this.pluginService.resetPluginConfiguration(
+        workspaceId,
+        type as 'datasource' | 'chart',
+        name
+      );
 
-      res.json({
+      res.status(200).json({
         success: true,
-        data: { statistics }
+        message: 'Plugin configuration reset to defaults successfully'
       });
-    } catch (error) {
-      logger.error('Error getting plugin statistics:', error);
+    } catch (error: any) {
+      logger.error('Reset plugin configuration error:', error);
       res.status(500).json({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to get statistics' }
+        message: 'Failed to reset plugin configuration',
+        errors: [{ code: 'RESET_PLUGIN_CONFIG_FAILED', message: error.message }]
       });
     }
-  }
+  };
 
-  // Delete plugin configuration
-  async deletePluginConfiguration(req: Request, res: Response) {
+  getPluginUsage = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const { workspace_id, plugin_type, plugin_name } = req.params;
-      
+      const { type, name } = req.params;
+      const workspaceId = req.headers['x-workspace-id'] as string;
+      const userId = req.user?.user_id;
+      const { period = 'month' } = req.query;
+
+      if (!workspaceId) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace ID is required',
+          errors: [{ code: 'MISSING_WORKSPACE_ID', message: 'Workspace ID header is required' }]
+        });
+        return;
+      }
+
+      // Validate plugin type
+      if (!['datasource', 'chart'].includes(type)) {
+        res.status(400).json({
+          success: false,
+          message: 'Invalid plugin type',
+          errors: [{ code: 'INVALID_PLUGIN_TYPE', message: 'Plugin type must be "datasource" or "chart"' }]
+        });
+        return;
+      }
+
       // Check permissions
       const hasPermission = await this.permissionService.hasPermission(
-        req.user.id,
-        workspace_id,
-        'can_configure'
+        userId!,
+        workspaceId,
+        'plugin.read'
       );
 
       if (!hasPermission) {
-        return res.status(403).json({
+        res.status(403).json({
           success: false,
-          error: { code: 'ACCESS_DENIED', message: 'Insufficient permissions' }
+          message: 'Insufficient permissions',
+          errors: [{ code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to view plugin usage' }]
         });
+        return;
       }
 
-      await this.pluginService.deletePluginConfiguration(
-        workspace_id,
-        plugin_type as 'datasource' | 'chart',
-        plugin_name
+      const usage = await this.pluginService.getPluginUsage(
+        workspaceId,
+        type as 'datasource' | 'chart',
+        name,
+        period as string
       );
 
-      // Invalidate cache
-      await this.cacheService.delete(`workspace-configs-${workspace_id}`);
-
-      res.json({
+      res.status(200).json({
         success: true,
-        data: { message: 'Configuration deleted successfully' }
+        usage,
+        message: 'Plugin usage statistics retrieved successfully'
       });
-    } catch (error) {
-      logger.error('Error deleting plugin configuration:', error);
+    } catch (error: any) {
+      logger.error('Get plugin usage error:', error);
       res.status(500).json({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to delete configuration' }
+        message: 'Failed to retrieve plugin usage statistics',
+        errors: [{ code: 'GET_PLUGIN_USAGE_FAILED', message: error.message }]
       });
     }
-  }
+  };
+
+  validatePluginConfiguration = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const { type, name } = req.params;
+      const workspaceId = req.headers['x-workspace-id'] as string;
+      const userId = req.user?.user_id;
+      const configurationData = req.body;
+
+      if (!workspaceId) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace ID is required',
+          errors: [{ code: 'MISSING_WORKSPACE_ID', message: 'Workspace ID header is required' }]
+        });
+        return;
+      }
+
+      // Validate plugin type
+      if (!['datasource', 'chart'].includes(type)) {
+        res.status(400).json({
+          success: false,
+          message: 'Invalid plugin type',
+          errors: [{ code: 'INVALID_PLUGIN_TYPE', message: 'Plugin type must be "datasource" or "chart"' }]
+        });
+        return;
+      }
+
+      // Check permissions
+      const hasPermission = await this.permissionService.hasPermission(
+        userId!,
+        workspaceId,
+        'plugin.read'
+      );
+
+      if (!hasPermission) {
+        res.status(403).json({
+          success: false,
+          message: 'Insufficient permissions',
+          errors: [{ code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to validate plugin configurations' }]
+        });
+        return;
+      }
+
+      const validation = await this.pluginService.validatePluginConfiguration(
+        type as 'datasource' | 'chart',
+        name,
+        configurationData
+      );
+
+      res.status(200).json({
+        success: true,
+        valid: validation.isValid,
+        errors: validation.errors,
+        warnings: validation.warnings,
+        message: validation.isValid ? 'Configuration is valid' : 'Configuration validation failed'
+      });
+    } catch (error: any) {
+      logger.error('Validate plugin configuration error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to validate plugin configuration',
+        errors: [{ code: 'VALIDATE_PLUGIN_CONFIG_FAILED', message: error.message }]
+      });
+    }
+  };
 }

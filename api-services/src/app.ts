@@ -1,34 +1,74 @@
-// File: api-services/src/app.ts
-import express from 'express';
+// api-services/src/app.ts
+import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-import { createServer } from 'http';
-import { logger, logRequest } from './utils/logger';
-import { errorHandler } from './middleware/errorHandler';
-import { authenticate } from './middleware/authentication';
+import { v4 as uuidv4 } from 'uuid';
 
 // Import routes
-import indexRoutes from './routes/index';
-import authRoutes from './routes/auth.routes';
-import userRoutes from './routes/user.routes';
-import workspaceRoutes from './routes/workspace.routes';
-import dashboardRoutes from './routes/dashboard.routes';
-import datasetRoutes from './routes/dataset.routes';
-import chartRoutes from './routes/chart.routes';
-import healthRoutes from './routes/health.routes';
-import pluginRoutes from './routes/plugin.routes';
+import routes from './routes';
 
-const app = express();
-const server = createServer(app);
+// Import middleware
+import { 
+  globalErrorHandler, 
+  notFoundHandler, 
+  timeoutHandler 
+} from './middleware/errorHandler';
 
-// Trust proxy for accurate client IPs
+// Import utilities
+import { logger } from './utils/logger';
+
+// Create Express app
+const app: Application = express();
+
+// Trust proxy for accurate IP addresses
 app.set('trust proxy', 1);
+
+// Request ID middleware - must be first
+app.use((req: Request, res: Response, next) => {
+  const requestId = req.headers['x-request-id'] as string || uuidv4();
+  req.headers['x-request-id'] = requestId;
+  res.setHeader('X-Request-ID', requestId);
+  next();
+});
+
+// Request logging middleware
+app.use((req: Request, res: Response, next) => {
+  const startTime = Date.now();
+  
+  // Log request
+  logger.info('Incoming request', {
+    method: req.method,
+    path: req.path,
+    query: req.query,
+    ip: req.ip,
+    user_agent: req.get('User-Agent'),
+    request_id: req.headers['x-request-id']
+  });
+
+  // Override res.end to log response
+  const originalEnd = res.end;
+  res.end = function(chunk?: any, encoding?: any, cb?: any) {
+    const duration = Date.now() - startTime;
+    
+    logger.logRequest(
+      req.method,
+      req.originalUrl,
+      res.statusCode,
+      duration,
+      (req as any).user?.user_id,
+      req.headers['x-request-id'] as string
+    );
+
+    originalEnd.call(this, chunk, encoding, cb);
+  };
+
+  next();
+});
 
 // Security middleware
 app.use(helmet({
-  crossOriginEmbedderPolicy: false, // Disable for development
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
@@ -42,97 +82,189 @@ app.use(helmet({
       frameSrc: ["'none'"],
     },
   },
+  crossOriginEmbedderPolicy: false
 }));
 
 // CORS configuration
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+const corsOptions = {
+  origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'https://app.example.com'
+    ];
+    
+    if (allowedOrigins.includes(origin) || process.env.NODE_ENV === 'development') {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: [
+    'Origin',
+    'X-Requested-With',
+    'Content-Type',
+    'Accept',
+    'Authorization',
+    'X-Workspace-ID',
+    'X-Request-ID'
+  ],
+  exposedHeaders: ['X-Request-ID', 'X-Rate-Limit-Remaining', 'X-Rate-Limit-Reset']
+};
+
+app.use(cors(corsOptions));
+
+// Compression middleware
+app.use(compression({
+  level: 6,
+  threshold: 1024,
+  filter: (req, res) => {
+    // Don't compress responses with this request header
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    // Use compression filter function
+    return compression.filter(req, res);
+  }
 }));
 
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // limit each IP
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // requests per window
   message: {
     success: false,
-    error: {
-      code: 'TOO_MANY_REQUESTS',
-      message: 'Too many requests from this IP, please try again later.'
-    }
+    message: 'Too many requests from this IP, please try again later',
+    errors: [{
+      code: 'RATE_LIMIT_EXCEEDED',
+      message: 'Rate limit exceeded'
+    }]
   },
   standardHeaders: true,
   legacyHeaders: false,
+  handler: (req, res) => {
+    logger.warn('Rate limit exceeded', {
+      ip: req.ip,
+      user_agent: req.get('User-Agent'),
+      path: req.path,
+      method: req.method
+    });
+    
+    res.status(429).json({
+      success: false,
+      message: 'Too many requests from this IP, please try again later',
+      errors: [{
+        code: 'RATE_LIMIT_EXCEEDED',
+        message: 'Rate limit exceeded'
+      }]
+    });
+  }
 });
 
-app.use('/api', limiter);
+// Apply rate limiting to all requests
+app.use(limiter);
 
-// Body parsing
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// More strict rate limiting for authentication endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 login attempts per window
+  skipSuccessfulRequests: true,
+  message: {
+    success: false,
+    message: 'Too many authentication attempts, please try again later',
+    errors: [{
+      code: 'AUTH_RATE_LIMIT_EXCEEDED',
+      message: 'Too many authentication attempts'
+    }]
+  }
+});
 
-// Compression
-app.use(compression());
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/forgot-password', authLimiter);
 
-// Request logging
-app.use(logRequest);
+// Request timeout middleware
+app.use(timeoutHandler(30000)); // 30 seconds
 
-// Health check (before auth)
-app.use('/health', healthRoutes);
+// Body parsing middleware
+app.use(express.json({ 
+  limit: '10mb',
+  verify: (req: Request, res: Response, buf: Buffer) => {
+    // Store raw body for webhook verification if needed
+    (req as any).rawBody = buf;
+  }
+}));
+
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: '10mb' 
+}));
+
+// Health check endpoint (before API routes)
+app.get('/health', (req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    version: process.env.npm_package_version || '1.0.0',
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
 
 // API routes
-app.use('/', indexRoutes);
-app.use('/api/auth', authRoutes);
-app.use('/api/users', authenticate, userRoutes);
-app.use('/api/workspaces', authenticate, workspaceRoutes);
-app.use('/api/dashboards', authenticate, dashboardRoutes);
-app.use('/api/datasets', authenticate, datasetRoutes);
-app.use('/api/charts', authenticate, chartRoutes);
-app.use('/api/plugins', authenticate, pluginRoutes);
+app.use('/api', routes);
 
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({
-    success: false,
-    error: {
-      code: 'NOT_FOUND',
-      message: `Route ${req.originalUrl} not found`
-    }
-  });
-});
+// Handle 404 for undefined routes
+app.use(notFoundHandler);
 
-// Error handling middleware (must be last)
-app.use(errorHandler);
+// Global error handler (must be last)
+app.use(globalErrorHandler);
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down gracefully');
+// Graceful shutdown handling
+const gracefulShutdown = (signal: string) => {
+  logger.info(`Received ${signal}, starting graceful shutdown...`);
+  
+  // Close server
+  const server = app.listen();
   server.close(() => {
-    logger.info('Server closed');
+    logger.info('HTTP server closed');
+    
+    // Close database connections
+    // await database.close();
+    
+    // Close other resources
+    // await cache.disconnect();
+    
+    logger.info('Graceful shutdown completed');
     process.exit(0);
   });
-});
+  
+  // Force close after 10 seconds
+  setTimeout(() => {
+    logger.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 10000);
+};
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down gracefully');
-  server.close(() => {
-    logger.info('Server closed');
-    process.exit(0);
-  });
-});
+// Listen for termination signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
+// Handle uncaught exceptions and unhandled rejections
+process.on('uncaughtException', (error: Error) => {
   logger.error('Uncaught Exception:', error);
   process.exit(1);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+  logger.error('Unhandled Rejection at:', { promise, reason });
   process.exit(1);
 });
 
-export { app, server };
 export default app;

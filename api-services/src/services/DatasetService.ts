@@ -1,469 +1,619 @@
 // api-services/src/services/DatasetService.ts
-import { DatabaseConfig } from '../config/database';
-import { CacheService } from '../config/redis';
+import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger';
-import { PluginManager } from './PluginManager';
 
-interface DatasetSchema {
-  columns: Array<{
-    name: string;
-    type: string;
-    nullable: boolean;
-    description?: string;
-  }>;
+interface Dataset {
+  id: string;
+  workspace_id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  type: 'sql' | 'file' | 'transformation' | 'api';
+  datasource_id?: string;
+  connection_config?: any;
+  query?: string;
+  file_path?: string;
+  transformation_config?: any;
+  parent_dataset_ids?: string[];
+  schema?: DatasetColumn[];
+  is_public: boolean;
+  cache_ttl_minutes: number;
+  tags: string[];
+  created_by: string;
+  updated_by?: string;
+  created_at: Date;
+  updated_at: Date;
+  last_refreshed_at?: Date;
   row_count?: number;
-  sample_data?: any[];
+  file_size_bytes?: number;
+  status: 'active' | 'inactive' | 'error' | 'processing';
+  error_message?: string;
 }
 
-interface QueryTestResult {
-  preview: any[];
-  columns: Array<{
-    name: string;
-    type: string;
-  }>;
-  execution_time: number;
+interface DatasetColumn {
+  name: string;
+  display_name: string;
+  data_type: string;
+  is_nullable: boolean;
+  default_value?: any;
+  description?: string;
+  tags?: string[];
+  format_string?: string;
+  is_dimension: boolean;
+  is_measure: boolean;
+  aggregation_type?: 'sum' | 'count' | 'avg' | 'min' | 'max' | 'distinct_count';
+}
+
+interface DatasetCreateData {
+  workspace_id: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  type: 'sql' | 'file' | 'transformation' | 'api';
+  datasource_id?: string;
+  connection_config?: any;
+  query?: string;
+  file_path?: string;
+  transformation_config?: any;
+  parent_dataset_ids?: string[];
+  is_public?: boolean;
+  cache_ttl_minutes?: number;
+  tags?: string[];
+  created_by: string;
+}
+
+interface DatasetUpdateData {
+  name?: string;
+  display_name?: string;
+  description?: string;
+  query?: string;
+  transformation_config?: any;
+  is_public?: boolean;
+  cache_ttl_minutes?: number;
+  tags?: string[];
+}
+
+interface GetDatasetsOptions {
+  page: number;
+  limit: number;
+  filters: {
+    type?: string;
+    datasource_id?: string;
+    created_by?: string;
+    search?: string;
+  };
+  include_schema?: boolean;
+}
+
+interface DatasetUsageInfo {
+  inUse: boolean;
+  chartCount: number;
+  dashboardCount: number;
+  charts: Array<{ id: string; name: string }>;
+  dashboards: Array<{ id: string; name: string }>;
+}
+
+interface DatasetPreview {
+  columns: DatasetColumn[];
+  rows: any[];
+  total_rows: number;
+  sample_size: number;
+  query_execution_time_ms: number;
+}
+
+interface RefreshResult {
+  refresh_id: string;
+  status: 'initiated' | 'processing' | 'completed' | 'failed';
+  started_at: Date;
+  estimated_completion_time?: Date;
 }
 
 export class DatasetService {
-  
-  /**
-   * Get dataset schema with column information
-   */
-  static async getDatasetSchema(datasetId: string): Promise<DatasetSchema> {
-    const cacheKey = `dataset_schema:${datasetId}`;
-    
-    // Try to get from cache first
-    const cached = await CacheService.get<DatasetSchema>(cacheKey);
-    if (cached) {
-      return cached;
-    }
+  private datasets: Map<string, Dataset> = new Map();
+  private refreshJobs: Map<string, RefreshResult> = new Map();
 
-    // Get dataset information
-    const datasetResult = await DatabaseConfig.query(
-      `SELECT d.*, ds.type as data_source_type, ds.connection_config
-       FROM datasets d
-       LEFT JOIN data_sources ds ON d.data_source_id = ds.id
-       WHERE d.id = $1 AND d.is_active = true`,
-      [datasetId]
-    );
-
-    if (datasetResult.rows.length === 0) {
-      throw new Error('Dataset not found');
-    }
-
-    const dataset = datasetResult.rows[0];
-    let schema: DatasetSchema;
-
-    try {
-      if (dataset.type === 'SOURCE') {
-        // Get schema from data source
-        schema = await this.getSourceDatasetSchema(dataset);
-      } else {
-        // Get schema from transformation
-        schema = await this.getTransformationDatasetSchema(dataset);
-      }
-
-      // Cache schema for 30 minutes
-      await CacheService.set(cacheKey, schema, 1800);
-      
-      return schema;
-    } catch (error) {
-      logger.error('Failed to get dataset schema', { datasetId, error });
-      throw error;
-    }
+  constructor() {
+    // Initialize with some sample data for development
+    this.initializeSampleData();
   }
 
-  /**
-   * Test dataset query and return preview
-   */
-  static async testDatasetQuery(datasetId: string): Promise<QueryTestResult> {
-    const datasetResult = await DatabaseConfig.query(
-      `SELECT d.*, ds.type as data_source_type, ds.connection_config
-       FROM datasets d
-       LEFT JOIN data_sources ds ON d.data_source_id = ds.id
-       WHERE d.id = $1 AND d.is_active = true`,
-      [datasetId]
-    );
+  private initializeSampleData(): void {
+    // This would be replaced with actual database operations
+    const sampleDataset: Dataset = {
+      id: uuidv4(),
+      workspace_id: 'sample-workspace',
+      name: 'sales_data',
+      display_name: 'Sales Data',
+      description: 'Sales transaction data from our CRM',
+      type: 'sql',
+      datasource_id: 'sample-datasource',
+      query: 'SELECT * FROM sales WHERE date >= CURRENT_DATE - INTERVAL 30 DAY',
+      schema: [
+        {
+          name: 'id',
+          display_name: 'Transaction ID',
+          data_type: 'integer',
+          is_nullable: false,
+          is_dimension: true,
+          is_measure: false
+        },
+        {
+          name: 'amount',
+          display_name: 'Sale Amount',
+          data_type: 'decimal',
+          is_nullable: false,
+          is_dimension: false,
+          is_measure: true,
+          aggregation_type: 'sum'
+        }
+      ],
+      is_public: false,
+      cache_ttl_minutes: 60,
+      tags: ['sales', 'crm'],
+      created_by: 'sample-user',
+      created_at: new Date(),
+      updated_at: new Date(),
+      status: 'active'
+    };
 
-    if (datasetResult.rows.length === 0) {
-      throw new Error('Dataset not found');
-    }
-
-    const dataset = datasetResult.rows[0];
-    const startTime = Date.now();
-
-    try {
-      let result: QueryTestResult;
-
-      if (dataset.type === 'SOURCE') {
-        result = await this.testSourceDataset(dataset);
-      } else {
-        result = await this.testTransformationDataset(dataset);
-      }
-
-      result.execution_time = Date.now() - startTime;
-      return result;
-    } catch (error) {
-      logger.error('Dataset query test failed', { datasetId, error });
-      throw new Error(`Query test failed: ${error.message}`);
-    }
+    this.datasets.set(sampleDataset.id, sampleDataset);
   }
 
-  /**
-   * Get schema for source dataset
-   */
-  private static async getSourceDatasetSchema(dataset: any): Promise<DatasetSchema> {
-    if (!dataset.data_source_id) {
-      throw new Error('No data source configured for dataset');
-    }
-
-    const plugin = PluginManager.getDataSourcePlugin(dataset.data_source_type);
-    if (!plugin) {
-      throw new Error(`Unsupported data source type: ${dataset.data_source_type}`);
-    }
-
-    // Get connection
-    const connection = await plugin.connect(dataset.connection_config);
-    
+  async getDatasets(workspaceId: string, options: GetDatasetsOptions): Promise<{
+    datasets: Dataset[];
+    total: number;
+    page: number;
+    limit: number;
+    pages: number;
+  }> {
     try {
-      // Get schema information
-      const query = dataset.query_config?.query;
-      if (!query) {
-        throw new Error('No query configured for dataset');
+      logger.info('Getting datasets', { workspaceId, options });
+
+      // In a real implementation, this would query the database
+      let allDatasets = Array.from(this.datasets.values())
+        .filter(dataset => dataset.workspace_id === workspaceId);
+
+      // Apply filters
+      if (options.filters.type) {
+        allDatasets = allDatasets.filter(d => d.type === options.filters.type);
+      }
+      if (options.filters.datasource_id) {
+        allDatasets = allDatasets.filter(d => d.datasource_id === options.filters.datasource_id);
+      }
+      if (options.filters.created_by) {
+        allDatasets = allDatasets.filter(d => d.created_by === options.filters.created_by);
+      }
+      if (options.filters.search) {
+        const searchTerm = options.filters.search.toLowerCase();
+        allDatasets = allDatasets.filter(d => 
+          d.name.toLowerCase().includes(searchTerm) ||
+          d.display_name.toLowerCase().includes(searchTerm) ||
+          (d.description && d.description.toLowerCase().includes(searchTerm))
+        );
       }
 
-      // Execute LIMIT 0 query to get column info
-      const schemaQuery = `SELECT * FROM (${query}) AS subquery LIMIT 0`;
-      const schemaResult = await plugin.executeQuery(connection, schemaQuery);
-      
-      // Get sample data with LIMIT 10
-      const sampleQuery = `SELECT * FROM (${query}) AS subquery LIMIT 10`;
-      const sampleResult = await plugin.executeQuery(connection, sampleQuery);
+      const total = allDatasets.length;
+      const pages = Math.ceil(total / options.limit);
+      const offset = (options.page - 1) * options.limit;
+      const datasets = allDatasets.slice(offset, offset + options.limit);
+
+      // Remove schema if not requested to reduce payload size
+      if (!options.include_schema) {
+        datasets.forEach(dataset => {
+          delete dataset.schema;
+        });
+      }
 
       return {
-        columns: schemaResult.columns.map(col => ({
-          name: col.name,
-          type: col.type,
-          nullable: col.nullable !== false,
-          description: col.description
-        })),
-        sample_data: sampleResult.rows
+        datasets,
+        total,
+        page: options.page,
+        limit: options.limit,
+        pages
       };
-    } finally {
-      await plugin.disconnect(connection);
+    } catch (error: any) {
+      logger.error('Error getting datasets:', error);
+      throw new Error(`Failed to get datasets: ${error.message}`);
     }
   }
 
-  /**
-   * Get schema for transformation dataset
-   */
-  private static async getTransformationDatasetSchema(dataset: any): Promise<DatasetSchema> {
-    if (!dataset.parent_dataset_id) {
-      throw new Error('No parent dataset configured for transformation');
-    }
+  async createDataset(workspaceId: string, datasetData: DatasetCreateData): Promise<Dataset> {
+    try {
+      logger.info('Creating dataset', { workspaceId, name: datasetData.name });
 
-    // Get parent dataset schema
-    const parentSchema = await this.getDatasetSchema(dataset.parent_dataset_id);
-    
-    // Apply transformation logic to determine output schema
-    const transformConfig = dataset.transformation_config;
-    if (!transformConfig) {
-      // If no transformation config, return parent schema
-      return parentSchema;
-    }
+      // Validate name uniqueness within workspace
+      const existingDataset = Array.from(this.datasets.values())
+        .find(d => d.workspace_id === workspaceId && d.name === datasetData.name);
 
-    // Process transformations
-    let resultSchema = { ...parentSchema };
-    
-    if (transformConfig.select_columns) {
-      // Filter columns based on selection
-      resultSchema.columns = resultSchema.columns.filter(col => 
-        transformConfig.select_columns.includes(col.name)
-      );
-    }
-
-    if (transformConfig.computed_columns) {
-      // Add computed columns
-      for (const computed of transformConfig.computed_columns) {
-        resultSchema.columns.push({
-          name: computed.name,
-          type: computed.type || 'string',
-          nullable: computed.nullable !== false,
-          description: computed.description
-        });
+      if (existingDataset) {
+        throw new Error(`Dataset with name '${datasetData.name}' already exists in this workspace`);
       }
-    }
 
-    if (transformConfig.renamed_columns) {
-      // Apply column renames
-      for (const rename of transformConfig.renamed_columns) {
-        const column = resultSchema.columns.find(col => col.name === rename.from);
-        if (column) {
-          column.name = rename.to;
+      // Validate datasource exists (if provided)
+      if (datasetData.datasource_id) {
+        // In a real implementation, check if datasource exists
+        // const datasource = await this.datasourceService.getDatasource(datasetData.datasource_id);
+        // if (!datasource) throw new Error('Datasource not found');
+      }
+
+      // Validate parent datasets (for transformation datasets)
+      if (datasetData.type === 'transformation' && datasetData.parent_dataset_ids) {
+        for (const parentId of datasetData.parent_dataset_ids) {
+          const parent = this.datasets.get(parentId);
+          if (!parent || parent.workspace_id !== workspaceId) {
+            throw new Error(`Parent dataset '${parentId}' not found or not accessible`);
+          }
         }
       }
-    }
 
-    return resultSchema;
-  }
+      const dataset: Dataset = {
+        id: uuidv4(),
+        workspace_id: workspaceId,
+        name: datasetData.name,
+        display_name: datasetData.display_name || datasetData.name,
+        description: datasetData.description,
+        type: datasetData.type,
+        datasource_id: datasetData.datasource_id,
+        connection_config: datasetData.connection_config,
+        query: datasetData.query,
+        file_path: datasetData.file_path,
+        transformation_config: datasetData.transformation_config,
+        parent_dataset_ids: datasetData.parent_dataset_ids,
+        is_public: datasetData.is_public || false,
+        cache_ttl_minutes: datasetData.cache_ttl_minutes || 60,
+        tags: datasetData.tags || [],
+        created_by: datasetData.created_by,
+        created_at: new Date(),
+        updated_at: new Date(),
+        status: 'active'
+      };
 
-  /**
-   * Test source dataset query
-   */
-  private static async testSourceDataset(dataset: any): Promise<QueryTestResult> {
-    const plugin = PluginManager.getDataSourcePlugin(dataset.data_source_type);
-    if (!plugin) {
-      throw new Error(`Unsupported data source type: ${dataset.data_source_type}`);
-    }
-
-    const connection = await plugin.connect(dataset.connection_config);
-    
-    try {
-      const query = dataset.query_config?.query;
-      if (!query) {
-        throw new Error('No query configured for dataset');
+      // For SQL datasets, try to infer schema
+      if (dataset.type === 'sql' && dataset.query) {
+        try {
+          dataset.schema = await this.inferSchemaFromQuery(dataset.query, dataset.datasource_id);
+        } catch (error) {
+          logger.warn('Failed to infer schema from query:', error);
+          // Continue without schema, it can be set later
+        }
       }
 
-      // Execute query with LIMIT
-      const testQuery = `SELECT * FROM (${query}) AS subquery LIMIT 5`;
-      const result = await plugin.executeQuery(connection, testQuery);
+      this.datasets.set(dataset.id, dataset);
+
+      logger.info('Dataset created successfully', { id: dataset.id, name: dataset.name });
+      return dataset;
+    } catch (error: any) {
+      logger.error('Error creating dataset:', error);
+      throw new Error(`Failed to create dataset: ${error.message}`);
+    }
+  }
+
+  async getDatasetById(id: string, includeSchema: boolean = false): Promise<Dataset | null> {
+    try {
+      const dataset = this.datasets.get(id);
+      if (!dataset) {
+        return null;
+      }
+
+      const result = { ...dataset };
+      if (!includeSchema) {
+        delete result.schema;
+      }
+
+      return result;
+    } catch (error: any) {
+      logger.error('Error getting dataset by ID:', error);
+      throw new Error(`Failed to get dataset: ${error.message}`);
+    }
+  }
+
+  async updateDataset(id: string, updateData: DatasetUpdateData): Promise<Dataset> {
+    try {
+      logger.info('Updating dataset', { id, updateData });
+
+      const dataset = this.datasets.get(id);
+      if (!dataset) {
+        throw new Error('Dataset not found');
+      }
+
+      // Validate name uniqueness if name is being updated
+      if (updateData.name && updateData.name !== dataset.name) {
+        const existingDataset = Array.from(this.datasets.values())
+          .find(d => d.workspace_id === dataset.workspace_id && d.name === updateData.name);
+        
+        if (existingDataset) {
+          throw new Error(`Dataset with name '${updateData.name}' already exists in this workspace`);
+        }
+      }
+
+      const updatedDataset: Dataset = {
+        ...dataset,
+        ...updateData,
+        updated_at: new Date()
+      };
+
+      // If query changed, try to update schema
+      if (updateData.query && updateData.query !== dataset.query) {
+        try {
+          updatedDataset.schema = await this.inferSchemaFromQuery(updateData.query, dataset.datasource_id);
+        } catch (error) {
+          logger.warn('Failed to infer schema from updated query:', error);
+        }
+      }
+
+      this.datasets.set(id, updatedDataset);
+
+      logger.info('Dataset updated successfully', { id });
+      return updatedDataset;
+    } catch (error: any) {
+      logger.error('Error updating dataset:', error);
+      throw new Error(`Failed to update dataset: ${error.message}`);
+    }
+  }
+
+  async deleteDataset(id: string): Promise<void> {
+    try {
+      logger.info('Deleting dataset', { id });
+
+      const dataset = this.datasets.get(id);
+      if (!dataset) {
+        throw new Error('Dataset not found');
+      }
+
+      // In a real implementation, this would also clean up:
+      // - Related cache entries
+      // - Audit logs
+      // - Any scheduled refresh jobs
+
+      this.datasets.delete(id);
+      
+      // Clean up any refresh jobs for this dataset
+      for (const [refreshId, job] of this.refreshJobs.entries()) {
+        // In a real implementation, you'd have a way to link refresh jobs to datasets
+        // For now, we'll just clean up old jobs
+      }
+
+      logger.info('Dataset deleted successfully', { id });
+    } catch (error: any) {
+      logger.error('Error deleting dataset:', error);
+      throw new Error(`Failed to delete dataset: ${error.message}`);
+    }
+  }
+
+  async getDatasetSchema(id: string): Promise<DatasetColumn[] | null> {
+    try {
+      const dataset = this.datasets.get(id);
+      if (!dataset) {
+        return null;
+      }
+
+      return dataset.schema || null;
+    } catch (error: any) {
+      logger.error('Error getting dataset schema:', error);
+      throw new Error(`Failed to get dataset schema: ${error.message}`);
+    }
+  }
+
+  async updateDatasetSchema(id: string, schema: DatasetColumn[]): Promise<DatasetColumn[]> {
+    try {
+      logger.info('Updating dataset schema', { id, columnCount: schema.length });
+
+      const dataset = this.datasets.get(id);
+      if (!dataset) {
+        throw new Error('Dataset not found');
+      }
+
+      // Validate schema
+      this.validateSchema(schema);
+
+      const updatedDataset: Dataset = {
+        ...dataset,
+        schema,
+        updated_at: new Date()
+      };
+
+      this.datasets.set(id, updatedDataset);
+
+      logger.info('Dataset schema updated successfully', { id });
+      return schema;
+    } catch (error: any) {
+      logger.error('Error updating dataset schema:', error);
+      throw new Error(`Failed to update dataset schema: ${error.message}`);
+    }
+  }
+
+  async getDatasetPreview(id: string, limit: number = 100): Promise<DatasetPreview> {
+    try {
+      logger.info('Getting dataset preview', { id, limit });
+
+      const dataset = this.datasets.get(id);
+      if (!dataset) {
+        throw new Error('Dataset not found');
+      }
+
+      // In a real implementation, this would execute the query/transformation
+      // and return actual data. For now, we'll return mock data.
+      const mockColumns = dataset.schema || [
+        {
+          name: 'id',
+          display_name: 'ID',
+          data_type: 'integer',
+          is_nullable: false,
+          is_dimension: true,
+          is_measure: false
+        },
+        {
+          name: 'name',
+          display_name: 'Name',
+          data_type: 'string',
+          is_nullable: false,
+          is_dimension: true,
+          is_measure: false
+        },
+        {
+          name: 'amount',
+          display_name: 'Amount',
+          data_type: 'decimal',
+          is_nullable: false,
+          is_dimension: false,
+          is_measure: true,
+          aggregation_type: 'sum'
+        }
+      ];
+
+      const mockRows = Array.from({ length: Math.min(limit, 10) }, (_, i) => ({
+        id: i + 1,
+        name: `Item ${i + 1}`,
+        amount: Math.round((Math.random() * 1000 + 100) * 100) / 100
+      }));
 
       return {
-        preview: result.rows,
-        columns: result.columns.map(col => ({
-          name: col.name,
-          type: col.type
-        }))
-      } as QueryTestResult;
-    } finally {
-      await plugin.disconnect(connection);
+        columns: mockColumns,
+        rows: mockRows,
+        total_rows: 1000, // Mock total
+        sample_size: mockRows.length,
+        query_execution_time_ms: 150
+      };
+    } catch (error: any) {
+      logger.error('Error getting dataset preview:', error);
+      throw new Error(`Failed to get dataset preview: ${error.message}`);
     }
   }
 
-  /**
-   * Test transformation dataset
-   */
-  private static async testTransformationDataset(dataset: any): Promise<QueryTestResult> {
-    // For transformation datasets, we need to apply the transformation
-    // to the parent dataset and return a preview
-    
-    if (!dataset.parent_dataset_id) {
-      throw new Error('No parent dataset configured');
-    }
-
-    // Get parent dataset preview
-    const parentPreview = await this.testDatasetQuery(dataset.parent_dataset_id);
-    
-    // Apply transformations
-    const transformConfig = dataset.transformation_config;
-    if (!transformConfig) {
-      return parentPreview;
-    }
-
-    let resultData = [...parentPreview.preview];
-    let resultColumns = [...parentPreview.columns];
-
-    // Apply filters
-    if (transformConfig.filters) {
-      resultData = this.applyFilters(resultData, transformConfig.filters);
-    }
-
-    // Apply column selection
-    if (transformConfig.select_columns) {
-      const selectedCols = transformConfig.select_columns;
-      resultColumns = resultColumns.filter(col => selectedCols.includes(col.name));
-      resultData = resultData.map(row => {
-        const filteredRow: any = {};
-        selectedCols.forEach(col => {
-          if (row.hasOwnProperty(col)) {
-            filteredRow[col] = row[col];
-          }
-        });
-        return filteredRow;
-      });
-    }
-
-    // Apply computed columns
-    if (transformConfig.computed_columns) {
-      for (const computed of transformConfig.computed_columns) {
-        resultColumns.push({
-          name: computed.name,
-          type: computed.type || 'string'
-        });
-        
-        // Apply computation to each row
-        resultData = resultData.map(row => ({
-          ...row,
-          [computed.name]: this.evaluateComputedColumn(row, computed.expression)
-        }));
-      }
-    }
-
-    // Apply column renames
-    if (transformConfig.renamed_columns) {
-      for (const rename of transformConfig.renamed_columns) {
-        // Update column definition
-        const colIndex = resultColumns.findIndex(col => col.name === rename.from);
-        if (colIndex >= 0) {
-          resultColumns[colIndex].name = rename.to;
-        }
-        
-        // Update data
-        resultData = resultData.map(row => {
-          if (row.hasOwnProperty(rename.from)) {
-            const newRow = { ...row };
-            newRow[rename.to] = newRow[rename.from];
-            delete newRow[rename.from];
-            return newRow;
-          }
-          return row;
-        });
-      }
-    }
-
-    return {
-      preview: resultData.slice(0, 5), // Limit preview to 5 rows
-      columns: resultColumns
-    } as QueryTestResult;
-  }
-
-  /**
-   * Apply filters to data
-   */
-  private static applyFilters(data: any[], filters: any[]): any[] {
-    return data.filter(row => {
-      return filters.every(filter => {
-        const value = row[filter.column];
-        
-        switch (filter.operator) {
-          case 'equals':
-            return value === filter.value;
-          case 'not_equals':
-            return value !== filter.value;
-          case 'contains':
-            return String(value).toLowerCase().includes(String(filter.value).toLowerCase());
-          case 'starts_with':
-            return String(value).toLowerCase().startsWith(String(filter.value).toLowerCase());
-          case 'ends_with':
-            return String(value).toLowerCase().endsWith(String(filter.value).toLowerCase());
-          case 'greater_than':
-            return Number(value) > Number(filter.value);
-          case 'less_than':
-            return Number(value) < Number(filter.value);
-          case 'greater_equal':
-            return Number(value) >= Number(filter.value);
-          case 'less_equal':
-            return Number(value) <= Number(filter.value);
-          case 'is_null':
-            return value === null || value === undefined;
-          case 'is_not_null':
-            return value !== null && value !== undefined;
-          default:
-            return true;
-        }
-      });
-    });
-  }
-
-  /**
-   * Evaluate computed column expression
-   */
-  private static evaluateComputedColumn(row: any, expression: string): any {
+  async refreshDataset(id: string): Promise<RefreshResult> {
     try {
-      // Simple expression evaluation for basic operations
-      // In a production system, you'd want to use a proper expression parser
-      // and sandbox for security
+      logger.info('Refreshing dataset', { id });
+
+      const dataset = this.datasets.get(id);
+      if (!dataset) {
+        throw new Error('Dataset not found');
+      }
+
+      const refreshId = uuidv4();
+      const refreshJob: RefreshResult = {
+        refresh_id: refreshId,
+        status: 'initiated',
+        started_at: new Date(),
+        estimated_completion_time: new Date(Date.now() + 60000) // 1 minute from now
+      };
+
+      this.refreshJobs.set(refreshId, refreshJob);
+
+      // In a real implementation, this would:
+      // 1. Queue the refresh job
+      // 2. Update the dataset status to 'processing'
+      // 3. Execute the query/transformation
+      // 4. Update the schema if needed
+      // 5. Update row count and last_refreshed_at
+      // 6. Set status back to 'active' or 'error'
+
+      // Simulate async processing
+      setTimeout(async () => {
+        try {
+          const job = this.refreshJobs.get(refreshId);
+          if (job) {
+            job.status = 'completed';
+            this.refreshJobs.set(refreshId, job);
+          }
+
+          const datasetToUpdate = this.datasets.get(id);
+          if (datasetToUpdate) {
+            datasetToUpdate.last_refreshed_at = new Date();
+            datasetToUpdate.status = 'active';
+            this.datasets.set(id, datasetToUpdate);
+          }
+        } catch (error) {
+          logger.error('Error in refresh job:', error);
+          const job = this.refreshJobs.get(refreshId);
+          if (job) {
+            job.status = 'failed';
+            this.refreshJobs.set(refreshId, job);
+          }
+        }
+      }, 5000);
+
+      return refreshJob;
+    } catch (error: any) {
+      logger.error('Error refreshing dataset:', error);
+      throw new Error(`Failed to refresh dataset: ${error.message}`);
+    }
+  }
+
+  async checkDatasetUsage(id: string): Promise<DatasetUsageInfo> {
+    try {
+      // In a real implementation, this would query the database for:
+      // - Charts using this dataset
+      // - Dashboards containing charts that use this dataset
+      // - Other datasets that have this as a parent (transformation datasets)
+
+      // Mock implementation
+      const mockUsage: DatasetUsageInfo = {
+        inUse: false,
+        chartCount: 0,
+        dashboardCount: 0,
+        charts: [],
+        dashboards: []
+      };
+
+      return mockUsage;
+    } catch (error: any) {
+      logger.error('Error checking dataset usage:', error);
+      throw new Error(`Failed to check dataset usage: ${error.message}`);
+    }
+  }
+
+  private async inferSchemaFromQuery(query: string, datasourceId?: string): Promise<DatasetColumn[]> {
+    // In a real implementation, this would:
+    // 1. Connect to the datasource
+    // 2. Execute a LIMIT 0 version of the query to get column metadata
+    // 3. Map database types to our internal types
+    // 4. Determine if columns are dimensions or measures based on data type
+
+    // Mock implementation
+    return [
+      {
+        name: 'id',
+        display_name: 'ID',
+        data_type: 'integer',
+        is_nullable: false,
+        is_dimension: true,
+        is_measure: false
+      },
+      {
+        name: 'name',
+        display_name: 'Name',
+        data_type: 'string',
+        is_nullable: true,
+        is_dimension: true,
+        is_measure: false
+      }
+    ];
+  }
+
+  private validateSchema(schema: DatasetColumn[]): void {
+    if (!Array.isArray(schema) || schema.length === 0) {
+      throw new Error('Schema must be a non-empty array');
+    }
+
+    for (const column of schema) {
+      if (!column.name || typeof column.name !== 'string') {
+        throw new Error('Each column must have a valid name');
+      }
       
-      // Replace column references with actual values
-      let evalExpression = expression;
-      Object.keys(row).forEach(key => {
-        const regex = new RegExp(`\\{${key}\\}`, 'g');
-        evalExpression = evalExpression.replace(regex, JSON.stringify(row[key]));
-      });
-
-      // Basic safety check - only allow basic math operations and functions
-      if (!/^[\d\s+\-*/.(),'"'{}]+$/.test(evalExpression.replace(/[a-zA-Z_][a-zA-Z0-9_]*/g, ''))) {
-        throw new Error('Invalid expression');
+      if (!column.data_type || typeof column.data_type !== 'string') {
+        throw new Error('Each column must have a valid data_type');
       }
 
-      // Use Function constructor for evaluation (safer than eval)
-      const func = new Function(`return ${evalExpression}`);
-      return func();
-    } catch (error) {
-      logger.error('Failed to evaluate computed column expression', { expression, error });
-      return null;
-    }
-  }
-
-  /**
-   * Get dataset metadata including dependencies
-   */
-  static async getDatasetMetadata(datasetId: string): Promise<any> {
-    const result = await DatabaseConfig.query(
-      `WITH RECURSIVE dataset_deps AS (
-         SELECT id, name, parent_dataset_id, 0 as level
-         FROM datasets
-         WHERE id = $1
-         
-         UNION ALL
-         
-         SELECT d.id, d.name, d.parent_dataset_id, dd.level + 1
-         FROM datasets d
-         JOIN dataset_deps dd ON d.id = dd.parent_dataset_id
-         WHERE dd.level < 10
-       )
-       SELECT * FROM dataset_deps ORDER BY level`,
-      [datasetId]
-    );
-
-    return {
-      dependencies: result.rows,
-      dependency_count: result.rows.length - 1 // Exclude self
-    };
-  }
-
-  /**
-   * Validate dataset configuration
-   */
-  static async validateDatasetConfig(config: any): Promise<{ valid: boolean; errors: string[] }> {
-    const errors: string[] = [];
-
-    // Validate basic required fields
-    if (!config.name || config.name.trim().length === 0) {
-      errors.push('Dataset name is required');
-    }
-
-    if (!config.type || !['SOURCE', 'TRANSFORMATION'].includes(config.type)) {
-      errors.push('Invalid dataset type');
-    }
-
-    // Type-specific validations
-    if (config.type === 'SOURCE') {
-      if (!config.data_source_id) {
-        errors.push('Data source is required for SOURCE datasets');
-      }
-      if (!config.query_config?.query) {
-        errors.push('Query configuration is required for SOURCE datasets');
+      if (typeof column.is_dimension !== 'boolean' || typeof column.is_measure !== 'boolean') {
+        throw new Error('Each column must have boolean is_dimension and is_measure properties');
       }
     }
 
-    if (config.type === 'TRANSFORMATION') {
-      if (!config.parent_dataset_id) {
-        errors.push('Parent dataset is required for TRANSFORMATION datasets');
-      }
-      if (!config.transformation_config) {
-        errors.push('Transformation configuration is required for TRANSFORMATION datasets');
-      }
+    // Check for duplicate column names
+    const columnNames = schema.map(c => c.name);
+    const uniqueNames = new Set(columnNames);
+    if (columnNames.length !== uniqueNames.size) {
+      throw new Error('Duplicate column names are not allowed');
     }
-
-    // Validate cache TTL
-    if (config.cache_ttl && (config.cache_ttl < 0 || config.cache_ttl > 86400)) {
-      errors.push('Cache TTL must be between 0 and 86400 seconds');
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors
-    };
   }
 }

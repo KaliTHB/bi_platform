@@ -1,6 +1,6 @@
 // File: web-application/src/types/webview.types.ts
 
-import { DateRange } from './api.types'; // Import the missing DateRange type
+import { DateRange } from '@/types/index'; // Import the missing DateRange type
 
 export interface WebviewConfig {
   id: string;

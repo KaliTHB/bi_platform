@@ -1,194 +1,380 @@
-// File: api-services/src/middleware/authentication.ts
-import { Request, Response, NextFunction, RequestHandler } from 'express';
+// api-services/src/middleware/authentication.ts
+import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { db } from '../config/database';
-import { cache } from '../config/redis';
 import { logger } from '../utils/logger';
-import { User } from '../types/auth.types';
 
 export interface AuthenticatedRequest extends Request {
-  user: {
-    id: string;
-    username: string;
+  user?: {
+    user_id: string;
     email: string;
-    workspace_id: string;
-    workspace_slug: string;
-    role_id: string;
-    role_name: string;
-    permissions: string[];
+    first_name: string;
+    last_name: string;
+    workspace_id?: string;
+    roles?: string[];
+    permissions?: string[];
+    iat?: number;
+    exp?: number;
   };
 }
 
-export interface WorkspaceRequest extends Request {
-  user: {
-    id: string;
-    username: string;
-    email: string;
-    workspace_id: string;
-    workspace_slug: string;
-    role_id: string;
-    role_name: string;
-    permissions: string[];
-  };
-  workspace?: any;
+interface JWTPayload {
+  user_id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  workspace_id?: string;
+  roles?: string[];
+  permissions?: string[];
+  iat?: number;
+  exp?: number;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+// Mock user database for development
+const mockUsers = new Map([
+  ['sample-user', {
+    user_id: 'sample-user',
+    email: 'admin@example.com',
+    first_name: 'Admin',
+    last_name: 'User',
+    is_active: true,
+    created_at: new Date(),
+    last_login_at: new Date()
+  }],
+  ['viewer-user', {
+    user_id: 'viewer-user', 
+    email: 'viewer@example.com',
+    first_name: 'Viewer',
+    last_name: 'User',
+    is_active: true,
+    created_at: new Date(),
+    last_login_at: new Date()
+  }]
+]);
 
-export const authenticate: RequestHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export async function authenticate(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      res.status(401).json({ 
+
+    if (!authHeader) {
+      res.status(401).json({
         success: false,
-        error: { code: 'NO_TOKEN', message: 'No token provided' } 
+        message: 'Authentication required',
+        errors: [{
+          code: 'AUTHENTICATION_REQUIRED',
+          message: 'Authorization header is required'
+        }]
       });
       return;
     }
 
-    const token = authHeader.split(' ')[1];
-    
+    // Extract token from "Bearer <token>" format
+    const token = authHeader.startsWith('Bearer ') 
+      ? authHeader.slice(7) 
+      : authHeader;
+
+    if (!token) {
+      res.status(401).json({
+        success: false,
+        message: 'Invalid token format',
+        errors: [{
+          code: 'INVALID_TOKEN_FORMAT',
+          message: 'Token must be provided in Bearer format'
+        }]
+      });
+      return;
+    }
+
+    // Get JWT secret from environment
+    const jwtSecret = process.env.JWT_SECRET || 'your-super-secret-jwt-key';
+
     try {
-      const decoded = jwt.verify(token, JWT_SECRET) as any;
-      
-      // Check if token is blacklisted
-      const isBlacklisted = await cache.exists(`blacklist:${token}`);
-      if (isBlacklisted) {
-        res.status(401).json({ 
+      // Verify and decode JWT token
+      const decoded = jwt.verify(token, jwtSecret) as JWTPayload;
+
+      // Check if token has expired
+      if (decoded.exp && Date.now() >= decoded.exp * 1000) {
+        res.status(401).json({
           success: false,
-          error: { code: 'TOKEN_REVOKED', message: 'Token has been revoked' } 
+          message: 'Token expired',
+          errors: [{
+            code: 'TOKEN_EXPIRED',
+            message: 'JWT token has expired'
+          }]
         });
         return;
       }
 
-      // Try to get user from cache first
-      let user = await cache.get(`user:${decoded.userId}`);
-      
-      if (!user) {
-        // Get user from database
-        const result = await db.query(
-          `SELECT u.*, 
-                  w.id as workspace_id,
-                  w.slug as workspace_slug,
-                  r.id as role_id,
-                  r.name as role_name,
-                  array_agg(DISTINCT p.name) as permissions
-           FROM users u
-           LEFT JOIN user_workspaces uw ON u.id = uw.user_id
-           LEFT JOIN workspaces w ON uw.workspace_id = w.id
-           LEFT JOIN user_workspace_roles uwr ON u.id = uwr.user_id AND w.id = uwr.workspace_id
-           LEFT JOIN roles r ON uwr.role_id = r.id
-           LEFT JOIN role_permissions rp ON r.id = rp.role_id
-           LEFT JOIN permissions p ON rp.permission_id = p.id
-           WHERE u.id = $1 AND u.is_active = true
-           GROUP BY u.id, w.id, w.slug, r.id, r.name`,
-          [decoded.userId]
-        );
-
-        if (result.rows.length === 0) {
-          res.status(401).json({ 
-            success: false,
-            error: { code: 'USER_NOT_FOUND', message: 'User not found' } 
-          });
-          return;
-        }
-
-        user = result.rows[0];
-        
-        // Cache user for 15 minutes
-        await cache.set(`user:${decoded.userId}`, user, 900);
+      // Verify user still exists and is active
+      const user = mockUsers.get(decoded.user_id);
+      if (!user || !user.is_active) {
+        res.status(401).json({
+          success: false,
+          message: 'User not found or inactive',
+          errors: [{
+            code: 'USER_NOT_FOUND_OR_INACTIVE',
+            message: 'User account not found or has been deactivated'
+          }]
+        });
+        return;
       }
 
-      (req as AuthenticatedRequest).user = user;
+      // Attach user information to request
+      req.user = {
+        user_id: decoded.user_id,
+        email: decoded.email,
+        first_name: decoded.first_name,
+        last_name: decoded.last_name,
+        workspace_id: decoded.workspace_id,
+        roles: decoded.roles || [],
+        permissions: decoded.permissions || [],
+        iat: decoded.iat,
+        exp: decoded.exp
+      };
+
+      // Log successful authentication
+      logger.debug('User authenticated successfully', {
+        user_id: decoded.user_id,
+        email: decoded.email,
+        ip: req.ip,
+        user_agent: req.get('User-Agent')
+      });
+
       next();
-    } catch (jwtError) {
-      res.status(401).json({ 
+    } catch (jwtError: any) {
+      // Handle different JWT errors
+      let errorMessage = 'Invalid token';
+      let errorCode = 'INVALID_TOKEN';
+
+      if (jwtError.name === 'TokenExpiredError') {
+        errorMessage = 'Token has expired';
+        errorCode = 'TOKEN_EXPIRED';
+      } else if (jwtError.name === 'JsonWebTokenError') {
+        errorMessage = 'Malformed token';
+        errorCode = 'MALFORMED_TOKEN';
+      } else if (jwtError.name === 'NotBeforeError') {
+        errorMessage = 'Token not active yet';
+        errorCode = 'TOKEN_NOT_ACTIVE';
+      }
+
+      logger.warn('Authentication failed', {
+        error: jwtError.message,
+        ip: req.ip,
+        user_agent: req.get('User-Agent'),
+        token_preview: token.substring(0, 20) + '...'
+      });
+
+      res.status(401).json({
         success: false,
-        error: { code: 'INVALID_TOKEN', message: 'Invalid token' } 
+        message: errorMessage,
+        errors: [{
+          code: errorCode,
+          message: errorMessage
+        }]
       });
       return;
     }
-  } catch (error) {
-    logger.error('Authentication error:', error);
-    res.status(500).json({ 
+  } catch (error: any) {
+    logger.error('Authentication middleware error:', error);
+    
+    res.status(500).json({
       success: false,
-      error: { code: 'AUTH_ERROR', message: 'Authentication error' } 
+      message: 'Authentication service error',
+      errors: [{
+        code: 'AUTHENTICATION_SERVICE_ERROR',
+        message: 'An error occurred during authentication'
+      }]
     });
     return;
   }
-};
+}
 
-export const requirePermission = (permission: string): RequestHandler => {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const authReq = req as AuthenticatedRequest;
-    
-    if (!authReq.user) {
-      res.status(401).json({
-        success: false,
-        error: { code: 'AUTHENTICATION_REQUIRED', message: 'Authentication required' }
-      });
-      return;
-    }
-
-    // Check if user has the required permission or wildcard permission
-    if (!authReq.user.permissions.includes(permission) && !authReq.user.permissions.includes('*')) {
-      res.status(403).json({
-        success: false,
-        error: { code: 'INSUFFICIENT_PERMISSIONS', message: `Permission '${permission}' required` }
-      });
-      return;
-    }
-
-    next();
-  };
-};
-
-export const requireRole = (roles: string[]): RequestHandler => {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const authReq = req as AuthenticatedRequest;
-    
-    if (!authReq.user) {
-      res.status(401).json({
-        success: false,
-        error: { code: 'AUTHENTICATION_REQUIRED', message: 'Authentication required' }
-      });
-      return;
-    }
-
-    if (!roles.includes(authReq.user.role_name)) {
-      res.status(403).json({
-        success: false,
-        error: { code: 'INSUFFICIENT_ROLE', message: 'Insufficient role permissions' }
-      });
-      return;
-    }
-
-    next();
-  };
-};
-
-export const generateToken = (user: User): string => {
-  return jwt.sign(
-    { 
-      userId: user.id,
-      email: user.email,
-      workspaceId: user.workspace_id
-    },
-    JWT_SECRET,
-    { expiresIn: '24h' }
-  );
-};
-
-export const blacklistToken = async (token: string): Promise<void> => {
+// Optional authentication middleware (doesn't fail if no token provided)
+export async function optionalAuthenticate(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   try {
-    const decoded = jwt.decode(token) as any;
-    if (decoded && decoded.exp) {
-      const ttl = decoded.exp - Math.floor(Date.now() / 1000);
-      if (ttl > 0) {
-        await cache.set(`blacklist:${token}`, '1', ttl);
-      }
+    const authHeader = req.headers.authorization;
+
+    // If no auth header, continue without user context
+    if (!authHeader) {
+      next();
+      return;
     }
+
+    // Try to authenticate, but don't fail if it doesn't work
+    await authenticate(req, res, (error?: any) => {
+      if (error) {
+        // Log the error but continue without authentication
+        logger.debug('Optional authentication failed', {
+          error: error.message,
+          ip: req.ip
+        });
+      }
+      next();
+    });
   } catch (error) {
-    logger.error('Error blacklisting token:', error);
+    // Continue without authentication on any error
+    logger.debug('Optional authentication error', { error });
+    next();
   }
-};
+}
+
+// Middleware to require specific roles
+export function requireRoles(roles: string[]) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+        errors: [{
+          code: 'AUTHENTICATION_REQUIRED',
+          message: 'User must be authenticated to access this resource'
+        }]
+      });
+      return;
+    }
+
+    const userRoles = req.user.roles || [];
+    const hasRequiredRole = roles.some(role => userRoles.includes(role));
+
+    if (!hasRequiredRole) {
+      logger.warn('Insufficient role access', {
+        user_id: req.user.user_id,
+        required_roles: roles,
+        user_roles: userRoles,
+        ip: req.ip
+      });
+
+      res.status(403).json({
+        success: false,
+        message: 'Insufficient permissions',
+        errors: [{
+          code: 'INSUFFICIENT_ROLES',
+          message: `User must have one of the following roles: ${roles.join(', ')}`
+        }]
+      });
+      return;
+    }
+
+    next();
+  };
+}
+
+// Middleware to require specific permissions
+export function requirePermissions(permissions: string[]) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+        errors: [{
+          code: 'AUTHENTICATION_REQUIRED',
+          message: 'User must be authenticated to access this resource'
+        }]
+      });
+      return;
+    }
+
+    const userPermissions = req.user.permissions || [];
+    const hasRequiredPermissions = permissions.every(permission => 
+      userPermissions.includes(permission)
+    );
+
+    if (!hasRequiredPermissions) {
+      logger.warn('Insufficient permission access', {
+        user_id: req.user.user_id,
+        required_permissions: permissions,
+        user_permissions: userPermissions,
+        ip: req.ip
+      });
+
+      res.status(403).json({
+        success: false,
+        message: 'Insufficient permissions',
+        errors: [{
+          code: 'INSUFFICIENT_PERMISSIONS',
+          message: `User must have the following permissions: ${permissions.join(', ')}`
+        }]
+      });
+      return;
+    }
+
+    next();
+  };
+}
+
+// Utility function to generate JWT token (for login endpoints)
+export function generateToken(user: {
+  user_id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  workspace_id?: string;
+  roles?: string[];
+  permissions?: string[];
+}): string {
+  const jwtSecret = process.env.JWT_SECRET || 'your-super-secret-jwt-key';
+  const expiresIn = process.env.JWT_EXPIRES_IN || '24h';
+
+  const payload: JWTPayload = {
+    user_id: user.user_id,
+    email: user.email,
+    first_name: user.first_name,
+    last_name: user.last_name,
+    workspace_id: user.workspace_id,
+    roles: user.roles || [],
+    permissions: user.permissions || []
+  };
+
+  return jwt.sign(payload, jwtSecret, { expiresIn });
+}
+
+// Utility function to refresh token
+export function refreshToken(currentToken: string): string | null {
+  try {
+    const jwtSecret = process.env.JWT_SECRET || 'your-super-secret-jwt-key';
+    
+    // Decode without verifying expiration
+    const decoded = jwt.decode(currentToken) as JWTPayload;
+    
+    if (!decoded) {
+      return null;
+    }
+
+    // Generate new token with same payload but fresh expiration
+    const newPayload: JWTPayload = {
+      user_id: decoded.user_id,
+      email: decoded.email,
+      first_name: decoded.first_name,
+      last_name: decoded.last_name,
+      workspace_id: decoded.workspace_id,
+      roles: decoded.roles || [],
+      permissions: decoded.permissions || []
+    };
+
+    const expiresIn = process.env.JWT_EXPIRES_IN || '24h';
+    return jwt.sign(newPayload, jwtSecret, { expiresIn });
+  } catch (error) {
+    logger.error('Error refreshing token:', error);
+    return null;
+  }
+}
+
+// Utility function to extract user from token without validation (for logging)
+export function extractUserFromToken(token: string): Partial<JWTPayload> | null {
+  try {
+    const decoded = jwt.decode(token) as JWTPayload;
+    return decoded ? {
+      user_id: decoded.user_id,
+      email: decoded.email
+    } : null;
+  } catch (error) {
+    return null;
+  }
+}
