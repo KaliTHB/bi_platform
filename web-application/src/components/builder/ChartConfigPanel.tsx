@@ -57,8 +57,8 @@ import {
   //ChartAnimation,
 } from '@/types/chart.types';
 import { Dataset } from '@/types/dashboard.types';
-import { datasetAPI } from '@/services/api';
-
+import { datasetAPI } from '@/services/index';
+import {AVAILABLE_THEMES} from '@/types/common.types';
 interface ChartConfigPanelProps {
   open: boolean;
   onClose: () => void;
@@ -71,14 +71,7 @@ interface ChartConfigState extends Chart {
   // Extend with additional UI state if needed
 }
 
-// Available themes configuration
-const AVAILABLE_THEMES = [
-  { value: 'light', label: 'Light Theme' },
-  { value: 'dark', label: 'Dark Theme' },
-  { value: 'corporate', label: 'Corporate Theme' },
-  { value: 'webview', label: 'Webview Theme' },
-  { value: 'custom', label: 'Custom Theme' }
-];
+
 
 export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
   open,

@@ -237,6 +237,7 @@ export class ChartRegistry {
    */
   private static validateAndEnrichConfig(config: ChartPluginConfig, fallbackName: string): ChartPluginConfig {
     return {
+      ...config,
       name: config.name || fallbackName,
       displayName: config.displayName || fallbackName.replace(/^(chartjs-|echarts-)/, '').replace(/-/g, ' '),
       category: config.category || 'basic',
@@ -255,8 +256,7 @@ export class ChartRegistry {
       },
       exportFormats: config.exportFormats || ['png'],
       component: config.component,
-      interactionSupport: config.interactionSupport || {},
-      ...config
+      interactionSupport: config.interactionSupport || {}
     };
   }
 

@@ -302,20 +302,6 @@ export interface DashboardFilter {
   required: boolean;
 }
 
-export interface Chart {
-  id: string;
-  name: string;
-  description?: string;
-  chart_type: string;
-  configuration: ChartConfig;
-  dataset_id: string;
-  dashboard_id?: string;
-  config_json: any;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface ChartConfiguration {
   visualization: {
     type: string;

@@ -1139,33 +1139,6 @@ export const DEFAULT_CHART_DIMENSIONS: ChartDimensions = {
   }
 };
 
-export const DEFAULT_CHART_POSITION: ChartPosition = {
-  x: 0,
-  y: 0,
-  width: 6,
-  height: 4,
-  minWidth: 2,
-  minHeight: 2
-};
-
-export const DEFAULT_CHART_CONFIG: Partial<ChartConfiguration> = {
-  animation: {
-    enabled: true,
-    duration: 1000,
-    easing: 'easeInOutQuad'
-  },
-  interactions: {
-    enabled: true,
-    tooltip: true
-  },
-  legend: {
-    show: true,
-    position: 'bottom',
-    orient : 'horizontal',
-    align: 'center'
-  }
-};
-
 export const SUPPORTED_EXPORT_FORMATS: ExportFormat[] = [
   'png', 'svg', 'pdf', 'json', 'csv', 'excel'
 ];
@@ -1227,10 +1200,6 @@ export interface ValidationWarning {
 // Default Exports and Utility Functions
 // =============================================================================
 
-export const DEFAULT_CHART_DIMENSIONS: ChartDimensions = {
-  width: 400,
-  height: 300
-};
 
 export const DEFAULT_CHART_POSITION: ChartPosition = {
   x: 0,
@@ -1242,14 +1211,20 @@ export const DEFAULT_CHART_POSITION: ChartPosition = {
 };
 
 export const DEFAULT_CHART_CONFIG: Partial<ChartConfiguration> = {
-  animation: true,
+  animation: {
+    enabled: true,
+    duration: 1000,
+    //easing: 'easeInOutQuad'
+  },
   interactions: {
     enabled: true,
     tooltip: true
   },
   legend: {
     show: true,
-    position: 'bottom'
+    position: 'bottom',
+    orient : 'horizontal',
+    align: 'center'
   }
 };
 

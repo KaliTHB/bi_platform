@@ -1,7 +1,7 @@
 // src/store/slices/datasetSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { Dataset, DatasetColumn, TransformationConfig, ColumnDefinition } from '../../types/dataset.types';
-import { datasetAPI } from '../../services/api';
+import { datasetAPI }  from '@/services/index';
 import { castDraft } from "immer";
 
 interface DatasetQueryResult {

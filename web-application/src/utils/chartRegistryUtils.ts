@@ -1,5 +1,5 @@
 // web-application/src/utils/chartRegistryUtils.ts
-import { ChartRegistry } from '../plugins/charts/registry/ChartRegistry';
+import { ChartRegistry } from '@/plugins/charts/registry/ChartRegistry';
 
 export interface ChartTypeInfo {
   type: string;

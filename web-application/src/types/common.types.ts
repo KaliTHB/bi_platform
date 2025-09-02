@@ -15,6 +15,14 @@ export type Locale = 'en-US' | 'en-GB' | 'es-ES' | 'fr-FR' | 'de-DE' | 'ja-JP' |
 
 export type Currency = 'USD' | 'EUR' | 'GBP' | 'JPY' | 'CNY' | 'CAD' | 'AUD' | 'CHF' | 'SEK' | 'NOK' | 'DKK';
 
+// Available themes configuration
+export const AVAILABLE_THEMES = [
+  { value: 'light', label: 'Light Theme' },
+  { value: 'dark', label: 'Dark Theme' },
+  { value: 'corporate', label: 'Corporate Theme' },
+  { value: 'webview', label: 'Webview Theme' },
+  { value: 'custom', label: 'Custom Theme' }
+];
 
 export interface BaseWorkspaceSettings {
   theme?: 'light' | 'dark' | 'auto';

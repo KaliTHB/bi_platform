@@ -1,7 +1,7 @@
 // web-application/src/store/slices/dashboardSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { Dashboard, DashboardFilter, DashboardWithCharts } from '../../types/dashboard.types';
-import { dashboardAPI } from '../../services/api';
+import { dashboardAPI } from '@/services/index';
 import { castDraft } from "immer";
 
 interface DashboardState {

@@ -37,7 +37,7 @@ import {
 import {
   dashboardAPI,
   chartAPI
-} from '@/services/api';
+} from '@/services/index';
 
 // Import utility functions
 import {

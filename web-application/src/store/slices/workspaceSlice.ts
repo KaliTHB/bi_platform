@@ -1,7 +1,7 @@
 // src/store/slices/workspaceSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { Workspace, WorkspaceMember, CreateWorkspaceRequest, UpdateWorkspaceRequest } from '../../types';
-import { workspaceAPI } from '../../services/api';
+import { workspaceAPI } from '@/services/index';
 import { castDraft } from "immer";
 
 interface WorkspaceState {

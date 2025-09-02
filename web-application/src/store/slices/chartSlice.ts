@@ -2,7 +2,7 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { Chart, ChartConfig, ChartData, ChartFilter, ChartError } from '../../types/chart.types';
 // import { ChartConfiguration } from '../../types/chart.types'; // Uncomment if needed for conversion
-import { chartAPI } from '../../services/api';
+import { chartAPI } from '@/services/index';
 import { castDraft } from "immer";
 
 interface ChartQueryResult {
