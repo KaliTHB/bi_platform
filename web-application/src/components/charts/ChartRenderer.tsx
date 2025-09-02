@@ -12,22 +12,13 @@ import {
   ChartError
 } from '@/types/chart.types';
 import { ChartRegistry } from '@/plugins/charts/registry/ChartRegistry';
-
-interface ChartRendererProps extends Omit<ChartProps, 'config'> {
-  chart: Chart;
-  data: any[];
-  loading?: boolean;
-  className?: string;
-  style?: React.CSSProperties;
-  onDataPointClick?: (data: any, series?: any) => void;
-  onDataPointHover?: (data: any, series?: any) => void;
-  onLegendClick?: (series?: any) => void;
-  onZoom?: (domain?: any) => void;
-}
+import { ChartRendererProps } from '@/types/index'
 
 export const ChartRenderer: React.FC<ChartRendererProps> = ({
   chart,
   data,
+  config,
+  columns,
   dimensions,
   theme,
   loading = false,

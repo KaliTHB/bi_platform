@@ -31,7 +31,7 @@ import {
 } from '@/types/chart.types';
 import {
   Dashboard,
-  ColumnDefinition
+  ColumnDefinition,
 } from '@/types';
 import { Dataset} from '@/types/dataset.types';
 
@@ -44,7 +44,8 @@ import {
 import {
   normalizeDatasetApiResponse,
   buildSafeQueryOptions,
-  validateBasicSQLQuery
+  validateBasicSQLQuery,
+  generateChartColumnsFromData
 } from '@/utils/datasetUtils';
 import { datasetAPI  } from '@/services/datasetAPI';
 // Import components
@@ -82,11 +83,12 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
   // ============================================================================
   // State Management
   // ============================================================================
-  
+  const [isConfigPanelOpen, setIsConfigPanelOpen] = useState(false);
   const [state, setState] = useState<ChartBuilderState>({
     chart: null,
     chartConfiguration: null,
     availableDatasets: [],
+    selectedChartType : null,
     selectedDatasetId: undefined,
     chartData: null,
     dataColumns: [],
@@ -214,6 +216,50 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
   // Event Handlers
   // ============================================================================
 
+  const handleRefreshDatasets = async () => {
+    try {
+      
+      // Fetch updated datasets from your API
+      const response = await fetch('/api/datasets', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          // Add authentication headers if needed
+          // 'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch datasets: ${response.status} ${response.statusText}`);
+      }
+
+      const datasets = await response.json();
+      
+      // Update state with refreshed datasets
+      setState(prev => ({
+        ...prev,
+        availableDatasets: datasets,
+        // Optionally reset selected dataset if it no longer exists
+        //selectedDatasetId: datasets.find(d => d.id === prev.selectedDatasetId) 
+        // ? prev.selectedDatasetId 
+        //  : null
+      }));
+
+      // Optional: Show success message
+      console.log('Datasets refreshed successfully');
+      // If you have a toast/notification system:
+      // showToast('Datasets refreshed successfully', 'success');
+
+    } catch (error) {
+      console.error('Error refreshing datasets:', error);
+      
+      // Optional: Show error message to user
+      // showToast('Failed to refresh datasets', 'error');
+    } finally {
+      
+    }
+  };
+
   const handleDatasetSelect = useCallback(async (datasetId: string) => {
     setState(prev => ({
       ...prev,
@@ -225,6 +271,14 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
     
     await loadDatasetData(datasetId);
   }, [loadDatasetData]);
+
+   const handleOpenConfigPanel = () => {
+    setIsConfigPanelOpen(true);
+  };
+
+  const handleCloseConfigPanel = () => {
+    setIsConfigPanelOpen(false);
+  };
 
   const handleExecute = useCallback(async (query: string, datasetId: string) => {
     setState(prev => ({ ...prev, queryLoading: true, error: null }));
@@ -267,6 +321,7 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
   const handleSave = useCallback((query: string) => {
     // Handle query save logic here
     showNotification('Query saved successfully!', 'success');
+
   }, []);
 
   const handleChartTypeSelect = useCallback((chartType: string) => {
@@ -296,6 +351,7 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
       },
       isDirty: true
     }));
+    setIsConfigPanelOpen(false);
   }, []);
 
   const handlePreview = useCallback(() => {
@@ -373,8 +429,9 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
         return (
           <DatasetSelector
             datasets={state.availableDatasets}
-            selectedDatasetId={state.selectedDatasetId}
-            onDatasetSelect={handleDatasetSelect}
+            selectedDataset={state.selectedDatasetId}
+            onSelect={handleDatasetSelect}
+            onRefresh={handleRefreshDatasets}
             loading={state.queryLoading}
           />
         );
@@ -392,20 +449,24 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
       case 'chart':
         return (
           <ChartSelector
-            onChartTypeSelect={handleChartTypeSelect}
-            dataColumns={state.dataColumns}
-            selectedChartType={state.chart?.chart_type}
+            onSelectChart={handleChartTypeSelect}
+            selectedChart={state.chart?.chart_type}
           />
         );
 
       case 'config':
         return (
-          <ChartConfigPanel
-            chartType={state.chart?.chart_type || ''}
-            configuration={state.chartConfiguration || {}}
-            dataColumns={state.dataColumns}
-            onConfigurationChange={handleConfigurationChange}
-          />
+            <ChartConfigPanel
+              open={isConfigPanelOpen}                           // ✅ Use state variable
+              onClose={handleCloseConfigPanel}                   // ✅ Use handler function
+              chart={null}                                       // ✅ Use null or chart object
+              datasets={[]}                                // ← Now optional, can pass empty array
+              onSave={(chart) => console.log('saved', chart)} // ← Now optional
+              chartType={state.chart?.chart_type || ''}
+              configuration={state.chartConfiguration || {}}
+              dataColumns={state.dataColumns}
+              onConfigurationChange={handleConfigurationChange}
+            />
         );
 
       case 'preview':
@@ -417,9 +478,21 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
               </Typography>
               {state.chartData && state.chartConfiguration && (
                 <ChartRenderer
-                  data={state.chartData}
-                  config={state.chartConfiguration}
-                  dimensions={state.previewDimensions}
+                    chart={{
+                      id: `preview-${Date.now()}`,
+                      workspace_id: workspaceId,
+                      name: 'Chart Preview',
+                      chart_type: state.selectedChartType || 'bar',
+                      config_json: state.chartConfiguration,  // Config goes here
+                      is_active: true,
+                      version: 1,
+                      created_by: '',
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    }}
+                    data={state.chartData}
+                    columns={generateChartColumnsFromData(state.chartData)} // Add this
+                    dimensions={state.previewDimensions}
                   onInteraction={(event: ChartInteractionEvent) => {
                     console.log('Chart interaction:', event);
                   }}
@@ -427,7 +500,7 @@ export const ChartBuilder: React.FC<ChartBuilderProps> = ({
                     console.error('Chart error:', error);
                     showNotification(`Chart error: ${error.message}`, 'error');
                   }}
-                />
+                  />
               )}
             </Paper>
           </Box>

@@ -1255,6 +1255,10 @@ export interface ChartBuilderState {
   // Chart Configuration
   chart: Partial<Chart> | null;
   chartConfiguration: ChartConfiguration | null;
+
+   // ADD THIS: Missing chart type selection
+  selectedChartType: string | null;
+  selectedChartLibrary?: string | null;
   
   // Data Management
   availableDatasets: Partial<Dataset>[]; // Changed from Dataset[] to Partial<Dataset>[]
@@ -1272,4 +1276,39 @@ export interface ChartBuilderState {
   previewDimensions: ChartDimensions;
   showPreview: boolean;
   isDirty: boolean;
+}
+
+export interface ChartConfigPanelProps {
+  // Original props
+  // Always required
+  open: boolean;
+  onClose: () => void;
+  
+  // Make these optional so you can pass different combinations
+  chart?: Chart | null;
+  datasets?: Dataset[];
+  onSave?: (chart: Chart) => void;
+  
+  // New props you want to use
+  chartType?: string;
+  configuration?: ChartConfiguration;
+  dataColumns?: ColumnDefinition[];
+  onConfigurationChange?: (configuration: ChartConfiguration) => void;
+}
+
+export interface ChartRendererProps extends Omit<ChartProps, 'config'> {
+  chart: Chart;
+  data: any[];
+  loading?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+  
+  // ADD: Allow config to be passed directly (optional)
+  config?: ChartConfiguration;
+  
+  // Event handlers
+  onDataPointClick?: (data: any, series?: any) => void;
+  onDataPointHover?: (data: any, series?: any) => void;
+  onLegendClick?: (series?: any) => void;
+  onZoom?: (domain?: any) => void;
 }

@@ -123,6 +123,113 @@ export const datasetAPI = {
     return response.data;
   },
 
+  getColumns: async (datasetId: string): Promise<Array<{ name: string; type: string }>> => {
+    try {
+      // Use the existing getDatasetSchema method to get column information
+      const schemaResponse = await datasetAPI.getDatasetSchema(datasetId);
+      
+      if (schemaResponse.success && schemaResponse.schema && schemaResponse.schema.columns) {
+        // Convert schema columns to the expected format
+        return schemaResponse.schema.columns.map(column => ({
+          name: column.name || column.name,
+          type: column.type || column.type || 'string'
+        }));
+      }
+      
+      throw new Error('Failed to get columns from schema');
+    } catch (error: any) {
+      // Fallback: try to get columns from preview
+      try {
+        const previewResponse = await datasetAPI.previewDataset(datasetId, { limit: 1 });
+        
+        if (previewResponse.success && previewResponse.columns) {
+          return previewResponse.columns.map(column => ({
+            name: column.name || column.name,
+            type: column.type || column.type || 'string'
+          }));
+        }
+        
+        throw new Error('Failed to get columns from preview');
+      } catch (previewError) {
+        console.error('Failed to get columns:', error, previewError);
+        throw new Error(`Unable to get columns for dataset ${datasetId}`);
+      }
+    }
+  },
+
+  
+  executeQuery: async (datasetId: string, sqlQuery: string, params?: {
+  use_cache?: boolean;
+  timeout?: number;
+  user_id?: string;
+  [key: string]: any;
+}): Promise<{
+  success: boolean;
+  data: any[];
+  columns: Array<{ name: string; type: string; format?: string }>;
+  metadata: {
+    row_count: number;
+    total_rows: number;
+    execution_time_ms: number;
+    cache_hit: boolean;
+    query_hash: string;
+    generated_sql?: string;
+  };
+  cached?: boolean;
+  message?: string;
+}> => {
+  try {
+    // Prepare the request body
+    const requestBody = {
+      query: sqlQuery,
+      use_cache: params?.use_cache !== false, // Default to true
+      timeout: params?.timeout || 30000, // Default 30 second timeout
+      ...params
+    };
+
+    // Execute the direct SQL query against the dataset
+    const response = await apiClient.post(`/datasets/${datasetId}/execute`, requestBody);
+    
+    // Ensure consistent response format
+    const result = response.data;
+    
+    return {
+      success: result.success !== false,
+      data: result.data || [],
+      columns: result.columns || [],
+      metadata: {
+        row_count: result.metadata?.row_count || result.data?.length || 0,
+        total_rows: result.metadata?.total_rows || result.data?.length || 0,
+        execution_time_ms: result.metadata?.execution_time_ms || result.execution_time || 0,
+        cache_hit: result.metadata?.cache_hit || result.cached || false,
+        query_hash: result.metadata?.query_hash || '',
+        generated_sql: result.metadata?.generated_sql || sqlQuery
+      },
+      cached: result.cached || result.metadata?.cache_hit || false,
+      message: result.message
+    };
+    
+  } catch (error: any) {
+    console.error('executeQuery failed:', error);
+    
+    // Return structured error response
+    return {
+      success: false,
+      data: [],
+      columns: [],
+      metadata: {
+        row_count: 0,
+        total_rows: 0,
+        execution_time_ms: 0,
+        cache_hit: false,
+        query_hash: '',
+        generated_sql: sqlQuery
+      },
+      message: error.response?.data?.message || error.message || 'Query execution failed'
+    };
+  }
+},
+
   previewDataset: async (datasetId: string, params?: {
     limit?: number;
     offset?: number;

@@ -2,6 +2,7 @@
 // Utility functions for working with datasets and API responses
 
 import { ColumnDefinition } from '@/types/dataset.types';
+import { ColumnInfo } from '@/types/chart.types';
 
 // ============================================================================
 // Type Conversion Utilities
@@ -300,6 +301,37 @@ export const addSafeLimitToQuery = (query: string, maxLimit: number = 10000): st
   return `${cleanQuery} LIMIT ${maxLimit}`;
 };
 
+
+export const generateChartColumnsFromData = (data: any[]): ColumnInfo[] => {
+  if (!data || data.length === 0) return [];
+  
+  const firstRow = data[0];
+  return Object.keys(firstRow).map(key => {
+    const value = firstRow[key];
+    
+    // Determine type matching your exact union type
+    let type: 'string' | 'number' | 'date' | 'boolean';
+    if (typeof value === 'number') {
+      type = 'number';
+    } else if (typeof value === 'boolean') {
+      type = 'boolean';
+    } else if (value instanceof Date || (typeof value === 'string' && !isNaN(Date.parse(value)))) {
+      type = 'date';
+    } else {
+      type = 'string';
+    }
+    
+    return {
+      name: key,
+      type: type,
+      displayName: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+      nullable: true,
+      unique: false,
+      sampleValues: []
+    };
+  });
+};
+
 export default {
   convertApiColumnToColumnDefinition,
   convertApiColumnsToColumnDefinitions,
@@ -310,5 +342,6 @@ export default {
   extractUniqueColumnValues,
   generateColumnStats,
   validateBasicSQLQuery,
-  addSafeLimitToQuery
+  addSafeLimitToQuery,
+  generateChartColumnsFromData
 };

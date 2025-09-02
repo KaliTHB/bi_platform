@@ -91,7 +91,9 @@ export type {
   ChartDimensions,
   ChartInteractionEvent,
   ChartError,
-  ChartBuilderState
+  ChartBuilderState,
+  ChartConfigPanelProps,
+  ChartRendererProps
 } from './chart.types';
 
 // =============================================================================

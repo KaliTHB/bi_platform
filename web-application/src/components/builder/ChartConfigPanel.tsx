@@ -56,35 +56,33 @@ import {
   //ChartGrid,
   //ChartAnimation,
 } from '@/types/chart.types';
-import { Dataset } from '@/types/dashboard.types';
+import { Dataset,ColumnDefinition } from '@/types/index';
 import { datasetAPI } from '@/services/index';
 import {AVAILABLE_THEMES} from '@/types/common.types';
-interface ChartConfigPanelProps {
-  open: boolean;
-  onClose: () => void;
-  chart: Chart | null;
-  datasets: Dataset[];
-  onSave: (chart: Chart) => void;
-}
+
+import {ChartConfigPanelProps} from '@/types/index'
 
 interface ChartConfigState extends Chart {
   // Extend with additional UI state if needed
 }
 
-
-
 export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
-  open,
+   open,
   onClose,
   chart,
-  datasets,
-  onSave
+  datasets = [],
+  onSave,
+  chartType,
+  configuration,
+  dataColumns = [],
+  onConfigurationChange
 }) => {
   const [config, setConfig] = useState<ChartConfigState | null>(null);
   const [datasetColumns, setDatasetColumns] = useState<Array<{ name: string; type: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState<{ [key: string]: boolean }>({});
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [derivedColumns, setDerivedColumns] = useState<ColumnDefinition[]>([]);
 
   const createDefaultChartConfig = useCallback((): ChartConfig => ({
   dimensions: {
@@ -139,6 +137,15 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
   }
 }), []);
 
+// Use chartType from props or derive from chart
+  const effectiveChartType = chartType || chart?.chart_type || '';
+  
+  // Use configuration from props or derive from chart
+  const effectiveConfiguration = configuration || chart?.config_json || createDefaultChartConfig();
+  
+  // Use dataColumns from props or fetch from datasets
+   const effectiveDataColumns = dataColumns.length > 0 ? dataColumns : derivedColumns;
+   
   // Initialize config when chart changes
   useEffect(() => {
   if (chart) {
