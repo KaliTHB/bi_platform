@@ -171,3 +171,56 @@ const DoughnutChart: React.FC<DoughnutChartProps> = ({
 };
 
 export default DoughnutChart;
+
+export const ChartJSDoughnutConfig: ChartPluginConfig = {
+  name: 'chartjs-doughnut',
+  displayName: 'Chart.js Doughnut Chart',
+  category: 'basic',
+  library: 'chartjs',
+  version: '1.0.0',
+  description: 'Interactive doughnut chart with Chart.js',
+  tags: ['doughnut', 'pie', 'composition', 'percentage'],
+  
+  configSchema: {
+    type: 'object',
+    properties: {
+      labelField: {
+        type: 'string',
+        title: 'Label Field',
+        required: true
+      },
+      valueField: {
+        type: 'string',
+        title: 'Value Field',
+        required: true
+      },
+      cutout: {
+        type: 'string',
+        title: 'Cutout Percentage',
+        default: '50%'
+      },
+      showLegend: {
+        type: 'boolean',
+        title: 'Show Legend',
+        default: true
+      }
+    },
+    required: ['labelField', 'valueField']
+  },
+  
+  dataRequirements: {
+    minColumns: 2,
+    maxColumns: 2,
+    requiredFields: ['label', 'value'],
+    supportedTypes: ['string', 'number'],
+    aggregationSupport: true
+  },
+  
+  exportFormats: ['png', 'svg'],
+  component: DoughnutChart,
+  
+  interactionSupport: {
+    tooltip: true,
+    selection: true
+  }
+};

@@ -11,6 +11,7 @@ import {
   ChartOptions,
   ChartData
 } from 'chart.js';
+import { ChartPluginConfig } from '@/types/chart.types';
 
 ChartJS.register(
   CategoryScale,
@@ -221,3 +222,66 @@ const LineChart: React.FC<LineChartProps> = ({
 };
 
 export default LineChart;
+
+
+export const ChartJSLineConfig: ChartPluginConfig = {
+  name: 'chartjs-line',
+  displayName: 'Chart.js Line Chart',
+  category: 'basic',
+  library: 'chartjs',
+  version: '1.0.0',
+  description: 'Interactive line chart with Chart.js',
+  tags: ['line', 'trend', 'time-series', 'basic'],
+  
+  configSchema: {
+    type: 'object',
+    properties: {
+      xField: {
+        type: 'string',
+        title: 'X-Axis Field',
+        required: true
+      },
+      yField: {
+        type: 'string',
+        title: 'Y-Axis Field', 
+        required: true
+      },
+      showPoints: {
+        type: 'boolean',
+        title: 'Show Data Points',
+        default: true
+      },
+      tension: {
+        type: 'number',
+        title: 'Line Tension',
+        minimum: 0,
+        maximum: 1,
+        default: 0.1
+      },
+      fill: {
+        type: 'boolean',
+        title: 'Fill Area Under Line',
+        default: false
+      }
+    },
+    required: ['xField', 'yField']
+  },
+  
+  dataRequirements: {
+    minColumns: 2,
+    maxColumns: 10,
+    requiredFields: ['x', 'y'],
+    supportedTypes: ['string', 'number', 'date'],
+    aggregationSupport: true
+  },
+  
+  exportFormats: ['png', 'svg'],
+  component: LineChart, // This should be your actual LineChart component
+  
+  interactionSupport: {
+    zoom: true,
+    pan: true,
+    tooltip: true,
+    crossFilter: true
+  }
+};

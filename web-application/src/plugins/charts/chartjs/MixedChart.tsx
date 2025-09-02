@@ -379,3 +379,64 @@ export const ChartJSMixedConfig = {
 };
 
 export default ChartJSMixedChart;
+
+export const ChartJSMixedConfig: ChartPluginConfig = {
+  name: 'chartjs-mixed',
+  displayName: 'Chart.js Mixed Chart',
+  category: 'advanced',
+  library: 'chartjs',
+  version: '1.0.0',
+  description: 'Mixed chart types in one visualization',
+  tags: ['mixed', 'combo', 'multi-type', 'advanced'],
+  
+  configSchema: {
+    type: 'object',
+    properties: {
+      xField: {
+        type: 'string',
+        title: 'X-Axis Field',
+        required: true
+      },
+      series: {
+        type: 'array',
+        title: 'Chart Series',
+        items: {
+          type: 'object',
+          properties: {
+            field: { type: 'string' },
+            type: { 
+              type: 'string', 
+              enum: ['line', 'bar'] 
+            },
+            yAxisID: { type: 'string' }
+          }
+        },
+        required: true
+      },
+      dualAxis: {
+        type: 'boolean',
+        title: 'Use Dual Y-Axis',
+        default: false
+      }
+    },
+    required: ['xField', 'series']
+  },
+  
+  dataRequirements: {
+    minColumns: 3,
+    maxColumns: 20,
+    requiredFields: ['x'],
+    supportedTypes: ['string', 'number'],
+    aggregationSupport: true
+  },
+  
+  exportFormats: ['png', 'svg'],
+  component: MixedChart, // Replace with your actual component name
+  
+  interactionSupport: {
+    zoom: true,
+    pan: true,
+    tooltip: true,
+    selection: true
+  }
+};

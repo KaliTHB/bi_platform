@@ -202,3 +202,57 @@ const PolarChart: React.FC<PolarChartProps> = ({
 };
 
 export default PolarChart;
+
+
+export const ChartJSPolarConfig: ChartPluginConfig = {
+  name: 'chartjs-polar',
+  displayName: 'Chart.js Polar Area Chart',
+  category: 'specialized',
+  library: 'chartjs',
+  version: '1.0.0',
+  description: 'Polar area chart for radial data visualization',
+  tags: ['polar', 'radial', 'area', 'specialized'],
+  
+  configSchema: {
+    type: 'object',
+    properties: {
+      labelField: {
+        type: 'string',
+        title: 'Label Field',
+        required: true
+      },
+      valueField: {
+        type: 'string',
+        title: 'Value Field',
+        required: true
+      },
+      showLegend: {
+        type: 'boolean',
+        title: 'Show Legend',
+        default: true
+      },
+      startAngle: {
+        type: 'number',
+        title: 'Start Angle',
+        default: 0
+      }
+    },
+    required: ['labelField', 'valueField']
+  },
+  
+  dataRequirements: {
+    minColumns: 2,
+    maxColumns: 10,
+    requiredFields: ['label', 'value'],
+    supportedTypes: ['string', 'number'],
+    aggregationSupport: true
+  },
+  
+  exportFormats: ['png', 'svg'],
+  component: PolarChart,
+  
+  interactionSupport: {
+    tooltip: true,
+    selection: true
+  }
+};

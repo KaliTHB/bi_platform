@@ -219,3 +219,57 @@ const RadarChart: React.FC<RadarChartProps> = ({
 };
 
 export default RadarChart;
+
+export const ChartJSRadarConfig: ChartPluginConfig = {
+  name: 'chartjs-radar',
+  displayName: 'Chart.js Radar Chart',
+  category: 'specialized',
+  library: 'chartjs',
+  version: '1.0.0',
+  description: 'Multi-axis radar chart with Chart.js',
+  tags: ['radar', 'spider', 'multi-axis', 'comparison'],
+  
+  configSchema: {
+    type: 'object',
+    properties: {
+      labelField: {
+        type: 'string',
+        title: 'Label Field',
+        required: true
+      },
+      valueFields: {
+        type: 'array',
+        title: 'Value Fields',
+        items: { type: 'string' },
+        required: true
+      },
+      showLegend: {
+        type: 'boolean',
+        title: 'Show Legend',
+        default: true
+      },
+      fill: {
+        type: 'boolean',
+        title: 'Fill Area',
+        default: true
+      }
+    },
+    required: ['labelField', 'valueFields']
+  },
+  
+  dataRequirements: {
+    minColumns: 3,
+    maxColumns: 10,
+    requiredFields: ['label'],
+    supportedTypes: ['string', 'number'],
+    aggregationSupport: true
+  },
+  
+  exportFormats: ['png', 'svg'],
+  component: RadarChart, // Replace with your actual component name
+  
+  interactionSupport: {
+    tooltip: true,
+    selection: true
+  }
+};

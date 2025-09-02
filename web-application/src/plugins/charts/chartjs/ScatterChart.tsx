@@ -214,3 +214,60 @@ const ScatterChart: React.FC<ScatterChartProps> = ({
 };
 
 export default ScatterChart;
+
+export const ChartJSScatterConfig: ChartPluginConfig = {
+  name: 'chartjs-scatter',
+  displayName: 'Chart.js Scatter Chart',
+  category: 'statistical',
+  library: 'chartjs',
+  version: '1.0.0',
+  description: 'Correlation scatter plot with Chart.js',
+  tags: ['scatter', 'correlation', 'distribution', 'statistical'],
+  
+  configSchema: {
+    type: 'object',
+    properties: {
+      xField: {
+        type: 'string',
+        title: 'X-Axis Field',
+        required: true
+      },
+      yField: {
+        type: 'string',
+        title: 'Y-Axis Field',
+        required: true
+      },
+      showTrendLine: {
+        type: 'boolean',
+        title: 'Show Trend Line',
+        default: false
+      },
+      pointRadius: {
+        type: 'number',
+        title: 'Point Radius',
+        minimum: 1,
+        maximum: 20,
+        default: 3
+      }
+    },
+    required: ['xField', 'yField']
+  },
+  
+  dataRequirements: {
+    minColumns: 2,
+    maxColumns: 10,
+    requiredFields: ['x', 'y'],
+    supportedTypes: ['number'],
+    aggregationSupport: false
+  },
+  
+  exportFormats: ['png', 'svg'],
+  component: ScatterChart, // Replace with your actual component name
+  
+  interactionSupport: {
+    zoom: true,
+    pan: true,
+    tooltip: true,
+    selection: true
+  }
+};
