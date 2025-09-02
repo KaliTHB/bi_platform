@@ -167,8 +167,8 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
     const padding = chartDimensions.padding || { top: 0, right: 0, bottom: 0, left: 0 };
     
     return {
-      width: chartDimensions.width - margin.left - margin.right - (padding.left || 0) - (padding.right || 0),
-      height: chartDimensions.height - margin.top - margin.bottom - (padding.top || 0) - (padding.bottom || 0)
+      width: chartDimensions.width - (margin.left ?? 0) - (margin.right ?? 0) - (padding.left || 0) - (padding.right || 0),
+      height : chartDimensions.height - (margin.top ?? 0) - (margin.bottom ?? 0) - (padding.top || 0) - (padding.bottom || 0)
     };
   }, [chartDimensions]);
 
@@ -271,7 +271,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
               Failed to render chart
             </Typography>
             <Typography variant="body2">
-              {error}
+              {error as any}
             </Typography>
           </Box>
         </Alert>
@@ -306,7 +306,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
   const commonProps: ChartProps = {
     chart,
     data,
-    columns: chart.columns || [],
+    columns: (chart as any).columns || [],
     config: chartConfig,
     dimensions: chartDimensions,
     theme,

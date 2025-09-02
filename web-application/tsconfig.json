@@ -54,6 +54,9 @@
       ],
       "@/config/*": [
         "./src/config/*"
+      ],
+      "@/plugins/*": [
+        "./src/plugins/*"
       ]
     },
     "allowSyntheticDefaultImports": true,

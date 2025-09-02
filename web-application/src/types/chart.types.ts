@@ -9,17 +9,17 @@ import React from 'react';
 
 export interface Chart {
   id: string;
-  workspace_id: string;
-  dashboard_id: string;
+  workspace_id?: string;
+  dashboard_id?: string;
   name: string;
   display_name?: string;
   description?: string;
-  chart_type: string;
-  chart_category: string;
-  chart_library: string;
-  dataset_ids: string[];
+  chart_type?: string;
+  chart_category?: string;
+  chart_library?: string;
+  dataset_ids?: string[];
   config_json: ChartConfiguration;
-  position_json: ChartPosition;
+  position_json?: ChartPosition;
   styling_config?: ChartStyling;
   interaction_config?: InteractionConfiguration;
   drilldown_config?: DrilldownConfig;
@@ -596,6 +596,56 @@ export interface ColumnInfo {
   sampleValues?: any[];
 }
 
+
+// Base Chart interface with minimal required properties
+export interface BaseChart {
+  id: string;
+  name: string;
+  config_json: ChartConfiguration;
+}
+
+// Full Chart interface for database/API usage
+export interface FullChart extends BaseChart {
+  workspace_id: string;
+  dashboard_id: string;
+  chart_type: string;
+  chart_category: string;
+  chart_library: string;
+  dataset_ids: string[];
+  position_json: ChartPosition;
+  is_active: boolean;
+  version: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Chart interface for builder/UI usage (everything optional except basics)
+export interface BuilderChart extends BaseChart {
+  workspace_id?: string;
+  dashboard_id?: string;
+  chart_type?: string;
+  chart_category?: string;
+  chart_library?: string;
+  dataset_ids?: string[];
+  position_json?: ChartPosition;
+  display_name?: string;
+  description?: string;
+  styling_config?: ChartStyling;
+  interaction_config?: InteractionConfiguration;
+  drilldown_config?: DrilldownConfig;
+  calculated_fields?: CalculatedField[];
+  conditional_formatting?: ConditionalFormat[];
+  export_config?: ExportConfig;
+  cache_config?: CacheConfig;
+  tab_id?: string;
+  is_active?: boolean;
+  version?: number;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 // =============================================================================
 // Chart Events and Interactions
 // =============================================================================
@@ -961,6 +1011,173 @@ export interface CacheConfig {
   invalidationKeys?: readonly string[];
   cacheKey?: string;
 }
+
+// ============================================================================
+// NEW TYPES (moved from ChartContainer)
+// ============================================================================
+
+/**
+ * Props for ChartContainer component
+ */
+export interface ChartContainerProps {
+  chart: Chart;
+  workspaceId?: string;
+  preview?: boolean;
+  filters?: any[];
+  dimensions?: ChartDimensions;
+  theme?: ChartTheme;
+  refreshInterval?: number;
+  onChartClick?: (chart: Chart) => void;
+  onChartError?: (chartId: string, error: string) => void;
+  onChartLoad?: (chartId: string, metadata: ChartMetadata) => void;
+  onChartInteraction?: (event: ChartInteractionEvent) => void;
+  className?: string;
+  style?: React.CSSProperties;
+}
+
+/**
+ * Chart data structure returned from API
+ * Enhanced version with metadata and execution info
+ */
+export interface ChartData {
+  data: any[];
+  columns: ChartColumn[];
+  execution_time: number;
+  metadata: ChartMetadata;
+  query?: string;
+  parameters?: Record<string, any>;
+  cacheInfo?: {
+    hit: boolean;
+    key?: string;
+    ttl?: number;
+    createdAt?: string;
+  };
+}
+
+/**
+ * Plugin key resolution result
+ */
+export interface PluginKeyInfo {
+  primaryKey: string;
+  fallbackKeys: string[];
+  chartType: string;
+  library: string;
+  isNormalized: boolean;
+  originalChartType?: string;
+  originalLibrary?: string;
+}
+
+/**
+ * Chart rendering context
+ */
+export interface ChartRenderContext {
+  chart: Chart;
+  data: ChartData;
+  pluginInfo: PluginKeyInfo;
+  dimensions: ChartDimensions;
+  theme?: ChartTheme;
+  isPreview: boolean;
+  workspaceId?: string;
+}
+
+/**
+ * Chart export options
+ */
+export interface ChartExportOptions {
+  format: ExportFormat;
+  filename?: string;
+  dimensions?: {
+    width: number;
+    height: number;
+  };
+  quality?: number;
+  backgroundColor?: string;
+  includeData?: boolean;
+  includeMetadata?: boolean;
+}
+
+/**
+ * Chart refresh options
+ */
+export interface ChartRefreshOptions {
+  force?: boolean;
+  showLoading?: boolean;
+  updateCache?: boolean;
+  timeout?: number;
+}
+
+/**
+ * Chart menu actions
+ */
+export interface ChartMenuAction {
+  id: string;
+  label: string;
+  icon?: React.ReactNode;
+  disabled?: boolean;
+  onClick: () => void;
+  separator?: boolean;
+}
+
+// ============================================================================
+// DEFAULT VALUES AND CONSTANTS
+// ============================================================================
+
+export const DEFAULT_CHART_DIMENSIONS: ChartDimensions = {
+  width: 400,
+  height: 300,
+  margin: {
+    top: 20,
+    right: 20,
+    bottom: 20,
+    left: 20
+  },
+  padding: {
+    top: 10,
+    right: 10,
+    bottom: 10,
+    left: 10
+  }
+};
+
+export const DEFAULT_CHART_POSITION: ChartPosition = {
+  x: 0,
+  y: 0,
+  width: 6,
+  height: 4,
+  minWidth: 2,
+  minHeight: 2
+};
+
+export const DEFAULT_CHART_CONFIG: Partial<ChartConfiguration> = {
+  animation: {
+    enabled: true,
+    duration: 1000,
+    easing: 'easeInOutQuad'
+  },
+  interactions: {
+    enabled: true,
+    tooltip: true
+  },
+  legend: {
+    show: true,
+    position: 'bottom',
+    orient : 'horizontal',
+    align: 'center'
+  }
+};
+
+export const SUPPORTED_EXPORT_FORMATS: ExportFormat[] = [
+  'png', 'svg', 'pdf', 'json', 'csv', 'excel'
+];
+
+export type ChartStatus = 'draft' | 'active' | 'archived' | 'error';
+
+export const CHART_STATUS_COLORS: Record<ChartStatus, string> = {
+  draft: '#ff9800',
+  active: '#4caf50',
+  archived: '#757575',
+  error: '#f44336'
+};
 
 // =============================================================================
 // Utility Types and Enums

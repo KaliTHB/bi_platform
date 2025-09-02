@@ -86,6 +86,10 @@ export type {
   WorkspaceInvitation,
 } from './workspace.types';
 
+export type {
+  BuilderChart,
+} from './chart.types';
+
 // =============================================================================
 // Dashboard System Types
 // =============================================================================
