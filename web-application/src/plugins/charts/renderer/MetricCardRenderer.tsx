@@ -1,4 +1,3 @@
-// File: web-application/src/components/charts/MetricCardRenderer.tsx
 'use client';
 
 import React, { useMemo } from 'react';

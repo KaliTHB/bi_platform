@@ -1,7 +1,7 @@
 // File: web-application/src/components/charts/ChartRenderer.tsx
 'use client';
 
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useState, useEffect } from 'react';
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
 import {
   ChartProps,
@@ -11,20 +11,19 @@ import {
   ChartInteractionEvent,
   ChartError
 } from '@/types/chart.types';
-
-// Import specific chart renderers
-import EChartsRenderer from './EChartsRenderer';
-import D3ChartRenderer from './D3ChartRenderer';
-import PlotlyRenderer from './PlotlyRenderer';
-import ChartJSRenderer from './ChartJSRenderer';
-import TableRenderer from './TableRenderer';
-import MetricCardRenderer from './MetricCardRenderer';
+import { ChartRegistry } from '@/plugins/charts/registry/ChartRegistry';
 
 interface ChartRendererProps extends Omit<ChartProps, 'config'> {
   chart: Chart;
   data: any[];
   loading?: boolean;
   error?: string | null;
+  className?: string;
+  style?: React.CSSProperties;
+  onDataPointClick?: (data: any, series?: any) => void;
+  onDataPointHover?: (data: any, series?: any) => void;
+  onLegendClick?: (series?: any) => void;
+  onZoom?: (domain?: any) => void;
 }
 
 export const ChartRenderer: React.FC<ChartRendererProps> = ({
@@ -43,6 +42,10 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
   className,
   style
 }) => {
+  const [ChartComponent, setChartComponent] = useState<React.ComponentType<ChartProps> | null>(null);
+  const [pluginLoading, setPluginLoading] = useState(true);
+  const [pluginError, setPluginError] = useState<string | null>(null);
+
   // Ensure dimensions have proper defaults with margin support
   const chartDimensions: ChartDimensions = useMemo(() => ({
     width: dimensions?.width || chart.config_json?.dimensions?.width || 400,
@@ -67,6 +70,53 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
     dimensions: chartDimensions,
     theme: theme || chart.config_json?.theme
   }), [chart.config_json, chartDimensions, theme]);
+
+  // ✅ DYNAMIC PLUGIN LOADING FROM REGISTRY
+  useEffect(() => {
+    const loadChartPlugin = async () => {
+      setPluginLoading(true);
+      setPluginError(null);
+
+      try {
+        // Initialize registry if not already done
+        await ChartRegistry.initialize();
+
+        // Get chart type from config
+        const chartType = chart.chart_type || chart.config_json?.chartType;
+        const chartLibrary = chart.config_json?.library || 'echarts';
+        
+        // Try specific chart first, then fallback to library renderer
+        const pluginKey = `${chartLibrary}-${chartType}` || `${chartLibrary}-renderer`;
+        
+        console.log(`Loading chart plugin: ${pluginKey}`);
+        
+        // Get plugin from registry
+        let plugin = ChartRegistry.getPlugin(pluginKey);
+        
+        // Fallback to main renderer if specific chart not found
+        if (!plugin) {
+          const fallbackKey = `${chartLibrary}-renderer`;
+          plugin = ChartRegistry.getPlugin(fallbackKey);
+          console.log(`Using fallback renderer: ${fallbackKey}`);
+        }
+
+        if (plugin && plugin.component) {
+          setChartComponent(() => plugin.component);
+          console.log(`✅ Loaded chart component: ${plugin.displayName}`);
+        } else {
+          throw new Error(`Chart plugin not found: ${pluginKey}`);
+        }
+
+      } catch (error) {
+        console.error('Failed to load chart plugin:', error);
+        setPluginError(error instanceof Error ? error.message : 'Failed to load chart plugin');
+      } finally {
+        setPluginLoading(false);
+      }
+    };
+
+    loadChartPlugin();
+  }, [chart.chart_type, chart.config_json?.chartType, chart.config_json?.library]);
 
   // Handle chart errors
   const handleChartError = useCallback((errorInfo: ChartError | string) => {
@@ -122,7 +172,62 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
     };
   }, [chartDimensions]);
 
-  // Render loading state
+  // Render plugin loading state
+  if (pluginLoading) {
+    return (
+      <Box
+        className={className}
+        style={style}
+        sx={{
+          width: chartDimensions.width,
+          height: chartDimensions.height,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '1px dashed #ccc',
+          borderRadius: 1
+        }}
+      >
+        <Box textAlign="center">
+          <CircularProgress size={30} />
+          <Typography variant="body2" sx={{ mt: 1 }}>
+            Loading chart plugin...
+          </Typography>
+        </Box>
+      </Box>
+    );
+  }
+
+  // Render plugin error state
+  if (pluginError) {
+    return (
+      <Box
+        className={className}
+        style={style}
+        sx={{
+          width: chartDimensions.width,
+          height: chartDimensions.height,
+          p: 2
+        }}
+      >
+        <Alert severity="error" sx={{ height: '100%', display: 'flex', alignItems: 'center' }}>
+          <Box>
+            <Typography variant="subtitle2" gutterBottom>
+              Failed to load chart plugin
+            </Typography>
+            <Typography variant="body2">
+              {pluginError}
+            </Typography>
+            <Typography variant="caption" sx={{ mt: 1, display: 'block' }}>
+              Chart Type: {chart.chart_type || 'unknown'} | Library: {chart.config_json?.library || 'unknown'}
+            </Typography>
+          </Box>
+        </Alert>
+      </Box>
+    );
+  }
+
+  // Render data loading state
   if (loading) {
     return (
       <Box
@@ -148,7 +253,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
     );
   }
 
-  // Render error state
+  // Render data error state
   if (error) {
     return (
       <Box
@@ -199,7 +304,9 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
 
   // Common props for all chart renderers
   const commonProps: ChartProps = {
+    chart,
     data,
+    columns: chart.columns || [],
     config: chartConfig,
     dimensions: chartDimensions,
     theme,
@@ -209,61 +316,55 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
     style
   };
 
-  // Render the appropriate chart component based on chart type and library
-  const getChartLibrary = () => {
-    // Extract library from chart type or config
-    return chart.config_json?.library || 'echarts';
-  };
+  // ✅ RENDER DYNAMICALLY LOADED COMPONENT
+  if (ChartComponent) {
+    return (
+      <Box
+        className={className}
+        style={style}
+        sx={{
+          width: chartDimensions.width,
+          height: chartDimensions.height,
+          position: 'relative',
+          ...chartDimensions.margin && {
+            '& > *': {
+              margin: `${chartDimensions.margin.top}px ${chartDimensions.margin.right}px ${chartDimensions.margin.bottom}px ${chartDimensions.margin.left}px`
+            }
+          }
+        }}
+      >
+        <ChartComponent {...commonProps} />
+        
+        {/* Debug info in development */}
+        {process.env.NODE_ENV === 'development' && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              fontSize: '10px',
+              background: 'rgba(0,0,0,0.7)',
+              color: 'white',
+              p: 0.5,
+              borderRadius: '0 0 0 4px',
+              zIndex: 1000,
+              display: 'none',
+              '&:hover': { display: 'block' }
+            }}
+          >
+            <div>Chart: {chart.id}</div>
+            <div>Type: {chart.chart_type}</div>
+            <div>Library: {chart.config_json?.library}</div>
+            <div>Dimensions: {chartDimensions.width}×{chartDimensions.height}</div>
+            <div>Inner: {innerDimensions.width}×{innerDimensions.height}</div>
+            <div>Data Points: {data.length}</div>
+          </Box>
+        )}
+      </Box>
+    );
+  }
 
-  const renderChart = () => {
-    const library = getChartLibrary();
-    
-    try {
-      switch (library) {
-        case 'echarts':
-          return <EChartsRenderer {...commonProps} />;
-        
-        case 'd3js':
-          return <D3ChartRenderer {...commonProps} />;
-        
-        case 'plotly':
-          return <PlotlyRenderer {...commonProps} />;
-        
-        case 'chartjs':
-          return <ChartJSRenderer {...commonProps} />;
-        
-        case 'table':
-          return (
-            <TableRenderer
-              data={data}
-              columns={chart.config_json?.columns || []}
-              dimensions={chartDimensions}
-              maxRows={chart.config_json?.maxRows || 100}
-            />
-          );
-        
-        case 'metric':
-          return (
-            <MetricCardRenderer
-              data={data}
-              config={chartConfig}
-              dimensions={chartDimensions}
-            />
-          );
-        
-        default:
-          throw new Error(`Unsupported chart library: ${library}`);
-      }
-    } catch (renderError) {
-      handleChartError(renderError instanceof Error ? renderError.message : 'Unknown render error');
-      return (
-        <Alert severity="error" sx={{ m: 2 }}>
-          Failed to render chart: {renderError instanceof Error ? renderError.message : 'Unknown error'}
-        </Alert>
-      );
-    }
-  };
-
+  // Fallback if no component loaded
   return (
     <Box
       className={className}
@@ -271,40 +372,16 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
       sx={{
         width: chartDimensions.width,
         height: chartDimensions.height,
-        position: 'relative',
-        ...chartDimensions.margin && {
-          '& > *': {
-            margin: `${chartDimensions.margin.top}px ${chartDimensions.margin.right}px ${chartDimensions.margin.bottom}px ${chartDimensions.margin.left}px`
-          }
-        }
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        border: '1px dashed #ccc',
+        borderRadius: 1
       }}
     >
-      {renderChart()}
-      
-      {/* Debug info in development */}
-      {process.env.NODE_ENV === 'development' && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 0,
-            right: 0,
-            fontSize: '10px',
-            background: 'rgba(0,0,0,0.7)',
-            color: 'white',
-            p: 0.5,
-            borderRadius: '0 0 0 4px',
-            zIndex: 1000,
-            display: 'none',
-            '&:hover': { display: 'block' }
-          }}
-        >
-          <div>Chart: {chart.id}</div>
-          <div>Type: {chart.chart_type}</div>
-          <div>Dimensions: {chartDimensions.width}×{chartDimensions.height}</div>
-          <div>Inner: {innerDimensions.width}×{innerDimensions.height}</div>
-          <div>Data Points: {data.length}</div>
-        </Box>
-      )}
+      <Typography variant="body2" color="text.secondary">
+        Chart component not available
+      </Typography>
     </Box>
   );
 };

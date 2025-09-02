@@ -47,6 +47,40 @@ export class ChartRegistry {
           importFn: () => import('../echarts/ParallelChart').then(m => m.EChartsParallelChartConfig || m.default?.config)
         },
         
+        // Chart.js components - FIXED: Use DoughnutChart instead of PieChart
+        { 
+          name: 'chartjs-bar',
+          importFn: () => import('../chartjs/BarChart').then(m => m.ChartJSBarConfig || m.default?.config)
+        },
+        { 
+          name: 'chartjs-line',
+          importFn: () => import('../chartjs/LineChart').then(m => m.ChartJSLineConfig || m.default?.config)
+        },
+        { 
+          name: 'chartjs-doughnut', // Changed from 'chartjs-pie' to 'chartjs-doughnut'
+          importFn: () => import('../chartjs/DoughnutChart').then(m => m.ChartJSDoughnutConfig || m.default?.config) // Changed to DoughnutChart
+        },
+        { 
+          name: 'chartjs-radar',
+          importFn: () => import('../chartjs/RadarChart').then(m => m.ChartJSRadarConfig || m.default?.config)
+        },
+        { 
+          name: 'chartjs-polar',
+          importFn: () => import('../chartjs/PolarChart').then(m => m.ChartJSPolarConfig || m.default?.config)
+        },
+        { 
+          name: 'chartjs-bubble',
+          importFn: () => import('../chartjs/BubbleChart').then(m => m.ChartJSBubbleConfig || m.default?.config)
+        },
+        { 
+          name: 'chartjs-scatter',
+          importFn: () => import('../chartjs/ScatterChart').then(m => m.ChartJSScatterConfig || m.default?.config)
+        },
+        { 
+          name: 'chartjs-mixed',
+          importFn: () => import('../chartjs/MixedChart').then(m => m.ChartJSMixedConfig || m.default?.config)
+        },
+        
         // Plotly components
         { 
           name: 'plotly-surface3d',

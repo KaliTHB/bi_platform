@@ -1,4 +1,3 @@
-// File: web-application/src/components/charts/PlotlyRenderer.tsx
 'use client';
 
 import React, { useEffect, useRef, useMemo, useCallback } from 'react';

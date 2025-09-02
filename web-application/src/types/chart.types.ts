@@ -843,6 +843,14 @@ export interface ChartProps {
   filters?: ChartFilter[];
   loading?: boolean;
   error?: ChartError;
+
+  // ✅ ADD THESE MISSING PROPERTIES:
+  className?: string;
+  style?: React.CSSProperties;
+  
+  // Additional common props that might be needed
+  id?: string;
+  'data-testid'?: string;
   
   // Event handlers
   onInteraction?: (event: ChartInteractionEvent) => void;

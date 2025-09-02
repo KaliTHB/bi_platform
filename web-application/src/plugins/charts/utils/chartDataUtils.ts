@@ -7,7 +7,7 @@ import { ChartData, ChartConfigSchema , SchemaProperty } from '@/types/chart.typ
  * Type guard to check if data is ChartData format
  */
 export const isChartData = (data: any[] | ChartData | undefined): data is ChartData => {
-  return !!(data && typeof data === 'object' && 'rows' in data && Array.isArray(data.rows));
+  return !!(data && typeof data === 'object' && 'data' in data && Array.isArray(data.data));
 };
 
 /**
@@ -16,7 +16,7 @@ export const isChartData = (data: any[] | ChartData | undefined): data is ChartD
 export const getDataArray = (data: any[] | ChartData | undefined): any[] => {
   if (!data) return [];
   if (isChartData(data)) {
-    return data.rows;
+    return data.data; // ✅ Fixed: was data.rows
   }
   return Array.isArray(data) ? data : [];
 };
@@ -76,9 +76,9 @@ export const normalizeChartData = (data: any[] | ChartData): any[] => {
     return data;
   }
   
-  // If it's ChartData format, return the rows
-  if (data && typeof data === 'object' && 'rows' in data) {
-    return (data as ChartData).rows;
+  // If it's ChartData format, return the data array
+  if (data && typeof data === 'object' && 'data' in data) {
+    return (data as ChartData).data; // ✅ Fixed: was data.rows
   }
   
   // Fallback to empty array
@@ -95,8 +95,8 @@ export const isChartDataEmpty = (data: any[] | ChartData | null | undefined): bo
     return data.length === 0;
   }
   
-  if (typeof data === 'object' && 'rows' in data) {
-    return !data.rows || data.rows.length === 0;
+  if (typeof data === 'object' && 'data' in data) {
+    return !data.data || data.data.length === 0; // ✅ Fixed: was data.rows
   }
   
   return true;
@@ -112,8 +112,8 @@ export const getChartDataLength = (data: any[] | ChartData | null | undefined): 
     return data.length;
   }
   
-  if (typeof data === 'object' && 'rows' in data) {
-    return data.rows ? data.rows.length : 0;
+  if (typeof data === 'object' && 'data' in data) {
+    return data.data ? data.data.length : 0; // ✅ Fixed: was data.rows
   }
   
   return 0;
@@ -191,8 +191,8 @@ export const createChartConfig = (
 export const isChartDataFormat = (data: any): data is ChartData => {
   return data && 
          typeof data === 'object' && 
-         'rows' in data && 
-         Array.isArray(data.rows);
+         'data' in data && // ✅ Fixed: was 'rows'
+         Array.isArray(data.data); // ✅ Fixed: was data.rows
 };
 
 /**

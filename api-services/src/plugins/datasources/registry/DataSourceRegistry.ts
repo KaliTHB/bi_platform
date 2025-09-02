@@ -4,15 +4,15 @@ import { logger } from '../../../utils/logger';
 
 // Import plugins by category
 // Relational Database Plugins
-import { postgresPlugin } from '../relational/postgres';
-import { mysqlPlugin } from '../relational/mysql';
+import { PostgreSQLPlugin } from '../relational/postgres';
+import { MySQLPlugin } from '../relational/mysql';
 import { mariadbPlugin } from '../relational/mariadb';
 import { mssqlPlugin } from '../relational/mssql';
 import { oraclePlugin } from '../relational/oracle';
 import { sqlitePlugin } from '../relational/sqlite';
 
 // Cloud Database Plugins
-import { mongodbPlugin } from '../cloud_databases/mongodb';
+import { MongoDBPlugin } from '../cloud_databases/mongodb';
 import { bigqueryPlugin } from '../cloud_databases/bigquery';
 import { snowflakePlugin } from '../cloud_databases/snowflake';
 import { athenaPlugin } from '../cloud_databases/athena';

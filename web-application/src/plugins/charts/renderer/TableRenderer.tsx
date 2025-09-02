@@ -1,4 +1,3 @@
-// web-application/src/components/charts/TableRenderer.tsx
 import React, { useState, useMemo } from 'react';
 import {
   Table,
