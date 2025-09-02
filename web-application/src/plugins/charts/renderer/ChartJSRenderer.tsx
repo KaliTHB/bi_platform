@@ -171,7 +171,6 @@ export const ChartJSRenderer: React.FC<ChartProps> = ({
           }];
         }
       }
-
       // Chart.js configuration
       const chartJSConfig = {
         type: chartType,

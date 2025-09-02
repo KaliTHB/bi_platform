@@ -17,7 +17,6 @@ interface ChartRendererProps extends Omit<ChartProps, 'config'> {
   chart: Chart;
   data: any[];
   loading?: boolean;
-  error?: string | null;
   className?: string;
   style?: React.CSSProperties;
   onDataPointClick?: (data: any, series?: any) => void;
@@ -100,12 +99,13 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
           console.log(`Using fallback renderer: ${fallbackKey}`);
         }
 
-        if (plugin && plugin.component) {
-          setChartComponent(() => plugin.component);
-          console.log(`✅ Loaded chart component: ${plugin.displayName}`);
-        } else {
-          throw new Error(`Chart plugin not found: ${pluginKey}`);
-        }
+       if (plugin?.component) {
+  const validPlugin = plugin; // TypeScript now knows this is not undefined
+  setChartComponent(() => validPlugin.component);
+  console.log(`✅ Loaded chart component: ${validPlugin.displayName}`);
+} else {
+  throw new Error(`Chart plugin not found: ${pluginKey}`);
+}
 
       } catch (error) {
         console.error('Failed to load chart plugin:', error);
@@ -150,7 +150,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
       case 'hover':
         onDataPointHover?.(event.data, event.data?.series);
         break;
-      case 'legend-click':
+      case 'select':
         onLegendClick?.(event.data?.series);
         break;
       case 'zoom':
