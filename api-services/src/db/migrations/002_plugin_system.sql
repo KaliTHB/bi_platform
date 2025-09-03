@@ -167,7 +167,7 @@ END $$;
 -- Create default super admin user (password: admin123)
 INSERT INTO users (email, password_hash, first_name, last_name, role, is_active, email_verified)
 VALUES (
-    'admin@system.local',
+    'admin@localhost.com',
     '$2b$12$2EXOOGy6DG5aG9ZWJYzNHhQzEu7.D1K1p/a0dL8fyeXHgYgLdGe5',  -- This should be the actual hash
     'System',
     'Administrator', 

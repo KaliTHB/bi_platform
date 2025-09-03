@@ -201,7 +201,7 @@ export default function LoginPage() {
             {process.env.NODE_ENV === 'development' && (
               <Box sx={{ textAlign: 'center', mt: 2, p: 1, bgcolor: 'grey.100', borderRadius: 1 }}>
                 <Typography variant="caption" color="text.secondary">
-                  Development: Try <strong>admin@system.local</strong> / <strong>admin123</strong>
+                  Development: Try <strong>admin@localhost.com</strong> / <strong>admin123</strong>
                 </Typography>
               </Box>
             )}

@@ -2,20 +2,19 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
+import { JWTPayload, AuthUserData } from '../types/auth.types';
 
-export interface AuthenticatedRequest extends Request {
-  user?: {
-    user_id: string;
-    workspace_id?: string;
-    email: string;
-    first_name: string;
-    last_name: string;
-    roles?: string[];
-  };
+// Extend Request interface for this module
+declare global {
+  namespace Express {
+    interface Request {
+      user?: AuthUserData;
+    }
+  }
 }
 
 export const authenticate = async (
-  req: AuthenticatedRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
@@ -49,24 +48,22 @@ export const authenticate = async (
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-fallback-secret') as any;
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-fallback-secret') as JWTPayload;
       
-      // Mock user data - replace with actual user lookup
-      const user = {
-        user_id: decoded.user_id || decoded.sub || '1',
-        email: decoded.email || 'user@example.com',
-        first_name: decoded.first_name || 'Test',
+      // Set user data on request
+      req.user = {
+        user_id: decoded.user_id,
+        email: decoded.email,
+        first_name: decoded.first_name || 'Unknown',
         last_name: decoded.last_name || 'User',
         workspace_id: decoded.workspace_id,
         roles: decoded.roles || []
       };
-
-      req.user = user;
       
       logger.debug('User authenticated', {
-        user_id: user.user_id,
-        email: user.email,
-        workspace_id: user.workspace_id
+        user_id: req.user.user_id,
+        email: req.user.email,
+        workspace_id: req.user.workspace_id
       });
       
       next();
@@ -102,5 +99,22 @@ export const authenticate = async (
   }
 };
 
-// Export as default as well for compatibility
+// Helper function to generate JWT tokens
+export const generateToken = (payload: Omit<JWTPayload, 'iat' | 'exp'>): string => {
+  return jwt.sign(
+    payload,
+    process.env.JWT_SECRET || 'your-jwt-secret',
+    { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+  );
+};
+
+// Helper function to verify JWT tokens
+export const verifyToken = (token: string): JWTPayload | null => {
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET || 'your-jwt-secret') as JWTPayload;
+  } catch {
+    return null;
+  }
+};
+
 export default authenticate;

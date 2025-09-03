@@ -1,42 +1,69 @@
-// File: api-services/src/services/DatabaseService.ts
-
-import { Pool, PoolClient } from 'pg';
+// api-services/src/services/DatabaseService.ts
+import { Pool, PoolClient, QueryResult } from 'pg';
+import { databaseConfig } from '../config/database';
+import { logger } from '../utils/logger';
 
 export class DatabaseService {
   private pool: Pool;
+  private static instance: DatabaseService;
 
-  constructor() {
-    this.pool = new Pool({
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT || '5432'),
-      database: process.env.DB_NAME || 'bi_platform',
-      user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'password',
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
+  constructor(customConfig?: any) {
+    // Use custom config if provided, otherwise use default config
+    const config = customConfig || databaseConfig;
+    this.pool = new Pool(config);
+    this.setupEventHandlers();
+  }
+
+  // Singleton pattern for shared instance
+  public static getInstance(): DatabaseService {
+    if (!DatabaseService.instance) {
+      DatabaseService.instance = new DatabaseService();
+    }
+    return DatabaseService.instance;
+  }
+
+  private setupEventHandlers(): void {
+    // Handle pool errors
+    this.pool.on('error', (err) => {
+      logger.error('Unexpected error on idle client', err);
+    });
+
+    this.pool.on('connect', (client) => {
+      logger.debug('Database client connected');
+    });
+
+    this.pool.on('remove', (client) => {
+      logger.debug('Database client removed');
     });
   }
 
-  async query(text: string, params?: any[]) {
+  async query<T = any>(text: string, params?: any[]): Promise<QueryResult<T>> {
     const start = Date.now();
     try {
-      const res = await this.pool.query(text, params);
+      const result = await this.pool.query<T>(text, params);
       const duration = Date.now() - start;
       
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Executed query', { text, duration, rows: res.rowCount });
-      }
+      logger.debug('Database query executed', {
+        query: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+        duration,
+        rows: result.rowCount
+      });
       
-      return res;
+      return result;
     } catch (error) {
-      console.error('Database query error:', error);
+      const duration = Date.now() - start;
+      logger.error('Database query error', {
+        query: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+        params: params?.length ? '[' + params.length + ' params]' : undefined,
+        duration,
+        error: error instanceof Error ? error.message : error
+      });
       throw error;
     }
   }
 
   async getClient(): Promise<PoolClient> {
-    return this.pool.connect();
+    return await this.pool.connect();
   }
 
   async transaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -55,7 +82,25 @@ export class DatabaseService {
     }
   }
 
-  async close() {
+  async healthCheck(): Promise<boolean> {
+    try {
+      const result = await this.query('SELECT 1 as health');
+      return result.rows.length > 0;
+    } catch (error) {
+      logger.error('Database health check failed:', error);
+      return false;
+    }
+  }
+
+  async close(): Promise<void> {
     await this.pool.end();
   }
+
+  getPool(): Pool {
+    return this.pool;
+  }
 }
+
+// Create and export a default instance for convenience
+export const db = DatabaseService.getInstance();
+export default db;
