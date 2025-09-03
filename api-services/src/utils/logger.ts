@@ -1,11 +1,9 @@
 // File: api-services/src/utils/logger.ts
 import winston from 'winston';
-import path from 'path';
 
 const logLevel = process.env.LOG_LEVEL || 'info';
-const logDir = process.env.LOG_DIR || 'logs';
 
-// Create logger instance
+// Create logger instance - console only
 const logger = winston.createLogger({
   level: logLevel,
   format: winston.format.combine(
@@ -13,42 +11,18 @@ const logger = winston.createLogger({
       format: 'YYYY-MM-DD HH:mm:ss'
     }),
     winston.format.errors({ stack: true }),
-    winston.format.json(),
+    winston.format.colorize(),
     winston.format.printf(({ timestamp, level, message, ...meta }) => {
-      return JSON.stringify({
-        timestamp,
-        level,
-        message,
-        ...meta
-      });
+      const metaString = Object.keys(meta).length ? JSON.stringify(meta, null, 2) : '';
+      return `${timestamp} [${level}]: ${message} ${metaString}`;
     })
   ),
   defaultMeta: { service: 'bi-platform-api' },
   transports: [
-    // Write to all logs with level `info` and below to `combined.log`
-    new winston.transports.File({ 
-      filename: path.join(logDir, 'error.log'), 
-      level: 'error' 
-    }),
-    new winston.transports.File({ 
-      filename: path.join(logDir, 'combined.log') 
-    }),
+    // Only console transport - no file logging
+    new winston.transports.Console()
   ],
 });
-
-// If we're not in production, log to the console with simple format
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({
-    format: winston.format.combine(
-      winston.format.colorize(),
-      winston.format.simple(),
-      winston.format.printf(({ timestamp, level, message, ...meta }) => {
-        const metaString = Object.keys(meta).length ? JSON.stringify(meta, null, 2) : '';
-        return `${timestamp} [${level}]: ${message} ${metaString}`;
-      })
-    )
-  }));
-}
 
 // Audit logging function
 export const logAudit = (action: string, resourceType: string, resourceId: string, userId: string, details?: any) => {
