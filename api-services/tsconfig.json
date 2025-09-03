@@ -36,7 +36,8 @@
       "@/routes/*": ["src/routes/*"],
       "@/services/*": ["src/services/*"],
       "@/types/*": ["src/types/*"],
-      "@/utils/*": ["src/utils/*"]
+      "@/utils/*": ["src/utils/*"],
+      "@/validators":["src/validators/*"]
     },
     "types": ["node", "jest"],
     "typeRoots": ["./node_modules/@types", "./src/types"]

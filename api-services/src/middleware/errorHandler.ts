@@ -1,7 +1,17 @@
-// api-services/src/middleware/errorHandler.ts
+// File: api-services/src/middleware/errorHandler.ts
 import { Request, Response, NextFunction } from 'express';
-import { AuthenticatedRequest } from './authentication';
 import { logger } from '../utils/logger';
+
+// Interface for authenticated requests
+export interface AuthenticatedRequest extends Request {
+  user?: {
+    user_id?: string;
+    id?: string;
+    workspace_id?: string;
+    roles?: string[];
+    email?: string;
+  };
+}
 
 interface ApiError {
   code: string;
@@ -96,6 +106,53 @@ export function asyncHandler(
 }
 
 /**
+ * Generate a unique request ID
+ */
+function generateRequestId(): string {
+  return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+/**
+ * Sanitize request body for logging (remove sensitive data)
+ */
+function sanitizeBody(body: any): any {
+  if (!body || typeof body !== 'object') {
+    return body;
+  }
+
+  const sensitiveFields = [
+    'password', 'token', 'secret', 'key', 'authorization',
+    'client_secret', 'refresh_token', 'access_token', 'api_key'
+  ];
+
+  const sanitized = { ...body };
+
+  function sanitizeObject(obj: any): any {
+    if (!obj || typeof obj !== 'object') {
+      return obj;
+    }
+
+    const result: any = Array.isArray(obj) ? [] : {};
+
+    for (const [key, value] of Object.entries(obj)) {
+      const lowerKey = key.toLowerCase();
+      
+      if (sensitiveFields.some(field => lowerKey.includes(field))) {
+        result[key] = '[REDACTED]';
+      } else if (typeof value === 'object' && value !== null) {
+        result[key] = sanitizeObject(value);
+      } else {
+        result[key] = value;
+      }
+    }
+
+    return result;
+  }
+
+  return sanitizeObject(sanitized);
+}
+
+/**
  * Global error handling middleware
  * Must be placed after all routes and other middleware
  */
@@ -112,7 +169,7 @@ export function globalErrorHandler(
   // Log the error with context
   const errorContext = {
     request_id: requestId,
-    user_id: req.user?.user_id,
+    user_id: req.user?.user_id || req.user?.id,
     method: req.method,
     path: req.path,
     query: req.query,
@@ -125,7 +182,7 @@ export function globalErrorHandler(
   // Different logging levels based on error type
   if (error instanceof AppError && error.isOperational) {
     if (error.statusCode >= 500) {
-      logger.error('Operational error occurred', {
+      logger.error('💥 Operational error occurred', {
         ...errorContext,
         error: {
           name: error.name,
@@ -136,7 +193,7 @@ export function globalErrorHandler(
         }
       });
     } else {
-      logger.warn('Client error occurred', {
+      logger.warn('⚠️  Client error occurred', {
         ...errorContext,
         error: {
           name: error.name,
@@ -147,283 +204,125 @@ export function globalErrorHandler(
       });
     }
   } else {
-    // Unexpected error
-    logger.error('Unexpected error occurred', {
+    // Programming errors or unexpected errors
+    logger.error('💀 Unexpected error occurred', {
       ...errorContext,
       error: {
         name: error.name || 'UnknownError',
-        message: error.message,
+        message: error.message || 'An unexpected error occurred',
         stack: error.stack
       }
     });
   }
 
-  // Build error response
+  // Don't send error details in production
+  const isDevelopment = process.env.NODE_ENV === 'development';
+
+  // Prepare error response
+  let errorResponse: ErrorResponse;
+
+  if (error instanceof AppError && error.isOperational) {
+    // Known operational errors
+    errorResponse = {
+      success: false,
+      message: error.message,
+      errors: [{
+        code: error.code,
+        message: error.message,
+        details: isDevelopment ? error.details : undefined,
+        field: error instanceof ValidationError ? error.field : undefined
+      }],
+      request_id: requestId,
+      timestamp: new Date().toISOString(),
+      path: req.path,
+      method: req.method
+    };
+
+    res.status(error.statusCode).json(errorResponse);
+  } else {
+    // Unknown errors - don't leak information
+    errorResponse = {
+      success: false,
+      message: isDevelopment ? error.message : 'Internal server error',
+      errors: [{
+        code: 'INTERNAL_SERVER_ERROR',
+        message: isDevelopment ? error.message : 'An internal error occurred',
+        details: isDevelopment ? error.stack : undefined
+      }],
+      request_id: requestId,
+      timestamp: new Date().toISOString(),
+      path: req.path,
+      method: req.method
+    };
+
+    res.status(500).json(errorResponse);
+  }
+}
+
+/**
+ * Handle 404 errors for routes that don't exist
+ */
+export function notFoundHandler(req: Request, res: Response): void {
+  const requestId = req.headers['x-request-id'] as string || generateRequestId();
+
+  logger.warn('🔍 Route not found', {
+    request_id: requestId,
+    method: req.method,
+    path: req.path,
+    ip: req.ip,
+    user_agent: req.get('User-Agent')
+  });
+
   const errorResponse: ErrorResponse = {
     success: false,
-    message: getErrorMessage(error),
-    errors: formatErrors(error),
+    message: `Route ${req.method} ${req.path} not found`,
+    errors: [{
+      code: 'ROUTE_NOT_FOUND',
+      message: `The requested route ${req.method} ${req.path} does not exist`
+    }],
     request_id: requestId,
     timestamp: new Date().toISOString(),
     path: req.path,
     method: req.method
   };
 
-  // Send error response
-  const statusCode = getStatusCode(error);
-  res.status(statusCode).json(errorResponse);
+  res.status(404).json(errorResponse);
 }
 
-/**
- * 404 handler for undefined routes
- */
-export function notFoundHandler(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): void {
-  const error = new NotFoundError(
-    `Route ${req.method} ${req.path} not found`,
-    { 
-      method: req.method,
-      path: req.path,
-      available_endpoints: 'Check /api/docs for available endpoints'
-    }
-  );
-  
-  next(error);
+// Additional error handling utilities
+export function createValidationErrors(errors: Array<{ field: string; message: string; code?: string }>): ValidationError[] {
+  return errors.map(error => new ValidationError(error.message, error.field));
 }
 
-/**
- * Request timeout handler
- */
-export function timeoutHandler(timeout: number = 30000) {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    // Set request timeout
-    req.setTimeout(timeout, () => {
-      const error = new AppError(
-        'Request timeout',
-        408,
-        'REQUEST_TIMEOUT',
-        { timeout_ms: timeout }
-      );
-      next(error);
-    });
-
-    // Set response timeout
-    res.setTimeout(timeout, () => {
-      if (!res.headersSent) {
-        const error = new AppError(
-          'Response timeout',
-          504,
-          'RESPONSE_TIMEOUT',
-          { timeout_ms: timeout }
-        );
-        next(error);
-      }
-    });
-
-    next();
-  };
-}
-
-/**
- * Rate limiting error handler
- */
-export function rateLimitErrorHandler(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): void {
-  const error = new RateLimitError(
-    'Too many requests from this IP, please try again later',
-    {
-      ip: req.ip,
-      reset_time: new Date(Date.now() + 60 * 60 * 1000).toISOString()
-    }
-  );
-  
-  next(error);
-}
-
-// Helper functions
-
-function getErrorMessage(error: any): string {
-  if (error instanceof AppError) {
-    return error.message;
-  }
-
-  // Handle common error types
-  if (error.name === 'ValidationError') {
-    return 'Validation failed';
+export function handleDatabaseError(error: any): AppError {
+  // Handle common database errors
+  if (error.code === '23505') { // Unique constraint violation
+    return new ConflictError('Resource already exists');
   }
   
-  if (error.name === 'CastError') {
-    return 'Invalid data format';
+  if (error.code === '23503') { // Foreign key constraint violation
+    return new ValidationError('Invalid reference to related resource');
   }
   
-  if (error.name === 'JsonWebTokenError') {
-    return 'Invalid authentication token';
-  }
-  
-  if (error.name === 'TokenExpiredError') {
-    return 'Authentication token expired';
+  if (error.code === '23502') { // Not null constraint violation
+    return new ValidationError('Required field is missing');
   }
 
-  if (error.code === 'ECONNREFUSED') {
-    return 'Database connection failed';
-  }
-
-  // Default message for unknown errors
-  return process.env.NODE_ENV === 'production' 
-    ? 'Internal server error'
-    : error.message || 'Unknown error occurred';
+  // Generic database error
+  return new AppError('Database error occurred', 500, 'DATABASE_ERROR');
 }
 
-function getStatusCode(error: any): number {
-  if (error instanceof AppError) {
-    return error.statusCode;
-  }
-
-  // Handle common error types
-  if (error.name === 'ValidationError') {
-    return 400;
-  }
-  
-  if (error.name === 'CastError') {
-    return 400;
-  }
-  
-  if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
-    return 401;
-  }
-
-  if (error.code === 'ECONNREFUSED') {
-    return 503;
-  }
-
-  // Default to 500 for unknown errors
-  return 500;
-}
-
-function formatErrors(error: any): ApiError[] {
-  const errors: ApiError[] = [];
-
-  if (error instanceof AppError) {
-    errors.push({
-      code: error.code,
-      message: error.message,
-      details: error.details,
-      field: error instanceof ValidationError ? error.field : undefined
-    });
-  } else if (error.name === 'ValidationError' && error.errors) {
-    // Handle mongoose validation errors
-    Object.keys(error.errors).forEach(field => {
-      const fieldError = error.errors[field];
-      errors.push({
-        code: 'VALIDATION_ERROR',
-        message: fieldError.message,
-        field: field,
-        path: fieldError.path
-      });
-    });
-  } else {
-    // Generic error
-    errors.push({
-      code: error.code || 'UNKNOWN_ERROR',
-      message: error.message || 'An unknown error occurred',
-      details: process.env.NODE_ENV === 'development' ? {
-        stack: error.stack,
-        name: error.name
-      } : undefined
-    });
-  }
-
-  return errors;
-}
-
-function sanitizeBody(body: any): any {
-  if (!body || typeof body !== 'object') {
-    return body;
-  }
-
-  const sanitized = { ...body };
-  
-  // Remove sensitive fields from logging
-  const sensitiveFields = [
-    'password',
-    'token',
-    'secret',
-    'apiKey',
-    'api_key',
-    'authorization',
-    'auth_token',
-    'access_token',
-    'refresh_token'
-  ];
-
-  sensitiveFields.forEach(field => {
-    if (sanitized[field]) {
-      sanitized[field] = '***REDACTED***';
-    }
-  });
-
-  return sanitized;
-}
-
-function generateRequestId(): string {
-  return Math.random().toString(36).substring(2, 15) + 
-         Math.random().toString(36).substring(2, 15);
-}
-
-/**
- * Validation helper functions
- */
-export function validateRequired(value: any, fieldName: string): void {
-  if (value === undefined || value === null || value === '') {
-    throw new ValidationError(`${fieldName} is required`, fieldName);
-  }
-}
-
-export function validateEmail(email: string, fieldName: string = 'email'): void {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email)) {
-    throw new ValidationError(`${fieldName} must be a valid email address`, fieldName);
-  }
-}
-
-export function validateLength(
-  value: string,
-  min: number,
-  max: number,
-  fieldName: string
-): void {
-  if (value.length < min || value.length > max) {
-    throw new ValidationError(
-      `${fieldName} must be between ${min} and ${max} characters`,
-      fieldName,
-      { min, max, current_length: value.length }
-    );
-  }
-}
-
-export function validateUUID(value: string, fieldName: string): void {
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(value)) {
-    throw new ValidationError(`${fieldName} must be a valid UUID`, fieldName);
-  }
-}
-
-export function validateEnum(
-  value: string,
-  allowedValues: string[],
-  fieldName: string
-): void {
-  if (!allowedValues.includes(value)) {
-    throw new ValidationError(
-      `${fieldName} must be one of: ${allowedValues.join(', ')}`,
-      fieldName,
-      { allowed_values: allowedValues }
-    );
-  }
-}
+export default {
+  globalErrorHandler,
+  notFoundHandler,
+  asyncHandler,
+  AppError,
+  ValidationError,
+  NotFoundError,
+  UnauthorizedError,
+  ForbiddenError,
+  ConflictError,
+  RateLimitError,
+  createValidationErrors,
+  handleDatabaseError
+};

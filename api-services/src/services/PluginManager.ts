@@ -1,9 +1,10 @@
 // File: api-services/src/services/PluginManager.ts
-import * as fs from 'fs';
-import * as path from 'path';
+
+import path from 'path';
+import fs from 'fs';
 import { logger } from '../utils/logger';
 
-// DataSource Plugin Interfaces
+// Interfaces
 export interface DataSourcePlugin {
   name: string;
   displayName: string;
@@ -12,22 +13,7 @@ export interface DataSourcePlugin {
   description?: string;
   author?: string;
   license?: string;
-  
-  // Configuration schema for UI generation
-  configSchema: {
-    [key: string]: {
-      type: 'string' | 'number' | 'boolean' | 'password' | 'select';
-      required?: boolean;
-      default?: any;
-      options?: string[] | { label: string; value: string }[];
-      validation?: RegExp | ((value: any) => boolean);
-      description?: string;
-      placeholder?: string;
-      helpText?: string;
-    };
-  };
-  
-  // Core plugin methods (all required)
+  configSchema: ConfigSchema;
   connect(config: ConnectionConfig): Promise<Connection>;
   testConnection(config: ConnectionConfig): Promise<TestResult>;
   executeQuery(connection: Connection, query: string, params?: any[]): Promise<QueryResult>;
@@ -35,8 +21,6 @@ export interface DataSourcePlugin {
   getTables(connection: Connection, database?: string): Promise<TableInfo[]>;
   getColumns(connection: Connection, table: string): Promise<ColumnInfo[]>;
   disconnect(connection: Connection): Promise<void>;
-  
-  // Optional capabilities
   capabilities?: {
     supportsBulkInsert?: boolean;
     supportsTransactions?: boolean;
@@ -47,15 +31,29 @@ export interface DataSourcePlugin {
   };
 }
 
+export interface ConfigSchema {
+  [key: string]: {
+    type: 'string' | 'number' | 'boolean' | 'password' | 'select' | 'array' | 'object';
+    required?: boolean;
+    default?: any;
+    options?: string[] | { label: string; value: string }[];
+    validation?: RegExp | ((value: any) => boolean);
+    description?: string;
+    placeholder?: string;
+    helpText?: string;
+    group?: string;
+  };
+}
+
 export interface ConnectionConfig {
   [key: string]: any;
 }
 
 export interface Connection {
   id: string;
+  plugin: string;
   config: ConnectionConfig;
-  isConnected: boolean;
-  lastActivity: Date;
+  connected_at: Date;
 }
 
 export interface TestResult {
@@ -66,8 +64,14 @@ export interface TestResult {
 }
 
 export interface QueryResult {
-  rows: any[];
-  columns: ColumnInfo[];
+  data: any[];
+  columns: Array<{
+    name: string;
+    type: string;
+  }>;
+  total_rows: number;
+  execution_time: number;
+  cached?: boolean;
   metadata?: {
     total_rows?: number;
     execution_time?: number;
@@ -106,8 +110,23 @@ export interface ColumnInfo {
  * Chart plugins are handled by frontend ChartFactory
  */
 export class PluginManager {
+  private static instance: PluginManager | null = null;
   private static dataSourcePlugins: Map<string, DataSourcePlugin> = new Map();
   private static initialized = false;
+
+  private constructor() {
+    // Private constructor for singleton pattern
+  }
+
+  /**
+   * Get singleton instance - for backward compatibility
+   */
+  static getInstance(): PluginManager {
+    if (!this.instance) {
+      this.instance = new PluginManager();
+    }
+    return this.instance;
+  }
 
   /**
    * Initialize plugin manager - loads only DataSource plugins
@@ -144,106 +163,79 @@ export class PluginManager {
       return;
     }
 
-    // Get category directories (relational, cloud, etc.)
-    const categoryDirs = fs.readdirSync(pluginsPath, { withFileTypes: true })
-      .filter(dirent => dirent.isDirectory())
-      .map(dirent => dirent.name);
-
-    for (const categoryDir of categoryDirs) {
-      const categoryPath = path.join(pluginsPath, categoryDir);
-      
-      // Get plugin directories within each category
-      const pluginDirs = fs.readdirSync(categoryPath, { withFileTypes: true })
+    try {
+      // Get category directories (relational, cloud, etc.)
+      const categories = fs.readdirSync(pluginsPath, { withFileTypes: true })
         .filter(dirent => dirent.isDirectory())
         .map(dirent => dirent.name);
 
-      for (const pluginDir of pluginDirs) {
+      logger.info(`Found plugin categories: ${categories.join(', ')}`);
+
+      for (const category of categories) {
+        const categoryPath = path.join(pluginsPath, category);
+        
         try {
-          await this.loadDataSourcePlugin(pluginDir, categoryPath, categoryDir);
+          const pluginFiles = fs.readdirSync(categoryPath)
+            .filter(file => file.endsWith('.ts') || file.endsWith('.js'))
+            .filter(file => !file.endsWith('.test.ts') && !file.endsWith('.spec.ts'));
+
+          for (const pluginFile of pluginFiles) {
+            try {
+              const pluginPath = path.join(categoryPath, pluginFile);
+              const pluginModule = require(pluginPath);
+              
+              // Support both default and named exports
+              const plugin = pluginModule.default || pluginModule[Object.keys(pluginModule)[0]];
+              
+              if (plugin && this.validatePlugin(plugin)) {
+                this.dataSourcePlugins.set(plugin.name, plugin);
+                logger.info(`Loaded plugin: ${plugin.name} (${category})`);
+              } else {
+                logger.warn(`Invalid plugin: ${pluginFile}`);
+              }
+            } catch (error) {
+              logger.error(`Failed to load plugin ${pluginFile}:`, error);
+            }
+          }
         } catch (error) {
-          logger.error('Failed to load data source plugin', { 
-            plugin: pluginDir, 
-            category: categoryDir, 
-            error 
-          });
+          logger.error(`Failed to read category directory ${category}:`, error);
         }
       }
-    }
-  }
-
-  /**
-   * Load individual data source plugin
-   */
-  private static async loadDataSourcePlugin(
-    pluginDir: string, 
-    categoryPath: string, 
-    category: string
-  ): Promise<void> {
-    const pluginPath = path.join(categoryPath, pluginDir);
-    const indexPath = path.join(pluginPath, 'index.ts');
-
-    // Check if index file exists
-    if (!fs.existsSync(indexPath)) {
-      throw new Error(`Index file not found for plugin ${pluginDir} at ${indexPath}`);
-    }
-
-    try {
-      // Load plugin module
-      const pluginModule = await import(indexPath);
-      const plugin: DataSourcePlugin = pluginModule.default || pluginModule;
-
-      // Validate plugin interface
-      this.validateDataSourcePlugin(plugin);
-
-      // Set category if not explicitly defined
-      if (!plugin.category) {
-        (plugin as any).category = category;
-      }
-
-      this.dataSourcePlugins.set(plugin.name, plugin);
-      
-      logger.info('Loaded data source plugin', { 
-        name: plugin.name,
-        displayName: plugin.displayName,
-        category: plugin.category,
-        version: plugin.version 
-      });
-
     } catch (error) {
-      logger.error(`Failed to import data source plugin ${pluginDir}:`, error);
-      throw error;
+      logger.error('Failed to load data source plugins:', error);
     }
   }
 
   /**
-   * Validate data source plugin interface
+   * Validate plugin structure
    */
-  private static validateDataSourcePlugin(plugin: any): asserts plugin is DataSourcePlugin {
-    const requiredMethods = [
-      'connect', 'testConnection', 'executeQuery', 
-      'getSchema', 'getTables', 'getColumns', 'disconnect'
-    ];
-
-    const requiredProperties = ['name', 'displayName', 'version', 'configSchema'];
+  private static validatePlugin(plugin: any): boolean {
+    const requiredProperties = ['name', 'displayName', 'category', 'version', 'configSchema'];
+    const requiredMethods = ['connect', 'testConnection', 'executeQuery', 'getSchema', 'getTables', 'getColumns', 'disconnect'];
 
     // Check required properties
     for (const prop of requiredProperties) {
       if (!plugin[prop]) {
-        throw new Error(`Plugin missing required property: ${prop}`);
+        logger.warn(`Plugin missing required property: ${prop}`);
+        return false;
       }
     }
 
     // Check required methods
     for (const method of requiredMethods) {
       if (typeof plugin[method] !== 'function') {
-        throw new Error(`Plugin missing required method: ${method}`);
+        logger.warn(`Plugin missing required method: ${method}`);
+        return false;
       }
     }
 
-    // Validate configSchema
-    if (typeof plugin.configSchema !== 'object' || plugin.configSchema === null) {
-      throw new Error('Plugin configSchema must be an object');
+    // Validate config schema
+    if (typeof plugin.configSchema !== 'object') {
+      logger.warn('Plugin configSchema must be an object');
+      return false;
     }
+
+    return true;
   }
 
   /**
@@ -437,5 +429,46 @@ export class PluginManager {
    */
   static isInitialized(): boolean {
     return this.initialized;
+  }
+
+  // Instance methods that delegate to static methods (for backward compatibility)
+  getDataSourcePlugin(name: string): DataSourcePlugin | null {
+    return PluginManager.getDataSourcePlugin(name);
+  }
+
+  getAllDataSourcePlugins(): DataSourcePlugin[] {
+    return PluginManager.getAllDataSourcePlugins();
+  }
+
+  getDataSourcePluginsByCategory(category: string): DataSourcePlugin[] {
+    return PluginManager.getDataSourcePluginsByCategory(category);
+  }
+
+  async testDataSourceConnection(pluginName: string, config: ConnectionConfig): Promise<TestResult> {
+    return PluginManager.testDataSourceConnection(pluginName, config);
+  }
+
+  async executeQuery(pluginName: string, connection: Connection, query: string, params?: any[]): Promise<QueryResult> {
+    return PluginManager.executeQuery(pluginName, connection, query, params);
+  }
+
+  getPluginStats(): { dataSourcePlugins: number; categories: string[]; pluginsByCategory: Record<string, number>; } {
+    return PluginManager.getPluginStats();
+  }
+
+  getDataSourceManifests(): any[] {
+    return PluginManager.getDataSourceManifests();
+  }
+
+  validatePluginConfig(pluginName: string, config: any): { valid: boolean; errors: string[]; } {
+    return PluginManager.validatePluginConfig(pluginName, config);
+  }
+
+  async reload(): Promise<void> {
+    return PluginManager.reload();
+  }
+
+  isInitialized(): boolean {
+    return PluginManager.isInitialized();
   }
 }

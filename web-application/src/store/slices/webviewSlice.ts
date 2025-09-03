@@ -1,142 +1,101 @@
-// src/store/slices/webviewSlice.ts
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { castDraft } from "immer";
+// ===============================================
 
-export interface WebviewNavigationState {
-  expandedCategories: string[];
-  selectedDashboard?: string;
-  searchQuery: string;
+// web-application/src/store/slices/webviewSlice.ts
+import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+
+export interface Webview {
+  id: string;
+  name: string;
+  webview_name: string;
+  title: string;
+  description?: string;
+  workspace_id: string;
+  theme: 'light' | 'dark' | 'auto';
+  is_public: boolean;
+  settings?: any;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
 }
 
-const initialState: WebviewNavigationState = {
-  expandedCategories: [],
-  selectedDashboard: undefined,
-  searchQuery: '',
+export interface WebviewState {
+  webviews: Webview[];
+  current: Webview | null;
+  isLoading: boolean;
+  error: string | null;
+  publicWebview: Webview | null;
+}
+
+const initialState: WebviewState = {
+  webviews: [],
+  current: null,
+  isLoading: false,
+  error: null,
+  publicWebview: null,
 };
 
 const webviewSlice = createSlice({
   name: 'webview',
   initialState,
   reducers: {
-    setExpandedCategories: (state, action: PayloadAction<string[]>) => {
-      state.expandedCategories = castDraft(action.payload);
+    setWebviews: (state, action: PayloadAction<Webview[]>) => {
+      state.webviews = action.payload;
     },
-    
-    toggleCategory: (state, action: PayloadAction<string>) => {
-      const categoryId = action.payload;
-      const index = state.expandedCategories.indexOf(categoryId);
-      
-      if (index >= 0) {
-        state.expandedCategories.splice(index, 1);
-      } else {
-        state.expandedCategories.push(categoryId);
+    setCurrentWebview: (state, action: PayloadAction<Webview | null>) => {
+      state.current = action.payload;
+    },
+    setPublicWebview: (state, action: PayloadAction<Webview | null>) => {
+      state.publicWebview = action.payload;
+    },
+    addWebview: (state, action: PayloadAction<Webview>) => {
+      state.webviews.push(action.payload);
+    },
+    updateWebview: (state, action: PayloadAction<Webview>) => {
+      const index = state.webviews.findIndex(w => w.id === action.payload.id);
+      if (index !== -1) {
+        state.webviews[index] = action.payload;
+      }
+      if (state.current?.id === action.payload.id) {
+        state.current = action.payload;
+      }
+      if (state.publicWebview?.id === action.payload.id) {
+        state.publicWebview = action.payload;
       }
     },
-    
-    selectDashboard: (state, action: PayloadAction<string>) => {
-      state.selectedDashboard = action.payload;
-    },
-    
-    clearSelectedDashboard: (state) => {
-      state.selectedDashboard = undefined;
-    },
-    
-    setSearchQuery: (state, action: PayloadAction<string>) => {
-      state.searchQuery = action.payload;
-    },
-    
-    clearSearchQuery: (state) => {
-      state.searchQuery = '';
-    },
-    
-    clearNavigation: (state) => {
-      state.expandedCategories = [];
-      state.selectedDashboard = undefined;
-      state.searchQuery = '';
-    },
-    
-    // Additional operations for bulk updates
-    addExpandedCategory: (state, action: PayloadAction<string>) => {
-      if (!state.expandedCategories.includes(action.payload)) {
-        state.expandedCategories.push(action.payload);
+    removeWebview: (state, action: PayloadAction<string>) => {
+      state.webviews = state.webviews.filter(w => w.id !== action.payload);
+      if (state.current?.id === action.payload) {
+        state.current = null;
+      }
+      if (state.publicWebview?.id === action.payload) {
+        state.publicWebview = null;
       }
     },
-    
-    removeExpandedCategory: (state, action: PayloadAction<string>) => {
-      state.expandedCategories = state.expandedCategories.filter(id => id !== action.payload);
+    setLoading: (state, action: PayloadAction<boolean>) => {
+      state.isLoading = action.payload;
     },
-    
-    // Expand multiple categories at once
-    expandCategories: (state, action: PayloadAction<string[]>) => {
-      const newCategories = action.payload.filter(id => !state.expandedCategories.includes(id));
-      state.expandedCategories.push(...newCategories);
+    setError: (state, action: PayloadAction<string | null>) => {
+      state.error = action.payload;
     },
-    
-    // Collapse multiple categories at once  
-    collapseCategories: (state, action: PayloadAction<string[]>) => {
-      const categoriesToCollapse = new Set(action.payload);
-      state.expandedCategories = state.expandedCategories.filter(id => !categoriesToCollapse.has(id));
-    },
-    
-    // Expand all categories
-    expandAllCategories: (state, action: PayloadAction<string[]>) => {
-      state.expandedCategories = castDraft([...new Set([...state.expandedCategories, ...action.payload])]);
-    },
-    
-    // Collapse all categories
-    collapseAllCategories: (state) => {
-      state.expandedCategories = [];
-    },
-    
-    // Bulk state updates
-    setNavigationState: (state, action: PayloadAction<Partial<WebviewNavigationState>>) => {
-      if (action.payload.expandedCategories !== undefined) {
-        state.expandedCategories = castDraft(action.payload.expandedCategories);
-      }
-      if (action.payload.selectedDashboard !== undefined) {
-        state.selectedDashboard = action.payload.selectedDashboard;
-      }
-      if (action.payload.searchQuery !== undefined) {
-        state.searchQuery = action.payload.searchQuery;
-      }
-    },
-    
-    // Navigate to dashboard with category expansion
-    navigateToDashboard: (state, action: PayloadAction<{ dashboardId: string; categoryId?: string }>) => {
-      state.selectedDashboard = action.payload.dashboardId;
-      
-      // Auto-expand category if provided
-      if (action.payload.categoryId && !state.expandedCategories.includes(action.payload.categoryId)) {
-        state.expandedCategories.push(action.payload.categoryId);
-      }
-      
-      // Clear search when navigating directly
-      state.searchQuery = '';
-    },
-    
-    resetWebviewState: (state) => {
-      Object.assign(state, initialState);
+    clearWebviews: (state) => {
+      state.webviews = [];
+      state.current = null;
+      state.publicWebview = null;
+      state.error = null;
     },
   },
 });
 
 export const {
-  setExpandedCategories,
-  toggleCategory,
-  selectDashboard: selectDashboardAction,
-  clearSelectedDashboard,
-  setSearchQuery,
-  clearSearchQuery,
-  clearNavigation,
-  addExpandedCategory,
-  removeExpandedCategory,
-  expandCategories,
-  collapseCategories,
-  expandAllCategories,
-  collapseAllCategories,
-  setNavigationState,
-  navigateToDashboard,
-  resetWebviewState,
+  setWebviews,
+  setCurrentWebview,
+  setPublicWebview,
+  addWebview,
+  updateWebview,
+  removeWebview,
+  setLoading,
+  setError,
+  clearWebviews,
 } = webviewSlice.actions;
 
 export default webviewSlice.reducer;

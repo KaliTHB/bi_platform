@@ -29,7 +29,7 @@ import {
 
 // Import our chart components
 import { ChartConfigPanel } from '@/components/builder/ChartConfigPanel';
-import ChartRenderer from '@/components/charts/ChartRenderer';
+import ChartRenderer from '@/components/chart/ChartRenderer';
 import { ChartSelector } from '@/components/builder/ChartSelector';
 import { DatasetSelector } from '@/components/builder/DatasetSelector';
 import { QueryBuilder } from '@/components/builder/QueryBuilder';

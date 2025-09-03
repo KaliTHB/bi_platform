@@ -50,7 +50,7 @@ import {
 import { datasetAPI  } from '@/services/datasetAPI';
 // Import components
 import { ChartConfigPanel } from '@/components/builder/ChartConfigPanel';
-import { ChartRenderer } from '@/components/charts/ChartRenderer';
+import { ChartRenderer } from '@/components/chart/ChartRenderer';
 import { ChartSelector } from '@/components/builder/ChartSelector';
 import { QueryBuilder } from '@/components/builder/QueryBuilder';
 import { DatasetSelector } from '@/components/builder/DatasetSelector';

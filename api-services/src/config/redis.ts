@@ -1,4 +1,4 @@
-// File: api-services/src/config/redis.ts
+// api-services/src/config/redis.ts
 import Redis from 'ioredis';
 import { logger } from '../utils/logger';
 
@@ -72,6 +72,19 @@ export class CacheService {
     }
   }
 
+  async deletePattern(pattern: string): Promise<number> {
+    try {
+      const keys = await this.redis.keys(pattern);
+      if (keys.length > 0) {
+        return await this.redis.del(...keys);
+      }
+      return 0;
+    } catch (error) {
+      logger.error('Cache delete pattern error:', error);
+      return 0;
+    }
+  }
+
   async exists(key: string): Promise<boolean> {
     try {
       const result = await this.redis.exists(key);
@@ -120,9 +133,9 @@ export class CacheService {
   }
 }
 
-// Create default instance
+// Create and export default instance
 const cache = new CacheService(redis);
 
-// Export both class and instance
-export { cache };
+// Export everything that might be needed
+export { cache, redis };
 export default cache;

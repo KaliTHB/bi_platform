@@ -426,6 +426,154 @@ export class DashboardService {
     }
   }
 
+  // 🚀 NEW CACHE & FILTER OPERATIONS
+async getDashboardData(dashboardId: string, filters: any = {}, forceRefresh: boolean = false): Promise<any> {
+  try {
+    const dashboard = this.dashboards.get(dashboardId);
+    if (!dashboard) {
+      throw new Error('Dashboard not found');
+    }
+
+    // Get dashboard charts
+    const charts = this.dashboardCharts.get(dashboardId) || [];
+    
+    // Apply filters and get data for each chart
+    const chartData = await Promise.all(
+      charts.map(async (chart) => {
+        try {
+          // Mock chart data with filters applied
+          return {
+            chart_id: chart.chart_id,
+            data: {
+              columns: ['category', 'value'],
+              rows: [
+                ['A', Math.floor(Math.random() * 100)],
+                ['B', Math.floor(Math.random() * 100)],
+                ['C', Math.floor(Math.random() * 100)]
+              ]
+            },
+            filters_applied: filters,
+            cached: !forceRefresh,
+            last_updated: new Date()
+          };
+        } catch (error) {
+          logger.error(`Error getting data for chart ${chart.chart_id}:`, error);
+          return {
+            chart_id: chart.chart_id,
+            error: 'Failed to load chart data',
+            filters_applied: filters
+          };
+        }
+      })
+    );
+
+    return {
+      dashboard_id: dashboardId,
+      dashboard_name: dashboard.name,
+      charts: chartData,
+      global_filters: dashboard.global_filters || [],
+      layout: dashboard.layout_config,
+      last_updated: new Date(),
+      cache_status: {
+        enabled: true,
+        last_refresh: new Date()
+      }
+    };
+  } catch (error: any) {
+    logger.error('Error getting dashboard data:', error);
+    throw new Error(`Failed to get dashboard data: ${error.message}`);
+  }
+}
+
+async refreshDashboard(dashboardId: string): Promise<{
+  refresh_id: string;
+  status: string;
+  started_at: Date;
+  affected_charts: number;
+}> {
+  try {
+    const dashboard = this.dashboards.get(dashboardId);
+    if (!dashboard) {
+      throw new Error('Dashboard not found');
+    }
+
+    const charts = this.dashboardCharts.get(dashboardId) || [];
+    const refreshId = `refresh_${Date.now()}`;
+
+    // Mock refresh process
+    setTimeout(() => {
+      // In a real implementation, this would trigger actual data refresh
+      logger.info(`Dashboard ${dashboardId} refresh completed`);
+    }, 2000);
+
+    return {
+      refresh_id: refreshId,
+      status: 'started',
+      started_at: new Date(),
+      affected_charts: charts.length
+    };
+  } catch (error: any) {
+    logger.error('Error refreshing dashboard:', error);
+    throw new Error(`Failed to refresh dashboard: ${error.message}`);
+  }
+}
+
+async applyGlobalFilter(dashboardId: string, filters: any): Promise<any> {
+  try {
+    const dashboard = this.dashboards.get(dashboardId);
+    if (!dashboard) {
+      throw new Error('Dashboard not found');
+    }
+
+    // Update dashboard with global filters
+    dashboard.global_filters = filters;
+    dashboard.updated_at = new Date();
+    this.dashboards.set(dashboardId, dashboard);
+
+    // Get affected charts
+    const charts = this.dashboardCharts.get(dashboardId) || [];
+    
+    return {
+      dashboard_id: dashboardId,
+      filters_applied: filters,
+      affected_charts: charts.length,
+      applied_at: new Date(),
+      status: 'applied'
+    };
+  } catch (error: any) {
+    logger.error('Error applying global filter:', error);
+    throw new Error(`Failed to apply global filter: ${error.message}`);
+  }
+}
+
+async getDashboardCacheStatus(dashboardId: string): Promise<{
+  dashboard_cached: boolean;
+  charts_cached: number;
+  total_charts: number;
+  last_cache_update?: Date;
+  cache_size_mb?: number;
+}> {
+  try {
+    const dashboard = this.dashboards.get(dashboardId);
+    if (!dashboard) {
+      throw new Error('Dashboard not found');
+    }
+
+    const charts = this.dashboardCharts.get(dashboardId) || [];
+    
+    return {
+      dashboard_cached: true,
+      charts_cached: charts.length,
+      total_charts: charts.length,
+      last_cache_update: new Date(),
+      cache_size_mb: Math.round(Math.random() * 50) / 10 // Mock cache size
+    };
+  } catch (error: any) {
+    logger.error('Error getting dashboard cache status:', error);
+    throw new Error(`Failed to get dashboard cache status: ${error.message}`);
+  }
+}
+
   async duplicateDashboard(
     sourceId: string, 
     createdBy: string, 

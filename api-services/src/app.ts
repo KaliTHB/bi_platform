@@ -1,4 +1,4 @@
-// api-services/src/app.ts
+// File: api-services/src/app.ts
 import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -9,15 +9,18 @@ import { v4 as uuidv4 } from 'uuid';
 // Import routes
 import routes from './routes';
 
-// Import middleware
+// Import middleware - using relative paths
 import { 
   globalErrorHandler, 
   notFoundHandler, 
-  timeoutHandler 
+  asyncHandler 
 } from './middleware/errorHandler';
+import { requestLogger } from './middleware/requestLogger';
+import { timeoutHandler } from './middleware/timeout';
 
 // Import utilities
 import { logger } from './utils/logger';
+import { PluginManager } from './services/PluginManager';
 
 // Create Express app
 const app: Application = express();
@@ -25,47 +28,8 @@ const app: Application = express();
 // Trust proxy for accurate IP addresses
 app.set('trust proxy', 1);
 
-// Request ID middleware - must be first
-app.use((req: Request, res: Response, next) => {
-  const requestId = req.headers['x-request-id'] as string || uuidv4();
-  req.headers['x-request-id'] = requestId;
-  res.setHeader('X-Request-ID', requestId);
-  next();
-});
-
-// Request logging middleware
-app.use((req: Request, res: Response, next) => {
-  const startTime = Date.now();
-  
-  // Log request
-  logger.info('Incoming request', {
-    method: req.method,
-    path: req.path,
-    query: req.query,
-    ip: req.ip,
-    user_agent: req.get('User-Agent'),
-    request_id: req.headers['x-request-id']
-  });
-
-  // Override res.end to log response
-  const originalEnd = res.end;
-  res.end = function(chunk?: any, encoding?: any, cb?: any) {
-    const duration = Date.now() - startTime;
-    
-    logger.logRequest(
-      req.method,
-      req.originalUrl,
-      res.statusCode,
-      duration,
-      (req as any).user?.user_id,
-      req.headers['x-request-id'] as string
-    );
-
-    originalEnd.call(this, chunk, encoding, cb);
-  };
-
-  next();
-});
+// Request logging middleware (use the dedicated middleware)
+app.use(requestLogger);
 
 // Security middleware
 app.use(helmet({
@@ -88,16 +52,19 @@ app.use(helmet({
 // CORS configuration
 const corsOptions = {
   origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:3001',
+      process.env.FRONTEND_URL,
+      process.env.WEB_APP_URL
+    ].filter(Boolean);
+
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'https://app.example.com'
-    ];
-    
-    if (allowedOrigins.includes(origin) || process.env.NODE_ENV === 'development') {
+    if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -105,40 +72,29 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: [
-    'Origin',
-    'X-Requested-With',
-    'Content-Type',
-    'Accept',
-    'Authorization',
-    'X-Workspace-ID',
-    'X-Request-ID'
-  ],
-  exposedHeaders: ['X-Request-ID', 'X-Rate-Limit-Remaining', 'X-Rate-Limit-Reset']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Workspace-Id', 'X-Request-ID']
 };
 
 app.use(cors(corsOptions));
 
 // Compression middleware
 app.use(compression({
-  level: 6,
-  threshold: 1024,
   filter: (req, res) => {
-    // Don't compress responses with this request header
     if (req.headers['x-no-compression']) {
       return false;
     }
-    // Use compression filter function
     return compression.filter(req, res);
-  }
+  },
+  threshold: 1024
 }));
 
-// Rate limiting
-const limiter = rateLimit({
+// Global rate limiting
+const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // requests per window
+  max: 1000, // limit each IP to 1000 requests per windowMs
   message: {
     success: false,
+    error: 'Too many requests',
     message: 'Too many requests from this IP, please try again later',
     errors: [{
       code: 'RATE_LIMIT_EXCEEDED',
@@ -147,36 +103,18 @@ const limiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  handler: (req, res) => {
-    logger.warn('Rate limit exceeded', {
-      ip: req.ip,
-      user_agent: req.get('User-Agent'),
-      path: req.path,
-      method: req.method
-    });
-    
-    res.status(429).json({
-      success: false,
-      message: 'Too many requests from this IP, please try again later',
-      errors: [{
-        code: 'RATE_LIMIT_EXCEEDED',
-        message: 'Rate limit exceeded'
-      }]
-    });
-  }
 });
 
-// Apply rate limiting to all requests
-app.use(limiter);
+app.use(globalLimiter);
 
-// More strict rate limiting for authentication endpoints
+// Stricter rate limiting for authentication endpoints
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 login attempts per window
-  skipSuccessfulRequests: true,
+  max: 10, // limit each IP to 10 requests per windowMs
   message: {
     success: false,
-    message: 'Too many authentication attempts, please try again later',
+    error: 'Too many authentication attempts',
+    message: 'Too many authentication attempts from this IP, please try again later',
     errors: [{
       code: 'AUTH_RATE_LIMIT_EXCEEDED',
       message: 'Too many authentication attempts'
@@ -187,6 +125,23 @@ const authLimiter = rateLimit({
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 app.use('/api/auth/forgot-password', authLimiter);
+
+// Plugin system rate limiting
+const pluginLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 50, // limit each IP to 50 plugin requests per windowMs
+  message: {
+    success: false,
+    error: 'Too many plugin requests',
+    message: 'Too many plugin requests from this IP, please try again later',
+    errors: [{
+      code: 'PLUGIN_RATE_LIMIT_EXCEEDED',
+      message: 'Too many plugin requests'
+    }]
+  }
+});
+
+app.use('/api/plugins', pluginLimiter);
 
 // Request timeout middleware
 app.use(timeoutHandler(30000)); // 30 seconds
@@ -206,65 +161,96 @@ app.use(express.urlencoded({
 }));
 
 // Health check endpoint (before API routes)
-app.get('/health', (req: Request, res: Response) => {
-  res.status(200).json({
+app.get('/health', asyncHandler(async (req: Request, res: Response) => {
+  const healthData = {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     version: process.env.npm_package_version || '1.0.0',
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    services: {
+      database: 'healthy', // This would be dynamic in real implementation
+      cache: 'healthy',
+      plugins: PluginManager.isInitialized() ? 'healthy' : 'degraded'
+    },
+    plugin_stats: PluginManager.isInitialized() ? PluginManager.getPluginStats() : null
+  };
+
+  res.status(200).json(healthData);
+}));
+
+// Basic ping endpoint for load balancer health checks
+app.get('/ping', (req: Request, res: Response) => {
+  res.status(200).json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString() 
   });
 });
+
+// Plugin system status endpoint
+app.get('/api/system/plugins/status', asyncHandler(async (req: Request, res: Response) => {
+  if (!PluginManager.isInitialized()) {
+    return res.status(503).json({
+      success: false,
+      message: 'Plugin system not initialized',
+      data: {
+        initialized: false,
+        stats: { dataSourcePlugins: 0, categories: [], pluginsByCategory: {} }
+      }
+    });
+  }
+
+  const stats = PluginManager.getPluginStats();
+  const manifests = PluginManager.getDataSourceManifests();
+
+  res.json({
+    success: true,
+    message: 'Plugin system is operational',
+    data: {
+      initialized: true,
+      stats,
+      plugins: manifests.map(p => ({
+        name: p.name,
+        displayName: p.displayName,
+        category: p.category,
+        version: p.version
+      }))
+    }
+  });
+}));
 
 // API routes
 app.use('/api', routes);
 
+// Serve static files for development
+if (process.env.NODE_ENV === 'development') {
+  app.use('/uploads', express.static('uploads'));
+  app.use('/assets', express.static('assets'));
+}
+
 // Handle 404 for undefined routes
 app.use(notFoundHandler);
 
-// Global error handler (must be last)
+// Global error handler (must be last middleware)
 app.use(globalErrorHandler);
 
-// Graceful shutdown handling
-const gracefulShutdown = (signal: string) => {
-  logger.info(`Received ${signal}, starting graceful shutdown...`);
-  
-  // Close server
-  const server = app.listen();
-  server.close(() => {
-    logger.info('HTTP server closed');
-    
-    // Close database connections
-    // await database.close();
-    
-    // Close other resources
-    // await cache.disconnect();
-    
-    logger.info('Graceful shutdown completed');
-    process.exit(0);
+// Initialize plugin system on app startup (async)
+// This is a backup initialization in case server.ts doesn't call it
+if (process.env.NODE_ENV !== 'test') {
+  // Use setImmediate to avoid blocking the main thread during app creation
+  setImmediate(async () => {
+    if (!PluginManager.isInitialized()) {
+      try {
+        logger.info('🔌 Initializing PluginManager from app.ts...');
+        await PluginManager.initialize();
+        logger.info('✅ PluginManager initialized from app.ts');
+      } catch (error) {
+        logger.error('❌ Failed to initialize PluginManager from app.ts:', error);
+        logger.warn('⚠️  Plugin system will not be available');
+      }
+    }
   });
-  
-  // Force close after 10 seconds
-  setTimeout(() => {
-    logger.error('Could not close connections in time, forcefully shutting down');
-    process.exit(1);
-  }, 10000);
-};
-
-// Listen for termination signals
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-// Handle uncaught exceptions and unhandled rejections
-process.on('uncaughtException', (error: Error) => {
-  logger.error('Uncaught Exception:', error);
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
-  logger.error('Unhandled Rejection at:', { promise, reason });
-  process.exit(1);
-});
+}
 
 export default app;

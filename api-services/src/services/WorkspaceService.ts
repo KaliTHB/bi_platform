@@ -1,7 +1,7 @@
 // File: api-services/src/services/WorkspaceService.ts
-import { db } from '@/config/database';
-import { cache } from '@/config/redis';
-import { logger } from '@/utils/logger';
+import { db } from '../config/database';
+import { cache } from '../config/redis';
+import { logger } from '../utils/logger';
 import { User, Workspace, CreateWorkspaceRequest, UpdateWorkspaceRequest } from '../types/auth.types';
 
 export class WorkspaceService {
