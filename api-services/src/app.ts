@@ -88,10 +88,10 @@ app.use(compression({
   threshold: 1024
 }));
 
-// Global rate limiting
+// Global rate limiting with environment-based limits
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // limit each IP to 1000 requests per windowMs
+  max: process.env.NODE_ENV === 'development' ? 10000 : 1000, // High limit for dev
   message: {
     success: false,
     error: 'Too many requests',
@@ -107,10 +107,10 @@ const globalLimiter = rateLimit({
 
 app.use(globalLimiter);
 
-// Stricter rate limiting for authentication endpoints
+// Authentication rate limiting with development-friendly settings
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // limit each IP to 10 requests per windowMs
+  windowMs: process.env.NODE_ENV === 'development' ? 1 * 60 * 1000 : 15 * 60 * 1000, // 1 min dev, 15 min prod
+  max: process.env.NODE_ENV === 'development' ? 1000 : 10, // 1000 attempts for dev, 10 for prod
   message: {
     success: false,
     error: 'Too many authentication attempts',

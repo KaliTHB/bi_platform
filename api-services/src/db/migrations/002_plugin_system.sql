@@ -168,13 +168,15 @@ END $$;
 INSERT INTO users (email, password_hash, first_name, last_name, role, is_active, email_verified)
 VALUES (
     'admin@system.local',
-    '$2b$10$rOdO6JzJ8j.JwJ8J8J8J8uJ8J8J8J8J8J8J8J8J8J8J8J8J8J8J8J8',
+    '$2b$12$2EXOOGy6DG5aG9ZWJYzNHhQzEu7.D1K1p/a0dL8fyeXHgYgLdGe5',  -- This should be the actual hash
     'System',
-    'Administrator',
+    'Administrator', 
     'SUPER_ADMIN',
     true,
     true
-);
+) ON CONFLICT (email) DO UPDATE SET
+  password_hash = EXCLUDED.password_hash,
+  updated_at = NOW();
 
 -- Create sample workspace
 INSERT INTO workspaces (name, slug, description, created_by)
