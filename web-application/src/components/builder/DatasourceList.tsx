@@ -18,6 +18,7 @@ import {
   Add,
   Edit,
   Delete,
+  CloudQueue,
   Visibility,
   Storage,
   MoreVert,
@@ -25,7 +26,6 @@ import {
   Error,
   Warning,
   Cable,
-  Database,
   Api,
 } from '@mui/icons-material';
 
@@ -110,7 +110,7 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
 
   const getPluginIcon = (pluginName: string, category: string) => {
     switch (category) {
-      case 'database': return <Database />;
+      case 'database': return <CloudQueue />;
       case 'api': return <Api />;
       case 'file': return <Storage />;
       case 'cloud': return <Storage />;
@@ -120,10 +120,10 @@ export const DataSourceList: React.FC<DataSourceListProps> = ({
 
   // Configuration for the List component
   const filters: FilterOption[] = [
-    { key: 'plugin_category', label: 'Category', value: 'database', count: dataSources.filter(d => d.plugin_category === 'database').length },
-    { key: 'plugin_category', label: 'Category', value: 'api', count: dataSources.filter(d => d.plugin_category === 'api').length },
-    { key: 'plugin_category', label: 'Category', value: 'file', count: dataSources.filter(d => d.plugin_category === 'file').length },
-    { key: 'plugin_category', label: 'Category', value: 'cloud', count: dataSources.filter(d => d.plugin_category === 'cloud').length },
+    { key: 'plugin_category', label: 'Category', value: 'relational', count: dataSources.filter(d => d.plugin_category === 'relational').length },
+    { key: 'plugin_category', label: 'Category', value: 'apis', count: dataSources.filter(d => d.plugin_category === 'apis').length },
+    { key: 'plugin_category', label: 'Category', value: 'files', count: dataSources.filter(d => d.plugin_category === 'files').length },
+    { key: 'plugin_category', label: 'Category', value: 'cloud_databases', count: dataSources.filter(d => d.plugin_category === 'cloud_databases').length },
     { key: 'status', label: 'Status', value: 'connected', count: dataSources.filter(d => d.status === 'connected').length },
     { key: 'status', label: 'Status', value: 'disconnected', count: dataSources.filter(d => d.status === 'disconnected').length },
     { key: 'status', label: 'Status', value: 'error', count: dataSources.filter(d => d.status === 'error').length },

@@ -18,7 +18,7 @@ export interface UseDataSourcesResult {
   getDataSourceById: (id: string) => DataSource | undefined;
 }
 
-const useDataSources = (): UseDataSourcesResult => {
+export const useDataSources = (): UseDataSourcesResult => {
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

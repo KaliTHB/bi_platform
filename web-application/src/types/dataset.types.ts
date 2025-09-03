@@ -1,7 +1,11 @@
 // File: ./src/types/dataset.types.ts
 
-export type DatasetType = 'sql' | 'transformation' | 'calculated' | 'imported';
+export type DatasetType = 
+  | 'table' | 'query' | 'transformation'    // Database values
+  | 'sql' | 'calculated' | 'imported';  // App-specific values
 
+
+// Main Dataset interface using database types
 export interface Dataset {
   id: string;
   workspace_id: string;
@@ -26,6 +30,8 @@ export interface Dataset {
   updated_at: string | Date;
   last_refreshed?: string | Date;
   version: number;
+  status: 'active' | 'inactive' | 'draft' | 'error';
+  owner_id: string;
 }
 
 export interface DatasetSchema {

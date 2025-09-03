@@ -11,8 +11,8 @@ export const getChartDisplayInfo = (chart: Chart) => {
   return {
     name: chart.display_name || chart.name || 'Untitled Chart',
     description: chart.description || 'No description available',
-    type: getChartTypeDisplayName(chart),
-    library: getChartLibraryDisplayName(chart),
+    type: chart.chart_type || 'Unknown',
+    library:  chart.chart_library || 'Unknown',
     category: chart.chart_category || 'Uncategorized',
     updatedAt: chart.updated_at || chart.created_at || '',
     createdBy: chart.created_by || 'Unknown',

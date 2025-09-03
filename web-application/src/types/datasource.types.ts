@@ -1,5 +1,13 @@
 // File: ./src/types/datasource.types.ts
 
+  export type DataSourceCategory = 
+  | 'relational' 
+  | 'cloud_databases' 
+  | 'storage_services' 
+  | 'data_lakes' 
+  | 'nosql' 
+  | 'files' 
+  | 'apis';
 export interface DataSource {
   id: string;
   workspace_id: string;
@@ -7,6 +15,7 @@ export interface DataSource {
   display_name: string;
   description?: string;
   plugin_name: string;
+  plugin_category: DataSourceCategory;
   connection_config: Record<string, any>;
   test_status: 'pending' | 'success' | 'failed';
   test_error_message?: string;
@@ -15,6 +24,8 @@ export interface DataSource {
   created_by?: string;
   created_at: string | Date;
   updated_at: string | Date;
+  status: 'connected' | 'disconnected' |  'error';
+  owner_id : string;
 }
 
 export interface Plugin {

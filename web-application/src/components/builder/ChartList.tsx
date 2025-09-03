@@ -1,54 +1,43 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+// web-application/src/components/builder/ChartList.tsx
+import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import {
   Box,
+  Typography,
   Card,
   CardContent,
-  CardActions,
-  Grid,
-  Typography,
-  Button,
-  IconButton,
-  Menu,
-  MenuItem,
-  ListItemIcon,
-  ListItemText,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  Chip,
-  Paper,
-  List,
   ListItem,
   ListItemAvatar,
-  ListItemButton,
+  ListItemText,
+  ListItemSecondaryAction,
   Avatar,
-  Checkbox,
+  Chip,
+  IconButton,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  Tooltip,
-  Divider,
-  Alert,
-  Skeleton,
-  SelectChangeEvent
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Grid,
+  Button,
 } from '@mui/material';
 import {
-  MoreVert as MoreVertIcon,
-  Edit as EditIcon,
-  Visibility as VisibilityIcon,
-  Delete as DeleteIcon,
-  FileCopy as FileCopyIcon,
-  Add as AddIcon,
-  Search as SearchIcon,
-  FilterList as FilterListIcon,
-  GridView as GridViewIcon,
-  ViewList as ViewListIcon,
-  Sort as SortIcon,
-  BarChart as DefaultChartIcon,
-  Refresh
+  Add,
+  Edit,
+  Delete,
+  Visibility,
+  FileCopy,
+  MoreVert,
+  BarChart,
+  Timeline,
+  PieChart,
+  DonutLarge,
+  ShowChart,
+  BubbleChart,
 } from '@mui/icons-material';
 
 // Hooks
@@ -58,16 +47,7 @@ import { useCharts } from '@/hooks/useCharts';
 
 // Components
 import { PermissionGate } from '@/components/shared/PermissionGate';
-
-// Types
-import { 
-  Chart,
-  ChartType,
-  ChartConfiguration,
-  CreateChartRequest,
-  UpdateChartRequest,
-  DuplicateChartRequest
-} from '@/types/chart.types';
+import { List, FilterOption, SortOption, TableColumn, ListAction } from '@/components/shared/List';
 
 // Utils
 import { 
@@ -80,9 +60,24 @@ import {
   getSupportedChartTypes 
 } from '@/utils/chartIconUtils';
 
-// =============================================================================
-// Types and Interfaces
-// =============================================================================
+// Types
+interface Chart {
+  id: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  chart_type: string;
+  chart_library: string;
+  chart_category?: string;
+  is_active?: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string;
+  workspace_id: string;
+  dashboard_id?: string;
+  version?: number;
+  configuration?: Record<string, any>;
+}
 
 interface ChartListProps {
   charts?: Chart[];
@@ -90,558 +85,598 @@ interface ChartListProps {
   error?: string;
   dashboardId?: string;
   onChartSelect?: (chart: Chart) => void;
-  onChartCreate?: (chartData: CreateChartRequest) => Promise<void>;
+  onChartCreate?: (chartData: any) => Promise<void>;
   onChartEdit?: (chart: Chart) => void;
   onChartDelete?: (chartId: string) => Promise<void>;
   onChartDuplicate?: (chartId: string) => Promise<void>;
+  viewMode?: 'grid' | 'list' | 'table';
   selectionMode?: boolean;
   selectedCharts?: string[];
   onSelectionChange?: (selectedIds: string[]) => void;
   showCreateButton?: boolean;
   showFilters?: boolean;
-  defaultViewMode?: 'grid' | 'list';
   itemsPerPage?: number;
 }
 
-interface CreateChartDialogData {
-  name: string;
-  display_name: string;
-  description: string;
-  type: ChartType;
-  library: string;
-  chart_category: string;
-}
-
-type SortOption = 'name' | 'updated_at' | 'created_at' | 'type' | 'library' | 'category';
-type ViewMode = 'grid' | 'list';
-
-// =============================================================================
-// Utility Functions
-// =============================================================================
-
-const getChartDisplayInfo = (chart: Chart) => {
-  return {
-    name: chart.display_name || chart.name || 'Untitled Chart',
-    description: chart.description || 'No description available',
-    type: getChartTypeDisplayName(chart),
-    library: getChartLibraryDisplayName(chart),
-    category: chart.chart_category || 'Uncategorized',
-    updatedAt: chart.updated_at || chart.created_at || '',
-    createdBy: chart.created_by || 'Unknown',
-    isActive: chart.is_active ?? true,
-  };
-};
-
-// =============================================================================
-// Main Component
-// =============================================================================
-
 export const ChartList: React.FC<ChartListProps> = ({
-  charts: propCharts,
-  loading: propLoading,
-  error: propError,
+  charts = [],
+  loading = false,
+  error,
   dashboardId,
   onChartSelect,
   onChartCreate,
   onChartEdit,
   onChartDelete,
   onChartDuplicate,
+  viewMode = 'grid',
   selectionMode = false,
   selectedCharts = [],
   onSelectionChange,
   showCreateButton = true,
   showFilters = true,
-  defaultViewMode = 'grid',
   itemsPerPage = 12,
 }) => {
   const router = useRouter();
   const { currentWorkspace } = useWorkspace();
   const { hasPermission } = usePermissions();
-  const { 
-    charts: hookCharts, 
-    loading: hookLoading, 
-    error: hookError,
-    createChart, 
-    updateChart,
-    deleteChart,
-    duplicateChart,
-    refreshCharts
-  } = useCharts(dashboardId);
 
-  // Use props if provided, otherwise use hook data
-  const charts = propCharts || hookCharts || [];
-  const loading = propLoading ?? hookLoading;
-  const error = propError || hookError;
-
-  // ============================================================================
-  // State Management
-  // ============================================================================
-  
-  const [viewMode, setViewMode] = useState<ViewMode>(defaultViewMode);
-  const [selectedChart, setSelectedChart] = useState<Chart | null>(null);
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  // Create dialog state
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [libraryFilter, setLibraryFilter] = useState<string>('all');
-  const [categoryFilter, setCategoryFilter] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<SortOption>('updated_at');
-  const [page, setPage] = useState(0);
+  const [chartName, setChartName] = useState('');
+  const [chartDescription, setChartDescription] = useState('');
+  const [chartType, setChartType] = useState('');
+  const [chartLibrary, setChartLibrary] = useState('echarts');
+  const [chartCategory, setChartCategory] = useState('basic');
 
-  // Dialog state
-  const [createFormData, setCreateFormData] = useState<CreateChartDialogData>({
-    name: '',
-    display_name: '',
-    description: '',
-    type: 'bar',
-    library: 'echarts',
-    chart_category: '',
+  // Helper functions
+  const getChartDisplayInfo = (chart: Chart) => ({
+    name: chart.display_name || chart.name || 'Untitled Chart',
+    description: chart.description || 'No description available',    
+    type: chart.chart_type || 'Unknown',
+    library:  chart.chart_library || 'Unknown',
+    category: chart.chart_category || 'Uncategorized',
+    updatedAt: chart.updated_at || chart.created_at || '',
+    createdBy: chart.created_by || 'Unknown',
+    isActive: chart.is_active ?? true,
+    version: chart.version || 1,
+    workspaceId: chart.workspace_id || 'default'
   });
 
-  // ============================================================================
-  // Computed Values
-  // ============================================================================
+  const getStatusColor = (isActive: boolean) => {
+    return isActive ? 'success' : 'default';
+  };
 
-  const availableChartTypes = useMemo(() => getSupportedChartTypes(createFormData.library), [createFormData.library]);
-  const availableLibraries = useMemo(() => getAvailableChartLibraries(), []);
-
-  const filteredCharts = useMemo(() => {
-    let filtered = [...charts];
-
-    // Search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(chart => {
-        const displayInfo = getChartDisplayInfo(chart);
-        return displayInfo.name.toLowerCase().includes(query) ||
-               displayInfo.description.toLowerCase().includes(query) ||
-               displayInfo.type.toLowerCase().includes(query) ||
-               displayInfo.library.toLowerCase().includes(query) ||
-               displayInfo.category.toLowerCase().includes(query);
-      });
+  const getChartTypeIcon = (chartType: string) => {
+    switch (chartType.toLowerCase()) {
+      case 'bar':
+      case 'column': return <BarChart />;
+      case 'line': return <Timeline />;
+      case 'pie': return <PieChart />;
+      case 'donut': return <DonutLarge />;
+      case 'area': return <ShowChart />;
+      case 'scatter':
+      case 'bubble': return <BubbleChart />;
+      default: return <BarChart />;
     }
+  };
 
-    // Type filter
-    if (typeFilter && typeFilter !== 'all') {
-      filtered = filtered.filter(chart => chart.chart_type === typeFilter);
-    }
-
-    // Library filter
-    if (libraryFilter && libraryFilter !== 'all') {
-      filtered = filtered.filter(chart => chart.chart_library === libraryFilter);
-    }
-
-    // Category filter
-    if (categoryFilter && categoryFilter !== 'all') {
-      filtered = filtered.filter(chart => chart.chart_category === categoryFilter);
-    }
-
-    // Sorting
-    filtered.sort((a, b) => {
-      switch (sortBy) {
-        case 'name':
-          return getChartDisplayInfo(a).name.localeCompare(getChartDisplayInfo(b).name);
-        case 'created_at':
-          return new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime();
-        case 'updated_at':
-          return new Date(b.updated_at || '').getTime() - new Date(a.updated_at || '').getTime();
-        case 'type':
-          return getChartDisplayInfo(a).type.localeCompare(getChartDisplayInfo(b).type);
-        case 'library':
-          return getChartDisplayInfo(a).library.localeCompare(getChartDisplayInfo(b).library);
-        case 'category':
-          return getChartDisplayInfo(a).category.localeCompare(getChartDisplayInfo(b).category);
-        default:
-          return 0;
-      }
+  const getUniqueChartTypes = (charts: Chart[]): string[] => {
+    const types = new Set<string>();
+    charts.forEach(chart => {
+      const type = chart.chart_type;
+      if (type) types.add(type);
     });
-
-    return filtered;
-  }, [charts, searchQuery, typeFilter, libraryFilter, categoryFilter, sortBy]);
-
-  const paginatedCharts = useMemo(() => {
-    const startIndex = page * itemsPerPage;
-    return filteredCharts.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredCharts, page, itemsPerPage]);
-
-  // Get unique values for filters
-  const uniqueTypes = useMemo(() => {
-    const types = new Set(charts.map(chart => chart.chart_type).filter(Boolean));
     return Array.from(types).sort();
-  }, [charts]);
+  };
 
-  const uniqueLibraries = useMemo(() => {
-    const libraries = new Set(charts.map(chart => chart.chart_library).filter(Boolean));
+  const getUniqueChartLibraries = (charts: Chart[]): string[] => {
+    const libraries = new Set<string>();
+    charts.forEach(chart => {
+      const library = chart.chart_library;
+      if (library) libraries.add(library);
+    });
     return Array.from(libraries).sort();
-  }, [charts]);
+  };
 
-  const uniqueCategories = useMemo(() => {
-    const categories = new Set(charts.map(chart => chart.chart_category).filter(Boolean));
+  const getUniqueChartCategories = (charts: Chart[]): string[] => {
+    const categories = new Set<string>();
+    charts.forEach(chart => {
+      const category = chart.chart_category;
+      if (category) categories.add(category);
+    });
     return Array.from(categories).sort();
-  }, [charts]);
+  };
 
-  // ============================================================================
-  // Event Handlers
-  // ============================================================================
+  // Computed values
+  const uniqueChartTypes = useMemo(() => getUniqueChartTypes(charts), [charts]);
+  const uniqueChartLibraries = useMemo(() => getUniqueChartLibraries(charts), [charts]);
+  const uniqueChartCategories = useMemo(() => getUniqueChartCategories(charts), [charts]);
+  const supportedChartTypes = useMemo(() => getSupportedChartTypes(chartLibrary), [chartLibrary]);
 
-  const handleChartClick = useCallback((chart: Chart) => {
-    if (selectionMode) {
-      const newSelection = selectedCharts.includes(chart.id)
-        ? selectedCharts.filter(id => id !== chart.id)
-        : [...selectedCharts, chart.id];
-      onSelectionChange?.(newSelection);
-    } else if (onChartSelect) {
-      onChartSelect(chart);
-    } else {
-      router.push(`/chart/${chart.id}`);
-    }
-  }, [selectionMode, selectedCharts, onSelectionChange, onChartSelect, router]);
+  // Event handlers
+  const resetCreateForm = () => {
+    setChartName('');
+    setChartDescription('');
+    setChartType('');
+    setChartLibrary('echarts');
+    setChartCategory('basic');
+  };
 
-  const handleMenuOpen = useCallback((event: React.MouseEvent<HTMLElement>, chart: Chart) => {
-    event.stopPropagation();
-    setSelectedChart(chart);
-    setAnchorEl(event.currentTarget);
-  }, []);
+  const handleCreateChart = async () => {
+    if (!chartName.trim() || !chartType) return;
 
-  const handleMenuClose = useCallback(() => {
-    setAnchorEl(null);
-    setSelectedChart(null);
-  }, []);
-
-  const handleCreateChart = useCallback(async () => {
-    if (!currentWorkspace) return;
-
-    const createRequest: CreateChartRequest = {
-      ...createFormData,
-      workspace_id: currentWorkspace.id,
+    const chartData = {
+      name: chartName,
+      description: chartDescription,
+      chart_type: chartType,
+      chart_library: chartLibrary,
+      chart_category: chartCategory,
       dashboard_id: dashboardId,
+      workspace_id: currentWorkspace?.id,
     };
 
     try {
-      if (onChartCreate) {
-        await onChartCreate(createRequest);
-      } else {
-        await createChart(createRequest);
-      }
+      await onChartCreate?.(chartData);
       setCreateDialogOpen(false);
-      setCreateFormData({
-        name: '',
-        display_name: '',
-        description: '',
-        type: 'bar',
-        library: 'echarts',
-        chart_category: '',
-      });
+      resetCreateForm();
     } catch (error) {
       console.error('Failed to create chart:', error);
     }
-  }, [createFormData, currentWorkspace, dashboardId, onChartCreate, createChart]);
+  };
 
-  const handleDeleteChart = useCallback(async () => {
-    if (!selectedChart) return;
+  // Configuration for the List component
+  const filters: FilterOption[] = [
+    ...uniqueChartTypes.map(type => ({
+      key: 'chart_type',
+      label: `Type: ${type}`,
+      value: type,
+      count: charts.filter(c => c.chart_type === type).length,
+    })),
+    ...uniqueChartLibraries.map(library => ({
+      key: 'chart_library',
+      label: `Library: ${library}`,
+      value: library,
+      count: charts.filter(c => c.chart_library === library).length,
+    })),
+    ...uniqueChartCategories.map(category => ({
+      key: 'chart_category',
+      label: `Category: ${category}`,
+      value: category,
+      count: charts.filter(c => c.chart_category === category).length,
+    })),
+    {
+      key: 'is_active',
+      label: 'Active',
+      value: 'true',
+      count: charts.filter(c => c.is_active !== false).length,
+    },
+    {
+      key: 'is_active',
+      label: 'Inactive',
+      value: 'false',
+      count: charts.filter(c => c.is_active === false).length,
+    },
+  ];
 
-    try {
-      if (onChartDelete) {
-        await onChartDelete(selectedChart.id);
-      } else {
-        await deleteChart(selectedChart.id);
-      }
-      setDeleteDialogOpen(false);
-      handleMenuClose();
-    } catch (error) {
-      console.error('Failed to delete chart:', error);
-    }
-  }, [selectedChart, onChartDelete, deleteChart, handleMenuClose]);
+  const sortOptions: SortOption[] = [
+    { key: 'updated_at', label: 'Recently Updated', field: 'updated_at', direction: 'desc' },
+    { key: 'created_at', label: 'Recently Created', field: 'created_at', direction: 'desc' },
+    { key: 'name', label: 'Name (A-Z)', field: 'name', direction: 'asc' },
+    { key: 'chart_type', label: 'Chart Type', field: 'chart_type', direction: 'asc' },
+    { key: 'chart_library', label: 'Library', field: 'chart_library', direction: 'asc' },
+    { key: 'chart_category', label: 'Category', field: 'chart_category', direction: 'asc' },
+  ];
 
-  const handleDuplicateChart = useCallback(async () => {
-    if (!selectedChart) return;
-
-    try {
-      if (onChartDuplicate) {
-        await onChartDuplicate(selectedChart.id);
-      } else {
-        await duplicateChart(selectedChart.id);
-      }
-      handleMenuClose();
-    } catch (error) {
-      console.error('Failed to duplicate chart:', error);
-    }
-  }, [selectedChart, onChartDuplicate, duplicateChart, handleMenuClose]);
-
-  const handleEditChart = useCallback(() => {
-    if (!selectedChart) return;
-
-    if (onChartEdit) {
-      onChartEdit(selectedChart);
-    } else {
-      router.push(`/chart/${selectedChart.id}/edit`);
-    }
-    handleMenuClose();
-  }, [selectedChart, onChartEdit, router, handleMenuClose]);
-
-  // ============================================================================
-  // Render Helper Functions
-  // ============================================================================
-
-  const renderChartCard = (chart: Chart) => {
-    const displayInfo = getChartDisplayInfo(chart);
-    const isSelected = selectionMode && selectedCharts.includes(chart.id);
-
-    return (
-      <Card
-        key={chart.id}
-        sx={{
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          cursor: 'pointer',
-          position: 'relative',
-          '&:hover': {
-            boxShadow: 4,
-          },
-          ...(isSelected && {
-            border: 2,
-            borderColor: 'primary.main',
-          }),
-        }}
-        onClick={() => handleChartClick(chart)}
-      >
-        <CardContent sx={{ flexGrow: 1, pb: 1 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexGrow: 1 }}>
-              {renderCardChartIcon(chart)}
-              <Typography variant="h6" component="h2" sx={{ flexGrow: 1 }} noWrap>
+  const tableColumns: TableColumn[] = [
+    {
+      key: 'name',
+      label: 'Name',
+      sortable: true,
+      render: (chart: Chart) => {
+        const displayInfo = getChartDisplayInfo(chart);
+        return (
+          <Box display="flex" alignItems="center" gap={2}>
+            <Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32 }}>
+              {getChartTypeIcon(chart.chart_type)}
+            </Avatar>
+            <Box>
+              <Typography variant="subtitle2">
                 {displayInfo.name}
               </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {displayInfo.description}
+              </Typography>
             </Box>
-            <IconButton
-              size="small"
-              onClick={(e) => handleMenuOpen(e, chart)}
-              sx={{ ml: 1 }}
-            >
-              <MoreVertIcon fontSize="small" />
+          </Box>
+        );
+      },
+    },
+    {
+      key: 'chart_type',
+      label: 'Type',
+      align: 'center',
+      render: (chart: Chart) => (
+        <Chip
+          icon={getChartTypeIcon(chart.chart_type)}
+          label={chart.chart_type}
+          size="small"
+          variant="outlined"
+          color="primary"
+        />
+      ),
+    },
+    {
+      key: 'chart_library',
+      label: 'Library',
+      align: 'center',
+      render: (chart: Chart) => (
+        <Chip
+          label={chart.chart_library}
+          size="small"
+          variant="outlined"
+        />
+      ),
+    },
+    {
+      key: 'chart_category',
+      label: 'Category',
+      align: 'center',
+      render: (chart: Chart) => (
+        <Chip
+          label={chart.chart_category || 'Uncategorized'}
+          size="small"
+          color="secondary"
+          variant="outlined"
+        />
+      ),
+    },
+    {
+      key: 'is_active',
+      label: 'Status',
+      align: 'center',
+      render: (chart: Chart) => (
+        <Chip
+          label={chart.is_active !== false ? 'Active' : 'Inactive'}
+          size="small"
+          color={getStatusColor(chart.is_active !== false) as any}
+        />
+      ),
+    },
+    {
+      key: 'updated_at',
+      label: 'Updated',
+      render: (chart: Chart) => (
+        <Box>
+          <Typography variant="body2" color="text.secondary">
+            {new Date(chart.updated_at || chart.created_at).toLocaleDateString()}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            by {chart.created_by}
+          </Typography>
+        </Box>
+      ),
+    },
+  ];
+
+  const itemActions: ListAction[] = [
+    {
+      key: 'view',
+      label: 'View Chart',
+      icon: <Visibility />,
+      onClick: (chart: Chart) => {
+        router.push(`/builder/charts/${chart.id}`);
+      },
+    },
+    {
+      key: 'edit',
+      label: 'Edit Chart',
+      icon: <Edit />,
+      onClick: (chart: Chart) => {
+        onChartEdit?.(chart) || router.push(`/builder/charts/${chart.id}/edit`);
+      },
+      show: () => hasPermission('chart.update'),
+    },
+    {
+      key: 'duplicate',
+      label: 'Duplicate Chart',
+      icon: <FileCopy />,
+      onClick: (chart: Chart) => {
+        onChartDuplicate?.(chart.id);
+      },
+      show: () => hasPermission('chart.create'),
+    },
+    {
+      key: 'delete',
+      label: 'Delete Chart',
+      icon: <Delete />,
+      color: 'error',
+      onClick: (chart: Chart) => {
+        if (confirm(`Are you sure you want to delete "${getChartDisplayInfo(chart).name}"?`)) {
+          onChartDelete?.(chart.id);
+        }
+      },
+      show: () => hasPermission('chart.delete'),
+    },
+  ];
+
+  const bulkActions: ListAction[] = [
+    {
+      key: 'delete_bulk',
+      label: 'Delete Selected',
+      icon: <Delete />,
+      color: 'error',
+      onClick: (chartIds: string[]) => {
+        if (confirm(`Are you sure you want to delete ${chartIds.length} charts?`)) {
+          chartIds.forEach(id => onChartDelete?.(id));
+        }
+      },
+    },
+  ];
+
+  // Render functions for different view modes
+  const renderGridItem = (chart: Chart, isSelected?: boolean) => {
+    const displayInfo = getChartDisplayInfo(chart);
+    
+    return (
+      <Card
+        sx={{
+          cursor: 'pointer',
+          border: isSelected ? 2 : 1,
+          borderColor: isSelected ? 'primary.main' : 'divider',
+          '&:hover': {
+            boxShadow: 2,
+            borderColor: 'primary.light',
+          },
+        }}
+        onClick={() => onChartSelect?.(chart)}
+      >
+        <CardContent>
+          <Box display="flex" alignItems="center" mb={2}>
+            <Avatar sx={{ bgcolor: 'primary.main', mr: 2 }}>
+              {getChartTypeIcon(chart.chart_type)}
+            </Avatar>
+            <Box flex={1}>
+              <Typography variant="h6" noWrap>
+                {displayInfo.name}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {displayInfo.type} • {displayInfo.library}
+              </Typography>
+            </Box>
+            <IconButton size="small">
+              <MoreVert />
             </IconButton>
           </Box>
-          
-          {displayInfo.description && (
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              {displayInfo.description}
-            </Typography>
-          )}
 
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              minHeight: '2.5em',
+              mb: 2,
+            }}
+          >
+            {displayInfo.description}
+          </Typography>
+
+          <Box display="flex" flexWrap="wrap" gap={1} mb={2}>
             <Chip
-              size="small"
               label={displayInfo.type}
-              variant="outlined"
+              size="small"
               color="primary"
+              variant="outlined"
             />
             <Chip
+              label={displayInfo.category}
               size="small"
-              label={displayInfo.library}
-              variant="outlined"
               color="secondary"
+              variant="outlined"
             />
-            {displayInfo.category && (
+            {chart.is_active === false && (
               <Chip
+                label="Inactive"
                 size="small"
-                label={displayInfo.category}
-                variant="outlined"
+                color="default"
               />
             )}
           </Box>
 
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 'auto' }}>
+          <Box display="flex" justifyContent="space-between" alignItems="center">
             <Typography variant="caption" color="text.secondary">
               Updated {new Date(displayInfo.updatedAt).toLocaleDateString()}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              by {displayInfo.createdBy}
+              v{displayInfo.version}
             </Typography>
           </Box>
+          
+          <Typography variant="caption" color="text.secondary">
+            by {displayInfo.createdBy}
+          </Typography>
         </CardContent>
       </Card>
     );
   };
 
-  const renderChartListItem = (chart: Chart) => {
+  const renderListItem = (chart: Chart, isSelected?: boolean) => {
     const displayInfo = getChartDisplayInfo(chart);
-    const isSelected = selectionMode && selectedCharts.includes(chart.id);
-
+    
     return (
       <ListItem
         key={chart.id}
-        disablePadding
+        button
+        selected={isSelected}
+        onClick={() => onChartSelect?.(chart)}
         sx={{
-          ...(isSelected && {
-            backgroundColor: 'action.selected',
-          }),
+          border: 1,
+          borderColor: 'divider',
+          borderRadius: 1,
+          mb: 1,
         }}
       >
-        <ListItemButton onClick={() => handleChartClick(chart)}>
-          <ListItemAvatar>
-            <Avatar sx={{ bgcolor: 'primary.main' }}>
-              {renderListChartIcon(chart)}
-            </Avatar>
-          </ListItemAvatar>
-          <ListItemText
-            primary={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                <Typography variant="body1" fontWeight="medium">
-                  {displayInfo.name}
-                </Typography>
-                <Chip size="small" label={displayInfo.type} variant="outlined" color="primary" />
-                <Chip size="small" label={displayInfo.library} variant="outlined" color="secondary" />
-              </Box>
-            }
-            secondary={
-              <Box>
-                {displayInfo.description && (
-                  <Typography variant="body2" sx={{ mb: 0.5 }}>
-                    {displayInfo.description}
-                  </Typography>
-                )}
+        <ListItemAvatar>
+          <Avatar sx={{ bgcolor: 'primary.main' }}>
+            {getChartTypeIcon(chart.chart_type)}
+          </Avatar>
+        </ListItemAvatar>
+        <ListItemText
+          primary={
+            <Box display="flex" alignItems="center" gap={1}>
+              <Typography variant="subtitle2">
+                {displayInfo.name}
+              </Typography>
+              {chart.is_active === false && (
+                <Chip
+                  label="Inactive"
+                  size="small"
+                  color="default"
+                  variant="outlined"
+                />
+              )}
+            </Box>
+          }
+          secondary={
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                {displayInfo.description}
+              </Typography>
+              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                <Chip
+                  label={displayInfo.type}
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                />
+                <Chip
+                  label={displayInfo.library}
+                  size="small"
+                  variant="outlined"
+                />
+                <Chip
+                  label={displayInfo.category}
+                  size="small"
+                  color="secondary"
+                  variant="outlined"
+                />
                 <Typography variant="caption" color="text.secondary">
                   Updated {new Date(displayInfo.updatedAt).toLocaleDateString()} • by {displayInfo.createdBy}
-                  {displayInfo.category && ` • ${displayInfo.category}`}
                 </Typography>
               </Box>
-            }
-          />
-          <IconButton
-            edge="end"
-            onClick={(e) => handleMenuOpen(e, chart)}
-          >
-            <MoreVertIcon />
+            </Box>
+          }
+        />
+        <ListItemSecondaryAction>
+          <IconButton edge="end">
+            <MoreVert />
           </IconButton>
-        </ListItemButton>
+        </ListItemSecondaryAction>
       </ListItem>
     );
   };
 
-  const renderEmptyState = () => (
-    <Paper sx={{ p: 4, textAlign: 'center' }}>
-      <DefaultChartIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-      <Typography variant="h6" gutterBottom>
-        No charts found
-      </Typography>
-      <Typography color="text.secondary" sx={{ mb: 3 }}>
-        {searchQuery || typeFilter !== 'all' || libraryFilter !== 'all' || categoryFilter !== 'all'
-          ? 'Try adjusting your search or filters'
-          : dashboardId 
-            ? 'This dashboard doesn\'t have any charts yet.'
-            : 'Get started by creating your first chart.'}
-      </Typography>
-      {showCreateButton && (
-        <PermissionGate permission="chart.create">
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => setCreateDialogOpen(true)}
-          >
-            Create Chart
-          </Button>
-        </PermissionGate>
-      )}
-    </Paper>
-  );
-
-  // ============================================================================
-  // Main Render
-  // ============================================================================
-
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
-        <Grid container spacing={3}>
-          {Array.from({ length: itemsPerPage }).map((_, index) => (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={index}>
-              <Card>
-                <CardContent>
-                  <Skeleton variant="rectangular" height={40} sx={{ mb: 1 }} />
-                  <Skeleton variant="text" sx={{ mb: 1 }} />
-                  <Skeleton variant="text" width="60%" />
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
-      </Box>
-    );
-  }
-
-  if (error) {
-    return (
-      <Alert severity="error" sx={{ mb: 2 }}>
-        {error}
-      </Alert>
-    );
-  }
-
   return (
     <Box>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">
-          {dashboardId ? 'Dashboard Charts' : 'Charts'}
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <IconButton 
-            onClick={() => setViewMode('grid')} 
-            color={viewMode === 'grid' ? 'primary' : 'default'}
-          >
-            <GridViewIcon />
-          </IconButton>
-          <IconButton 
-            onClick={() => setViewMode('list')} 
-            color={viewMode === 'list' ? 'primary' : 'default'}
-          >
-            <ViewListIcon />
-          </IconButton>
-          <IconButton onClick={refreshCharts}>
-            <Refresh />
-          </IconButton>
-          {showCreateButton && (
-            <PermissionGate permission="chart.create">
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => setCreateDialogOpen(true)}
-              >
-                New Chart
-              </Button>
-            </PermissionGate>
-          )}
-        </Box>
-      </Box>
+      <List<Chart>
+        items={charts}
+        loading={loading}
+        error={error}
+        title="Charts"
+        emptyMessage="No charts found. Create your first chart to get started."
+        viewMode={viewMode}
+        supportedViewModes={['grid', 'list', 'table']}
+        selectionMode={selectionMode}
+        selectedItems={selectedCharts}
+        onSelectionChange={onSelectionChange}
+        getItemId={(chart) => chart.id}
+        searchPlaceholder="Search charts..."
+        searchFields={['name', 'display_name', 'description', 'chart_type', 'chart_category']}
+        filters={showFilters ? filters : []}
+        sortOptions={sortOptions}
+        tableColumns={tableColumns}
+        itemActions={itemActions}
+        bulkActions={selectionMode ? bulkActions : []}
+        primaryAction={
+          showCreateButton
+            ? {
+                label: 'Create Chart',
+                icon: <Add />,
+                onClick: () => setCreateDialogOpen(true),
+                show: hasPermission('chart.create'),
+              }
+            : undefined
+        }
+        renderGridItem={renderGridItem}
+        renderListItem={renderListItem}
+        onItemClick={onChartSelect}
+        pagination={true}
+        rowsPerPage={itemsPerPage}
+      />
 
-      {/* Filters */}
-      {showFilters && (
-        <Paper sx={{ p: 2, mb: 3 }}>
-          <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={3}>
+      {/* Create Chart Dialog */}
+      <Dialog 
+        open={createDialogOpen} 
+        onClose={() => {
+          setCreateDialogOpen(false);
+          resetCreateForm();
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Create New Chart</DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
               <TextField
                 fullWidth
-                size="small"
-                placeholder="Search charts..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                InputProps={{
-                  startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />,
-                }}
+                label="Chart Name"
+                value={chartName}
+                onChange={(e) => setChartName(e.target.value)}
+                required
               />
             </Grid>
-            <Grid item xs={12} md={2}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Type</InputLabel>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Description"
+                value={chartDescription}
+                onChange={(e) => setChartDescription(e.target.value)}
+                multiline
+                rows={3}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel>Chart Library</InputLabel>
                 <Select
-                  value={typeFilter}
-                  onChange={(e: SelectChangeEvent) => setTypeFilter(e.target.value)}
-                  label="Type"
+                  value={chartLibrary}
+                  label="Chart Library"
+                  onChange={(e) => {
+                    setChartLibrary(e.target.value);
+                    setChartType(''); // Reset chart type when library changes
+                  }}
                 >
-                  <MenuItem value="all">All Types</MenuItem>
-                  {uniqueTypes.map((type) => (
+                  {getAvailableChartLibraries().map((library) => (
+                    <MenuItem key={library} value={library}>
+                      {library.charAt(0).toUpperCase() + library.slice(1)}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel>Chart Type</InputLabel>
+                <Select
+                  value={chartType}
+                  label="Chart Type"
+                  onChange={(e) => setChartType(e.target.value)}
+                  disabled={!chartLibrary}
+                >
+                  {supportedChartTypes.map((type) => (
                     <MenuItem key={type} value={type}>
                       {type.charAt(0).toUpperCase() + type.slice(1)}
                     </MenuItem>
@@ -649,230 +684,23 @@ export const ChartList: React.FC<ChartListProps> = ({
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} md={2}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Library</InputLabel>
-                <Select
-                  value={libraryFilter}
-                  onChange={(e: SelectChangeEvent) => setLibraryFilter(e.target.value)}
-                  label="Library"
-                >
-                  <MenuItem value="all">All Libraries</MenuItem>
-                  {uniqueLibraries.map((library) => (
-                    <MenuItem key={library} value={library}>
-                      {getChartLibraryDisplayName(library)}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={2}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Category</InputLabel>
-                <Select
-                  value={categoryFilter}
-                  onChange={(e: SelectChangeEvent) => setCategoryFilter(e.target.value)}
-                  label="Category"
-                >
-                  <MenuItem value="all">All Categories</MenuItem>
-                  {uniqueCategories.map((category) => (
-                    <MenuItem key={category} value={category}>
-                      {category}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={2}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Sort By</InputLabel>
-                <Select
-                  value={sortBy}
-                  onChange={(e: SelectChangeEvent<SortOption>) => setSortBy(e.target.value as SortOption)}
-                  label="Sort By"
-                >
-                  <MenuItem value="updated_at">Updated</MenuItem>
-                  <MenuItem value="created_at">Created</MenuItem>
-                  <MenuItem value="name">Name</MenuItem>
-                  <MenuItem value="type">Type</MenuItem>
-                  <MenuItem value="library">Library</MenuItem>
-                  <MenuItem value="category">Category</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
           </Grid>
-        </Paper>
-      )}
-
-      {/* Content */}
-      {filteredCharts.length === 0 ? (
-        renderEmptyState()
-      ) : (
-        <>
-          {viewMode === 'grid' && (
-            <Grid container spacing={3}>
-              {paginatedCharts.map((chart) => (
-                <Grid item xs={12} sm={6} md={4} lg={3} key={chart.id}>
-                  {renderChartCard(chart)}
-                </Grid>
-              ))}
-            </Grid>
-          )}
-
-          {viewMode === 'list' && (
-            <Paper>
-              <List>
-                {paginatedCharts.map((chart, index) => (
-                  <React.Fragment key={chart.id}>
-                    {renderChartListItem(chart)}
-                    {index < paginatedCharts.length - 1 && <Divider />}
-                  </React.Fragment>
-                ))}
-              </List>
-            </Paper>
-          )}
-        </>
-      )}
-
-      {/* Context Menu */}
-      <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={handleMenuClose}
-      >
-        <MenuItem onClick={() => selectedChart && handleChartClick(selectedChart)}>
-          <ListItemIcon>
-            <VisibilityIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>View</ListItemText>
-        </MenuItem>
-        <PermissionGate permission="chart.update" resourceId={selectedChart?.id}>
-          <MenuItem onClick={handleEditChart}>
-            <ListItemIcon>
-              <EditIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>Edit</ListItemText>
-          </MenuItem>
-        </PermissionGate>
-        <MenuItem onClick={handleDuplicateChart}>
-          <ListItemIcon>
-            <FileCopyIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Duplicate</ListItemText>
-        </MenuItem>
-        <Divider />
-        <PermissionGate permission="chart.delete" resourceId={selectedChart?.id} resourceType="chart">
-          <MenuItem onClick={() => setDeleteDialogOpen(true)} sx={{ color: 'error.main' }}>
-            <ListItemIcon>
-              <DeleteIcon fontSize="small" sx={{ color: 'error.main' }} />
-            </ListItemIcon>
-            <ListItemText>Delete</ListItemText>
-          </MenuItem>
-        </PermissionGate>
-      </Menu>
-
-      {/* Create Chart Dialog */}
-      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Create New Chart</DialogTitle>
-        <DialogContent>
-          <Box sx={{ pt: 1 }}>
-            <TextField
-              fullWidth
-              label="Name"
-              value={createFormData.name}
-              onChange={(e) => setCreateFormData(prev => ({ ...prev, name: e.target.value }))}
-              sx={{ mb: 2 }}
-              required
-            />
-            <TextField
-              fullWidth
-              label="Display Name"
-              value={createFormData.display_name}
-              onChange={(e) => setCreateFormData(prev => ({ ...prev, display_name: e.target.value }))}
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              label="Description"
-              multiline
-              rows={3}
-              value={createFormData.description}
-              onChange={(e) => setCreateFormData(prev => ({ ...prev, description: e.target.value }))}
-              sx={{ mb: 2 }}
-            />
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <InputLabel>Chart Library</InputLabel>
-              <Select
-                value={createFormData.library}
-                onChange={(e: SelectChangeEvent) => setCreateFormData(prev => ({ 
-                  ...prev, 
-                  library: e.target.value,
-                  type: 'bar' // Reset type when library changes
-                }))}
-                label="Chart Library"
-              >
-                {availableLibraries.map((library) => (
-                  <MenuItem key={library} value={library}>
-                    {getChartLibraryDisplayName(library)}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <InputLabel>Chart Type</InputLabel>
-              <Select
-                value={createFormData.type}
-                onChange={(e: SelectChangeEvent<ChartType>) => setCreateFormData(prev => ({ 
-                  ...prev, 
-                  type: e.target.value as ChartType 
-                }))}
-                label="Chart Type"
-                disabled={!createFormData.library}
-              >
-                {availableChartTypes.map((type) => (
-                  <MenuItem key={type} value={type}>
-                    {type.charAt(0).toUpperCase() + type.slice(1)}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <TextField
-              fullWidth
-              label="Category"
-              value={createFormData.chart_category}
-              onChange={(e) => setCreateFormData(prev => ({ ...prev, chart_category: e.target.value }))}
-            />
-          </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCreateDialogOpen(false)}>
+          <Button 
+            onClick={() => {
+              setCreateDialogOpen(false);
+              resetCreateForm();
+            }}
+          >
             Cancel
           </Button>
           <Button 
-            onClick={handleCreateChart} 
+            onClick={handleCreateChart}
             variant="contained"
-            disabled={!createFormData.name.trim() || !createFormData.type}
+            disabled={!chartName.trim() || !chartType}
           >
-            Create
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
-        <DialogTitle>Delete Chart</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to delete "{getChartDisplayInfo(selectedChart || {} as Chart).name}"? 
-            This action cannot be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleDeleteChart} color="error" variant="contained">
-            Delete
+            Create Chart
           </Button>
         </DialogActions>
       </Dialog>
