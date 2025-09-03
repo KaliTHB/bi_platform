@@ -1,659 +1,506 @@
 // api-services/src/controllers/DataSourceController.ts
 import { Request, Response } from 'express';
 import { DataSourceService } from '../services/DataSourceService';
-import { PluginManager } from '../services/PluginManager';
+import { PluginService } from '../services/PluginService';
 import { PermissionService } from '../services/PermissionService';
-import { EncryptionService } from '../services/EncryptionService';
 import { logger } from '../utils/logger';
+import { ValidationError, NotFoundError, ConflictError } from '../middleware/errorHandler';
 
 interface AuthenticatedRequest extends Request {
-  user: {
-    id: string;
+  user?: {
+    user_id: string;
     email: string;
     workspace_id: string;
-    roles: string[];
   };
 }
 
 export class DataSourceController {
   private dataSourceService: DataSourceService;
-  private pluginManager: PluginManager;
+  private pluginService: PluginService;
   private permissionService: PermissionService;
-  private encryptionService: EncryptionService;
 
   constructor() {
+    // Initialize services without dependencies - they will create their own instances
     this.dataSourceService = new DataSourceService();
-    this.pluginManager = PluginManager.getInstance();
+    this.pluginService = new PluginService();
     this.permissionService = new PermissionService();
-    this.encryptionService = new EncryptionService();
+    
+    logger.info('DataSourceController initialized');
   }
 
-  // Get all data sources in workspace
-  async getDataSources(req: AuthenticatedRequest, res: Response): Promise<void> {
+  // Test custom connection without saving
+  testCustomConnection = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const { workspace_id } = req.user;
-      const { 
-        page = 1, 
-        limit = 20, 
-        search,
-        plugin_type,
-        status,
-        created_by,
-        sort_by = 'updated_at',
-        sort_order = 'desc',
-        include_connection_status = false
-      } = req.query;
+      const { type, connection_config } = req.body;
+      const userId = req.user?.user_id;
 
-      const options = {
-        page: parseInt(page as string),
-        limit: parseInt(limit as string),
-        filters: {
-          search: search as string,
-          plugin_type: plugin_type as string,
-          status: status as string,
-          created_by: created_by as string
-        },
-        sort_by: sort_by as string,
-        sort_order: sort_order as 'asc' | 'desc',
-        include_connection_status: include_connection_status === 'true'
-      };
+      if (!type || !connection_config) {
+        throw new ValidationError('Type and connection_config are required');
+      }
 
-      const result = await this.dataSourceService.getDataSources(workspace_id, options);
+      logger.info('Testing custom connection', { type, user_id: userId });
+
+      // Test the connection using the service
+      const testResult = await this.dataSourceService.testConnection(type, connection_config);
 
       res.status(200).json({
         success: true,
-        data_sources: result.data_sources,
-        pagination: {
-          page: result.page,
-          limit: result.limit,
-          total: result.total,
-          pages: result.pages,
-          has_next: result.has_next,
-          has_prev: result.has_prev
-        },
-        message: 'Data sources retrieved successfully'
+        test_result: testResult,
+        message: 'Connection test completed successfully'
       });
     } catch (error: any) {
-      logger.error('Get data sources error:', error);
+      logger.error('Error testing custom connection:', error);
+      
+      if (error instanceof ValidationError || error instanceof NotFoundError) {
+        throw error;
+      }
+
       res.status(500).json({
         success: false,
-        message: 'Failed to retrieve data sources',
+        message: 'Failed to test connection',
+        errors: [{ 
+          code: 'CONNECTION_TEST_FAILED', 
+          message: error.message,
+          details: error.details 
+        }]
+      });
+    }
+  };
+
+  // Get all datasources in workspace
+  getDataSources = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const { workspaceId } = req.params;
+      const userId = req.user?.user_id;
+      const { page = 1, limit = 50, type, status, search } = req.query;
+
+      if (!workspaceId) {
+        throw new ValidationError('Workspace ID is required');
+      }
+
+      logger.info('Getting datasources', { workspaceId, user_id: userId });
+
+      // Build filters
+      const filters = {
+        workspace_id: workspaceId,
+        ...(type && { type: type as string }),
+        ...(status && { status: status as string }),
+        ...(search && { search: search as string })
+      };
+
+      // Get datasources
+      const result = await this.dataSourceService.getDataSources(filters, {
+        page: parseInt(page as string),
+        limit: parseInt(limit as string)
+      });
+
+      res.status(200).json({
+        success: true,
+        datasources: result.datasources,
+        pagination: result.pagination,
+        message: 'Datasources retrieved successfully'
+      });
+    } catch (error: any) {
+      logger.error('Error getting datasources:', error);
+      
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get datasources',
         errors: [{ code: 'GET_DATASOURCES_FAILED', message: error.message }]
       });
     }
-  }
+  };
 
-  // Create new data source
-  async createDataSource(req: AuthenticatedRequest, res: Response): Promise<void> {
+  // Create new datasource
+  createDataSource = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const { id: userId, workspace_id } = req.user;
-      const dataSourceData = req.body;
+      const { workspaceId } = req.params;
+      const { name, description, type, connection_config, tags } = req.body;
+      const userId = req.user?.user_id;
 
-      // Validate required fields
-      if (!dataSourceData.name || !dataSourceData.plugin_type) {
-        res.status(400).json({
-          success: false,
-          message: 'Data source name and plugin type are required',
-          errors: [{ code: 'VALIDATION_ERROR', message: 'Name and plugin_type fields are required' }]
-        });
-        return;
+      if (!workspaceId || !name || !type || !connection_config) {
+        throw new ValidationError('Workspace ID, name, type, and connection_config are required');
       }
 
-      // Validate plugin exists
-      const plugin = this.pluginManager.getDataSourcePlugin(dataSourceData.plugin_type);
-      if (!plugin) {
-        res.status(400).json({
-          success: false,
-          message: 'Invalid plugin type',
-          errors: [{ code: 'INVALID_PLUGIN_TYPE', message: `Plugin type '${dataSourceData.plugin_type}' not found` }]
-        });
-        return;
+      logger.info('Creating datasource', { workspaceId, name, type, user_id: userId });
+
+      // Check for duplicate names in workspace
+      const existingDataSource = await this.dataSourceService.findByName(workspaceId, name);
+      if (existingDataSource) {
+        throw new ConflictError(`Datasource with name '${name}' already exists in this workspace`);
       }
 
-      // Encrypt sensitive connection config
-      const encryptedConfig = await this.encryptionService.encryptConnectionConfig(
-        dataSourceData.connection_config,
-        plugin.configSchema
-      );
-
-      const createData = {
-        ...dataSourceData,
-        workspace_id,
-        created_by: userId,
-        connection_config: encryptedConfig
+      // Create the datasource
+      const dataSourceData = {
+        name,
+        description,
+        type,
+        workspace_id: workspaceId,
+        connection_config,
+        tags: tags || [],
+        created_by: userId!
       };
 
-      const dataSource = await this.dataSourceService.createDataSource(createData);
+      const datasource = await this.dataSourceService.createDataSource(dataSourceData);
 
       res.status(201).json({
         success: true,
-        data_source: dataSource,
-        message: 'Data source created successfully'
+        datasource,
+        message: 'Datasource created successfully'
       });
     } catch (error: any) {
-      logger.error('Create data source error:', error);
+      logger.error('Error creating datasource:', error);
       
-      if (error.code === 'DATASOURCE_NAME_EXISTS') {
-        res.status(409).json({
-          success: false,
-          message: 'Data source with this name already exists',
-          errors: [{ code: 'DUPLICATE_NAME', message: error.message }]
-        });
-      } else {
-        res.status(500).json({
-          success: false,
-          message: 'Failed to create data source',
-          errors: [{ code: 'CREATE_DATASOURCE_FAILED', message: error.message }]
-        });
+      if (error instanceof ValidationError || error instanceof NotFoundError || error instanceof ConflictError) {
+        throw error;
       }
-    }
-  }
 
-  // Get specific data source by ID
-  async getDataSource(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { workspace_id } = req.user;
-      const { 
-        include_schema = false, 
-        include_connection_status = false,
-        decrypt_config = false 
-      } = req.query;
-
-      const dataSource = await this.dataSourceService.getDataSource(id, workspace_id, {
-        include_schema: include_schema === 'true',
-        include_connection_status: include_connection_status === 'true'
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create datasource',
+        errors: [{ code: 'CREATE_DATASOURCE_FAILED', message: error.message }]
       });
+    }
+  };
 
-      if (!dataSource) {
-        res.status(404).json({
-          success: false,
-          message: 'Data source not found',
-          errors: [{ code: 'DATASOURCE_NOT_FOUND', message: 'Data source does not exist or access denied' }]
-        });
-        return;
+  // Get specific datasource
+  getDataSource = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const { workspaceId, id } = req.params;
+      const userId = req.user?.user_id;
+
+      if (!workspaceId || !id) {
+        throw new ValidationError('Workspace ID and datasource ID are required');
       }
 
-      // Decrypt config if requested and user has permission
-      if (decrypt_config === 'true') {
-        const hasPermission = await this.permissionService.canManageDataSource(
-          req.user.id, 
-          workspace_id, 
-          id
-        );
-        
-        if (hasPermission) {
-          const plugin = this.pluginManager.getDataSourcePlugin(dataSource.plugin_type);
-          if (plugin) {
-            dataSource.connection_config = await this.encryptionService.decryptConnectionConfig(
-              dataSource.connection_config,
-              plugin.configSchema
-            );
-          }
-        }
+      logger.info('Getting datasource', { workspaceId, id, user_id: userId });
+
+      // Get the datasource
+      const datasource = await this.dataSourceService.getDataSourceById(id, workspaceId);
+
+      if (!datasource) {
+        throw new NotFoundError('Datasource not found');
       }
 
       res.status(200).json({
         success: true,
-        data_source: dataSource,
-        message: 'Data source retrieved successfully'
+        datasource,
+        message: 'Datasource retrieved successfully'
       });
     } catch (error: any) {
-      logger.error('Get data source error:', error);
+      logger.error('Error getting datasource:', error);
+      
+      if (error instanceof ValidationError || error instanceof NotFoundError) {
+        throw error;
+      }
+
       res.status(500).json({
         success: false,
-        message: 'Failed to retrieve data source',
+        message: 'Failed to get datasource',
         errors: [{ code: 'GET_DATASOURCE_FAILED', message: error.message }]
       });
     }
-  }
+  };
 
-  // Update data source
-  async updateDataSource(req: AuthenticatedRequest, res: Response): Promise<void> {
+  // Update datasource
+  updateDataSource = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const { id } = req.params;
-      const { workspace_id } = req.user;
-      const updateData = req.body;
+      const { workspaceId, id } = req.params;
+      const updates = req.body;
+      const userId = req.user?.user_id;
 
-      // Get existing data source to validate plugin type
-      const existingDataSource = await this.dataSourceService.getDataSource(id, workspace_id);
-      if (!existingDataSource) {
-        res.status(404).json({
-          success: false,
-          message: 'Data source not found',
-          errors: [{ code: 'DATASOURCE_NOT_FOUND', message: 'Data source does not exist or access denied' }]
-        });
-        return;
+      if (!workspaceId || !id) {
+        throw new ValidationError('Workspace ID and datasource ID are required');
       }
 
-      // Encrypt connection config if provided
-      if (updateData.connection_config) {
-        const plugin = this.pluginManager.getDataSourcePlugin(existingDataSource.plugin_type);
-        if (plugin) {
-          updateData.connection_config = await this.encryptionService.encryptConnectionConfig(
-            updateData.connection_config,
-            plugin.configSchema
-          );
+      logger.info('Updating datasource', { workspaceId, id, user_id: userId });
+
+      // Get existing datasource
+      const existingDataSource = await this.dataSourceService.getDataSourceById(id, workspaceId);
+      if (!existingDataSource) {
+        throw new NotFoundError('Datasource not found');
+      }
+
+      // Check for name conflicts if name is being updated
+      if (updates.name && updates.name !== existingDataSource.name) {
+        const duplicateDataSource = await this.dataSourceService.findByName(workspaceId, updates.name);
+        if (duplicateDataSource && duplicateDataSource.id !== id) {
+          throw new ConflictError(`Datasource with name '${updates.name}' already exists in this workspace`);
         }
       }
 
-      const dataSource = await this.dataSourceService.updateDataSource(id, workspace_id, updateData);
+      // Update the datasource
+      const datasource = await this.dataSourceService.updateDataSource(id, workspaceId, {
+        ...updates,
+        updated_by: userId
+      });
 
       res.status(200).json({
         success: true,
-        data_source: dataSource,
-        message: 'Data source updated successfully'
+        datasource,
+        message: 'Datasource updated successfully'
       });
     } catch (error: any) {
-      logger.error('Update data source error:', error);
+      logger.error('Error updating datasource:', error);
       
-      if (error.code === 'DATASOURCE_NAME_EXISTS') {
-        res.status(409).json({
-          success: false,
-          message: 'Data source with this name already exists',
-          errors: [{ code: 'DUPLICATE_NAME', message: error.message }]
-        });
-      } else {
-        res.status(500).json({
-          success: false,
-          message: 'Failed to update data source',
-          errors: [{ code: 'UPDATE_DATASOURCE_FAILED', message: error.message }]
-        });
-      }
-    }
-  }
-
-  // Delete data source
-  async deleteDataSource(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { workspace_id } = req.user;
-      const { force = false } = req.query;
-
-      // Check if data source is being used
-      const usage = await this.dataSourceService.getDataSourceUsage(id, workspace_id);
-      if (usage.is_in_use && force !== 'true') {
-        res.status(409).json({
-          success: false,
-          message: 'Data source is currently being used by datasets or other resources',
-          errors: [{ 
-            code: 'DATASOURCE_IN_USE', 
-            message: `Data source is used by ${usage.datasets_count} datasets. Use force=true to delete anyway.` 
-          }],
-          usage_details: usage
-        });
-        return;
+      if (error instanceof ValidationError || error instanceof NotFoundError || error instanceof ConflictError) {
+        throw error;
       }
 
-      const result = await this.dataSourceService.deleteDataSource(id, workspace_id, force === 'true');
-
-      if (!result.success) {
-        res.status(404).json({
-          success: false,
-          message: result.message || 'Data source not found',
-          errors: [{ code: 'DATASOURCE_NOT_FOUND', message: result.message || 'Data source does not exist or access denied' }]
-        });
-        return;
-      }
-
-      res.status(200).json({
-        success: true,
-        message: 'Data source deleted successfully',
-        affected_resources: result.affected_resources || {}
-      });
-    } catch (error: any) {
-      logger.error('Delete data source error:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to delete data source',
+        message: 'Failed to update datasource',
+        errors: [{ code: 'UPDATE_DATASOURCE_FAILED', message: error.message }]
+      });
+    }
+  };
+
+  // Delete datasource
+  deleteDataSource = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const { workspaceId, id } = req.params;
+      const userId = req.user?.user_id;
+      const { force = false } = req.query;
+
+      if (!workspaceId || !id) {
+        throw new ValidationError('Workspace ID and datasource ID are required');
+      }
+
+      logger.info('Deleting datasource', { workspaceId, id, force, user_id: userId });
+
+      // Check if datasource exists
+      const datasource = await this.dataSourceService.getDataSourceById(id, workspaceId);
+      if (!datasource) {
+        throw new NotFoundError('Datasource not found');
+      }
+
+      // Check dependencies unless force delete
+      if (!force) {
+        const dependencies = await this.dataSourceService.getDatasourceDependencies(id);
+        if (dependencies.total > 0) {
+          return res.status(409).json({
+            success: false,
+            message: 'Cannot delete datasource with active dependencies',
+            errors: [{
+              code: 'DEPENDENCY_CONFLICT',
+              message: `Datasource has ${dependencies.total} active dependencies`,
+              details: dependencies
+            }]
+          });
+        }
+      }
+
+      // Delete the datasource
+      await this.dataSourceService.deleteDataSource(id, workspaceId, userId!);
+
+      res.status(200).json({
+        success: true,
+        message: 'Datasource deleted successfully'
+      });
+    } catch (error: any) {
+      logger.error('Error deleting datasource:', error);
+      
+      if (error instanceof ValidationError || error instanceof NotFoundError) {
+        throw error;
+      }
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to delete datasource',
         errors: [{ code: 'DELETE_DATASOURCE_FAILED', message: error.message }]
       });
     }
-  }
+  };
 
-  // Test data source connection
-  async testConnection(req: AuthenticatedRequest, res: Response): Promise<void> {
+  // Test datasource connection
+  testConnection = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const { id } = req.params;
-      const { workspace_id } = req.user;
+      const { workspaceId, id } = req.params;
+      const userId = req.user?.user_id;
 
-      const testResult = await this.dataSourceService.testConnection(id, workspace_id);
+      if (!workspaceId || !id) {
+        throw new ValidationError('Workspace ID and datasource ID are required');
+      }
+
+      logger.info('Testing datasource connection', { workspaceId, id, user_id: userId });
+
+      // Get the datasource
+      const datasource = await this.dataSourceService.getDataSourceById(id, workspaceId);
+      if (!datasource) {
+        throw new NotFoundError('Datasource not found');
+      }
+
+      // Test the connection
+      const testResult = await this.dataSourceService.testConnection(
+        datasource.type,
+        datasource.connection_config
+      );
+
+      // Update last tested timestamp
+      await this.dataSourceService.updateLastTested(id, workspaceId);
 
       res.status(200).json({
         success: true,
-        connection_test: testResult,
-        message: testResult.success ? 'Connection test successful' : 'Connection test failed'
+        test_result: testResult,
+        message: 'Connection test completed successfully'
       });
     } catch (error: any) {
-      logger.error('Test connection error:', error);
+      logger.error('Error testing connection:', error);
+      
+      if (error instanceof ValidationError || error instanceof NotFoundError) {
+        throw error;
+      }
+
       res.status(500).json({
         success: false,
         message: 'Failed to test connection',
-        errors: [{ code: 'TEST_CONNECTION_FAILED', message: error.message }]
+        errors: [{ 
+          code: 'CONNECTION_TEST_FAILED', 
+          message: error.message,
+          details: error.details 
+        }]
       });
     }
-  }
+  };
 
-  // Test custom connection configuration (without saving)
-  async testCustomConnection(req: Request, res: Response): Promise<void> {
+  // Get datasource usage statistics
+  getUsageStats = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const { plugin_type, connection_config } = req.body;
+      const { workspaceId, id } = req.params;
+      const userId = req.user?.user_id;
+      const { period = 'week', startDate, endDate } = req.query;
 
-      if (!plugin_type || !connection_config) {
-        res.status(400).json({
-          success: false,
-          message: 'Plugin type and connection config are required',
-          errors: [{ code: 'VALIDATION_ERROR', message: 'plugin_type and connection_config fields are required' }]
-        });
-        return;
+      if (!workspaceId || !id) {
+        throw new ValidationError('Workspace ID and datasource ID are required');
       }
 
-      // Validate plugin exists
-      const plugin = this.pluginManager.getDataSourcePlugin(plugin_type);
-      if (!plugin) {
-        res.status(400).json({
-          success: false,
-          message: 'Invalid plugin type',
-          errors: [{ code: 'INVALID_PLUGIN_TYPE', message: `Plugin type '${plugin_type}' not found` }]
-        });
-        return;
+      logger.info('Getting datasource usage stats', { workspaceId, id, period, user_id: userId });
+
+      // Check if datasource exists
+      const datasource = await this.dataSourceService.getDataSourceById(id, workspaceId);
+      if (!datasource) {
+        throw new NotFoundError('Datasource not found');
       }
 
-      const testResult = await plugin.testConnection(connection_config);
+      // Get usage statistics
+      const stats = await this.dataSourceService.getUsageStats(id, {
+        period: period as string,
+        startDate: startDate as string,
+        endDate: endDate as string
+      });
 
       res.status(200).json({
         success: true,
-        connection_test: testResult,
-        message: testResult.success ? 'Connection test successful' : 'Connection test failed'
+        stats,
+        message: 'Usage statistics retrieved successfully'
       });
     } catch (error: any) {
-      logger.error('Test custom connection error:', error);
+      logger.error('Error getting usage stats:', error);
+      
+      if (error instanceof ValidationError || error instanceof NotFoundError) {
+        throw error;
+      }
+
       res.status(500).json({
         success: false,
-        message: 'Failed to test connection',
-        errors: [{ code: 'TEST_CUSTOM_CONNECTION_FAILED', message: error.message }]
+        message: 'Failed to get usage statistics',
+        errors: [{ code: 'GET_USAGE_STATS_FAILED', message: error.message }]
       });
     }
-  }
+  };
 
-  // Get data source schema (tables, columns, etc.)
-  async getDataSourceSchema(req: AuthenticatedRequest, res: Response): Promise<void> {
+  // Get datasource schema
+  getSchema = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const { id } = req.params;
-      const { workspace_id } = req.user;
+      const { workspaceId, id } = req.params;
+      const userId = req.user?.user_id;
       const { refresh = false } = req.query;
 
-      const schema = await this.dataSourceService.getSchema(id, workspace_id, refresh === 'true');
+      if (!workspaceId || !id) {
+        throw new ValidationError('Workspace ID and datasource ID are required');
+      }
+
+      logger.info('Getting datasource schema', { workspaceId, id, refresh, user_id: userId });
+
+      // Get the datasource
+      const datasource = await this.dataSourceService.getDataSourceById(id, workspaceId);
+      if (!datasource) {
+        throw new NotFoundError('Datasource not found');
+      }
+
+      // Get schema (refresh if requested)
+      const schema = await this.dataSourceService.getSchema(id, refresh === 'true');
 
       res.status(200).json({
         success: true,
         schema,
-        message: 'Data source schema retrieved successfully'
+        message: 'Schema retrieved successfully'
       });
     } catch (error: any) {
-      logger.error('Get data source schema error:', error);
+      logger.error('Error getting schema:', error);
+      
+      if (error instanceof ValidationError || error instanceof NotFoundError) {
+        throw error;
+      }
+
       res.status(500).json({
         success: false,
-        message: 'Failed to retrieve data source schema',
+        message: 'Failed to get schema',
         errors: [{ code: 'GET_SCHEMA_FAILED', message: error.message }]
       });
     }
-  }
+  };
 
-  // Get tables from data source
-  async getDataSourceTables(req: AuthenticatedRequest, res: Response): Promise<void> {
+  // Execute query on datasource
+  executeQuery = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const { id } = req.params;
-      const { workspace_id } = req.user;
-      const { database, schema, search } = req.query;
+      const { workspaceId, id } = req.params;
+      const { query, limit = 1000 } = req.body;
+      const userId = req.user?.user_id;
 
-      const tables = await this.dataSourceService.getTables(id, workspace_id, {
-        database: database as string,
-        schema: schema as string,
-        search: search as string
-      });
-
-      res.status(200).json({
-        success: true,
-        tables,
-        message: 'Data source tables retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get data source tables error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to retrieve data source tables',
-        errors: [{ code: 'GET_TABLES_FAILED', message: error.message }]
-      });
-    }
-  }
-
-  // Get columns from specific table
-  async getTableColumns(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { workspace_id } = req.user;
-      const { table_name } = req.query;
-
-      if (!table_name) {
-        res.status(400).json({
-          success: false,
-          message: 'Table name is required',
-          errors: [{ code: 'VALIDATION_ERROR', message: 'table_name parameter is required' }]
-        });
-        return;
+      if (!workspaceId || !id || !query) {
+        throw new ValidationError('Workspace ID, datasource ID, and query are required');
       }
 
-      const columns = await this.dataSourceService.getColumns(id, workspace_id, table_name as string);
+      logger.info('Executing query on datasource', { workspaceId, id, user_id: userId });
 
-      res.status(200).json({
-        success: true,
-        columns,
-        message: 'Table columns retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get table columns error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to retrieve table columns',
-        errors: [{ code: 'GET_COLUMNS_FAILED', message: error.message }]
-      });
-    }
-  }
-
-  // Execute query on data source
-  async executeQuery(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { workspace_id } = req.user;
-      const { query, limit = 100, timeout = 30000 } = req.body;
-
-      if (!query) {
-        res.status(400).json({
-          success: false,
-          message: 'Query is required',
-          errors: [{ code: 'VALIDATION_ERROR', message: 'query field is required' }]
-        });
-        return;
+      // Get the datasource
+      const datasource = await this.dataSourceService.getDataSourceById(id, workspaceId);
+      if (!datasource) {
+        throw new NotFoundError('Datasource not found');
       }
 
-      const result = await this.dataSourceService.executeQuery(id, workspace_id, query, {
-        limit: parseInt(limit),
-        timeout: parseInt(timeout)
+      // Execute the query
+      const result = await this.dataSourceService.executeQuery(id, query, {
+        limit: parseInt(limit as string),
+        userId: userId!
       });
 
       res.status(200).json({
         success: true,
-        query_result: result,
+        result,
         message: 'Query executed successfully'
       });
     } catch (error: any) {
-      logger.error('Execute query error:', error);
+      logger.error('Error executing query:', error);
+      
+      if (error instanceof ValidationError || error instanceof NotFoundError) {
+        throw error;
+      }
+
       res.status(500).json({
         success: false,
         message: 'Failed to execute query',
-        errors: [{ code: 'EXECUTE_QUERY_FAILED', message: error.message }]
+        errors: [{ 
+          code: 'QUERY_EXECUTION_FAILED', 
+          message: error.message,
+          details: error.details 
+        }]
       });
     }
-  }
-
-  // Validate query syntax
-  async validateQuery(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { workspace_id } = req.user;
-      const { query } = req.body;
-
-      if (!query) {
-        res.status(400).json({
-          success: false,
-          message: 'Query is required',
-          errors: [{ code: 'VALIDATION_ERROR', message: 'query field is required' }]
-        });
-        return;
-      }
-
-      const validation = await this.dataSourceService.validateQuery(id, workspace_id, query);
-
-      res.status(200).json({
-        success: true,
-        validation,
-        message: validation.is_valid ? 'Query is valid' : 'Query validation failed'
-      });
-    } catch (error: any) {
-      logger.error('Validate query error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to validate query',
-        errors: [{ code: 'VALIDATE_QUERY_FAILED', message: error.message }]
-      });
-    }
-  }
-
-  // Get data source usage statistics
-  async getUsageStats(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { workspace_id } = req.user;
-      const { 
-        start_date, 
-        end_date, 
-        include_query_stats = true,
-        include_performance_stats = true 
-      } = req.query;
-
-      const stats = await this.dataSourceService.getUsageStats(id, workspace_id, {
-        start_date: start_date as string,
-        end_date: end_date as string,
-        include_query_stats: include_query_stats === 'true',
-        include_performance_stats: include_performance_stats === 'true'
-      });
-
-      res.status(200).json({
-        success: true,
-        usage_stats: stats,
-        message: 'Data source usage statistics retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get usage stats error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to retrieve usage statistics',
-        errors: [{ code: 'GET_USAGE_STATS_FAILED', message: error.message }]
-      });
-    }
-  }
-
-  // Get connection health status
-  async getConnectionHealth(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { workspace_id } = req.user;
-
-      const health = await this.dataSourceService.getConnectionHealth(id, workspace_id);
-
-      res.status(200).json({
-        success: true,
-        connection_health: health,
-        message: 'Connection health status retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get connection health error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to retrieve connection health',
-        errors: [{ code: 'GET_CONNECTION_HEALTH_FAILED', message: error.message }]
-      });
-    }
-  }
-
-  // Refresh data source metadata
-  async refreshDataSourceMetadata(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { workspace_id } = req.user;
-
-      const result = await this.dataSourceService.refreshMetadata(id, workspace_id);
-
-      res.status(200).json({
-        success: true,
-        refresh_result: result,
-        message: 'Data source metadata refreshed successfully'
-      });
-    } catch (error: any) {
-      logger.error('Refresh metadata error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to refresh metadata',
-        errors: [{ code: 'REFRESH_METADATA_FAILED', message: error.message }]
-      });
-    }
-  }
-
-  // Get available data source plugins
-  async getAvailablePlugins(req: Request, res: Response): Promise<void> {
-    try {
-      const { category } = req.query;
-
-      const plugins = this.pluginManager.getDataSourcePlugins(category as string);
-
-      // Remove sensitive information and return only public metadata
-      const publicPlugins = plugins.map(plugin => ({
-        name: plugin.name,
-        displayName: plugin.displayName,
-        category: plugin.category,
-        version: plugin.version,
-        description: plugin.description,
-        author: plugin.author,
-        license: plugin.license,
-        configSchema: Object.keys(plugin.configSchema).reduce((schema, key) => {
-          const field = plugin.configSchema[key];
-          schema[key] = {
-            type: field.type,
-            required: field.required,
-            description: field.description,
-            placeholder: field.placeholder,
-            helpText: field.helpText,
-            options: field.options
-          };
-          return schema;
-        }, {} as any),
-        capabilities: plugin.capabilities
-      }));
-
-      res.status(200).json({
-        success: true,
-        plugins: publicPlugins,
-        total: publicPlugins.length,
-        message: 'Available data source plugins retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get available plugins error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to retrieve available plugins',
-        errors: [{ code: 'GET_PLUGINS_FAILED', message: error.message }]
-      });
-    }
-  }
+  };
 }

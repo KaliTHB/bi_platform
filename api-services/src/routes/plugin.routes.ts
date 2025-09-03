@@ -33,27 +33,6 @@ router.get('/configuration/:type/:name',
   asyncHandler(pluginController.getPluginConfiguration.bind(pluginController))
 );
 
-// Update plugin configuration for workspace
-router.put('/configuration/:type/:name',
-  validateWorkspaceAccess,
-  requireWorkspaceRole(['admin', 'owner']),
-  asyncHandler(pluginController.updatePluginConfiguration.bind(pluginController))
-);
-
-// Reset plugin configuration to defaults
-router.delete('/configuration/:type/:name',
-  validateWorkspaceAccess,
-  requireWorkspaceRole(['admin', 'owner']),
-  asyncHandler(pluginController.resetPluginConfiguration.bind(pluginController))
-);
-
-// Get plugin usage statistics
-router.get('/usage/:type/:name',
-  validateWorkspaceAccess,
-  requireWorkspaceRole(['admin', 'owner']),
-  asyncHandler(pluginController.getPluginUsage.bind(pluginController))
-);
-
 // Validate plugin configuration
 router.post('/validate/:type/:name',
   validateWorkspaceAccess,

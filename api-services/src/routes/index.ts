@@ -9,7 +9,8 @@ import dashboardRoutes from './dashboard.routes';
 import chartRoutes from './chart.routes';
 import pluginRoutes from './plugin.routes';
 import webviewRoutes from './webview.routes';
-import datasourceRoutes from './datasource.route';
+// Fix: Make sure the import path matches your actual file name
+import datasourceRoutes from './datasource.routes'; // Changed from './datasource.route'
 import { authenticate } from '../middleware/authentication';
 
 const router = Router();
@@ -59,24 +60,25 @@ router.use('/datasets', authenticate, datasetRoutes);
 router.use('/dashboards', authenticate, dashboardRoutes);
 router.use('/charts', authenticate, chartRoutes);
 router.use('/plugins', authenticate, pluginRoutes);
-router.use('/datasources', authenticate, datasourceRoutes);
+router.use('/datasources', authenticate, datasourceRoutes); // This is line 43 - the problem line
 
-// API documentation endpoint
+// API Documentation endpoint
 router.get('/docs', (req, res) => {
   res.json({
     success: true,
     message: 'BI Platform API Documentation',
     version: '1.0.0',
+    base_url: `${req.protocol}://${req.get('host')}/api`,
     endpoints: {
       authentication: {
         base_path: '/auth',
+        authentication_required: false,
         endpoints: [
           'POST /auth/login',
           'POST /auth/register', 
           'POST /auth/logout',
           'GET /auth/verify',
-          'POST /auth/forgot-password',
-          'POST /auth/reset-password'
+          'POST /auth/refresh'
         ]
       },
       workspaces: {
@@ -87,12 +89,7 @@ router.get('/docs', (req, res) => {
           'POST /workspaces',
           'GET /workspaces/:id',
           'PUT /workspaces/:id',
-          'DELETE /workspaces/:id',
-          'GET /workspaces/:id/members',
-          'GET /workspaces/:id/activity',
-          'POST /workspaces/:id/invite',
-          'PUT /workspaces/:id/members/:userId/roles',
-          'DELETE /workspaces/:id/members/:userId'
+          'DELETE /workspaces/:id'
         ]
       },
       datasets: {
@@ -103,27 +100,18 @@ router.get('/docs', (req, res) => {
           'POST /datasets',
           'GET /datasets/:id',
           'PUT /datasets/:id',
-          'DELETE /datasets/:id',
-          'GET /datasets/:id/schema',
-          'PUT /datasets/:id/schema',
-          'GET /datasets/:id/preview',
-          'POST /datasets/:id/refresh'
+          'DELETE /datasets/:id'
         ]
       },
       dashboards: {
-        base_path: '/dashboards',
+        base_path: '/dashboards', 
         authentication_required: true,
         endpoints: [
           'GET /dashboards',
           'POST /dashboards',
           'GET /dashboards/:id',
           'PUT /dashboards/:id',
-          'DELETE /dashboards/:id',
-          'POST /dashboards/:id/duplicate',
-          'GET /dashboards/:id/charts',
-          'GET /dashboards/:id/export',
-          'POST /dashboards/:id/share',
-          'PUT /dashboards/:id/share'
+          'DELETE /dashboards/:id'
         ]
       },
       charts: {
@@ -133,13 +121,8 @@ router.get('/docs', (req, res) => {
           'GET /charts',
           'POST /charts',
           'GET /charts/:id',
-          'PUT /charts/:id',
-          'DELETE /charts/:id',
-          'POST /charts/:id/duplicate',
-          'GET /charts/:id/data',
-          'POST /charts/:id/refresh',
-          'GET /charts/:id/export',
-          'GET /charts/:id/query'
+          'PUT /charts/:id', 
+          'DELETE /charts/:id'
         ]
       },
       plugins: {
@@ -148,35 +131,19 @@ router.get('/docs', (req, res) => {
         endpoints: [
           'GET /plugins/datasources',
           'GET /plugins/charts',
-          'POST /plugins/test-connection',
-          'GET /plugins/configuration/:type/:name',
-          'PUT /plugins/configuration/:type/:name',
-          'DELETE /plugins/configuration/:type/:name',
-          'GET /plugins/usage/:type/:name',
-          'POST /plugins/validate/:type/:name'
+          'POST /plugins/test-connection'
         ]
       },
       webviews: {
         base_path: '/webviews',
-        authentication_required: 'partial',
-        public_endpoints: [
+        authentication_required: 'mixed',
+        endpoints: [
           'GET /webviews/public/:webviewName',
-          'GET /webviews/public/:webviewId/categories',
-          'GET /webviews/public/:webviewId/dashboard/:dashboardId',
-          'POST /webviews/public/:webviewId/activity'
-        ],
-        protected_endpoints: [
           'GET /webviews',
           'POST /webviews',
           'GET /webviews/:id',
           'PUT /webviews/:id',
-          'DELETE /webviews/:id',
-          'GET /webviews/by-name/:webviewName',
-          'GET /webviews/:id/categories',
-          'GET /webviews/:id/stats',
-          'POST /webviews/:id/activity',
-          'GET /webviews/:id/analytics',
-          'PUT /webviews/:id/settings'
+          'DELETE /webviews/:id'
         ]
       },
       categories: {
