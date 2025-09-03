@@ -32,6 +32,7 @@ interface UseDashboardsResult {
   updateDashboard: (id: string, data: UpdateDashboardData) => Promise<Dashboard>;
   deleteDashboard: (id: string) => Promise<void>;
   duplicateDashboard: (id: string) => Promise<Dashboard>;
+  toggleFeatured: (id: string, isFeatured: boolean) => Promise<void>; // ✅ Added this line
   refreshDashboards: () => Promise<void>;
   getDashboardById: (id: string) => Dashboard | undefined;
 }
@@ -72,31 +73,25 @@ export const useDashboards = (): UseDashboardsResult => {
       const data = await response.json();
       setDashboards(data.data || data);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An error occurred';
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load dashboards';
+      console.error('Load dashboards error:', errorMessage);
       setError(errorMessage);
-      console.error('Error loading dashboards:', err);
     } finally {
       setLoading(false);
     }
-  }, [currentWorkspace?.id, auth.token]);
+  }, [currentWorkspace?.id, getAuthHeaders]);
 
-  // Create a new dashboard
+  // Create dashboard
   const createDashboard = useCallback(async (data: CreateDashboardData): Promise<Dashboard> => {
     if (!currentWorkspace?.id) {
       throw new Error('No workspace selected');
     }
 
-    setLoading(true);
-    setError(null);
-
     try {
       const response = await fetch(`/api/workspaces/${currentWorkspace.id}/dashboards`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({
-          ...data,
-          workspace_id: currentWorkspace.id,
-        }),
+        body: JSON.stringify(data),
       });
 
       if (!response.ok) {
@@ -105,29 +100,19 @@ export const useDashboards = (): UseDashboardsResult => {
 
       const newDashboard = await response.json();
       setDashboards(prev => [...prev, newDashboard]);
-      
       return newDashboard;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to create dashboard';
-      setError(errorMessage);
-      throw err;
-    } finally {
-      setLoading(false);
+      console.error('Create dashboard error:', errorMessage);
+      throw new Error(errorMessage);
     }
-  }, [currentWorkspace?.id, auth.token]);
+  }, [currentWorkspace?.id, getAuthHeaders]);
 
-  // Update an existing dashboard
+  // Update dashboard
   const updateDashboard = useCallback(async (id: string, data: UpdateDashboardData): Promise<Dashboard> => {
-    if (!currentWorkspace?.id) {
-      throw new Error('No workspace selected');
-    }
-
-    setLoading(true);
-    setError(null);
-
     try {
-      const response = await fetch(`/api/workspaces/${currentWorkspace.id}/dashboards/${id}`, {
-        method: 'PUT',
+      const response = await fetch(`/api/dashboards/${id}`, {
+        method: 'PATCH',
         headers: getAuthHeaders(),
         body: JSON.stringify(data),
       });
@@ -137,33 +122,19 @@ export const useDashboards = (): UseDashboardsResult => {
       }
 
       const updatedDashboard = await response.json();
-      setDashboards(prev => 
-        prev.map(dashboard => 
-          dashboard.id === id ? updatedDashboard : dashboard
-        )
-      );
-      
+      setDashboards(prev => prev.map(d => d.id === id ? updatedDashboard : d));
       return updatedDashboard;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to update dashboard';
-      setError(errorMessage);
-      throw err;
-    } finally {
-      setLoading(false);
+      console.error('Update dashboard error:', errorMessage);
+      throw new Error(errorMessage);
     }
-  }, [currentWorkspace?.id, auth.token]);
+  }, [getAuthHeaders]);
 
-  // Delete a dashboard
+  // Delete dashboard
   const deleteDashboard = useCallback(async (id: string): Promise<void> => {
-    if (!currentWorkspace?.id) {
-      throw new Error('No workspace selected');
-    }
-
-    setLoading(true);
-    setError(null);
-
     try {
-      const response = await fetch(`/api/workspaces/${currentWorkspace.id}/dashboards/${id}`, {
+      const response = await fetch(`/api/dashboards/${id}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
       });
@@ -172,27 +143,18 @@ export const useDashboards = (): UseDashboardsResult => {
         throw new Error('Failed to delete dashboard');
       }
 
-      setDashboards(prev => prev.filter(dashboard => dashboard.id !== id));
+      setDashboards(prev => prev.filter(d => d.id !== id));
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to delete dashboard';
-      setError(errorMessage);
-      throw err;
-    } finally {
-      setLoading(false);
+      console.error('Delete dashboard error:', errorMessage);
+      throw new Error(errorMessage);
     }
-  }, [currentWorkspace?.id, auth.token]);
+  }, [getAuthHeaders]);
 
-  // Duplicate a dashboard
+  // Duplicate dashboard
   const duplicateDashboard = useCallback(async (id: string): Promise<Dashboard> => {
-    if (!currentWorkspace?.id) {
-      throw new Error('No workspace selected');
-    }
-
-    setLoading(true);
-    setError(null);
-
     try {
-      const response = await fetch(`/api/workspaces/${currentWorkspace.id}/dashboards/${id}/duplicate`, {
+      const response = await fetch(`/api/dashboards/${id}/duplicate`, {
         method: 'POST',
         headers: getAuthHeaders(),
       });
@@ -203,16 +165,38 @@ export const useDashboards = (): UseDashboardsResult => {
 
       const duplicatedDashboard = await response.json();
       setDashboards(prev => [...prev, duplicatedDashboard]);
-      
       return duplicatedDashboard;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to duplicate dashboard';
-      setError(errorMessage);
-      throw err;
-    } finally {
-      setLoading(false);
+      console.error('Duplicate dashboard error:', errorMessage);
+      throw new Error(errorMessage);
     }
-  }, [currentWorkspace?.id, auth.token]);
+  }, [getAuthHeaders]);
+
+  // ✅ Toggle featured status
+  const toggleFeatured = useCallback(async (id: string, isFeatured: boolean): Promise<void> => {
+    try {
+      const response = await fetch(`/api/dashboards/${id}/favorite`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ is_featured: isFeatured }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to toggle featured status');
+      }
+
+      const result = await response.json();
+      const updatedDashboard = result.dashboard;
+      
+      // Update the local state
+      setDashboards(prev => prev.map(d => d.id === id ? updatedDashboard : d));
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to toggle featured status';
+      console.error('Toggle featured error:', errorMessage);
+      throw new Error(errorMessage);
+    }
+  }, [getAuthHeaders]);
 
   // Refresh dashboards
   const refreshDashboards = useCallback(async (): Promise<void> => {
@@ -221,10 +205,10 @@ export const useDashboards = (): UseDashboardsResult => {
 
   // Get dashboard by ID
   const getDashboardById = useCallback((id: string): Dashboard | undefined => {
-    return dashboards.find(dashboard => dashboard.id === id);
+    return dashboards.find(d => d.id === id);
   }, [dashboards]);
 
-  // Load dashboards on mount and when workspace changes
+  // Load dashboards on mount and workspace change
   useEffect(() => {
     loadDashboards();
   }, [loadDashboards]);
@@ -237,6 +221,7 @@ export const useDashboards = (): UseDashboardsResult => {
     updateDashboard,
     deleteDashboard,
     duplicateDashboard,
+    toggleFeatured, // ✅ Return the toggleFeatured function
     refreshDashboards,
     getDashboardById,
   };

@@ -1,6 +1,6 @@
 // api-services/src/routes/auth.routes.ts
 import express from 'express';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { DatabaseConfig } from '../config/database';
 import { CacheService } from '../config/redis';

@@ -1,6 +1,6 @@
 // File: api-services/src/db/seed.ts
 import { Pool } from 'pg';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { logger } from '../utils/logger';
 
 const db = new Pool({

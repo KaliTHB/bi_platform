@@ -19,7 +19,6 @@ export interface Dashboard {
   owner_id?: string;
   status: 'draft' | 'published' | 'archived';
   is_public: boolean;
-  is_featured: boolean;
   sort_order?: number;
   tags?: string[];
   version?: number;
@@ -35,6 +34,7 @@ export interface Dashboard {
   layout?: DashboardLayout;
   filters?: DashboardFilter[];
   is_published?: boolean;
+  is_featured?: boolean;
 }
 
 export interface DashboardConfiguration {

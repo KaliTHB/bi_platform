@@ -69,7 +69,7 @@ export const webviewAPI = {
   }> => {
     const response = await apiClient.post(`/webviews/${webviewId}/activity`, {
       ...activity,
-      timestamp: Date.now().toISOString()
+      timestamp: new Date().toISOString()
     });
     return response.data;
   }

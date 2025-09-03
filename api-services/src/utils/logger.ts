@@ -58,7 +58,7 @@ export const logAudit = (action: string, resourceType: string, resourceId: strin
     resource_id: resourceId,
     user_id: userId,
     details,
-    timestamp: Date.now().toISOString()
+    timestamp: new Date().toISOString()
   });
 };
 
@@ -68,7 +68,7 @@ export const logPerformance = (operation: string, duration: number, details?: an
     operation,
     duration,
     details,
-    timestamp: Date.now().toISOString()
+    timestamp: new Date().toISOString()
   });
 };
 
@@ -78,7 +78,7 @@ export const logSecurity = (event: string, severity: 'low' | 'medium' | 'high' |
     event,
     severity,
     details,
-    timestamp: Date.now().toISOString()
+    timestamp: new Date().toISOString()
   });
 };
 
@@ -88,12 +88,12 @@ export const logError = (error: Error | string, context?: any) => {
     logger.error(error.message, {
       stack: error.stack,
       context,
-      timestamp: Date.now().toISOString()
+      timestamp: new Date().toISOString()
     });
   } else {
     logger.error(error, {
       context,
-      timestamp: Date.now().toISOString()
+      timestamp: new Date().toISOString()
     });
   }
 };

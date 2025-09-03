@@ -62,7 +62,7 @@ export class ChartRenderer {
         metadata: {
           totalRows: queryResult.rows.length,
           queryTime: endTime - startTime,
-          lastUpdated: Date.now().toISOString()
+          lastUpdated: new Date().toISOString()
         }
       };
     } catch (error) {

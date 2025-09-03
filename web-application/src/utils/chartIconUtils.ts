@@ -1,5 +1,4 @@
-// src/utils/chartIconUtils.ts - Common Chart Icon Utilities
-
+// web-application/src/utils/chartIconUtils.ts
 import React from 'react';
 import {
   BarChart as BarChartIcon,
@@ -137,7 +136,7 @@ export const getChartTypeForIcon = (chart: Chart): string => {
  * Safely extracts chart library from Chart object
  */
 export const getChartLibraryForIcon = (chart: Chart): string => {
-  return chart.chart_library || 'echarts';
+  return chart.chart_library || chart.library || 'echarts';
 };
 
 /**
@@ -177,10 +176,6 @@ export const getChartIconComponent = (
 
 /**
  * Renders a chart icon with comprehensive error handling and fallbacks
- * 
- * @param chart - Chart object (can have optional properties)
- * @param options - Rendering options
- * @returns JSX element with chart icon
  */
 export const renderChartIcon = (
   chart: Chart, 
@@ -343,31 +338,47 @@ export const renderMultipleChartIcons = (
 };
 
 // =============================================================================
-// Utility Functions for Chart Information
+// String-based Utility Functions (NEW - Fixed)
 // =============================================================================
 
 /**
- * Gets display-friendly chart type name
+ * Gets display-friendly chart type name from a string
  */
-export const getChartTypeDisplayName = (chart: Chart): string => {
-  const type = getChartTypeForIcon(chart);
+export const getChartTypeDisplayName = (chartOrType: Chart | string): string => {
+  const type = typeof chartOrType === 'string' ? chartOrType : getChartTypeForIcon(chartOrType);
   return type.charAt(0).toUpperCase() + type.slice(1).replace(/[-_]/g, ' ');
 };
 
 /**
- * Gets display-friendly chart library name
+ * Gets display-friendly chart library name from a string or Chart object
  */
-export const getChartLibraryDisplayName = (chart: Chart): string => {
-  const library = getChartLibraryForIcon(chart);
+export const getChartLibraryDisplayName = (chartOrLibrary: Chart | string): string => {
+  const library = typeof chartOrLibrary === 'string' ? chartOrLibrary : getChartLibraryForIcon(chartOrLibrary);
+  
   const displayNames: { [key: string]: string } = {
     'echarts': 'ECharts',
     'plotly': 'Plotly',
     'd3': 'D3.js',
+    'd3js': 'D3.js',
     'chartjs': 'Chart.js',
-    'material-ui': 'Material-UI'
+    'material-ui': 'Material-UI',
+    'drilldown': 'Drilldown'
   };
-  return displayNames[library] || library.charAt(0).toUpperCase() + library.slice(1);
+  
+  return displayNames[library?.toLowerCase()] || (library ? library.charAt(0).toUpperCase() + library.slice(1) : 'Unknown');
 };
+
+/**
+ * Gets display-friendly chart category name from a string or Chart object
+ */
+export const getChartCategoryDisplayName = (chartOrCategory: Chart | string): string => {
+  const category = typeof chartOrCategory === 'string' ? chartOrCategory : (chartOrCategory.chart_category || 'general');
+  return category.charAt(0).toUpperCase() + category.slice(1).replace(/[-_]/g, ' ');
+};
+
+// =============================================================================
+// Library and Type Support Functions
+// =============================================================================
 
 /**
  * Checks if a chart type is supported by a library
@@ -392,6 +403,26 @@ export const getAvailableChartLibraries = (): string[] => {
   return Object.keys(CHART_ICON_MAP);
 };
 
+/**
+ * Gets available chart libraries with display names
+ */
+export const getAvailableChartLibrariesWithDisplayNames = (): Array<{ value: string; label: string }> => {
+  return getAvailableChartLibraries().map(library => ({
+    value: library,
+    label: getChartLibraryDisplayName(library)
+  }));
+};
+
+/**
+ * Gets supported chart types for a library with display names
+ */
+export const getSupportedChartTypesWithDisplayNames = (chartLibrary: string): Array<{ value: string; label: string }> => {
+  return getSupportedChartTypes(chartLibrary).map(type => ({
+    value: type,
+    label: getChartTypeDisplayName(type)
+  }));
+};
+
 // =============================================================================
 // React Hook for Chart Icons
 // =============================================================================
@@ -408,7 +439,6 @@ export const useChartIcon = (
   }, [
     chart.id,
     chart.chart_type,
-    chart.type,
     chart.chart_library,
     options.size,
     options.color,
@@ -416,6 +446,10 @@ export const useChartIcon = (
     options.fallbackStrategy
   ]);
 };
+
+// =============================================================================
+// Default Export
+// =============================================================================
 
 export default {
   renderChartIcon,
@@ -426,8 +460,11 @@ export default {
   renderCardChartIcon,
   getChartTypeDisplayName,
   getChartLibraryDisplayName,
+  getChartCategoryDisplayName,
   isChartTypeSupported,
   getSupportedChartTypes,
   getAvailableChartLibraries,
+  getAvailableChartLibrariesWithDisplayNames,
+  getSupportedChartTypesWithDisplayNames,
   useChartIcon
 };

@@ -1,5 +1,5 @@
 // web-application/src/utils/chartBuilderUtils.ts
-import type { ChartConfiguration, ChartDimensions } from '../types/chart.types';
+import type { ChartConfiguration, ChartDimensions, Chart } from '../types/chart.types';
 
 export interface BuilderChart {
   id: string;
@@ -30,95 +30,6 @@ export interface GridLayoutItem {
   maxW?: number;
   maxH?: number;
 }
-
-// Convert BuilderChart to ChartContainer format
-export const convertToChartContainerType = (builderChart: BuilderChart) => ({
-  id: builderChart.id,
-  name: builderChart.name,
-  type: builderChart.type,
-  config: builderChart.config,
-  dataset_id: builderChart.dataset_id,
-  dataset: builderChart.dataset
-});
-
-// Convert API chart to BuilderChart format
-export const convertApiChartToBuilderChart = (apiChart: any): BuilderChart => ({
-  id: apiChart.id,
-  name: apiChart.name,
-  type: apiChart.chart_type || apiChart.type,
-  config: apiChart.config_json || apiChart.configuration || {},
-  position: apiChart.position || { x: 0, y: 0, width: 6, height: 4 },
-  dataset_id: apiChart.dataset_id,
-  dataset: apiChart.dataset
-});
-
-// Generate grid layout from charts
-export const generateGridLayout = (charts: BuilderChart[]): GridLayoutItem[] => 
-  charts.map(chart => ({
-    i: chart.id,
-    x: chart.position.x,
-    y: chart.position.y,
-    w: chart.position.width,
-    h: chart.position.height,
-    minW: 2,
-    minH: 2
-  }));
-
-// Update chart positions from grid layout
-export const updateChartsFromLayout = (
-  charts: BuilderChart[], 
-  layout: GridLayoutItem[]
-): BuilderChart[] => 
-  charts.map(chart => {
-    const layoutItem = layout.find(item => item.i === chart.id);
-    if (layoutItem) {
-      return {
-        ...chart,
-        position: {
-          x: layoutItem.x,
-          y: layoutItem.y,
-          width: layoutItem.w,
-          height: layoutItem.h
-        }
-      };
-    }
-    return chart;
-  });
-
-// Create new chart instance
-export const createNewChart = (
-  chartType: string, 
-  dataset: { id: string; name: string; },
-  availableChartTypes: any[]
-): BuilderChart => {
-  const chartTypeInfo = availableChartTypes.find(ct => ct.type === chartType);
-  const displayName = chartTypeInfo?.name || chartType.replace(/[-_]/g, ' ');
-  
-  return {
-    id: `chart_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    name: `${displayName}`,
-    type: chartType,
-    config: {
-      title: { text: displayName },
-      animation: true,
-      responsive: true,
-      dimensions: {
-        width: 400,
-        height: 300,
-        margin: { top: 20, right: 20, bottom: 20, left: 20 },
-        padding: { top: 10, right: 10, bottom: 10, left: 10 }
-      }
-    },
-    position: {
-      x: 0,
-      y: Infinity, // Grid layout will place at bottom
-      width: 6,
-      height: 4
-    },
-    dataset_id: dataset.id,
-    dataset
-  };
-};
 
 // Prepare dashboard data for API
 export const prepareDashboardForSave = (
@@ -194,5 +105,147 @@ export const validateChartConfig = (chart: BuilderChart): { valid: boolean; erro
   return {
     valid: errors.length === 0,
     errors
+  };
+};
+
+export interface BuilderChart {
+  id: string;
+  name: string;
+  type: string;
+  config: ChartConfiguration;
+  position: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  dataset_id: string;
+  dataset?: {
+    id: string;
+    name: string;
+  };
+}
+
+export interface GridLayoutItem {
+  i: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  minW?: number;
+  minH?: number;
+  maxW?: number;
+  maxH?: number;
+}
+
+// Convert BuilderChart to ChartContainer format
+export const convertToChartContainerType = (builderChart: BuilderChart): Chart => ({
+  id: builderChart.id,
+  name: builderChart.name,
+  chart_type: builderChart.type,
+  config_json: builderChart.config,          // ← Fixed: was 'config', should be 'config_json'
+  dataset_ids: [builderChart.dataset_id],    // ← Fixed: Chart expects array of dataset_ids
+  position_json: builderChart.position,      // ← Fixed: Added position_json
+  
+  // Required properties with sensible defaults
+  is_active: true,
+  version: 1,
+  created_by: 'current_user', // You may want to get this from auth context
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+  
+  // Optional properties that can be undefined
+  workspace_id: undefined,
+  dashboard_id: undefined,
+  display_name: undefined,
+  description: undefined,
+  chart_category: undefined,
+  chart_library: undefined,
+  styling_config: undefined,
+  interaction_config: undefined,
+  drilldown_config: undefined,
+  calculated_fields: undefined,
+  conditional_formatting: undefined,
+  export_config: undefined,
+  cache_config: undefined,
+  tab_id: undefined,
+});
+
+// Convert API chart to BuilderChart format
+export const convertApiChartToBuilderChart = (apiChart: any): BuilderChart => ({
+  id: apiChart.id,
+  name: apiChart.name,
+  type: apiChart.chart_type || apiChart.type,
+  config: apiChart.config_json || apiChart.configuration || {},
+  position: apiChart.position_json || apiChart.position || { x: 0, y: 0, width: 6, height: 4 },
+  dataset_id: Array.isArray(apiChart.dataset_ids) ? apiChart.dataset_ids[0] : apiChart.dataset_id,
+  dataset: apiChart.dataset
+});
+
+// Generate grid layout from charts
+export const generateGridLayout = (charts: BuilderChart[]): GridLayoutItem[] => 
+  charts.map(chart => ({
+    i: chart.id,
+    x: chart.position.x,
+    y: chart.position.y,
+    w: chart.position.width,
+    h: chart.position.height,
+    minW: 2,
+    minH: 2
+  }));
+
+// Update chart positions from grid layout
+export const updateChartsFromLayout = (
+  charts: BuilderChart[], 
+  layout: GridLayoutItem[]
+): BuilderChart[] => 
+  charts.map(chart => {
+    const layoutItem = layout.find(item => item.i === chart.id);
+    if (layoutItem) {
+      return {
+        ...chart,
+        position: {
+          x: layoutItem.x,
+          y: layoutItem.y,
+          width: layoutItem.w,
+          height: layoutItem.h
+        }
+      };
+    }
+    return chart;
+  });
+
+// Create new chart instance
+export const createNewChart = (
+  chartType: string, 
+  dataset: { id: string; name: string; },
+  availableChartTypes: any[]
+): BuilderChart => {
+  const chartTypeInfo = availableChartTypes.find(ct => ct.type === chartType);
+  const displayName = chartTypeInfo?.name || chartType.replace(/[-_]/g, ' ');
+  
+  return {
+    id: `chart_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    name: `${displayName}`,
+    type: chartType,
+    config: {
+      title: { text: displayName },
+      animation: true,
+      responsive: true,
+      dimensions: {
+        width: 400,
+        height: 300,
+        margin: { top: 20, right: 20, bottom: 20, left: 20 },
+        padding: { top: 10, right: 10, bottom: 10, left: 10 }
+      }
+    },
+    position: {
+      x: 0,
+      y: Infinity, // Grid layout will place at bottom
+      width: 6,
+      height: 4
+    },
+    dataset_id: dataset.id,
+    dataset: dataset
   };
 };
