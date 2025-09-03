@@ -2,249 +2,325 @@
 import { Request, Response, NextFunction } from 'express';
 import Joi from 'joi';
 import { ValidationError } from './errorHandler';
+import { DatabaseService } from '../config/database';
 
-// Validation schemas
+// Enhanced validation schemas
 const schemas = {
-  // Authentication schemas
+  // Authentication schemas with username support
   login: Joi.object({
     email: Joi.string().email().required(),
     password: Joi.string().min(6).required(),
     workspace_slug: Joi.string().optional()
   }),
 
+  loginWithUsername: Joi.object({
+    identifier: Joi.alternatives().try(
+      Joi.string().email(),
+      Joi.string().alphanum().min(3).max(30)
+    ).required().label('Email or Username'),
+    password: Joi.string().min(6).required(),
+    workspace_slug: Joi.string().optional()
+  }),
+
   register: Joi.object({
-    email: Joi.string().email().required(),
-    password: Joi.string().min(8).pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).required()
+    username: Joi.string()
+      .alphanum()
+      .min(3)
+      .max(30)
+      .required()
       .messages({
-        'string.pattern.base': 'Password must contain at least one lowercase letter, one uppercase letter, and one digit'
+        'string.alphanum': 'Username must only contain alphanumeric characters',
+        'string.min': 'Username must be at least 3 characters long',
+        'string.max': 'Username cannot exceed 30 characters',
+        'any.required': 'Username is required'
       }),
-    first_name: Joi.string().min(1).max(50).required(),
-    last_name: Joi.string().min(1).max(50).required(),
-    invitation_token: Joi.string().optional()
+    email: Joi.string()
+      .email({ tlds: { allow: false } })
+      .max(255)
+      .required()
+      .messages({
+        'string.email': 'Please enter a valid email address',
+        'string.max': 'Email cannot exceed 255 characters',
+        'any.required': 'Email is required'
+      }),
+    password: Joi.string()
+      .min(8)
+      .max(128)
+      .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+      .required()
+      .messages({
+        'string.min': 'Password must be at least 8 characters long',
+        'string.max': 'Password cannot exceed 128 characters',
+        'string.pattern.base': 'Password must contain at least one lowercase letter, one uppercase letter, one digit, and one special character',
+        'any.required': 'Password is required'
+      }),
+    first_name: Joi.string()
+      .trim()
+      .min(1)
+      .max(50)
+      .required()
+      .messages({
+        'string.min': 'First name is required',
+        'string.max': 'First name cannot exceed 50 characters',
+        'any.required': 'First name is required'
+      }),
+    last_name: Joi.string()
+      .trim()
+      .min(1)
+      .max(50)
+      .required()
+      .messages({
+        'string.min': 'Last name is required',
+        'string.max': 'Last name cannot exceed 50 characters',
+        'any.required': 'Last name is required'
+      }),
+    invitation_token: Joi.string().uuid().optional()
+  }),
+
+  // User management schemas
+  createUser: Joi.object({
+    username: Joi.string()
+      .alphanum()
+      .min(3)
+      .max(30)
+      .required()
+      .messages({
+        'string.alphanum': 'Username must only contain alphanumeric characters',
+        'string.min': 'Username must be at least 3 characters long',
+        'string.max': 'Username cannot exceed 30 characters',
+        'any.required': 'Username is required'
+      }),
+    email: Joi.string()
+      .email({ tlds: { allow: false } })
+      .max(255)
+      .required()
+      .messages({
+        'string.email': 'Please enter a valid email address',
+        'string.max': 'Email cannot exceed 255 characters',
+        'any.required': 'Email is required'
+      }),
+    password: Joi.string()
+      .min(8)
+      .max(128)
+      .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+      .required()
+      .messages({
+        'string.min': 'Password must be at least 8 characters long',
+        'string.max': 'Password cannot exceed 128 characters',
+        'string.pattern.base': 'Password must contain at least one lowercase letter, one uppercase letter, one digit, and one special character',
+        'any.required': 'Password is required'
+      }),
+    first_name: Joi.string()
+      .trim()
+      .min(1)
+      .max(50)
+      .required()
+      .messages({
+        'string.min': 'First name is required',
+        'string.max': 'First name cannot exceed 50 characters'
+      }),
+    last_name: Joi.string()
+      .trim()
+      .min(1)
+      .max(50)
+      .required()
+      .messages({
+        'string.min': 'Last name is required',
+        'string.max': 'Last name cannot exceed 50 characters'
+      }),
+    role_ids: Joi.array().items(Joi.string().uuid()).optional(),
+    is_active: Joi.boolean().default(true),
+    send_invitation: Joi.boolean().default(false)
+  }),
+
+  updateUser: Joi.object({
+    email: Joi.string()
+      .email({ tlds: { allow: false } })
+      .max(255)
+      .optional()
+      .messages({
+        'string.email': 'Please enter a valid email address',
+        'string.max': 'Email cannot exceed 255 characters'
+      }),
+    password: Joi.string()
+      .min(8)
+      .max(128)
+      .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+      .optional()
+      .allow('')
+      .messages({
+        'string.min': 'Password must be at least 8 characters long',
+        'string.max': 'Password cannot exceed 128 characters',
+        'string.pattern.base': 'Password must contain at least one lowercase letter, one uppercase letter, one digit, and one special character'
+      }),
+    first_name: Joi.string()
+      .trim()
+      .min(1)
+      .max(50)
+      .optional()
+      .messages({
+        'string.min': 'First name cannot be empty',
+        'string.max': 'First name cannot exceed 50 characters'
+      }),
+    last_name: Joi.string()
+      .trim()
+      .min(1)
+      .max(50)
+      .optional()
+      .messages({
+        'string.min': 'Last name cannot be empty',
+        'string.max': 'Last name cannot exceed 50 characters'
+      }),
+    role_ids: Joi.array().items(Joi.string().uuid()).optional(),
+    is_active: Joi.boolean().optional(),
+    avatar_url: Joi.string().uri().optional().allow('', null)
+  }),
+
+  // Password-specific schemas
+  changePassword: Joi.object({
+    current_password: Joi.string().required().messages({
+      'any.required': 'Current password is required'
+    }),
+    new_password: Joi.string()
+      .min(8)
+      .max(128)
+      .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+      .required()
+      .messages({
+        'string.min': 'New password must be at least 8 characters long',
+        'string.max': 'New password cannot exceed 128 characters',
+        'string.pattern.base': 'New password must contain at least one lowercase letter, one uppercase letter, one digit, and one special character',
+        'any.required': 'New password is required'
+      }),
+    confirm_password: Joi.string()
+      .valid(Joi.ref('new_password'))
+      .required()
+      .messages({
+        'any.only': 'Password confirmation does not match new password',
+        'any.required': 'Password confirmation is required'
+      })
   }),
 
   forgotPassword: Joi.object({
-    email: Joi.string().email().required()
+    email: Joi.string()
+      .email({ tlds: { allow: false } })
+      .required()
+      .messages({
+        'string.email': 'Please enter a valid email address',
+        'any.required': 'Email is required'
+      })
   }),
 
   resetPassword: Joi.object({
-    token: Joi.string().required(),
-    new_password: Joi.string().min(8).pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).required()
+    token: Joi.string().required().messages({
+      'any.required': 'Reset token is required'
+    }),
+    new_password: Joi.string()
+      .min(8)
+      .max(128)
+      .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+      .required()
+      .messages({
+        'string.min': 'Password must be at least 8 characters long',
+        'string.max': 'Password cannot exceed 128 characters',
+        'string.pattern.base': 'Password must contain at least one lowercase letter, one uppercase letter, one digit, and one special character',
+        'any.required': 'Password is required'
+      }),
+    confirm_password: Joi.string()
+      .valid(Joi.ref('new_password'))
+      .required()
+      .messages({
+        'any.only': 'Password confirmation does not match',
+        'any.required': 'Password confirmation is required'
+      })
   }),
 
   // Workspace schemas
   createWorkspace: Joi.object({
-    name: Joi.string().min(1).max(255).required(),
-    slug: Joi.string().min(1).max(100).pattern(/^[a-z0-9-]+$/).required()
-      .messages({
-        'string.pattern.base': 'Slug must contain only lowercase letters, numbers, and hyphens'
-      }),
+    name: Joi.string().trim().min(1).max(255).required(),
+    slug: Joi.string().pattern(/^[a-z0-9-]+$/).min(3).max(50).required(),
     description: Joi.string().max(1000).optional().allow(''),
     settings: Joi.object().optional()
   }),
 
   updateWorkspace: Joi.object({
-    name: Joi.string().min(1).max(255).optional(),
+    name: Joi.string().trim().min(1).max(255).optional(),
     description: Joi.string().max(1000).optional().allow(''),
-    logo_url: Joi.string().uri().optional().allow(''),
     settings: Joi.object().optional()
-  }),
-
-  // User schemas
-  createUser: Joi.object({
-    email: Joi.string().email().required(),
-    first_name: Joi.string().min(1).max(50).required(),
-    last_name: Joi.string().min(1).max(50).required(),
-    role_ids: Joi.array().items(Joi.string().uuid()).min(1).required(),
-    send_invitation: Joi.boolean().default(true)
-  }),
-
-  updateUser: Joi.object({
-    first_name: Joi.string().min(1).max(50).optional(),
-    last_name: Joi.string().min(1).max(50).optional(),
-    avatar_url: Joi.string().uri().optional().allow(''),
-    is_active: Joi.boolean().optional()
-  }),
-
-  assignRole: Joi.object({
-    user_id: Joi.string().uuid().required(),
-    role_ids: Joi.array().items(Joi.string().uuid()).min(1).required()
-  }),
-
-  // Role schemas
-  createRole: Joi.object({
-    name: Joi.string().min(1).max(100).pattern(/^[a-z0-9_]+$/).required()
-      .messages({
-        'string.pattern.base': 'Role name must contain only lowercase letters, numbers, and underscores'
-      }),
-    display_name: Joi.string().min(1).max(255).required(),
-    description: Joi.string().max(1000).optional().allow(''),
-    level: Joi.number().integer().min(1).max(99).required(),
-    permission_ids: Joi.array().items(Joi.string().uuid()).min(1).required()
-  }),
-
-  updateRole: Joi.object({
-    display_name: Joi.string().min(1).max(255).optional(),
-    description: Joi.string().max(1000).optional().allow(''),
-    level: Joi.number().integer().min(1).max(99).optional(),
-    permission_ids: Joi.array().items(Joi.string().uuid()).min(1).optional()
   }),
 
   // Dataset schemas
   createDataset: Joi.object({
-    name: Joi.string().min(1).max(255).required(),
+    name: Joi.string().trim().min(1).max(255).required(),
     description: Joi.string().max(1000).optional().allow(''),
-    type: Joi.string().valid('SOURCE', 'TRANSFORMATION').required(),
-    data_source_id: Joi.string().uuid().when('type', {
-      is: 'SOURCE',
-      then: Joi.required(),
-      otherwise: Joi.optional()
-    }),
-    query_config: Joi.object().when('type', {
-      is: 'SOURCE',
-      then: Joi.required(),
-      otherwise: Joi.optional()
-    }),
-    transformation_config: Joi.object().when('type', {
-      is: 'TRANSFORMATION',
-      then: Joi.required(),
-      otherwise: Joi.optional()
-    }),
-    parent_dataset_id: Joi.string().uuid().when('type', {
-      is: 'TRANSFORMATION',
-      then: Joi.required(),
-      otherwise: Joi.optional()
-    }),
-    schema_config: Joi.object().optional(),
-    row_level_security: Joi.object().optional(),
-    cache_ttl: Joi.number().integer().min(0).max(86400).default(3600),
-    role_permissions: Joi.array().items(
-      Joi.object({
-        role_id: Joi.string().uuid().required(),
-        permission_type: Joi.string().valid('READ', 'WRITE', 'ADMIN').default('READ')
-      })
-    ).optional()
+    datasource_id: Joi.string().uuid().required(),
+    query: Joi.string().min(1).required(),
+    category_id: Joi.string().uuid().optional(),
+    tags: Joi.array().items(Joi.string().max(50)).max(10).optional().default([]),
+    transformation_config: Joi.object().optional(),
+    refresh_schedule: Joi.object({
+      enabled: Joi.boolean().default(false),
+      cron_expression: Joi.string().optional(),
+      timezone: Joi.string().optional()
+    }).optional(),
+    cache_ttl: Joi.number().integer().min(0).max(86400).optional().default(3600)
   }),
 
   updateDataset: Joi.object({
-    name: Joi.string().min(1).max(255).optional(),
+    name: Joi.string().trim().min(1).max(255).optional(),
     description: Joi.string().max(1000).optional().allow(''),
-    query_config: Joi.object().optional(),
+    query: Joi.string().min(1).optional(),
+    category_id: Joi.string().uuid().optional().allow(null),
+    tags: Joi.array().items(Joi.string().max(50)).max(10).optional(),
     transformation_config: Joi.object().optional(),
-    schema_config: Joi.object().optional(),
-    row_level_security: Joi.object().optional(),
+    refresh_schedule: Joi.object({
+      enabled: Joi.boolean(),
+      cron_expression: Joi.string().optional(),
+      timezone: Joi.string().optional()
+    }).optional(),
     cache_ttl: Joi.number().integer().min(0).max(86400).optional()
-  }),
-
-  queryDataset: Joi.object({
-    filters: Joi.array().items(
-      Joi.object({
-        column: Joi.string().required(),
-        operator: Joi.string().valid(
-          'equals', 'not_equals', 'contains', 'starts_with', 'ends_with',
-          'greater_than', 'less_than', 'greater_equal', 'less_equal',
-          'is_null', 'is_not_null', 'in', 'not_in'
-        ).required(),
-        value: Joi.any().when('operator', {
-          is: Joi.valid('is_null', 'is_not_null'),
-          then: Joi.optional(),
-          otherwise: Joi.required()
-        })
-      })
-    ).optional(),
-    limit: Joi.number().integer().min(1).max(10000).default(100),
-    offset: Joi.number().integer().min(0).default(0),
-    columns: Joi.array().items(Joi.string()).optional()
   }),
 
   // Dashboard schemas
   createDashboard: Joi.object({
-    name: Joi.string().min(1).max(255).required(),
-    slug: Joi.string().min(1).max(255).pattern(/^[a-z0-9-]+$/).required(),
+    name: Joi.string().trim().min(1).max(255).required(),
     description: Joi.string().max(1000).optional().allow(''),
     category_id: Joi.string().uuid().optional(),
-    layout_config: Joi.object().default({}),
-    filter_config: Joi.array().default([]),
-    is_public: Joi.boolean().default(false),
-    is_featured: Joi.boolean().default(false)
+    tags: Joi.array().items(Joi.string().max(50)).max(10).optional().default([]),
+    layout_config: Joi.object().optional().default({}),
+    theme_config: Joi.object().optional().default({}),
+    global_filters: Joi.array().optional().default([]),
+    is_public: Joi.boolean().default(false)
   }),
 
   updateDashboard: Joi.object({
-    name: Joi.string().min(1).max(255).optional(),
-    slug: Joi.string().min(1).max(255).pattern(/^[a-z0-9-]+$/).optional(),
+    name: Joi.string().trim().min(1).max(255).optional(),
     description: Joi.string().max(1000).optional().allow(''),
-    category_id: Joi.string().uuid().optional(),
+    category_id: Joi.string().uuid().optional().allow(null),
+    tags: Joi.array().items(Joi.string().max(50)).max(10).optional(),
     layout_config: Joi.object().optional(),
-    filter_config: Joi.array().optional(),
+    theme_config: Joi.object().optional(),
+    global_filters: Joi.array().optional(),
     is_public: Joi.boolean().optional(),
-    is_featured: Joi.boolean().optional()
-  }),
-
-  duplicateDashboard: Joi.object({
-    name: Joi.string().min(1).max(255).required(),
-    slug: Joi.string().min(1).max(255).pattern(/^[a-z0-9-]+$/).required()
-  }),
-
-  // Chart schemas
-  createChart: Joi.object({
-    dashboard_id: Joi.string().uuid().required(),
-    dataset_id: Joi.string().uuid().required(),
-    name: Joi.string().min(1).max(255).required(),
-    type: Joi.string().min(1).max(50).required(),
-    config: Joi.object().required(),
-    position: Joi.object({
-      x: Joi.number().integer().min(0).required(),
-      y: Joi.number().integer().min(0).required(),
-      width: Joi.number().integer().min(1).max(12).required(),
-      height: Joi.number().integer().min(1).max(12).required()
-    }).required()
-  }),
-
-  updateChart: Joi.object({
-    name: Joi.string().min(1).max(255).optional(),
-    type: Joi.string().min(1).max(50).optional(),
-    config: Joi.object().optional(),
-    position: Joi.object({
-      x: Joi.number().integer().min(0).required(),
-      y: Joi.number().integer().min(0).required(),
-      width: Joi.number().integer().min(1).max(12).required(),
-      height: Joi.number().integer().min(1).max(12).required()
-    }).optional()
-  }),
-
-  // Data source schemas
-  createDataSource: Joi.object({
-    name: Joi.string().min(1).max(255).required(),
-    type: Joi.string().min(1).max(50).required(),
-    connection_config: Joi.object().required()
-  }),
-
-  updateDataSource: Joi.object({
-    name: Joi.string().min(1).max(255).optional(),
-    connection_config: Joi.object().optional()
-  }),
-
-  testDataSource: Joi.object({
-    type: Joi.string().min(1).max(50).required(),
-    connection_config: Joi.object().required()
+    sort_order: Joi.number().integer().min(0).optional()
   }),
 
   // Category schemas
   createCategory: Joi.object({
-    name: Joi.string().min(1).max(255).required(),
+    name: Joi.string().trim().min(1).max(255).required(),
     description: Joi.string().max(1000).optional().allow(''),
-    icon: Joi.string().max(100).optional(),
-    color: Joi.string().pattern(/^#[0-9a-fA-F]{6}$/).optional(),
-    parent_id: Joi.string().uuid().optional(),
-    sort_order: Joi.number().integer().min(0).default(0)
+    icon: Joi.string().max(50).optional(),
+    color: Joi.string().pattern(/^#[0-9A-F]{6}$/i).optional(),
+    parent_id: Joi.string().uuid().optional().allow(null),
+    sort_order: Joi.number().integer().min(0).optional()
   }),
 
   updateCategory: Joi.object({
-    name: Joi.string().min(1).max(255).optional(),
+    name: Joi.string().trim().min(1).max(255).optional(),
     description: Joi.string().max(1000).optional().allow(''),
-    icon: Joi.string().max(100).optional(),
-    color: Joi.string().pattern(/^#[0-9a-fA-F]{6}$/).optional(),
-    parent_id: Joi.string().uuid().optional(),
+    icon: Joi.string().max(50).optional(),
+    color: Joi.string().pattern(/^#[0-9A-F]{6}$/i).optional(),
+    parent_id: Joi.string().uuid().optional().allow(null),
     sort_order: Joi.number().integer().min(0).optional()
   }),
 
@@ -286,42 +362,154 @@ const schemas = {
 };
 
 /**
- * Validate request based on schema name
+ * Enhanced validation with database uniqueness checks
  */
 export const validateRequest = (schemaName: string) => {
-  return (req: Request, res: Response, next: NextFunction) => {
-    const schema = schemas[schemaName as keyof typeof schemas];
-    
-    if (!schema) {
-      return res.status(500).json({
-        error: {
-          message: 'Invalid validation schema',
-          code: 'INVALID_SCHEMA'
-        }
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const schema = schemas[schemaName as keyof typeof schemas];
+      
+      if (!schema) {
+        return res.status(500).json({
+          error: {
+            message: 'Invalid validation schema',
+            code: 'INVALID_SCHEMA'
+          }
+        });
+      }
+
+      const { error, value } = schema.validate(req.body, {
+        abortEarly: false,
+        stripUnknown: true,
+        convert: true
       });
+
+      if (error) {
+        const validationErrors = error.details.map(detail => ({
+          field: detail.path.join('.'),
+          message: detail.message,
+          type: detail.type
+        }));
+
+        return res.status(400).json({
+          error: {
+            message: 'Validation failed',
+            code: 'VALIDATION_ERROR',
+            details: validationErrors
+          }
+        });
+      }
+
+      // Perform database uniqueness checks for user-related operations
+      if (['register', 'createUser'].includes(schemaName)) {
+        const uniquenessErrors = await checkUniquenessConstraints(value, schemaName);
+        if (uniquenessErrors.length > 0) {
+          return res.status(409).json({
+            error: {
+              message: 'Uniqueness constraint violation',
+              code: 'UNIQUENESS_ERROR',
+              details: uniquenessErrors
+            }
+          });
+        }
+      }
+
+      if (schemaName === 'updateUser' && req.params.userId) {
+        const uniquenessErrors = await checkUniquenessConstraints(value, schemaName, req.params.userId);
+        if (uniquenessErrors.length > 0) {
+          return res.status(409).json({
+            error: {
+              message: 'Uniqueness constraint violation',
+              code: 'UNIQUENESS_ERROR',
+              details: uniquenessErrors
+            }
+          });
+        }
+      }
+
+      // Replace body with validated and sanitized data
+      req.body = value;
+      next();
+    } catch (error) {
+      next(error);
     }
-
-    const { error, value } = schema.validate(req.body, {
-      abortEarly: false,
-      stripUnknown: true,
-      convert: true
-    });
-
-    if (error) {
-      const validationErrors = error.details.map(detail => ({
-        field: detail.path.join('.'),
-        message: detail.message,
-        type: detail.type
-      }));
-
-      throw new ValidationError('Validation failed', validationErrors);
-    }
-
-    // Replace body with validated and sanitized data
-    req.body = value;
-    next();
   };
 };
+
+/**
+ * Check database uniqueness constraints
+ */
+async function checkUniquenessConstraints(
+  data: any, 
+  operation: string, 
+  excludeUserId?: string
+): Promise<Array<{ field: string; message: string; type: string }>> {
+  const errors: Array<{ field: string; message: string; type: string }> = [];
+  const db = new DatabaseService();
+
+  try {
+    // Check email uniqueness
+    if (data.email) {
+      let emailQuery = 'SELECT id FROM users WHERE LOWER(email) = LOWER($1)';
+      let emailParams = [data.email];
+
+      if (excludeUserId) {
+        emailQuery += ' AND id != $2';
+        emailParams.push(excludeUserId);
+      }
+
+      const emailResult = await db.query(emailQuery, emailParams);
+      if (emailResult.rows.length > 0) {
+        errors.push({
+          field: 'email',
+          message: 'This email address is already registered',
+          type: 'unique.violation'
+        });
+      }
+    }
+
+    // Check username uniqueness
+    if (data.username) {
+      let usernameQuery = 'SELECT id FROM users WHERE LOWER(username) = LOWER($1)';
+      let usernameParams = [data.username];
+
+      if (excludeUserId) {
+        usernameQuery += ' AND id != $2';
+        usernameParams.push(excludeUserId);
+      }
+
+      const usernameResult = await db.query(usernameQuery, usernameParams);
+      if (usernameResult.rows.length > 0) {
+        errors.push({
+          field: 'username',
+          message: 'This username is already taken',
+          type: 'unique.violation'
+        });
+      }
+    }
+
+    // Check workspace slug uniqueness for workspace operations
+    if (data.slug && ['createWorkspace'].includes(operation)) {
+      const slugResult = await db.query(
+        'SELECT id FROM workspaces WHERE LOWER(slug) = LOWER($1)',
+        [data.slug]
+      );
+      if (slugResult.rows.length > 0) {
+        errors.push({
+          field: 'slug',
+          message: 'This workspace slug is already taken',
+          type: 'unique.violation'
+        });
+      }
+    }
+
+  } catch (error) {
+    console.error('Error checking uniqueness constraints:', error);
+    // Don't fail validation due to database errors, but log them
+  }
+
+  return errors;
+}
 
 /**
  * Validate query parameters
@@ -352,7 +540,13 @@ export const validateQuery = (schemaName: string) => {
         type: detail.type
       }));
 
-      throw new ValidationError('Query validation failed', validationErrors);
+      return res.status(400).json({
+        error: {
+          message: 'Query validation failed',
+          code: 'VALIDATION_ERROR',
+          details: validationErrors
+        }
+      });
     }
 
     // Replace query with validated data
@@ -362,64 +556,7 @@ export const validateQuery = (schemaName: string) => {
 };
 
 /**
- * Validate both body and query parameters
- */
-export const validateBoth = (bodySchema: string, querySchema: string = 'pagination') => {
-  return (req: Request, res: Response, next: NextFunction) => {
-    // Validate body
-    if (bodySchema) {
-      const bodyValidation = schemas[bodySchema as keyof typeof schemas];
-      if (bodyValidation) {
-        const { error: bodyError, value: bodyValue } = bodyValidation.validate(req.body, {
-          abortEarly: false,
-          stripUnknown: true,
-          convert: true
-        });
-
-        if (bodyError) {
-          const validationErrors = bodyError.details.map(detail => ({
-            field: detail.path.join('.'),
-            message: detail.message,
-            type: detail.type
-          }));
-
-          throw new ValidationError('Body validation failed', validationErrors);
-        }
-
-        req.body = bodyValue;
-      }
-    }
-
-    // Validate query
-    if (querySchema) {
-      const queryValidation = schemas[querySchema as keyof typeof schemas];
-      if (queryValidation) {
-        const { error: queryError, value: queryValue } = queryValidation.validate(req.query, {
-          abortEarly: false,
-          stripUnknown: true,
-          convert: true
-        });
-
-        if (queryError) {
-          const validationErrors = queryError.details.map(detail => ({
-            field: detail.path.join('.'),
-            message: detail.message,
-            type: detail.type
-          }));
-
-          throw new ValidationError('Query validation failed', validationErrors);
-        }
-
-        req.query = queryValue;
-      }
-    }
-
-    next();
-  };
-};
-
-/**
- * Custom validator for UUID parameters
+ * Validate UUID parameters
  */
 export const validateUuid = (paramName: string) => {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -429,11 +566,17 @@ export const validateUuid = (paramName: string) => {
     const { error } = uuidSchema.validate(value);
     
     if (error) {
-      throw new ValidationError(`Invalid ${paramName} format`, [{
-        field: paramName,
-        message: `${paramName} must be a valid UUID`,
-        type: 'string.uuid'
-      }]);
+      return res.status(400).json({
+        error: {
+          message: `Invalid ${paramName} format`,
+          code: 'INVALID_UUID',
+          details: [{
+            field: paramName,
+            message: `${paramName} must be a valid UUID`,
+            type: 'string.uuid'
+          }]
+        }
+      });
     }
 
     next();
@@ -446,7 +589,7 @@ export const validateUuid = (paramName: string) => {
 export const sanitizeHtml = (field: string) => {
   return (req: Request, res: Response, next: NextFunction) => {
     if (req.body[field]) {
-      // Basic HTML sanitization (in production, use a proper HTML sanitization library)
+      // Basic HTML sanitization
       req.body[field] = req.body[field]
         .replace(/<script[^>]*>.*?<\/script>/gi, '')
         .replace(/<iframe[^>]*>.*?<\/iframe>/gi, '')
@@ -455,4 +598,12 @@ export const sanitizeHtml = (field: string) => {
     }
     next();
   };
+};
+
+export default {
+  validateRequest,
+  validateQuery,
+  validateUuid,
+  sanitizeHtml,
+  schemas
 };

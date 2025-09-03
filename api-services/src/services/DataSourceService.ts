@@ -1,5 +1,5 @@
 // api-services/src/services/DataSourceService.ts
-import { Database } from '../utils/database';
+import { DatabaseService as Database } from '../config/database';
 import { logger } from '../utils/logger';
 import { CacheService } from './CacheService';
 import { AnalyticsService } from './AnalyticsService';

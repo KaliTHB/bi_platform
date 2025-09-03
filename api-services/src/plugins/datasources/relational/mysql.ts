@@ -1,223 +1,197 @@
-// File: api-services/src/plugins/datasources/relational/mysql.ts
+// ===================================================================
+// api-services/src/plugins/datasources/relational/mysql.ts
+
 import mysql from 'mysql2/promise';
-import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo, TableInfo, ColumnInfo } from '../interfaces/DataSourcePlugin';
+import { DataSourcePlugin, ConnectionConfig, Connection, TestResult, QueryResult, SchemaInfo, TableInfo, ColumnInfo } from '../interfaces';
 
-class MySQLConnection implements Connection {
-  id: string;
-  config: ConnectionConfig;
-  client: mysql.Pool;
-  isConnected: boolean;
-  lastActivity: Date;
-
-  constructor(config: ConnectionConfig) {
-    this.id = `mysql-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    this.config = config;
-    this.client = mysql.createPool({
-      host: config.host,
-      port: config.port || 3306,
-      database: config.database,
-      user: config.username,
-      password: config.password,
-      connectionLimit: 5,
-      acquireTimeout: 60000,
-      timeout: 60000,
-    });
-    this.isConnected = false;
-    this.lastActivity = Date.now();
-  }
-}
-
-export const MySQLPlugin: DataSourcePlugin = {
+const mysqlPlugin: DataSourcePlugin = {
   name: 'mysql',
   displayName: 'MySQL',
   category: 'relational',
   version: '1.0.0',
-  description: 'MySQL database connector with full SQL support',
+  description: 'MySQL database connector',
+  author: 'BI Platform Team',
+  license: 'MIT',
   
   configSchema: {
-    type: 'object',
-    properties: {
-      host: {
-        type: 'string',
-        required: true,
-        title: 'Host',
-        description: 'Database server hostname or IP address',
-        default: 'localhost'
-      },
-      port: {
-        type: 'number',
-        title: 'Port',
-        description: 'Database server port',
-        default: 3306,
-        minimum: 1,
-        maximum: 65535
-      },
-      database: {
-        type: 'string',
-        required: true,
-        title: 'Database Name',
-        description: 'Name of the database to connect to'
-      },
-      username: {
-        type: 'string',
-        required: true,
-        title: 'Username',
-        description: 'Database username'
-      },
-      password: {
-        type: 'password',
-        required: true,
-        title: 'Password',
-        description: 'Database password'
-      }
+    host: {
+      type: 'string',
+      required: true,
+      description: 'Database host address',
+      placeholder: 'localhost',
+      group: 'connection'
     },
-    required: ['host', 'database', 'username', 'password']
+    port: {
+      type: 'number',
+      default: 3306,
+      validation: { min: 1, max: 65535 },
+      description: 'Database port number',
+      group: 'connection'
+    },
+    database: {
+      type: 'string',
+      required: true,
+      description: 'Database name to connect to',
+      group: 'connection'
+    },
+    user: {
+      type: 'string',
+      required: true,
+      description: 'Database username',
+      group: 'authentication'
+    },
+    password: {
+      type: 'password',
+      required: true,
+      description: 'Database password',
+      group: 'authentication'
+    },
+    ssl: {
+      type: 'boolean',
+      default: false,
+      description: 'Enable SSL/TLS connection',
+      group: 'security'
+    }
+  },
+
+  capabilities: {
+    supportsBulkInsert: true,
+    supportsTransactions: true,
+    supportsStoredProcedures: true,
+    supportsCustomFunctions: true,
+    maxConcurrentConnections: 50
   },
 
   async connect(config: ConnectionConfig): Promise<Connection> {
-    const connection = new MySQLConnection(config);
-    
-    try {
-      // Test the connection
-      const [rows] = await connection.client.execute('SELECT 1 as test');
-      
-      connection.isConnected = true;
-      connection.lastActivity = Date.now();
-      
-      return connection;
-    } catch (error) {
-      await connection.client.end();
-      throw new Error(`Failed to connect to MySQL: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  },
-
-  async testConnection(config: ConnectionConfig): Promise<boolean> {
-    const testPool = mysql.createPool({
+    const connection = await mysql.createConnection({
       host: config.host,
       port: config.port || 3306,
       database: config.database,
-      user: config.username,
+      user: config.user,
       password: config.password,
-      connectionLimit: 1,
-      acquireTimeout: 5000,
+      ssl: config.ssl ? {} : false
     });
 
+    return {
+      id: `mysql_${Date.now()}`,
+      plugin: 'mysql',
+      config,
+      connected_at: new Date(),
+      client: connection
+    };
+  },
+
+  async testConnection(config: ConnectionConfig): Promise<TestResult> {
+    const start = Date.now();
     try {
-      const [rows] = await testPool.execute('SELECT 1 as test');
-      return true;
-    } catch (error) {
-      return false;
-    } finally {
-      await testPool.end();
+      const connection = await this.connect(config);
+      await this.disconnect(connection);
+      
+      return {
+        success: true,
+        message: 'Connection successful',
+        response_time: Date.now() - start
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.message,
+        error_code: error.code,
+        response_time: Date.now() - start
+      };
     }
   },
 
-  async executeQuery(connection: Connection, query: string, params: any[] = []): Promise<QueryResult> {
-    if (!connection.isConnected) {
-      throw new Error('Connection is not established');
-    }
-
-    const startTime = Date.now();
-    
+  async executeQuery(connection: Connection, query: string, params?: any[]): Promise<QueryResult> {
+    const start = Date.now();
     try {
       const [rows, fields] = await connection.client.execute(query, params);
-      const executionTime = Date.now() - startTime;
-      
-      connection.lastActivity = Date.now();
       
       return {
-        rows: rows as any[],
-        fields: Array.isArray(fields) ? fields.map(field => ({
+        data: Array.isArray(rows) ? rows : [],
+        columns: Array.isArray(fields) ? fields.map((field: any) => ({
           name: field.name,
-          type: field.type?.toString() || 'unknown'
-        })) : undefined,
-        rowCount: Array.isArray(rows) ? rows.length : 0,
-        executionTime
+          type: field.type
+        })) : [],
+        total_rows: Array.isArray(rows) ? rows.length : 0,
+        execution_time: Date.now() - start
       };
-    } catch (error) {
-      throw new Error(`Query execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } catch (error: any) {
+      throw new Error(`Query execution failed: ${error.message}`);
     }
   },
 
   async getSchema(connection: Connection): Promise<SchemaInfo> {
-    const tablesQuery = `
-      SELECT 
-        TABLE_SCHEMA as schema_name,
-        TABLE_NAME as table_name,
-        TABLE_TYPE as table_type
-      FROM information_schema.TABLES 
-      WHERE TABLE_SCHEMA = ?
-      ORDER BY TABLE_NAME
-    `;
-
-    const result = await this.executeQuery(connection, tablesQuery, [connection.config.database]);
+    const query = 'SHOW DATABASES';
+    const [rows] = await connection.client.execute(query);
+    const databases: any[] = [];
     
-    const tables = result.rows.filter(row => row.table_type === 'BASE TABLE').map(row => ({
-      name: row.table_name,
-      schema: row.schema_name,
-      type: 'table' as const
-    }));
+    for (const row of rows as any[]) {
+      if (['information_schema', 'mysql', 'performance_schema', 'sys'].includes(row.Database)) {
+        continue;
+      }
+      
+      const tables = await this.getTables(connection, row.Database);
+      databases.push({
+        name: row.Database,
+        tables
+      });
+    }
 
-    const views = result.rows.filter(row => row.table_type === 'VIEW').map(row => ({
-      name: row.table_name,
-      schema: row.schema_name,
-      type: 'view' as const
-    }));
-
-    return { tables, views };
+    return { databases };
   },
 
   async getTables(connection: Connection, database?: string): Promise<TableInfo[]> {
     const dbName = database || connection.config.database;
     const query = `
       SELECT 
-        TABLE_SCHEMA as schema_name,
-        TABLE_NAME as table_name,
-        'table' as type
+        TABLE_NAME as name,
+        TABLE_SCHEMA as schema,
+        TABLE_TYPE as type
       FROM information_schema.TABLES 
-      WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'
+      WHERE TABLE_SCHEMA = ?
       ORDER BY TABLE_NAME
     `;
 
-    const result = await this.executeQuery(connection, query, [dbName]);
-    
-    return result.rows.map(row => ({
-      name: row.table_name,
-      schema: row.schema_name,
-      type: 'table' as const
-    }));
+    const [rows] = await connection.client.execute(query, [dbName]);
+    const tables: TableInfo[] = [];
+
+    for (const row of rows as any[]) {
+      const columns = await this.getColumns(connection, row.name);
+      tables.push({
+        name: row.name,
+        schema: row.schema,
+        type: row.type === 'VIEW' ? 'view' : 'table',
+        columns
+      });
+    }
+
+    return tables;
   },
 
   async getColumns(connection: Connection, table: string): Promise<ColumnInfo[]> {
-    const [schema, tableName] = table.includes('.') ? table.split('.') : [connection.config.database, table];
-    
     const query = `
       SELECT 
-        COLUMN_NAME,
-        DATA_TYPE,
-        IS_NULLABLE,
-        COLUMN_DEFAULT,
-        COLUMN_KEY
+        COLUMN_NAME as name,
+        DATA_TYPE as type,
+        IS_NULLABLE = 'YES' as nullable,
+        COLUMN_DEFAULT as defaultValue,
+        COLUMN_KEY = 'PRI' as isPrimaryKey
       FROM information_schema.COLUMNS 
-      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+      WHERE TABLE_NAME = ? AND TABLE_SCHEMA = ?
       ORDER BY ORDINAL_POSITION
     `;
 
-    const result = await this.executeQuery(connection, query, [schema, tableName]);
-    
-    return result.rows.map(row => ({
-      name: row.COLUMN_NAME,
-      type: row.DATA_TYPE,
-      nullable: row.IS_NULLABLE === 'YES',
-      defaultValue: row.COLUMN_DEFAULT,
-      isPrimaryKey: row.COLUMN_KEY === 'PRI'
-    }));
+    const [rows] = await connection.client.execute(query, [table, connection.config.database]);
+    return rows as ColumnInfo[];
   },
 
   async disconnect(connection: Connection): Promise<void> {
-    if (connection.client) {
+    if (connection.client && typeof connection.client.end === 'function') {
       await connection.client.end();
-      connection.isConnected = false;
     }
   }
 };
+
+export default mysqlPlugin;
+export { mysqlPlugin };
