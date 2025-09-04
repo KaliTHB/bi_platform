@@ -480,66 +480,12 @@ export default function LoginPage() {
                     <>
                       <Divider sx={{ my: 3 }}>
                         <Chip 
-                          label={`Test Credentials (${process.env.NODE_ENV})`} 
+                          label={`(${process.env.NODE_ENV} - admin@localhost.com / admin123)`} 
                           color="primary" 
                           variant="outlined" 
                           size="small" 
                         />
                       </Divider>
-
-                      <Box sx={{ mb: 2 }}>
-                        {showCredentials && (
-                          <Fade in>
-                            <Box>
-                              
-                              <Grid container spacing={1}>
-                                {testCredentials.map((cred, index) => (
-                                  <Grid item xs={12} key={index}>
-                                    <Card 
-                                      sx={{ 
-                                        cursor: 'pointer',
-                                        transition: 'all 0.2s',
-                                        '&:hover': {
-                                          boxShadow: 4,
-                                          transform: 'translateY(-1px)',
-                                        },
-                                        border: copiedIndex === index ? '2px solid' : '1px solid',
-                                        borderColor: copiedIndex === index ? 'success.main' : 'divider',
-                                      }}
-                                      onClick={() => handleCredentialClick(cred, index)}
-                                    >
-                                      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                          <Box sx={{ flex: 1 }}>
-                                            <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-                                              <Chip 
-                                                label={cred.role} 
-                                                color={cred.color} 
-                                                size="small" 
-                                                sx={{ mr: 1, fontSize: '0.75rem' }}
-                                              />
-                                              {copiedIndex === index && (
-                                                <CheckCircle color="success" sx={{ fontSize: 16 }} />
-                                              )}
-                                            </Box>
-                                            <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                                              {cred.email}
-                                            </Typography>
-                                            <Typography variant="caption" color="text.secondary">
-                                              {cred.description} • Password: {cred.password}
-                                            </Typography>
-                                          </Box>
-                                          <FileCopy sx={{ fontSize: 16, color: 'action.active', ml: 1 }} />
-                                        </Box>
-                                      </CardContent>
-                                    </Card>
-                                  </Grid>
-                                ))}
-                              </Grid>
-                            </Box>
-                          </Fade>
-                        )}
-                      </Box>
                     </>
                   )}
 
