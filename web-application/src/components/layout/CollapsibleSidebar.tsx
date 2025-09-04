@@ -26,7 +26,12 @@ import {
   Star,
   MenuOpen,
   Menu as MenuIcon,
-  Category
+  Category,
+  Storage,
+  BarChart,
+  TableChart,
+  Dns,
+  ViewList
 } from '@mui/icons-material';
 import { useAuth } from '../../hooks/useAuth';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -58,19 +63,63 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
   const drawerWidth = isOpen ? 280 : 64;
 
   const sidebarItems: SidebarItem[] = [
+    // Overview Section
     {
-      id: 'home',
-      label: 'Home',
+      id: 'overview',
+      label: 'Overview',
       icon: <Home />,
       path: workspaceSlug ? `/workspace/${workspaceSlug}/overview` : '/workspace-selector'
     },
+    
+    // Main Dashboard Navigation
     {
       id: 'dashboards',
-      label: 'View Dashboard',
-      icon: <DashboardIcon />,
+      label: 'Dashboard List',
+      icon: <ViewList />,
       path: workspaceSlug ? `/workspace/${workspaceSlug}/dashboards` : '#',
       permissions: ['dashboard.read']
     },
+    {
+      id: 'dataset-list',
+      label: 'Dataset List',
+      icon: <TableChart />,
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/datasets` : '#',
+      permissions: ['dataset.read']
+    },
+    {
+      id: 'datasource-list',
+      label: 'Data Source List',
+      icon: <Storage />,
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/datasources` : '#',
+      permissions: ['datasource.read']
+    },
+    {
+      id: 'chart-list',
+      label: 'Chart List',
+      icon: <BarChart />,
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/charts` : '#',
+      permissions: ['chart.read'],
+      divider: true
+    },
+
+    // Builder Tools
+    {
+      id: 'dashboard-builder',
+      label: 'Dashboard Builder',
+      icon: <Analytics />,
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/dashboard-builder` : '#',
+      permissions: ['dashboard.create']
+    },
+    {
+      id: 'sql-editor',
+      label: 'SQL Editor',
+      icon: <DataObject />,
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/sql-editor` : '#',
+      permissions: ['sql_editor.access'],
+      divider: true
+    },
+
+    // Quick Access
     {
       id: 'recent',
       label: 'Recent',
@@ -84,27 +133,14 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
       path: workspaceSlug ? `/workspace/${workspaceSlug}/favorites` : '#',
       divider: true
     },
-    {
-      id: 'builder',
-      label: 'Dashboard Builder',
-      icon: <Analytics />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/dashboard-builder` : '#',
-      permissions: ['dashboard.create']
-    },
-    {
-      id: 'sql-editor',
-      label: 'SQL Editor',
-      icon: <DataObject />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/sql-editor` : '#',
-      permissions: ['sql_editor.access']
-    },
+
+    // Administration
     {
       id: 'categories',
       label: 'Categories',
       icon: <Category />,
       path: workspaceSlug ? `/workspace/${workspaceSlug}/admin/categories` : '#',
-      permissions: ['category.read'],
-      divider: true
+      permissions: ['category.read']
     },
     {
       id: 'users',
@@ -117,47 +153,53 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
       id: 'workspace',
       label: 'Workspace',
       icon: <Business />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/admin` : '#',
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/admin/workspace` : '#',
       permissions: ['workspace.admin']
     },
     {
       id: 'settings',
       label: 'Settings',
       icon: <Settings />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/settings` : '#'
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/admin/settings` : '#',
+      permissions: ['workspace.admin']
     }
   ];
 
-  const handleNavigation = (item: SidebarItem) => {
-    if (item.path !== '#') {
-      router.push(item.path);
-    }
+  const isActivePage = (path: string): boolean => {
+    if (!router.isReady) return false;
+    return router.asPath === path || router.asPath.startsWith(path + '/');
   };
 
   const renderSidebarItem = (item: SidebarItem) => {
-    // Check permissions if required
-    if (item.permissions && !item.permissions.some(permission => hasPermission(permission))) {
-      return null;
-    }
+    const isActive = isActivePage(item.path);
+    const isDisabled = item.path === '#' || !workspaceSlug;
 
-    const isActive = router.pathname === item.path;
-    const isDisabled = item.path === '#';
+    // Check permissions
+    const hasRequiredPermissions = !item.permissions || 
+      item.permissions.some(permission => hasPermission(permission));
+    
+    if (!hasRequiredPermissions) return null;
 
     const listItem = (
       <ListItem key={item.id} disablePadding sx={{ display: 'block' }}>
         <ListItemButton
-          onClick={() => handleNavigation(item)}
+          onClick={() => !isDisabled && router.push(item.path)}
           disabled={isDisabled}
           sx={{
             minHeight: 48,
             justifyContent: isOpen ? 'initial' : 'center',
             px: 2.5,
-            bgcolor: isActive ? 'action.selected' : 'transparent',
+            mx: 1,
+            borderRadius: 1,
+            mb: 0.5,
+            backgroundColor: isActive ? 'primary.main' : 'transparent',
+            color: isActive ? 'primary.contrastText' : 'text.primary',
             '&:hover': {
-              bgcolor: 'action.hover'
+              backgroundColor: isActive ? 'primary.dark' : 'action.hover',
             },
             '&.Mui-disabled': {
-              opacity: 0.5
+              opacity: 0.5,
+              color: 'text.disabled'
             }
           }}
         >
@@ -166,7 +208,7 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
               minWidth: 0,
               mr: isOpen ? 3 : 'auto',
               justifyContent: 'center',
-              color: isActive ? 'primary.main' : 'inherit'
+              color: isActive ? 'primary.contrastText' : 'inherit'
             }}
           >
             {item.icon}
@@ -175,7 +217,7 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
             primary={item.label}
             sx={{ 
               opacity: isOpen ? 1 : 0,
-              color: isActive ? 'primary.main' : 'inherit'
+              color: isActive ? 'primary.contrastText' : 'inherit'
             }}
           />
         </ListItemButton>

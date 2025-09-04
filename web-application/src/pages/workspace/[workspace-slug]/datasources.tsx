@@ -1,5 +1,5 @@
 // =============================================================================
-// web-application/src/pages/workspace/[workspace-slug]/datasets.tsx
+// web-application/src/pages/workspace/[workspace-slug]/datasources.tsx
 // =============================================================================
 
 import React from 'react';
@@ -9,32 +9,33 @@ import { Box } from '@mui/material';
 import { useAuth } from '@/hooks/useAuth';
 import { usePermissions } from '@/hooks/usePermissions';
 import WorkspaceLayout from '@/components/layout/WorkspaceLayout';
-import { DatasetList } from '@/components/builder/DatasetList';
+import { DatasourceList } from '@/components/builder/DatasourceList';
 import { PermissionGate } from '@/components/shared/PermissionGate';
 
-const DatasetsPage: NextPage = () => {
+const DatasourcesPage: NextPage = () => {
   const router = useRouter();
   const { workspaceSlug } = router.query;
   const { workspace } = useAuth();
   const { hasPermission } = usePermissions();
 
-  const handleDatasetSelect = (dataset: any) => {
-    router.push(`/workspace/${workspaceSlug}/dataset/${dataset.id}`);
+  const handleDataSourceSelect = (dataSource: any) => {
+    // Navigate to data source detail/edit page
+    router.push(`/workspace/${workspaceSlug}/datasource/${dataSource.id}`);
   };
 
   return (
     <WorkspaceLayout
-      title="Datasets"
+      title="Data Sources"
       breadcrumbs={[
         { label: 'Home', href: `/workspace/${workspaceSlug}` },
-        { label: 'Datasets', href: `/workspace/${workspaceSlug}/datasets` }
+        { label: 'Data Sources', href: `/workspace/${workspaceSlug}/datasources` }
       ]}
     >
-      <PermissionGate permissions={['dataset.read']}>
+      <PermissionGate permissions={['datasource.read']}>
         <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-          <DatasetList
-            onDatasetSelect={handleDatasetSelect}
-            showCreateButton={hasPermission('dataset.create')}
+          <DatasourceList
+            onDataSourceSelect={handleDataSourceSelect}
+            showCreateButton={hasPermission('datasource.create')}
           />
         </Box>
       </PermissionGate>
@@ -42,4 +43,4 @@ const DatasetsPage: NextPage = () => {
   );
 };
 
-export default DatasetsPage;
+export default DatasourcesPage;
