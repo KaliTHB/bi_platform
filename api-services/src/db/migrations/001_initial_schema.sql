@@ -112,6 +112,15 @@ CREATE TABLE IF NOT EXISTS permissions (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- User roles
+CREATE TABLE public.user_roles (
+	user_id uuid NULL,
+	role_id uuid NULL,
+	assigned_by uuid NULL,
+	assigned_at timestamp NULL,
+	is_active bool NULL,
+	CONSTRAINT user_roles_pkey PRIMARY KEY (user_id,role_id)
+);
 
 -- User workspaces
 CREATE TABLE user_workspaces (

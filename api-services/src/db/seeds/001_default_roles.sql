@@ -16,9 +16,8 @@ BEGIN
     SELECT id INTO admin_user_id FROM users WHERE username = 'admin';
     
     -- Create Administrator role
-    INSERT INTO roles (workspace_id, name, description, permissions, is_system_role, created_by)
+    INSERT INTO roles ( name, description, permissions, is_system_role, created_by)
     VALUES (
-        default_workspace_id,
         'Administrator',
         'Full system access with all permissions',
         '[
@@ -40,9 +39,8 @@ BEGIN
     ) RETURNING id INTO admin_role_id;
     
     -- Create Contributor role
-    INSERT INTO roles (workspace_id, name, description, permissions, is_system_role, created_by)
+    INSERT INTO roles ( name, description, permissions, is_system_role, created_by)
     VALUES (
-        default_workspace_id,
         'Contributor',
         'Can create and manage content but limited admin access',
         '[
@@ -60,9 +58,8 @@ BEGIN
     ) RETURNING id INTO contributor_role_id;
     
     -- Create Reader role
-    INSERT INTO roles (workspace_id, name, description, permissions, is_system_role, created_by)
+    INSERT INTO roles ( name, description, permissions, is_system_role, created_by)
     VALUES (
-        default_workspace_id,
         'Reader',
         'Read-only access to published dashboards through webview',
         '[
@@ -79,7 +76,7 @@ BEGIN
     ) RETURNING id INTO reader_role_id;
     
     -- Assign Administrator role to admin user
-    INSERT INTO user_role_assignments (user_id, workspace_id, role_id, assigned_by)
-    VALUES (admin_user_id, default_workspace_id, admin_role_id, admin_user_id);
+    INSERT INTO user_role_assignments (user_id, role_id, assigned_by)
+    VALUES (admin_user_id , admin_role_id, admin_user_id);
     
 END $$;

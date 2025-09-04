@@ -1,0 +1,25 @@
+'viewer', 'analyst', 'editor', 'admin', 'owner'
+
+-- Create all system roles in one statement
+INSERT INTO public.roles (id, name, description, permissions, is_system_role) VALUES 
+(
+    gen_random_uuid(),
+    'admin',
+    'Full system access with all permissions',
+    '["workspace.read", "workspace.update", "workspace.admin", "user.read", "user.create", "user.update", "user.delete", "role.read", "role.create", "role.update", "role.delete", "role.assign", "category.read", "category.create", "category.update", "category.delete", "webview.read", "webview.create", "webview.update", "webview.delete", "webview.admin", "dataset.read", "dataset.create", "dataset.update", "dataset.delete", "dataset.share", "dashboard.read", "dashboard.create", "dashboard.update", "dashboard.delete", "dashboard.publish", "dashboard.share", "chart.read", "chart.create", "chart.update", "chart.delete", "export.pdf", "export.excel", "export.csv", "export.image", "plugin.config.read", "plugin.config.update", "sql_editor.access", "sql_editor.execute", "audit.read", "security.manage"]'::jsonb,
+    true
+),
+(
+    gen_random_uuid(),
+    'Contributor',
+    'Can create and manage content but limited admin access',
+    '["workspace.read", "category.read", "category.create", "category.update", "webview.read", "dataset.read", "dataset.create", "dataset.update", "dataset.delete", "dataset.share", "dashboard.read", "dashboard.create", "dashboard.update", "dashboard.delete", "dashboard.publish", "dashboard.share", "chart.read", "chart.create", "chart.update", "chart.delete", "export.pdf", "export.excel", "export.csv", "export.image", "sql_editor.access", "sql_editor.execute"]'::jsonb,
+    true
+),
+(
+    gen_random_uuid(), 
+    'Reader',
+    'Read-only access to published dashboards through webview',
+    '["workspace.read", "category.read", "webview.read", "dataset.read", "dashboard.read", "chart.read", "export.csv", "export.image"]'::jsonb,
+    true
+);
