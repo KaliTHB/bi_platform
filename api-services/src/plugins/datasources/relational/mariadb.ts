@@ -1,5 +1,5 @@
 // File: api-services/src/plugins/datasources/relational/mariadb.ts
-import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
+import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces';
 import * as mariadb from 'mariadb';
 
 export const mariadbPlugin: DataSourcePlugin = {
@@ -125,5 +125,60 @@ export const mariadbPlugin: DataSourcePlugin = {
       await connection.pool.end();
     }
     connection.isConnected = false;
+  },
+
+  async getTables(connection: Connection, database?: string): Promise<TableInfo[]> {
+  try {
+    const dbName = database || connection.config.database;
+    const query = `
+      SELECT 
+        TABLE_NAME as name,
+        TABLE_SCHEMA as schema,
+        TABLE_TYPE as type
+      FROM information_schema.TABLES 
+      WHERE TABLE_SCHEMA = ?
+      ORDER BY TABLE_NAME
+    `;
+
+    const [rows] = await connection.client.execute(query, [dbName]);
+    const tables: TableInfo[] = [];
+
+    for (const row of rows as any[]) {
+      tables.push({
+        name: row.name,
+        schema: row.schema || dbName,
+        type: row.type === 'VIEW' ? 'view' : 'table',
+        columns: [] // Populate if needed
+      });
+    }
+
+    return tables;
+  } catch (error) {
+    console.warn('Failed to get tables for MariaDB:', error);
+    return [];
   }
+},
+
+async getColumns(connection: Connection, table: string): Promise<ColumnInfo[]> {
+  try {
+    const query = `
+      SELECT 
+        COLUMN_NAME as name,
+        DATA_TYPE as type,
+        IS_NULLABLE = 'YES' as nullable,
+        COLUMN_DEFAULT as defaultValue,
+        COLUMN_KEY = 'PRI' as isPrimaryKey
+      FROM information_schema.COLUMNS 
+      WHERE TABLE_NAME = ? AND TABLE_SCHEMA = ?
+      ORDER BY ORDINAL_POSITION
+    `;
+
+    const [rows] = await connection.client.execute(query, [table, connection.config.database]);
+    return rows as ColumnInfo[];
+  } catch (error) {
+    console.warn('Failed to get columns for MariaDB:', error);
+    return [];
+  }
+}
+
 };

@@ -210,10 +210,10 @@ Key configuration options in `.env`:
 
 ```bash
 # Database
-POSTGRES_HOST=localhost
-POSTGRES_DB=bi_platform
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=your_secure_password
+DB_HOST=localhost
+DB_NAME=bi_platform
+DB_USER=postgres
+DB_PASSWORD=your_secure_password
 
 # Redis
 REDIS_HOST=localhost
@@ -437,7 +437,7 @@ spec:
         ports:
         - containerPort: 3001
         env:
-        - name: POSTGRES_HOST
+        - name: DB_HOST
           value: "postgres-service"
         - name: REDIS_HOST
           value: "redis-service"

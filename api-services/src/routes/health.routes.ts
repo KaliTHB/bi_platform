@@ -1,8 +1,8 @@
 // api-services/src/routes/health.routes.ts
 import express from 'express';
-import { DatabaseConfig } from '../config/database';
+import { databaseConfig } from '../config/database';
 import { CacheService } from '../config/redis';
-import { PluginManager } from '../services/PluginManager';
+import { PluginManager } from '../plugins/manager/PluginManager';
 import { logger } from '../utils/logger';
 import { asyncHandler } from '../middleware/errorHandler';
 import os from 'os';
@@ -168,7 +168,7 @@ router.get('/metrics', asyncHandler(async (req: express.Request, res: express.Re
 async function checkDatabase(): Promise<ServiceHealth> {
   const startTime = Date.now();
   try {
-    const result = await DatabaseConfig.query('SELECT NOW() as current_time, version() as db_version');
+    const result = await databaseConfig.query('SELECT NOW() as current_time, version() as db_version');
     const responseTime = Date.now() - startTime;
 
     if (responseTime > 5000) {

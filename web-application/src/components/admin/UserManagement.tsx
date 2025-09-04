@@ -42,7 +42,6 @@ interface ActionItem {
 }
 
 interface UserFormData {
-  username: string;
   email: string;
   first_name: string;
   last_name: string;
@@ -152,7 +151,6 @@ export const UserManagement: React.FC = () => {
   const handleEditUser = (user: User) => {
     setEditingUser(user);
     setFormData({
-      username: user.username,
       email: user.email,
       first_name: user.first_name,
       last_name: user.last_name,
@@ -201,7 +199,6 @@ export const UserManagement: React.FC = () => {
 
         // Prepare create data with required password
         const createData = {
-          username: formData.username,
           email: formData.email,
           first_name: formData.first_name,
           last_name: formData.last_name,

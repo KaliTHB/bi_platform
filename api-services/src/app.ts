@@ -20,7 +20,7 @@ import { timeoutHandler } from './middleware/timeout';
 
 // Import utilities
 import { logger } from './utils/logger';
-import { PluginManager } from './services/PluginManager';
+import { PluginManager } from './plugins/manager/PluginManager';
 
 // Create Express app
 const app: Application = express();

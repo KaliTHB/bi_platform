@@ -177,7 +177,7 @@ export class WorkspaceService {
   async getWorkspaceMembers(workspaceId: string): Promise<any[]> {
     try {
       const result = await db.query(
-        `SELECT u.id, u.username, u.email, u.first_name, u.last_name,
+        `SELECT u.id, u.email, u.first_name, u.last_name,
                 uw.status, uw.created_at as joined_at,
                 ARRAY_AGG(DISTINCT r.name) as roles,
                 MAX(r.level) as highest_role_level
@@ -186,7 +186,7 @@ export class WorkspaceService {
          LEFT JOIN user_workspace_roles uwr ON u.id = uwr.user_id AND uwr.workspace_id = uw.workspace_id
          LEFT JOIN roles r ON uwr.role_id = r.id
          WHERE uw.workspace_id = $1 AND u.is_active = true
-         GROUP BY u.id, u.username, u.email, u.first_name, u.last_name, uw.status, uw.created_at
+         GROUP BY u.id, u.email, u.first_name, u.last_name, uw.status, uw.created_at
          ORDER BY uw.created_at`,
         [workspaceId]
       );

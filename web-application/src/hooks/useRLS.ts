@@ -89,7 +89,6 @@ export const useRLS = (): UseRLSResult => {
         first_name: auth.user.first_name,
         last_name: auth.user.last_name,
         email: auth.user.email,
-        username: auth.user.username,
         is_active: auth.user.is_active,
         created_at: auth.user.created_at,
         

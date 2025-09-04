@@ -1,33 +1,33 @@
 // File: api-services/src/plugins/datasources/registry/DataSourceRegistry.ts
-import { DataSourcePlugin } from '../interfaces';
-import { logger } from '../../../utils/logger';
+import { DataSourcePlugin } from '../datasources/interfaces';
+import { logger } from '../../utils/logger';
 
 // Import plugins by category
 // Relational Database Plugins
-import { PostgreSQLPlugin } from '../relational/postgres';
-import { MySQLPlugin } from '../relational/mysql';
-import { mariadbPlugin } from '../relational/mariadb';
-import { mssqlPlugin } from '../relational/mssql';
-import { oraclePlugin } from '../relational/oracle';
-import { sqlitePlugin } from '../relational/sqlite';
+import { postgresPlugin } from '../datasources/relational/postgres';
+import { mysqlPlugin } from '../datasources/relational/mysql';
+import { mariadbPlugin } from '../datasources/relational/mariadb';
+import { mssqlPlugin } from '../datasources/relational/mssql';
+import { oraclePlugin } from '../datasources/relational/oracle';
+import { sqlitePlugin } from '../datasources/relational/sqlite';
 
 // Cloud Database Plugins
-import { MongoDBPlugin } from '../cloud_databases/mongodb';
-import { bigqueryPlugin } from '../cloud_databases/bigquery';
-import { snowflakePlugin } from '../cloud_databases/snowflake';
-import { athenaPlugin } from '../cloud_databases/athena';
-import { dynamodbPlugin } from '../cloud_databases/dynamodb';
-import { cosmosdbPlugin } from '../cloud_databases/cosmosdb';
+import { mongodbPlugin } from '../datasources/cloud_databases/mongodb';
+import { bigqueryPlugin } from '../datasources/cloud_databases/bigquery';
+import { snowflakePlugin } from '../datasources/cloud_databases/snowflake';
+import { athenaPlugin } from '../datasources/cloud_databases/athena';
+import { dynamodbPlugin } from '../datasources/cloud_databases/dynamodb';
+import { cosmosdbPlugin } from '../datasources/cloud_databases/cosmosdb';
 
 // Storage Service Plugins
-import { s3Plugin } from '../storage_services/s3';
-import { azureStoragePlugin } from '../storage_services/azure_storage';
+import { s3Plugin } from '../datasources/storage_services/s3';
+import { azureStoragePlugin } from '../datasources/storage_services/azure_storage';
 
 // Data Lake Plugins
-import { deltaTableAWSPlugin } from '../data_lakes/delta_table_aws';
-import { deltaTableAzurePlugin } from '../data_lakes/delta_table_azure';
-import { deltaTableGCPPlugin } from '../data_lakes/delta_table_gcp';
-import { icebergPlugin } from '../data_lakes/iceberg';
+import { deltaTableAWSPlugin } from '../datasources/data_lakes/delta_table_aws';
+import { deltaTableAzurePlugin } from '../datasources/data_lakes/delta_table_azure';
+import { deltaTableGCPPlugin } from '../datasources/data_lakes/delta_table_gcp';
+import { icebergPlugin } from '../datasources/data_lakes/iceberg';
 
 export interface ValidationResult {
   valid: boolean;

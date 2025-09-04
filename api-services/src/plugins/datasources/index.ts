@@ -1,5 +1,5 @@
 // File: api-services/src/plugins/datasources/index.ts
-import { DataSourceRegistry } from './registry/DataSourceRegistry';
+import { DataSourceRegistry } from '../registry/DataSourceRegistry';
 import { DataSourcePlugin } from './interfaces';
 
 /**

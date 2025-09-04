@@ -26,26 +26,27 @@ export interface QueryResult {
   executionTime?: number;
 }
 
-export interface TableInfo {
-  name: string;
-  schema: string;
-  type: 'table' | 'view';
-  rowCount?: number;
-}
-
-export interface ColumnInfo {
-  name: string;
-  type: string;
-  nullable: boolean;
-  defaultValue?: any;
-  isPrimaryKey?: boolean;
-}
 
 export interface SchemaInfo {
   tables: TableInfo[];
   views: TableInfo[];
 }
 
+interface TableInfo {
+  name: string;
+  schema: string;
+  type: 'table' | 'view';
+  columns: ColumnInfo[];
+  rowCount?: number;
+}
+
+interface ColumnInfo {
+  name: string;
+  type: string;
+  nullable: boolean;
+  defaultValue?: any;
+  isPrimaryKey?: boolean;
+}
 export interface ConfigSchema {
   type: 'object';
   properties: {

@@ -5,7 +5,6 @@ import { logger } from '../utils/logger';
 
 export interface AuthenticatedUser {
   id: string;
-  username: string;
   email: string;
   first_name: string;
   last_name: string;
@@ -33,26 +32,28 @@ export class AuthService extends DatabaseService {
     super();
   }
 
-  async authenticateUser(username: string, password: string): Promise<AuthenticatedUser | null> {
+  async authenticateUser(email: string, password: string): Promise<AuthenticatedUser | null> {
     try {
       const query = `
-        SELECT id, username, email, password_hash, first_name, last_name, 
+        SELECT id, email, password_hash, first_name, last_name, 
                avatar_url, is_active, created_at, updated_at
         FROM users 
-        WHERE (username = $1 OR email = $1) AND is_active = true
+        WHERE email = $1 AND is_active = true
       `;
       
-      const result = await this.query(query, [username]);
+      const result = await this.query(query, [email]);
       const user = result.rows[0];
+      console.log("user",user)
 
       if (!user) {
-        logger.warn('Authentication failed: User not found', { username });
+        logger.warn('Authentication failed: User not found', { email });
         return null;
       }
-
+      logger.warn(password);
+      logger.warn(user.password_hash);
       const isValidPassword = await bcrypt.compare(password, user.password_hash);
       if (!isValidPassword) {
-        logger.warn('Authentication failed: Invalid password', { username, userId: user.id });
+        logger.warn('Authentication failed: Invalid password', { email, userId: user.id });
         return null;
       }
 
@@ -61,12 +62,16 @@ export class AuthService extends DatabaseService {
       
       logger.info('User authenticated successfully', { 
         userId: authenticatedUser.id, 
-        username: authenticatedUser.username 
+        email: authenticatedUser.email 
       });
       
       return authenticatedUser;
     } catch (error) {
-      logger.error('Authentication error:', error);
+      logger.error('Authentication service error:', {
+        email,
+        error: error instanceof Error ? error.message : error,
+        stack: error instanceof Error ? error.stack : undefined
+      });
       throw error;
     }
   }
@@ -74,8 +79,8 @@ export class AuthService extends DatabaseService {
   async getUserById(userId: string): Promise<AuthenticatedUser | null> {
     try {
       const query = `
-        SELECT id, username, email, first_name, last_name, 
-               avatar_url, profile_data, is_active, last_login,
+        SELECT id, email, first_name, last_name, 
+               avatar_url, profile_data, is_active, last_login_at,
                created_at, updated_at
         FROM users 
         WHERE id = $1 AND is_active = true

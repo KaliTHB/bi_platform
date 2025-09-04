@@ -1,6 +1,10 @@
 // api-services/src/config/database.ts
+import { config } from 'dotenv';
 import { PoolConfig } from 'pg';
 import { logger } from '../utils/logger';
+
+// Load environment variables FIRST from current directory
+config({ path: '.env' });
 
 export const databaseConfig: PoolConfig = {
   host: process.env.DB_HOST || 'localhost',
@@ -23,7 +27,8 @@ logger.info('🏗️ Creating database connection pool with config:', {
   database: databaseConfig.database,
   user: databaseConfig.user,
   max: databaseConfig.max,
-  connectionTimeoutMillis: databaseConfig.connectionTimeoutMillis
+  connectionTimeoutMillis: databaseConfig.connectionTimeoutMillis,
+  env_loaded: !!process.env.DB_HOST // This will show if env vars were loaded
 });
 
 export default databaseConfig;

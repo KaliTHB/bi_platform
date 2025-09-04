@@ -1,7 +1,7 @@
 // api-services/src/controllers/PluginController.ts
 import { Request, Response } from 'express';
 import { PluginService } from '../services/PluginService';
-import { PluginManager } from '../services/PluginManager';
+import { PluginManager } from '../plugins/manager/PluginManager';
 import { PermissionService } from '../services/PermissionService';
 import { logger } from '../utils/logger';
 

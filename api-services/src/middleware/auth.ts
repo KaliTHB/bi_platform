@@ -49,7 +49,6 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
     const userQuery = `
       SELECT 
         u.id,
-        u.username,
         u.email,
         w.id as workspace_id,
         w.slug as workspace_slug,
@@ -87,7 +86,6 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
     // Attach user info to request
     req.user = {
       id: user.id,
-      username: user.username,
       email: user.email,
       workspace_id: user.workspace_id,
       workspace_slug: user.workspace_slug,

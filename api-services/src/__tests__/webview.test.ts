@@ -107,8 +107,8 @@ async function seedWebviewTestData(db: Pool) {
 
   // Create test user with password hash for 'testpassword'
   await db.query(`
-    INSERT INTO users (id, username, email, password_hash, is_active)
-    VALUES ('test-user-id', 'testuser', 'test@example.com', 
+    INSERT INTO users (id, email, password_hash, is_active)
+    VALUES ('test-user-id','test@example.com', 
             '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', true)
   `);
 

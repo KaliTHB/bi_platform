@@ -1,5 +1,5 @@
 // File: api-services/src/plugins/datasources/cloud_databases/cosmosdb.ts
-import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
+import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces';
 import { CosmosClient, Database, Container } from '@azure/cosmos';
 
 export const cosmosdbPlugin: DataSourcePlugin = {

@@ -1,6 +1,6 @@
 // File: api-services/src/plugins/datasources/nosql/mongodb.ts
 import { MongoClient, Db } from 'mongodb';
-import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo, TableInfo, ColumnInfo } from '../interfaces/DataSourcePlugin';
+import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo, TableInfo, ColumnInfo } from '../interfaces';
 
 class MongoDBConnection implements Connection {
   id: string;
@@ -26,7 +26,7 @@ class MongoDBConnection implements Connection {
   }
 }
 
-export const MongoDBPlugin: DataSourcePlugin = {
+export const mongodbPlugin: DataSourcePlugin = {
   name: 'mongodb',
   displayName: 'MongoDB',
   category: 'nosql',

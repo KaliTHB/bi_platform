@@ -1,5 +1,5 @@
 // File: api-services/src/plugins/datasources/relational/mssql.ts
-import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
+import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces';
 import * as sql from 'mssql';
 
 export const mssqlPlugin: DataSourcePlugin = {
@@ -150,5 +150,77 @@ export const mssqlPlugin: DataSourcePlugin = {
       'Bit': 'bit', 'UniqueIdentifier': 'uniqueidentifier'
     };
     return typeMap[sqlType?.name] || 'unknown';
+  },
+
+  async getTables(connection: Connection, database?: string): Promise<TableInfo[]> {
+  try {
+    const dbName = database || connection.config.database;
+    const query = `
+      SELECT 
+        t.name,
+        s.name as schema,
+        CASE WHEN t.type = 'V' THEN 'view' ELSE 'table' END as type
+      FROM sys.tables t
+      JOIN sys.schemas s ON t.schema_id = s.schema_id
+      WHERE s.name NOT IN ('sys', 'information_schema')
+      UNION ALL
+      SELECT 
+        v.name,
+        s.name as schema,
+        'view' as type
+      FROM sys.views v
+      JOIN sys.schemas s ON v.schema_id = s.schema_id
+      WHERE s.name NOT IN ('sys', 'information_schema')
+      ORDER BY name
+    `;
+
+    const result = await connection.client.request().query(query);
+    return result.recordset.map((row: any) => ({
+      name: row.name,
+      schema: row.schema,
+      type: row.type,
+      columns: []
+    }));
+  } catch (error) {
+    console.warn('Failed to get tables for SQL Server:', error);
+    return [];
   }
+},
+
+async getColumns(connection: Connection, table: string): Promise<ColumnInfo[]> {
+  try {
+    const query = `
+      SELECT 
+        c.COLUMN_NAME as name,
+        c.DATA_TYPE as type,
+        c.IS_NULLABLE = 'YES' as nullable,
+        c.COLUMN_DEFAULT as defaultValue,
+        CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as isPrimaryKey
+      FROM INFORMATION_SCHEMA.COLUMNS c
+      LEFT JOIN (
+        SELECT ku.COLUMN_NAME
+        FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+        JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+        WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY' AND tc.TABLE_NAME = @tableName
+      ) pk ON c.COLUMN_NAME = pk.COLUMN_NAME
+      WHERE c.TABLE_NAME = @tableName
+      ORDER BY c.ORDINAL_POSITION
+    `;
+
+    const result = await connection.client.request()
+      .input('tableName', table)
+      .query(query);
+      
+    return result.recordset.map((row: any) => ({
+      name: row.name,
+      type: row.type,
+      nullable: row.nullable,
+      defaultValue: row.defaultValue,
+      isPrimaryKey: Boolean(row.isPrimaryKey)
+    }));
+  } catch (error) {
+    console.warn('Failed to get columns for SQL Server:', error);
+    return [];
+  }
+},
 };

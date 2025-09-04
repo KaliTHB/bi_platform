@@ -222,11 +222,11 @@ class DatabaseSeeder {
       const hashedPassword = await bcrypt.hash(user.password, 12);
       
       await client.query(
-        `INSERT INTO users (username, email, password_hash, first_name, last_name, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO users ( email, password_hash, first_name, last_name, is_active)
+         VALUES ( $2, $3, $4, $5, $6)
          ON CONFLICT (username) DO UPDATE SET
          email = $2, first_name = $4, last_name = $5, is_active = $6`,
-        [user.username, user.email, hashedPassword, user.first_name, user.last_name, user.is_active]
+        [ user.email, hashedPassword, user.first_name, user.last_name, user.is_active]
       );
     }
   }

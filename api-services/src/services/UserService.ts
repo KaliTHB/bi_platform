@@ -30,7 +30,7 @@ export interface UserResponse {
   first_name: string;
   last_name: string;
   avatar_url?: string;
-  last_login?: Date;
+  last_login_at?: Date;
   created_at: Date;
   roles: string[];
 }
@@ -54,13 +54,13 @@ export class UserService extends DatabaseService {
       }
 
       const query = `
-        SELECT DISTINCT u.id, u.username, u.email, u.first_name, u.last_name, u.avatar_url, u.last_login, u.created_at,
+        SELECT DISTINCT u.id, u.email, u.first_name, u.last_name, u.avatar_url, u.last_login_at, u.created_at,
                COALESCE(array_agg(DISTINCT cr.name) FILTER (WHERE cr.name IS NOT NULL), '{}') as roles
         FROM users u
         JOIN user_role_assignments ura ON u.id = ura.user_id AND ura.is_active = true
         LEFT JOIN custom_roles cr ON ura.role_id = cr.id AND cr.is_active = true
         ${whereClause}
-        GROUP BY u.id, u.username, u.email, u.first_name, u.last_name, u.avatar_url, u.last_login, u.created_at
+        GROUP BY u.id, u.email, u.first_name, u.last_name, u.avatar_url, u.last_login_at, u.created_at
         ORDER BY u.created_at DESC
         LIMIT ${paramIndex} OFFSET ${paramIndex + 1}
       `;
@@ -97,8 +97,8 @@ export class UserService extends DatabaseService {
       return await this.transaction(async (client) => {
         // Check if username or email already exists
         const existingUserResult = await client.query(
-          'SELECT id FROM users WHERE (username = $1 OR email = $2) AND is_active = true',
-          [userData.username, userData.email]
+          'SELECT id FROM users WHERE (email = $1) AND is_active = true',
+          [userData.email]
         );
 
         if (existingUserResult.rows.length > 0) {
@@ -110,10 +110,10 @@ export class UserService extends DatabaseService {
 
         // Create user
         const userResult = await client.query(`
-          INSERT INTO users (username, email, password_hash, first_name, last_name)
-          VALUES ($1, $2, $3, $4, $5)
-          RETURNING id, username, email, first_name, last_name, created_at
-        `, [userData.username, userData.email, passwordHash, userData.first_name, userData.last_name]);
+          INSERT INTO users ( email, password_hash, first_name, last_name)
+          VALUES ($1, $2, $3, $4)
+          RETURNING id, email, first_name, last_name, created_at
+        `, [userData.email, passwordHash, userData.first_name, userData.last_name]);
 
         const newUser = userResult.rows[0];
 
@@ -144,7 +144,7 @@ export class UserService extends DatabaseService {
 
         logger.info('User created successfully', {
           userId: newUser.id,
-          username: newUser.username,
+          username: newUser.email,
           workspaceId,
           createdBy,
           assignedRoles
@@ -197,7 +197,7 @@ export class UserService extends DatabaseService {
         UPDATE users
         SET ${setClause.join(', ')}
         WHERE id = $1 AND is_active = true
-        RETURNING id, username, email, first_name, last_name, avatar_url, preferences, updated_at
+        RETURNING id, email, first_name, last_name, avatar_url, preferences, updated_at
       `, values);
 
       if (result.rows.length === 0) {

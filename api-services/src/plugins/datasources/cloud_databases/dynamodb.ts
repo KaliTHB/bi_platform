@@ -1,5 +1,5 @@
 // File: api-services/src/plugins/datasources/cloud_databases/dynamodb.ts
-import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
+import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces';
 import { DynamoDBClient, ScanCommand, QueryCommand, DescribeTableCommand, ListTablesCommand } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 
@@ -159,19 +159,81 @@ export const dynamodbPlugin: DataSourcePlugin = {
     connection.isConnected = false;
   },
 
-  private mapDynamoDBType(dynamoType: string): string {
-    const typeMap: Record<string, string> = {
-      'S': 'string',
-      'N': 'number',
-      'B': 'binary',
-      'SS': 'string_set',
-      'NS': 'number_set',
-      'BS': 'binary_set',
-      'BOOL': 'boolean',
-      'NULL': 'null',
-      'L': 'list',
-      'M': 'map'
-    };
-    return typeMap[dynamoType] || 'unknown';
+  // Add the missing getTables method
+async getTables(connection: Connection, database?: string): Promise<TableInfo[]> {
+  try {
+    const command = new ListTablesCommand({});
+    const result = await connection.client.dynamodb.send(command);
+    
+    return (result.TableNames || []).map(tableName => ({
+      name: tableName,
+      schema: 'dynamodb',
+      type: 'table' as const,
+      columns: []
+    }));
+  } catch (error) {
+    console.warn('Failed to get tables for DynamoDB:', error);
+    return [];
   }
+},
+
+// Add the missing getColumns method  
+async getColumns(connection: Connection, table: string): Promise<ColumnInfo[]> {
+  try {
+    const describeCommand = new DescribeTableCommand({ TableName: table });
+    const result = await connection.client.dynamodb.send(describeCommand);
+    
+    const columns: ColumnInfo[] = [];
+    
+    // Add key attributes
+    result.Table?.KeySchema?.forEach(key => {
+      const attrDef = result.Table?.AttributeDefinitions?.find(
+        attr => attr.AttributeName === key.AttributeName
+      );
+      
+      columns.push({
+        name: key.AttributeName!,
+        type: this.mapDynamoDBType(attrDef?.AttributeType || 'S'),
+        nullable: false,
+        defaultValue: null,
+        isPrimaryKey: key.KeyType === 'HASH' || key.KeyType === 'RANGE'
+      });
+    });
+    
+    // Add other attributes
+    result.Table?.AttributeDefinitions?.forEach(attr => {
+      if (!columns.find(col => col.name === attr.AttributeName)) {
+        columns.push({
+          name: attr.AttributeName!,
+          type: this.mapDynamoDBType(attr.AttributeType!),
+          nullable: true,
+          defaultValue: null,
+          isPrimaryKey: false
+        });
+      }
+    });
+    
+    return columns;
+  } catch (error) {
+    console.warn('Failed to get columns for DynamoDB:', error);
+    return [];
+  }
+},
+
+// Add this helper method
+private mapDynamoDBType(dynamoType: string): string {
+  switch (dynamoType) {
+    case 'S': return 'string';
+    case 'N': return 'number';
+    case 'B': return 'binary';
+    case 'SS': return 'string[]';
+    case 'NS': return 'number[]';
+    case 'BS': return 'binary[]';
+    case 'M': return 'object';
+    case 'L': return 'array';
+    case 'NULL': return 'null';
+    case 'BOOL': return 'boolean';
+    default: return 'string';
+  }
+}
 };

@@ -112,8 +112,8 @@ async function seedTestData(db: Pool) {
 
   // Create test user
   await db.query(`
-    INSERT INTO users (id, username, email, password_hash, is_active)
-    VALUES ('test-user-id', 'testuser', 'test@example.com', '$2a$10$hash', true)
+    INSERT INTO users (id, email, password_hash, is_active)
+    VALUES ('test-user-id', 'test@example.com', '$2a$10$hash', true)
   `);
 
   // Create test role

@@ -135,5 +135,61 @@ export const sqlitePlugin: DataSourcePlugin = {
       await connection.client.close();
     }
     connection.isConnected = false;
+  },
+
+  async getTables(connection: Connection, database?: string): Promise<TableInfo[]> {
+  try {
+    const query = `
+      SELECT 
+        name,
+        'main' as schema,
+        CASE WHEN type = 'view' THEN 'view' ELSE 'table' END as type
+      FROM sqlite_master 
+      WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'
+      ORDER BY name
+    `;
+
+    const result = await new Promise<any[]>((resolve, reject) => {
+      connection.client.all(query, (err: any, rows: any[]) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+
+    return result.map((row: any) => ({
+      name: row.name,
+      schema: row.schema,
+      type: row.type,
+      columns: []
+    }));
+  } catch (error) {
+    console.warn('Failed to get tables for SQLite:', error);
+    return [];
   }
+},
+
+async getColumns(connection: Connection, table: string): Promise<ColumnInfo[]> {
+  try {
+    const query = `PRAGMA table_info(${table})`;
+    
+    const result = await new Promise<any[]>((resolve, reject) => {
+      connection.client.all(query, (err: any, rows: any[]) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+
+    return result.map((row: any) => ({
+      name: row.name,
+      type: row.type,
+      nullable: !row.notnull,
+      defaultValue: row.dflt_value,
+      isPrimaryKey: Boolean(row.pk)
+    }));
+  } catch (error) {
+    console.warn('Failed to get columns for SQLite:', error);
+    return [];
+  }
+}
+
 };

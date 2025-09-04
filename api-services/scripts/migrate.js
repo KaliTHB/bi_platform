@@ -3,11 +3,11 @@ const fs = require('fs');
 const path = require('path');
 
 const pool = new Pool({
-  host: process.env.POSTGRES_HOST || '4.186.62.225',
-  port: process.env.POSTGRES_PORT || 5432,
-  database: process.env.POSTGRES_DB || 'bi_platform',
-  user: process.env.POSTGRES_USER || 'devops_user',
-  password: process.env.POSTGRES_PASSWORD || 'kewI33b3rW1w',
+  host: process.env.DB_HOST || '4.186.62.225',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'bi_platform',
+  user: process.env.DB_USER || 'devops_user',
+  password: process.env.DB_PASSWORD || 'kewI33b3rW1w',
 });
 
 async function runMigrations() {

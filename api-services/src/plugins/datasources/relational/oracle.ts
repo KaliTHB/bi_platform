@@ -1,5 +1,5 @@
 // File: api-services/src/plugins/datasources/relational/oracle.ts
-import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
+import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces';
 import * as oracledb from 'oracledb';
 
 export const oraclePlugin: DataSourcePlugin = {
@@ -132,6 +132,83 @@ export const oraclePlugin: DataSourcePlugin = {
     }
     connection.isConnected = false;
   },
+
+  async getTables(connection: Connection, database?: string): Promise<TableInfo[]> {
+  try {
+    const query = `
+      SELECT 
+        table_name as name,
+        owner as schema,
+        'table' as type
+      FROM all_tables 
+      WHERE owner = UPPER(:schema)
+      UNION ALL
+      SELECT 
+        view_name as name,
+        owner as schema,
+        'view' as type
+      FROM all_views
+      WHERE owner = UPPER(:schema)
+      ORDER BY name
+    `;
+
+    const schema = (connection.config.user || connection.config.username)?.toUpperCase();
+    const result = await connection.pool.getConnection().then(async (conn: any) => {
+      const res = await conn.execute(query, { schema }, { outFormat: 4 }); // 4 = OBJECT format
+      conn.release();
+      return res;
+    });
+
+    return result.rows?.map((row: any) => ({
+      name: row.NAME,
+      schema: row.SCHEMA,
+      type: row.TYPE.toLowerCase(),
+      columns: []
+    })) || [];
+  } catch (error) {
+    console.warn('Failed to get tables for Oracle:', error);
+    return [];
+  }
+},
+
+async getColumns(connection: Connection, table: string): Promise<ColumnInfo[]> {
+  try {
+    const query = `
+      SELECT 
+        c.column_name as name,
+        c.data_type as type,
+        c.nullable = 'Y' as nullable,
+        c.data_default as defaultValue,
+        CASE WHEN pk.column_name IS NOT NULL THEN 1 ELSE 0 END as isPrimaryKey
+      FROM all_tab_columns c
+      LEFT JOIN (
+        SELECT acc.column_name
+        FROM all_constraints ac
+        JOIN all_cons_columns acc ON ac.constraint_name = acc.constraint_name
+        WHERE ac.constraint_type = 'P' AND ac.table_name = UPPER(:tableName)
+      ) pk ON c.column_name = pk.column_name
+      WHERE c.table_name = UPPER(:tableName)
+      ORDER BY c.column_id
+    `;
+
+    const result = await connection.pool.getConnection().then(async (conn: any) => {
+      const res = await conn.execute(query, { tableName: table }, { outFormat: 4 });
+      conn.release();
+      return res;
+    });
+
+    return result.rows?.map((row: any) => ({
+      name: row.NAME,
+      type: row.TYPE,
+      nullable: row.NULLABLE,
+      defaultValue: row.DEFAULTVALUE,
+      isPrimaryKey: Boolean(row.ISPRIMARYKEY)
+    })) || [];
+  } catch (error) {
+    console.warn('Failed to get columns for Oracle:', error);
+    return [];
+  }
+},
 
   private mapOracleType(dbType: number): string {
     const typeMap: Record<number, string> = {

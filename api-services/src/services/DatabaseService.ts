@@ -40,6 +40,14 @@ export class DatabaseService {
   async query<T = any>(text: string, params?: any[]): Promise<QueryResult<T>> {
     const start = Date.now();
     try {
+      console.log(text, params)
+      console.log('Environment check:', {
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  database: process.env.DB_NAME,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD ? '***MASKED***' : 'NOT SET'
+});
       const result = await this.pool.query<T>(text, params);
       const duration = Date.now() - start;
       
@@ -51,6 +59,7 @@ export class DatabaseService {
       
       return result;
     } catch (error) {
+      console.log(error)
       const duration = Date.now() - start;
       logger.error('Database query error', {
         query: text.substring(0, 100) + (text.length > 100 ? '...' : ''),

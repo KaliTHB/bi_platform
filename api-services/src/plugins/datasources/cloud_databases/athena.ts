@@ -1,5 +1,5 @@
 // File: api-services/src/plugins/datasources/cloud_databases/athena.ts
-import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces/DataSourcePlugin';
+import { DataSourcePlugin, ConnectionConfig, Connection, QueryResult, SchemaInfo } from '../interfaces';
 import { AthenaClient, StartQueryExecutionCommand, GetQueryResultsCommand, GetQueryExecutionCommand } from '@aws-sdk/client-athena';
 
 export const athenaPlugin: DataSourcePlugin = {
@@ -143,6 +143,42 @@ export const athenaPlugin: DataSourcePlugin = {
   async disconnect(connection: Connection): Promise<void> {
     connection.isConnected = false;
   },
+
+  async getTables(connection: Connection, database?: string): Promise<TableInfo[]> {
+  try {
+    const dbName = database || connection.config.database as string;
+    const query = `SHOW TABLES IN ${dbName}`;
+    const result = await this.executeQuery(connection, query);
+    
+    return result.rows.map(row => ({
+      name: Object.values(row)[0] as string,
+      schema: dbName,
+      type: 'table' as const,
+      columns: []
+    }));
+  } catch (error) {
+    console.warn('Failed to get tables for Athena:', error);
+    return [];
+  }
+},
+
+async getColumns(connection: Connection, table: string): Promise<ColumnInfo[]> {
+  try {
+    const query = `DESCRIBE ${table}`;
+    const result = await this.executeQuery(connection, query);
+    
+    return result.rows.map(row => ({
+      name: row.col_name || row.column_name,
+      type: row.data_type || 'string',
+      nullable: true,
+      defaultValue: null,
+      isPrimaryKey: false
+    }));
+  } catch (error) {
+    console.warn('Failed to get columns for Athena:', error);
+    return [];
+  }
+},
 
   private async waitForQueryCompletion(connection: Connection, queryExecutionId: string): Promise<void> {
     const maxWaitTime = 300000; // 5 minutes

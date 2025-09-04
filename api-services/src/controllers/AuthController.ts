@@ -28,92 +28,136 @@ export class AuthController {
   }
 
   login = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, password, workspace_slug } = req.body as LoginRequest;
+
+    if (!email || !password) {
+      throw new ValidationError('Email and password are required');
+    }
+
+    // Authenticate user with proper error handling
+    let user;
     try {
-      const { email, password, workspace_slug } = req.body as LoginRequest;
-
-      if (!email || !password) {
-        throw new ValidationError('Email and password are required');
-      }
-
-      // Authenticate user
-      const user = await this.authService.authenticateUser(email, password);
+      user = await this.authService.authenticateUser(email, password);
+    } catch (dbError: any) {
+      // Handle database connection errors specifically
+      logger.error('Database connection error during authentication:', {
+        error: dbError.message,
+        code: dbError.code,
+        service: 'bi-platform-api'
+      });
       
-      if (!user) {
-        throw new UnauthorizedError('Invalid credentials');
-      }
+      // Return early to prevent further processing
+      return res.status(503).json({
+        success: false,
+        message: 'Database connection error. Please try again.',
+        error: 'SERVICE_UNAVAILABLE'
+      });
+    }
+    
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
 
-      // Get workspace if slug provided
-      let workspace = null;
-      if (workspace_slug) {
+    // Get workspace if slug provided
+    let workspace = null;
+    if (workspace_slug) {
+      try {
         workspace = await this.authService.getWorkspaceBySlug(workspace_slug);
         if (!workspace) {
-          throw new ValidationError('Invalid workspace');
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid workspace'
+          });
         }
 
         // Check if user has access to this workspace
         const hasAccess = await this.authService.checkUserWorkspaceAccess(user.id, workspace.id);
         if (!hasAccess) {
-          throw new UnauthorizedError('No access to this workspace');
+          return res.status(403).json({
+            success: false,
+            message: 'No access to this workspace'
+          });
         }
-      }
-
-      // Update last login
-      await this.authService.updateLastLogin(user.id);
-
-      // Generate JWT token
-      const token = jwt.sign(
-        {
-          user_id: user.id,
-          email: user.email,
-          workspace_id: workspace?.id || null,
-        },
-        process.env.JWT_SECRET || 'your-jwt-secret',
-        { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
-      );
-
-      logger.info('User logged in successfully', {
-        userId: user.id,
-        email: user.email,
-        workspaceId: workspace?.id
-      });
-
-      res.status(200).json({
-        success: true,
-        message: 'Login successful',
-        data: {
-          token,
-          user: {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-            first_name: user.first_name,
-            last_name: user.last_name,
-            avatar_url: user.avatar_url
-          },
-          workspace: workspace ? {
-            id: workspace.id,
-            name: workspace.name,
-            display_name: workspace.display_name,
-            slug: workspace.slug
-          } : null
-        }
-      });
-    } catch (error: any) {
-      logger.error('Login error:', error);
-      
-      if (error instanceof ValidationError || error instanceof UnauthorizedError) {
-        res.status(error.statusCode).json({
+      } catch (workspaceError: any) {
+        logger.error('Workspace access error:', workspaceError);
+        return res.status(500).json({
           success: false,
-          message: error.message
-        });
-      } else {
-        res.status(500).json({
-          success: false,
-          message: 'Internal server error'
+          message: 'Error checking workspace access'
         });
       }
     }
-  };
+
+    // Update last login (non-blocking, log errors but don't fail)
+    this.authService.updateLastLogin(user.id).catch(updateError => {
+      logger.warn('Failed to update last login:', updateError);
+    });
+
+    // Generate JWT token
+    const token = jwt.sign(
+      {
+        user_id: user.id,
+        email: user.email,
+        workspace_id: workspace?.id || null,
+      },
+      process.env.JWT_SECRET || 'your-jwt-secret',
+      { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+    );
+
+    logger.info('User logged in successfully', {
+      userId: user.id,
+      email: user.email,
+      workspaceId: workspace?.id,
+      service: 'bi-platform-api'
+    });
+
+    // Send success response
+    res.status(200).json({
+      success: true,
+      message: 'Login successful',
+      data: {
+        token,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          first_name: user.first_name,
+          last_name: user.last_name,
+          avatar_url: user.avatar_url
+        },
+        workspace: workspace ? {
+          id: workspace.id,
+          name: workspace.name,
+          display_name: workspace.display_name,
+          slug: workspace.slug
+        } : null
+      }
+    });
+
+  } catch (error: any) {
+    logger.error('Unexpected login error:', {
+      error: error.message,
+      stack: error.stack,
+      service: 'bi-platform-api'
+    });
+    
+    // Check if response was already sent
+    if (res.headersSent) {
+      logger.error('Headers already sent, cannot send error response');
+      return;
+    }
+    
+    // Send generic error response
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: 'AUTHENTICATION_ERROR'
+    });
+  }
+};
 
   logout = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -153,7 +197,6 @@ export class AuthController {
         success: true,
         data: {
           id: user.id,
-          username: user.username,
           email: user.email,
           first_name: user.first_name,
           last_name: user.last_name,

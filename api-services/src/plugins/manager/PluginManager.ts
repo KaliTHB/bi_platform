@@ -2,7 +2,7 @@
 
 import path from 'path';
 import fs from 'fs';
-import { logger } from '../utils/logger';
+import { logger } from '../../utils/logger';
 
 // Interfaces
 export interface DataSourcePlugin {
@@ -156,7 +156,7 @@ export class PluginManager {
    * Load data source plugins from filesystem
    */
   private static async loadDataSourcePlugins(): Promise<void> {
-    const pluginsPath = path.join(__dirname, '../plugins/datasources');
+    const pluginsPath = path.join(__dirname, '../datasources');
     
     if (!fs.existsSync(pluginsPath)) {
       logger.warn('DataSource plugins directory not found', { pluginsPath });
