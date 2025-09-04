@@ -1,4 +1,4 @@
-// web-application/src/components/layout/WorkspaceLayout.tsx
+// src/components/layout/WorkspaceLayout.tsx
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import {
@@ -15,11 +15,17 @@ import {
   Button,
   Alert,
   AlertTitle,
-  Paper,
   Container,
   ListItemIcon,
   ListItemText,
-  Divider
+  Divider,
+  Drawer,
+  List,
+  ListItem,
+  ListItemButton,
+  Tooltip,
+  Badge,
+  Chip
 } from '@mui/material';
 import {
   Search,
@@ -27,14 +33,33 @@ import {
   Add,
   AccountCircle,
   ExitToApp,
-  Business,
   Notifications,
   Settings as SettingsIcon,
+  ContactSupport,
+  Menu as MenuIcon,
   Home,
-  ContactSupport
+  Dashboard as DashboardIcon,
+  Storage as DataSourceIcon,
+  BarChart as ChartIcon,
+  Work as JobsIcon,
+  TableView as CsvExploreIcon,
+  Group as UsersIcon,
+  AdminPanelSettings as RolesIcon,
+  Assessment as ReportLogIcon,
+  Star as StarIcon,
+  History as HistoryIcon,
+  BusinessCenter
 } from '@mui/icons-material';
 import { useAuth } from '../../hooks/useAuth';
-import CollapsibleSidebar from './CollapsibleSidebar';
+
+interface NavigationItem {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  path: string;
+  badge?: number;
+  active?: boolean;
+}
 
 interface WorkspaceLayoutProps {
   children: React.ReactNode;
@@ -44,6 +69,7 @@ interface WorkspaceLayoutProps {
   showAddButton?: boolean;
   onAddClick?: () => void;
   addButtonText?: string;
+  currentPage?: string;
 }
 
 const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
@@ -53,96 +79,269 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
   showFilter = true,
   showAddButton = true,
   onAddClick,
-  addButtonText = "Add New"
+  addButtonText = "Add New",
+  currentPage
 }) => {
   const router = useRouter();
   const { user, workspace, signOut } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [userMenuAnchor, setUserMenuAnchor] = useState<null | HTMLElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [noWorkspaceMessage, setNoWorkspaceMessage] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
 
-  const workspaceSlug = router.query['workspace-slug'] as string;
+  const sidebarWidth = sidebarCollapsed ? 64 : 280;
+  const workspaceSlug = workspace?.slug || '';
 
-  // Check if we're in a "no workspace found" scenario
-  useEffect(() => {
-    if (user && !workspace && workspaceSlug) {
-      setNoWorkspaceMessage(true);
-    } else {
-      setNoWorkspaceMessage(false);
+  // Navigation items based on your screenshots
+  const navigationItems: NavigationItem[] = [
+    {
+      id: 'home',
+      label: 'Home',
+      icon: <Home />,
+      path: `/workspace/${workspaceSlug}`
+    },
+    {
+      id: 'dashboard',
+      label: 'Dashboard',
+      icon: <DashboardIcon />,
+      path: `/workspace/${workspaceSlug}/dashboards`,
+      badge: 5 // Example badge count
+    },
+    {
+      id: 'datasource',
+      label: 'Datasource',
+      icon: <DataSourceIcon />,
+      path: `/workspace/${workspaceSlug}/datasets`
+    },
+    {
+      id: 'chart',
+      label: 'Chart',
+      icon: <ChartIcon />,
+      path: `/workspace/${workspaceSlug}/charts`
+    },
+    {
+      id: 'jobs',
+      label: 'Jobs',
+      icon: <JobsIcon />,
+      path: `/workspace/${workspaceSlug}/jobs`
+    },
+    {
+      id: 'csv-explore',
+      label: 'CSV Explore',
+      icon: <CsvExploreIcon />,
+      path: `/workspace/${workspaceSlug}/csv-explore`
+    },
+    {
+      id: 'users',
+      label: 'Users',
+      icon: <UsersIcon />,
+      path: `/workspace/${workspaceSlug}/admin/users`
+    },
+    {
+      id: 'roles',
+      label: 'Roles',
+      icon: <RolesIcon />,
+      path: `/workspace/${workspaceSlug}/admin/roles`
+    },
+    {
+      id: 'report-log',
+      label: 'Report Log',
+      icon: <ReportLogIcon />,
+      path: `/workspace/${workspaceSlug}/reports`
     }
-  }, [user, workspace, workspaceSlug]);
+  ];
 
-  const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget);
+  const handleNavigation = (path: string) => {
+    if (path && workspaceSlug) {
+      router.push(path);
+    }
   };
 
-  const handleClose = () => {
-    setAnchorEl(null);
+  const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setUserMenuAnchor(event.currentTarget);
   };
 
-  const handleProfile = () => {
-    if (workspace) {
-      router.push(`/workspace/${workspace.slug}/profile`);
-    }
-    handleClose();
-  };
-
-  const handleSettings = () => {
-    if (workspace) {
-      router.push(`/workspace/${workspace.slug}/admin`);
-    }
-    handleClose();
+  const handleUserMenuClose = () => {
+    setUserMenuAnchor(null);
   };
 
   const handleLogout = () => {
     signOut();
-    handleClose();
+    handleUserMenuClose();
   };
 
-  const handleContactSupport = () => {
-    // You can customize this to open email, help desk, or support page
-    window.location.href = 'mailto:support@yourcompany.com?subject=Workspace Access Request';
-    handleClose();
+  const toggleSidebar = () => {
+    setSidebarCollapsed(!sidebarCollapsed);
   };
 
-  const sidebarWidth = sidebarOpen ? 280 : 64;
+  const isActivePage = (itemPath: string) => {
+    if (!itemPath || itemPath === '#') return false;
+    return router.asPath.startsWith(itemPath);
+  };
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      {/* Collapsible Sidebar */}
-      <CollapsibleSidebar
-        isOpen={sidebarOpen}
-        onToggle={() => setSidebarOpen(!sidebarOpen)}
-        workspaceSlug={workspace?.slug}
-      />
+      {/* Sidebar */}
+      <Drawer
+        variant="permanent"
+        sx={{
+          width: sidebarWidth,
+          flexShrink: 0,
+          '& .MuiDrawer-paper': {
+            width: sidebarWidth,
+            boxSizing: 'border-box',
+            transition: 'width 0.3s ease',
+            overflowX: 'hidden',
+            bgcolor: '#f8fafc',
+            borderRight: '1px solid #e2e8f0',
+          },
+        }}
+      >
+        {/* Sidebar Header */}
+        <Box
+          sx={{
+            p: 2,
+            display: 'flex',
+            alignItems: 'center',
+            minHeight: 64,
+            borderBottom: '1px solid #e2e8f0'
+          }}
+        >
+          {!sidebarCollapsed && (
+            <Box sx={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+              <BusinessCenter sx={{ mr: 2, color: 'primary.main' }} />
+              <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                BI Platform
+              </Typography>
+            </Box>
+          )}
+          <IconButton
+            onClick={toggleSidebar}
+            size="small"
+            sx={{ 
+              ml: sidebarCollapsed ? 0 : 'auto',
+              color: 'text.secondary'
+            }}
+          >
+            <MenuIcon />
+          </IconButton>
+        </Box>
+
+        {/* Navigation Items */}
+        <List sx={{ flex: 1, py: 1 }}>
+          {navigationItems.map((item) => {
+            const isActive = isActivePage(item.path);
+            
+            return (
+              <ListItem key={item.id} disablePadding sx={{ px: 1, mb: 0.5 }}>
+                <Tooltip
+                  title={sidebarCollapsed ? item.label : ''}
+                  placement="right"
+                  arrow
+                >
+                  <ListItemButton
+                    onClick={() => handleNavigation(item.path)}
+                    sx={{
+                      minHeight: 44,
+                      borderRadius: 2,
+                      px: 2,
+                      py: 1.5,
+                      bgcolor: isActive ? 'primary.main' : 'transparent',
+                      color: isActive ? 'primary.contrastText' : 'text.primary',
+                      '&:hover': {
+                        bgcolor: isActive ? 'primary.dark' : 'action.hover',
+                      },
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    <ListItemIcon
+                      sx={{
+                        minWidth: 'auto',
+                        mr: sidebarCollapsed ? 0 : 2,
+                        color: 'inherit',
+                        '& .MuiSvgIcon-root': {
+                          fontSize: 20
+                        }
+                      }}
+                    >
+                      {item.badge && !sidebarCollapsed ? (
+                        <Badge badgeContent={item.badge} color="error" variant="dot">
+                          {item.icon}
+                        </Badge>
+                      ) : (
+                        item.icon
+                      )}
+                    </ListItemIcon>
+                    
+                    {!sidebarCollapsed && (
+                      <ListItemText
+                        primary={item.label}
+                        primaryTypographyProps={{
+                          fontSize: '0.875rem',
+                          fontWeight: isActive ? 600 : 400,
+                        }}
+                      />
+                    )}
+                    
+                    {!sidebarCollapsed && item.badge && (
+                      <Chip
+                        label={item.badge}
+                        size="small"
+                        color="error"
+                        sx={{ ml: 1, height: 20 }}
+                      />
+                    )}
+                  </ListItemButton>
+                </Tooltip>
+              </ListItem>
+            );
+          })}
+        </List>
+
+        {/* Sidebar Footer - User Info when expanded */}
+        {!sidebarCollapsed && user && (
+          <Box sx={{ p: 2, borderTop: '1px solid #e2e8f0' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <Avatar sx={{ width: 32, height: 32, mr: 2 }}>
+                {user.display_name?.[0]?.toUpperCase() || user.username?.[0]?.toUpperCase() || 'U'}
+              </Avatar>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" fontWeight={600} noWrap>
+                  {user.display_name || user.username}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" noWrap>
+                  {workspace?.display_name || workspace?.name}
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+        )}
+      </Drawer>
 
       {/* Main Content */}
       <Box
         component="main"
         sx={{
           flexGrow: 1,
-          width: `calc(100% - ${sidebarWidth}px)`,
-          transition: 'width 0.3s ease',
           display: 'flex',
-          flexDirection: 'column'
+          flexDirection: 'column',
+          minHeight: '100vh',
         }}
       >
         {/* Top Navigation Bar */}
         <AppBar
           position="static"
-          elevation={1}
+          elevation={0}
           sx={{
             bgcolor: 'background.paper',
             color: 'text.primary',
-            borderBottom: 1,
-            borderColor: 'divider'
+            borderBottom: '1px solid #e2e8f0',
           }}
         >
           <Toolbar>
             {/* Page Title */}
-            <Typography variant="h6" sx={{ mr: 3 }}>
-              {title || (workspace ? workspace.name : 'BI Platform')}
+            <Typography variant="h6" sx={{ mr: 3, fontWeight: 500 }}>
+              {title || 'View Dashboard'}
             </Typography>
 
             {/* Search Bar */}
@@ -153,11 +352,20 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
                 size="small"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                sx={{ mr: 2, minWidth: 300 }}
+                sx={{ 
+                  mr: 2, 
+                  minWidth: 300,
+                  '& .MuiOutlinedInput-root': {
+                    bgcolor: 'grey.50',
+                    '& fieldset': {
+                      borderColor: 'grey.300',
+                    },
+                  }
+                }}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
-                      <Search />
+                      <Search fontSize="small" />
                     </InputAdornment>
                   ),
                 }}
@@ -171,7 +379,8 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
               <Button
                 variant="outlined"
                 startIcon={<FilterList />}
-                sx={{ mr: 2 }}
+                onClick={() => setFilterOpen(!filterOpen)}
+                sx={{ mr: 2, textTransform: 'none' }}
               >
                 Filter
               </Button>
@@ -182,7 +391,14 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
                 variant="contained"
                 startIcon={<Add />}
                 onClick={onAddClick}
-                sx={{ mr: 2 }}
+                sx={{ 
+                  mr: 2,
+                  textTransform: 'none',
+                  bgcolor: 'primary.main',
+                  '&:hover': {
+                    bgcolor: 'primary.dark',
+                  }
+                }}
               >
                 {addButtonText}
               </Button>
@@ -190,16 +406,15 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
 
             {/* Notifications */}
             <IconButton sx={{ mr: 1 }}>
-              <Notifications />
+              <Badge badgeContent={3} color="error" variant="dot">
+                <Notifications />
+              </Badge>
             </IconButton>
 
             {/* User Menu */}
             <IconButton
-              size="large"
-              aria-label="account of current user"
-              aria-controls="menu-appbar"
-              aria-haspopup="true"
-              onClick={handleMenu}
+              onClick={handleUserMenuOpen}
+              sx={{ ml: 1 }}
             >
               <Avatar sx={{ width: 32, height: 32 }}>
                 {user?.display_name?.[0]?.toUpperCase() || user?.username?.[0]?.toUpperCase() || 'U'}
@@ -207,39 +422,40 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
             </IconButton>
 
             <Menu
-              id="menu-appbar"
-              anchorEl={anchorEl}
-              anchorOrigin={{
-                vertical: 'top',
-                horizontal: 'right',
+              anchorEl={userMenuAnchor}
+              open={Boolean(userMenuAnchor)}
+              onClose={handleUserMenuClose}
+              transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+              anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+              PaperProps={{
+                elevation: 8,
+                sx: {
+                  mt: 1,
+                  minWidth: 200,
+                  '& .MuiMenuItem-root': {
+                    px: 2,
+                    py: 1.5,
+                  }
+                }
               }}
-              keepMounted
-              transformOrigin={{
-                vertical: 'top',
-                horizontal: 'right',
-              }}
-              open={Boolean(anchorEl)}
-              onClose={handleClose}
             >
-              <MenuItem onClick={handleProfile}>
+              <MenuItem onClick={handleUserMenuClose}>
                 <ListItemIcon>
                   <AccountCircle fontSize="small" />
                 </ListItemIcon>
                 <ListItemText>Profile</ListItemText>
               </MenuItem>
               
-              {workspace && (
-                <MenuItem onClick={handleSettings}>
-                  <ListItemIcon>
-                    <SettingsIcon fontSize="small" />
-                  </ListItemIcon>
-                  <ListItemText>Workspace Settings</ListItemText>
-                </MenuItem>
-              )}
+              <MenuItem onClick={handleUserMenuClose}>
+                <ListItemIcon>
+                  <SettingsIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Settings</ListItemText>
+              </MenuItem>
 
               <Divider />
               
-              <MenuItem onClick={handleContactSupport}>
+              <MenuItem onClick={handleUserMenuClose}>
                 <ListItemIcon>
                   <ContactSupport fontSize="small" />
                 </ListItemIcon>
@@ -257,39 +473,14 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
         </AppBar>
 
         {/* Content Area */}
-        <Box sx={{ flexGrow: 1, p: 3, bgcolor: 'grey.50' }}>
-          {/* No Workspace Found Message */}
-          {noWorkspaceMessage && (
-            <Container maxWidth="md" sx={{ mb: 4 }}>
-              <Alert severity="error" sx={{ mb: 3 }}>
-                <AlertTitle>Workspace Not Found</AlertTitle>
-                The workspace "{workspaceSlug}" was not found or you don't have access to it.
-                <Box sx={{ mt: 2, display: 'flex', gap: 2 }}>
-                  <Button
-                    variant="contained"
-                    size="small"
-                    startIcon={<Home />}
-                    onClick={() => {
-                      // Redirect to user's default workspace or login
-                      signOut(); // This will redirect to login and get default workspace
-                    }}
-                  >
-                    Go to My Workspace
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<ContactSupport />}
-                    onClick={handleContactSupport}
-                  >
-                    Contact Support
-                  </Button>
-                </Box>
-              </Alert>
-            </Container>
-          )}
-
-          {/* Main Content */}
+        <Box 
+          sx={{ 
+            flexGrow: 1, 
+            bgcolor: '#f8fafc',
+            p: 3,
+            overflow: 'auto'
+          }}
+        >
           {children}
         </Box>
       </Box>
