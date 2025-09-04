@@ -329,29 +329,31 @@ const authSlice = createSlice({
         state.isLoading = true;
         state.error = null;
       })
-      .addCase(login.fulfilled, (state, action) => {
-        console.log('Login fulfilled with payload:', action.payload);
-        
-        state.isLoading = false;
-        state.user = transformUserForState(action.payload.user);
-        state.token = action.payload.token;
-        state.workspace = action.payload.workspace || null;
-        state.permissions = action.payload.permissions || [];
-        state.isAuthenticated = true;
-        state.lastActivity = Date.now();
-        state.error = null;
-      })
-      .addCase(login.rejected, (state, action) => {
-        console.error('Login rejected:', action.payload);
-        state.isLoading = false;
-        state.error = action.payload as string;
-        state.isAuthenticated = false;
-        state.user = null;
-        state.token = null;
-        state.workspace = null;
-        state.permissions = [];
-      });
-
+      // In authSlice.ts, update the login.fulfilled case:
+.addCase(login.fulfilled, (state, action) => {
+  console.log('Login fulfilled with payload:', action.payload);
+  
+  state.isLoading = false;
+  state.user = transformUserForState(action.payload.user);
+  state.token = action.payload.token;
+  
+  // ✅ Auto-select workspace if only one available
+  if (action.payload.workspaces && action.payload.workspaces.length === 1) {
+    state.workspace = action.payload.workspaces[0];
+    state.permissions = action.payload.permissions || [];
+  } else if (action.payload.workspace) {
+    state.workspace = action.payload.workspace;
+    state.permissions = action.payload.permissions || [];
+  } else {
+    // No workspace assigned - user needs to select one
+    state.workspace = null;
+    state.permissions = [];
+  }
+  
+  state.isAuthenticated = true;
+  state.lastActivity = Date.now();
+  state.error = null;
+})
     // Validate token
     builder
       .addCase(validateToken.pending, (state) => {
