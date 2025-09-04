@@ -1,5 +1,5 @@
 // web-application/src/components/layout/CollapsibleSidebar.tsx
-// MINIMAL FIXES - Admin users see all menus, fix navigation
+// FIXED VERSION - Addresses permission and icon issues
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/router';
@@ -59,18 +59,32 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
 }) => {
   const router = useRouter();
   const { workspace, user } = useAuth();
-  const { hasPermission } = usePermissions();
+  const { hasPermission, hasAnyPermission } = usePermissions();
 
   const drawerWidth = isOpen ? 280 : 64;
 
-  // FIX: Check if user is admin - admin users see ALL menus
-  const isAdmin = user?.role === 'admin' || 
-                 hasPermission('admin.all') || 
-                 user?.roles?.some((role: any) => role.name === 'admin');
+  // FIXED: Better admin role checking
+  const isAdmin = React.useMemo(() => {
+    if (!user) return false;
+    
+    // Check multiple admin indicators
+    const roleBasedAdmin = user?.role === 'admin' || 
+                          user?.roles?.some((role: any) => 
+                            role.name === 'admin' || 
+                            role.name === 'workspace_admin' ||
+                            role.name === 'system_admin'
+                          );
+    
+    const permissionBasedAdmin = hasPermission('workspace.admin') || 
+                                hasPermission('admin.all') ||
+                                hasPermission('system.admin');
+    
+    return roleBasedAdmin || permissionBasedAdmin;
+  }, [user, hasPermission]);
 
-  // FIX: Updated sidebar items with correct paths and permissions
-  const sidebarItems: SidebarItem[] = [
-    // Overview Section
+  // FIXED: Sidebar items with fallback for missing workspaceSlug
+  const sidebarItems: SidebarItem[] = React.useMemo(() => [
+    // Overview Section - Always accessible
     {
       id: 'overview',
       label: 'Overview',
@@ -78,33 +92,33 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
       path: workspaceSlug ? `/workspace/${workspaceSlug}/overview` : '/workspace-selector'
     },
     
-    // Main List Pages (as per your requirements)
+    // Main List Pages
     {
       id: 'dashboard-list',
       label: 'Dashboard List',
       icon: <ViewList />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/dashboards` : '#',
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/dashboards` : '/workspace-selector',
       permissions: ['dashboard.read']
     },
     {
       id: 'dataset-list',
       label: 'Dataset List',
       icon: <TableChart />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/datasets` : '#',
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/datasets` : '/workspace-selector',
       permissions: ['dataset.read']
     },
     {
       id: 'datasource-list',
       label: 'Data Source List',
       icon: <Storage />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/datasources` : '#',
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/datasources` : '/workspace-selector',
       permissions: ['datasource.read']
     },
     {
       id: 'chart-list',
       label: 'Chart List',
       icon: <BarChart />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/charts` : '#',
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/charts` : '/workspace-selector',
       permissions: ['chart.read'],
       divider: true
     },
@@ -114,30 +128,30 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
       id: 'dashboard-builder',
       label: 'Dashboard Builder',
       icon: <Analytics />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/dashboard-builder` : '#',
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/dashboard-builder` : '/workspace-selector',
       permissions: ['dashboard.create']
     },
     {
       id: 'sql-editor',
       label: 'SQL Editor',
       icon: <DataObject />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/sql-editor` : '#',
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/sql-editor` : '/workspace-selector',
       permissions: ['sql_editor.access'],
       divider: true
     },
 
-    // Quick Access
+    // Quick Access - Always accessible
     {
       id: 'recent',
       label: 'Recent',
       icon: <Assessment />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/recent` : '#'
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/recent` : '/workspace-selector'
     },
     {
       id: 'favorites',
       label: 'Favorites',
       icon: <Star />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/favorites` : '#',
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/favorites` : '/workspace-selector',
       divider: true
     },
 
@@ -146,60 +160,95 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
       id: 'categories',
       label: 'Categories',
       icon: <Category />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/admin/categories` : '#',
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/admin/categories` : '/workspace-selector',
       permissions: ['category.read']
     },
     {
       id: 'users',
       label: 'Users',
       icon: <Group />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/admin/users` : '#',
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/admin/users` : '/workspace-selector',
       permissions: ['user.read']
     },
     {
       id: 'workspace-settings',
       label: 'Workspace',
       icon: <Business />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/admin/workspace` : '#',
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/admin/workspace` : '/workspace-selector',
       permissions: ['workspace.admin']
     },
     {
       id: 'settings',
       label: 'Settings',
       icon: <Settings />,
-      path: workspaceSlug ? `/workspace/${workspaceSlug}/admin/settings` : '#',
+      path: workspaceSlug ? `/workspace/${workspaceSlug}/admin/settings` : '/workspace-selector',
       permissions: ['workspace.admin']
     }
-  ];
+  ], [workspaceSlug]);
 
-  // FIX: Better navigation handler
+  // FIXED: Navigation handler with better error handling
   const handleNavigation = (item: SidebarItem) => {
-    if (item.path && item.path !== '#' && workspaceSlug) {
-      console.log('🚀 Navigating to:', item.path); // DEBUG
+    console.log('🚀 Navigation attempt:', { 
+      item: item.label, 
+      path: item.path, 
+      workspaceSlug,
+      isAdmin
+    });
+
+    if (!item.path || item.path === '#') {
+      console.warn('❌ Invalid path for item:', item.label);
+      return;
+    }
+
+    try {
       router.push(item.path);
-    } else {
-      console.warn('❌ Navigation blocked:', { path: item.path, workspaceSlug }); // DEBUG
+    } catch (error) {
+      console.error('❌ Navigation error:', error);
     }
   };
 
-  // FIX: Better active page detection
+  // FIXED: Better active page detection
   const isActivePage = (itemPath: string): boolean => {
     if (!itemPath || itemPath === '#' || !router.isReady) return false;
-    return router.asPath === itemPath || router.asPath.startsWith(itemPath + '/');
+    
+    const currentPath = router.asPath;
+    return currentPath === itemPath || currentPath.startsWith(itemPath + '/');
+  };
+
+  // FIXED: Permission checking with admin override
+  const hasRequiredPermissions = (item: SidebarItem): boolean => {
+    // Admin users see ALL menus
+    if (isAdmin) {
+      console.log('👑 Admin access granted for:', item.label);
+      return true;
+    }
+
+    // Items without permissions are always visible
+    if (!item.permissions || item.permissions.length === 0) {
+      return true;
+    }
+
+    // Check if user has any of the required permissions
+    const hasAccess = hasAnyPermission ? 
+      hasAnyPermission(item.permissions) : 
+      item.permissions.some(permission => hasPermission(permission));
+
+    console.log(`🔐 Permission check for ${item.label}:`, {
+      permissions: item.permissions,
+      hasAccess,
+      isAdmin
+    });
+
+    return hasAccess;
   };
 
   const renderSidebarItem = (item: SidebarItem) => {
-    // FIX: Admin users see ALL menus, regular users need permissions
-    const hasRequiredPermissions = isAdmin || !item.permissions || 
-      item.permissions.some(permission => hasPermission(permission));
-    
-    if (!hasRequiredPermissions) {
-      console.log(`🔒 Hiding ${item.label} - missing permissions:`, item.permissions);
+    if (!hasRequiredPermissions(item)) {
       return null;
     }
 
     const isActive = isActivePage(item.path);
-    const isDisabled = item.path === '#' || !workspaceSlug;
+    const isDisabled = !workspaceSlug && item.path.includes('/workspace/');
 
     const listItem = (
       <ListItem key={item.id} disablePadding sx={{ display: 'block' }}>
@@ -221,7 +270,9 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
             '&.Mui-disabled': {
               opacity: 0.5,
               color: 'text.disabled'
-            }
+            },
+            // FIXED: Ensure clickable area
+            cursor: isDisabled ? 'not-allowed' : 'pointer'
           }}
         >
           <ListItemIcon
@@ -229,7 +280,11 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
               minWidth: 0,
               mr: isOpen ? 3 : 'auto',
               justifyContent: 'center',
-              color: isActive ? 'primary.contrastText' : 'inherit'
+              color: isActive ? 'primary.contrastText' : 'inherit',
+              // FIXED: Ensure icons are visible
+              '& svg': {
+                fontSize: '1.25rem'
+              }
             }}
           >
             {item.icon}
@@ -271,7 +326,9 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
           transition: 'width 0.3s ease',
           overflowX: 'hidden',
           borderRight: 1,
-          borderColor: 'divider'
+          borderColor: 'divider',
+          // FIXED: Ensure proper z-index
+          zIndex: (theme) => theme.zIndex.drawer
         },
       }}
     >
@@ -296,10 +353,10 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
             <Typography variant="caption" color="textSecondary" noWrap>
               {workspace.description || 'Workspace'}
             </Typography>
-            {/* ADD: Admin indicator */}
+            {/* Admin indicator */}
             {isAdmin && (
               <Typography variant="caption" color="primary" noWrap sx={{ fontWeight: 'bold' }}>
-                Admin Access
+                👑 Admin Access
               </Typography>
             )}
           </Box>
@@ -311,20 +368,24 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
 
       {/* Navigation Items */}
       <List sx={{ pt: 1 }}>
-        {sidebarItems.map(renderSidebarItem)}
+        {sidebarItems.map(renderSidebarItem).filter(Boolean)}
       </List>
+
+      {/* Debug info in development */}
+      {process.env.NODE_ENV === 'development' && isOpen && (
+        <Box sx={{ mt: 'auto', p: 1, borderTop: 1, borderColor: 'divider', bgcolor: 'grey.50' }}>
+          <Typography variant="caption" color="textSecondary" display="block">
+            Debug: {isAdmin ? 'Admin' : 'User'} | Workspace: {workspaceSlug || 'None'}
+          </Typography>
+        </Box>
+      )}
 
       {/* Footer when expanded */}
       {isOpen && (
-        <Box sx={{ mt: 'auto', p: 2, borderTop: 1, borderColor: 'divider' }}>
+        <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
           <Typography variant="caption" color="textSecondary" display="block">
             BI Platform v1.0
           </Typography>
-          {isAdmin && (
-            <Typography variant="caption" color="primary" display="block" sx={{ fontWeight: 'bold' }}>
-              Administrator
-            </Typography>
-          )}
         </Box>
       )}
     </Drawer>
