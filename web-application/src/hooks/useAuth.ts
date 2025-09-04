@@ -1,20 +1,34 @@
-// hooks/useAuth.ts - Updated authentication hook
+// web-application/src/hooks/useAuth.ts - Updated with new login flow
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 
 interface User {
   id: string;
-  name: string;
+  username: string;
   email: string;
-  avatar?: string;
+  display_name?: string;
+  first_name?: string;
+  last_name?: string;
+  avatar_url?: string;
+  profile_data?: Record<string, any>;
 }
 
 interface Workspace {
   id: string;
   name: string;
   slug: string;
-  role: string;
-  is_default: boolean;
+  description?: string;
+  logo_url?: string;
+  user_count?: number;
+  dashboard_count?: number;
+  dataset_count?: number;
+  is_default?: boolean;
+  role?: string;
+  created_at: string;
+  updated_at: string;
+  last_accessed?: string;
+  settings?: Record<string, any>;
+  is_active?: boolean;
 }
 
 interface AuthState {
@@ -22,7 +36,7 @@ interface AuthState {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  defaultWorkspace: Workspace | null;
+  workspace: Workspace | null;
 }
 
 export const useAuth = () => {
@@ -32,19 +46,21 @@ export const useAuth = () => {
     token: null,
     isAuthenticated: false,
     isLoading: true,
-    defaultWorkspace: null
+    workspace: null
   });
 
   // Initialize auth state from localStorage
   useEffect(() => {
     const token = localStorage.getItem('token');
     const user = localStorage.getItem('user');
+    const workspace = localStorage.getItem('workspace');
     
     if (token && user) {
       setAuthState(prev => ({
         ...prev,
         token,
         user: JSON.parse(user),
+        workspace: workspace ? JSON.parse(workspace) : null,
         isAuthenticated: true,
         isLoading: false
       }));
@@ -54,7 +70,7 @@ export const useAuth = () => {
   }, []);
 
   // Get user's default workspace
-  const getDefaultWorkspace = useCallback(async (userId: string): Promise<Workspace | null> => {
+  const getDefaultWorkspace = useCallback(async (): Promise<Workspace | null> => {
     try {
       const response = await fetch('/api/v1/user/default-workspace', {
         headers: {
@@ -88,7 +104,7 @@ export const useAuth = () => {
     }
   }, [authState.token]);
 
-  // Login function with automatic redirect
+  // Login function with NEW redirect logic
   const login = useCallback(async (email: string, password: string) => {
     try {
       setAuthState(prev => ({ ...prev, isLoading: true }));
@@ -119,52 +135,112 @@ export const useAuth = () => {
           isLoading: false
         }));
 
-        // Get default workspace and redirect
-        const defaultWorkspace = await getDefaultWorkspace(user.id);
+        // Get default workspace
+        const defaultWorkspace = await getDefaultWorkspace();
         
         if (defaultWorkspace) {
-          // Redirect to workspace overview
+          // Store workspace and redirect to workspace overview
+          localStorage.setItem('workspace', JSON.stringify(defaultWorkspace));
+          setAuthState(prev => ({
+            ...prev,
+            workspace: defaultWorkspace
+          }));
           router.push(`/workspace/${defaultWorkspace.slug}/overview`);
         } else {
-          // No workspace access - redirect to workspace selector as fallback
-          router.push('/workspace-selector');
+          // No workspace found - still redirect to overview with a placeholder slug
+          // The layout will show "no workspace found" message
+          router.push('/workspace/default/overview');
         }
 
         return { success: true };
       } else {
-        setAuthState(prev => ({ ...prev, isLoading: false }));
-        return { success: false, error: data.message || 'Login failed' };
+        setAuthState(prev => ({
+          ...prev,
+          isLoading: false
+        }));
+        return { 
+          success: false, 
+          error: data.message || 'Login failed' 
+        };
       }
     } catch (error) {
-      setAuthState(prev => ({ ...prev, isLoading: false }));
-      return { success: false, error: 'Network error occurred' };
+      setAuthState(prev => ({
+        ...prev,
+        isLoading: false
+      }));
+      return { 
+        success: false, 
+        error: 'Network error' 
+      };
     }
-  }, [router, getDefaultWorkspace]);
+  }, [getDefaultWorkspace, router]);
 
-  // Logout function
-  const logout = useCallback(async () => {
+  // Switch workspace function
+  const switchWorkspace = useCallback(async (workspaceSlug: string) => {
     try {
-      // Call logout API
-      await fetch('/api/v1/auth/logout', {
+      const response = await fetch(`/api/v1/auth/switch-workspace`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${authState.token}`
-        }
+          'Authorization': `Bearer ${authState.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ workspace_slug: workspaceSlug })
       });
+
+      if (response.ok) {
+        const data = await response.json();
+        const { workspace, token } = data.data;
+
+        // Update localStorage
+        localStorage.setItem('workspace', JSON.stringify(workspace));
+        localStorage.setItem('token', token);
+
+        // Update auth state
+        setAuthState(prev => ({
+          ...prev,
+          workspace,
+          token
+        }));
+
+        // Redirect to new workspace overview
+        router.push(`/workspace/${workspace.slug}/overview`);
+        return { success: true };
+      } else {
+        return { success: false, error: 'Failed to switch workspace' };
+      }
+    } catch (error) {
+      return { success: false, error: 'Network error' };
+    }
+  }, [authState.token, router]);
+
+  // Sign out function
+  const signOut = useCallback(async () => {
+    try {
+      // Call logout API if needed
+      if (authState.token) {
+        await fetch('/api/v1/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authState.token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+      }
     } catch (error) {
       console.error('Logout API error:', error);
     } finally {
-      // Clear local storage
+      // Clear localStorage
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      
+      localStorage.removeItem('workspace');
+
       // Reset auth state
       setAuthState({
         user: null,
         token: null,
         isAuthenticated: false,
         isLoading: false,
-        defaultWorkspace: null
+        workspace: null
       });
 
       // Redirect to login
@@ -172,29 +248,24 @@ export const useAuth = () => {
     }
   }, [authState.token, router]);
 
-  // Check if user has access to specific workspace
-  const hasWorkspaceAccess = useCallback(async (workspaceSlug: string): Promise<boolean> => {
-    if (!authState.isAuthenticated) return false;
-
-    try {
-      const response = await fetch(`/api/v1/workspace/${workspaceSlug}/access-check`, {
-        headers: {
-          'Authorization': `Bearer ${authState.token}`
-        }
-      });
-
-      return response.ok;
-    } catch {
+  // Check if user has workspace access (helper function)
+  const hasWorkspaceAccess = useCallback((workspaceSlug?: string): boolean => {
+    if (!workspaceSlug || !authState.workspace) {
       return false;
     }
-  }, [authState.isAuthenticated, authState.token]);
+    return authState.workspace.slug === workspaceSlug;
+  }, [authState.workspace]);
 
   return {
-    ...authState,
+    user: authState.user,
+    workspace: authState.workspace,
+    token: authState.token,
+    isAuthenticated: authState.isAuthenticated,
+    isLoading: authState.isLoading,
     login,
-    logout,
+    signOut,
+    switchWorkspace,
     getDefaultWorkspace,
     hasWorkspaceAccess
   };
 };
-
