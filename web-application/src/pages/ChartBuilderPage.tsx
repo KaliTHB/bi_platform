@@ -47,7 +47,7 @@ import { Dataset } from '@/types/dashboard.types';
 
 // Import utilities
 import { createDefaultDimensions, createCompleteChartConfig } from '@/utils/chartUtils';
-import { chartAPI , datasetAPI } from '@/api/index';
+import { chartAPI , datasetAPI } from '@/services/index';
 
 
 interface ChartBuilderPageProps {

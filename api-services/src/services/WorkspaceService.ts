@@ -1,317 +1,559 @@
-// File: api-services/src/services/WorkspaceService.ts
-import { db } from '../config/database';
-import { cache } from '../config/redis';
+// api-services/src/services/WorkspaceService.ts
+import { Pool, PoolClient } from 'pg';
+import { DatabaseService } from './DatabaseService';
 import { logger } from '../utils/logger';
-import { User, Workspace, CreateWorkspaceRequest, UpdateWorkspaceRequest } from '../types/auth.types';
+
+export interface Workspace {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  logo_url?: string;
+  settings: any;
+  is_active: boolean;
+  created_at: Date;
+  updated_at: Date;
+  owner_id: string;
+  member_count?: number;
+}
+
+export interface UserWorkspace extends Workspace {
+  user_role: string;
+  user_roles: string[];
+  highest_role: string;
+  role_level: number;
+  joined_at: Date;
+  permissions: string[];
+}
+
+export interface CreateWorkspaceRequest {
+  name: string;
+  slug?: string;
+  description?: string;
+  settings?: any;
+  logo_url?: string;
+}
+
+export interface UpdateWorkspaceRequest {
+  name?: string;
+  description?: string;
+  settings?: any;
+  logo_url?: string;
+  is_active?: boolean;
+}
 
 export class WorkspaceService {
-  constructor() {}
+  private database: DatabaseService;
 
-  async getWorkspacesByUser(userId: string): Promise<Workspace[]> {
+  constructor(database?: DatabaseService) {
+    this.database = database || DatabaseService.getInstance();
+  }
+
+  /**
+   * Get all workspaces for a specific user
+   */
+  async getUserWorkspaces(userId: string): Promise<UserWorkspace[]> {
     try {
-      const result = await db.query(
-        `SELECT w.*, uw.status as membership_status,
-                ARRAY_AGG(DISTINCT r.name) as roles,
-                MAX(r.level) as highest_role_level,
-                COUNT(DISTINCT u.id) as user_count,
-                COUNT(DISTINCT d.id) as dashboard_count,
-                COUNT(DISTINCT ds.id) as dataset_count
-         FROM workspaces w
-         JOIN user_workspaces uw ON w.id = uw.workspace_id
-         LEFT JOIN user_workspace_roles uwr ON w.id = uwr.workspace_id AND uwr.user_id = uw.user_id
-         LEFT JOIN roles r ON uwr.role_id = r.id
-         LEFT JOIN user_workspaces u ON w.id = u.workspace_id AND u.status = 'ACTIVE'
-         LEFT JOIN dashboards d ON w.id = d.workspace_id AND d.is_active = true
-         LEFT JOIN datasets ds ON w.id = ds.workspace_id AND ds.is_active = true
-         WHERE uw.user_id = $1 AND w.is_active = true
-         GROUP BY w.id, uw.status
-         ORDER BY w.name`,
-        [userId]
-      );
+      logger.debug('Getting workspaces for user', { userId });
 
-      return result.rows.map(row => ({
-        id: row.id,
-        name: row.name,
-        slug: row.slug,
-        description: row.description,
-        logo_url: row.logo_url,
-        settings: row.settings,
-        is_active: row.is_active,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-        user_count: parseInt(row.user_count) || 0,
-        dashboard_count: parseInt(row.dashboard_count) || 0,
-        dataset_count: parseInt(row.dataset_count) || 0
+      const query = `
+        SELECT DISTINCT
+          w.id,
+          w.name,
+          w.slug,
+          w.description,
+          w.logo_url,
+          w.settings,
+          w.is_active,
+          w.created_at,
+          w.updated_at,
+          w.owner_id,
+          wm.joined_at,
+          wm.role as user_role,
+          ARRAY_AGG(DISTINCT r.name) as user_roles,
+          MAX(r.level) as role_level,
+          COALESCE(member_counts.member_count, 0) as member_count
+        FROM workspaces w
+        INNER JOIN workspace_members wm ON w.id = wm.workspace_id
+        LEFT JOIN roles r ON wm.role_id = r.id
+        LEFT JOIN (
+          SELECT 
+            workspace_id, 
+            COUNT(*) as member_count 
+          FROM workspace_members 
+          WHERE is_active = true 
+          GROUP BY workspace_id
+        ) member_counts ON w.id = member_counts.workspace_id
+        WHERE wm.user_id = $1
+          AND wm.is_active = true
+          AND w.is_active = true
+        GROUP BY w.id, w.name, w.slug, w.description, w.logo_url, w.settings,
+                 w.is_active, w.created_at, w.updated_at, w.owner_id, 
+                 wm.joined_at, wm.role, member_counts.member_count
+        ORDER BY w.name ASC
+      `;
+
+      const result = await this.database.query<UserWorkspace>(query, [userId]);
+
+      // Process results to add computed fields
+      const workspaces = result.rows.map(workspace => ({
+        ...workspace,
+        highest_role: this.getHighestRole(workspace.user_roles || []),
+        permissions: [], // Will be populated separately if needed
       }));
+
+      logger.info('Retrieved user workspaces', { 
+        userId, 
+        workspaceCount: workspaces.length 
+      });
+
+      return workspaces;
     } catch (error) {
-      logger.error('Error fetching workspaces for user:', error);
-      throw new Error('Failed to fetch workspaces');
+      logger.error('Error getting user workspaces', { userId, error });
+      throw new Error(`Failed to get user workspaces: ${error.message}`);
     }
   }
 
-  async getWorkspaceById(workspaceId: string): Promise<Workspace | null> {
+  /**
+   * Get all workspaces (admin function)
+   */
+  async getAllWorkspaces(
+    limit: number = 50,
+    offset: number = 0,
+    includeInactive: boolean = false
+  ): Promise<Workspace[]> {
     try {
-      const result = await db.query(
-        'SELECT * FROM workspaces WHERE id = $1 AND is_active = true',
-        [workspaceId]
-      );
+      const whereClause = includeInactive ? '' : 'WHERE is_active = true';
+      
+      const query = `
+        SELECT 
+          w.*,
+          COALESCE(member_counts.member_count, 0) as member_count
+        FROM workspaces w
+        LEFT JOIN (
+          SELECT 
+            workspace_id, 
+            COUNT(*) as member_count 
+          FROM workspace_members 
+          WHERE is_active = true 
+          GROUP BY workspace_id
+        ) member_counts ON w.id = member_counts.workspace_id
+        ${whereClause}
+        ORDER BY w.created_at DESC
+        LIMIT $1 OFFSET $2
+      `;
+
+      const result = await this.database.query<Workspace>(query, [limit, offset]);
+      
+      logger.info('Retrieved all workspaces', { 
+        count: result.rows.length,
+        includeInactive 
+      });
+
+      return result.rows;
+    } catch (error) {
+      logger.error('Error getting all workspaces', { error });
+      throw new Error(`Failed to get all workspaces: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get workspace by ID
+   */
+  async getWorkspaceById(workspaceId: string, userId?: string): Promise<UserWorkspace | null> {
+    try {
+      let query: string;
+      let params: any[];
+
+      if (userId) {
+        // Get workspace with user context
+        query = `
+          SELECT DISTINCT
+            w.*,
+            wm.joined_at,
+            wm.role as user_role,
+            ARRAY_AGG(DISTINCT r.name) as user_roles,
+            MAX(r.level) as role_level,
+            COALESCE(member_counts.member_count, 0) as member_count
+          FROM workspaces w
+          INNER JOIN workspace_members wm ON w.id = wm.workspace_id
+          LEFT JOIN roles r ON wm.role_id = r.id
+          LEFT JOIN (
+            SELECT 
+              workspace_id, 
+              COUNT(*) as member_count 
+            FROM workspace_members 
+            WHERE is_active = true 
+            GROUP BY workspace_id
+          ) member_counts ON w.id = member_counts.workspace_id
+          WHERE w.id = $1 
+            AND wm.user_id = $2
+            AND wm.is_active = true
+            AND w.is_active = true
+          GROUP BY w.id, w.name, w.slug, w.description, w.logo_url, w.settings,
+                   w.is_active, w.created_at, w.updated_at, w.owner_id, 
+                   wm.joined_at, wm.role, member_counts.member_count
+        `;
+        params = [workspaceId, userId];
+      } else {
+        // Get workspace without user context
+        query = `
+          SELECT 
+            w.*,
+            COALESCE(member_counts.member_count, 0) as member_count
+          FROM workspaces w
+          LEFT JOIN (
+            SELECT 
+              workspace_id, 
+              COUNT(*) as member_count 
+            FROM workspace_members 
+            WHERE is_active = true 
+            GROUP BY workspace_id
+          ) member_counts ON w.id = member_counts.workspace_id
+          WHERE w.id = $1 AND w.is_active = true
+        `;
+        params = [workspaceId];
+      }
+
+      const result = await this.database.query<UserWorkspace>(query, params);
 
       if (result.rows.length === 0) {
         return null;
       }
 
-      return result.rows[0];
+      const workspace = result.rows[0];
+      if (workspace.user_roles) {
+        workspace.highest_role = this.getHighestRole(workspace.user_roles);
+      }
+
+      logger.debug('Retrieved workspace by ID', { workspaceId, userId });
+      return workspace;
     } catch (error) {
-      logger.error('Error fetching workspace by ID:', error);
-      throw new Error('Failed to fetch workspace');
+      logger.error('Error getting workspace by ID', { workspaceId, userId, error });
+      throw new Error(`Failed to get workspace: ${error.message}`);
     }
   }
 
-  async createWorkspace(data: CreateWorkspaceRequest, createdBy: string): Promise<Workspace> {
+  /**
+   * Get workspace by slug
+   */
+  async getWorkspaceBySlug(slug: string): Promise<Workspace | null> {
     try {
-      const result = await db.query(
-        `INSERT INTO workspaces (name, slug, description, settings, created_by)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING *`,
-        [data.name, data.slug, data.description, data.settings || {}, createdBy]
-      );
+      const query = `
+        SELECT 
+          w.*,
+          COALESCE(member_counts.member_count, 0) as member_count
+        FROM workspaces w
+        LEFT JOIN (
+          SELECT 
+            workspace_id, 
+            COUNT(*) as member_count 
+          FROM workspace_members 
+          WHERE is_active = true 
+          GROUP BY workspace_id
+        ) member_counts ON w.id = member_counts.workspace_id
+        WHERE w.slug = $1 AND w.is_active = true
+      `;
 
-      const workspace = result.rows[0];
+      const result = await this.database.query<Workspace>(query, [slug]);
 
-      // Add creator as workspace owner
-      await db.query(
-        `INSERT INTO user_workspaces (user_id, workspace_id, status, created_by)
-         VALUES ($1, $2, 'ACTIVE', $3)`,
-        [createdBy, workspace.id, createdBy]
-      );
-
-      // Get default owner role
-      const roleResult = await db.query(
-        'SELECT id FROM roles WHERE name = $1 AND is_system_role = true',
-        ['owner']
-      );
-
-      if (roleResult.rows.length > 0) {
-        await db.query(
-          `INSERT INTO user_workspace_roles (user_id, workspace_id, role_id, assigned_by)
-           VALUES ($1, $2, $3, $4)`,
-          [createdBy, workspace.id, roleResult.rows[0].id, createdBy]
-        );
+      if (result.rows.length === 0) {
+        return null;
       }
 
-      // Clear cache
-      await cache.delete(`user-workspaces-${createdBy}`);
+      logger.debug('Retrieved workspace by slug', { slug });
+      return result.rows[0];
+    } catch (error) {
+      logger.error('Error getting workspace by slug', { slug, error });
+      throw new Error(`Failed to get workspace by slug: ${error.message}`);
+    }
+  }
+
+  /**
+   * Create a new workspace
+   */
+  async createWorkspace(
+    workspaceData: CreateWorkspaceRequest,
+    ownerId: string
+  ): Promise<Workspace> {
+    const client = await this.database.query('BEGIN');
+    
+    try {
+      // Generate slug if not provided
+      const slug = workspaceData.slug || this.generateSlug(workspaceData.name);
+      
+      // Check if slug already exists
+      const existingSlug = await this.database.query(
+        'SELECT id FROM workspaces WHERE slug = $1',
+        [slug]
+      );
+
+      if (existingSlug.rows.length > 0) {
+        throw new Error('Workspace slug already exists');
+      }
+
+      // Create workspace
+      const workspaceQuery = `
+        INSERT INTO workspaces (
+          name, slug, description, logo_url, settings, owner_id, is_active, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, true, NOW(), NOW())
+        RETURNING *
+      `;
+
+      const workspaceResult = await this.database.query<Workspace>(workspaceQuery, [
+        workspaceData.name,
+        slug,
+        workspaceData.description || null,
+        workspaceData.logo_url || null,
+        workspaceData.settings || {},
+        ownerId
+      ]);
+
+      const workspace = workspaceResult.rows[0];
+
+      // Add owner as admin member
+      const ownerRoleQuery = `
+        SELECT id FROM roles WHERE name = 'owner' OR name = 'admin' ORDER BY level DESC LIMIT 1
+      `;
+      const roleResult = await this.database.query(ownerRoleQuery);
+      
+      if (roleResult.rows.length > 0) {
+        await this.database.query(`
+          INSERT INTO workspace_members (workspace_id, user_id, role_id, is_active, joined_at)
+          VALUES ($1, $2, $3, true, NOW())
+        `, [workspace.id, ownerId, roleResult.rows[0].id]);
+      }
+
+      await this.database.query('COMMIT');
+
+      logger.info('Created new workspace', { 
+        workspaceId: workspace.id, 
+        name: workspace.name, 
+        ownerId 
+      });
 
       return workspace;
     } catch (error) {
-      logger.error('Error creating workspace:', error);
-      throw new Error('Failed to create workspace');
+      await this.database.query('ROLLBACK');
+      logger.error('Error creating workspace', { workspaceData, ownerId, error });
+      throw new Error(`Failed to create workspace: ${error.message}`);
     }
   }
 
-  async updateWorkspace(workspaceId: string, updates: UpdateWorkspaceRequest, userId: string): Promise<Workspace> {
+  /**
+   * Update workspace
+   */
+  async updateWorkspace(
+    workspaceId: string,
+    updateData: UpdateWorkspaceRequest,
+    userId: string
+  ): Promise<Workspace> {
     try {
-      const updateFields = [];
-      const updateValues = [];
-      let paramCount = 1;
-
-      if (updates.name) {
-        updateFields.push(`name = $${paramCount++}`);
-        updateValues.push(updates.name);
+      // Check if user has permission to update workspace
+      const hasPermission = await this.checkUserPermission(userId, workspaceId, ['workspace.update', 'workspace.admin']);
+      
+      if (!hasPermission) {
+        throw new Error('Insufficient permissions to update workspace');
       }
 
-      if (updates.description !== undefined) {
-        updateFields.push(`description = $${paramCount++}`);
-        updateValues.push(updates.description);
+      const setClause = [];
+      const values = [];
+      let paramIndex = 1;
+
+      if (updateData.name !== undefined) {
+        setClause.push(`name = $${paramIndex++}`);
+        values.push(updateData.name);
       }
 
-      if (updates.logo_url !== undefined) {
-        updateFields.push(`logo_url = $${paramCount++}`);
-        updateValues.push(updates.logo_url);
+      if (updateData.description !== undefined) {
+        setClause.push(`description = $${paramIndex++}`);
+        values.push(updateData.description);
       }
 
-      if (updates.settings) {
-        updateFields.push(`settings = $${paramCount++}`);
-        updateValues.push(JSON.stringify(updates.settings));
+      if (updateData.logo_url !== undefined) {
+        setClause.push(`logo_url = $${paramIndex++}`);
+        values.push(updateData.logo_url);
       }
 
-      updateFields.push(`updated_at = NOW()`);
-      updateValues.push(workspaceId);
+      if (updateData.settings !== undefined) {
+        setClause.push(`settings = $${paramIndex++}`);
+        values.push(updateData.settings);
+      }
 
-      const result = await db.query(
-        `UPDATE workspaces 
-         SET ${updateFields.join(', ')}
-         WHERE id = $${paramCount} AND is_active = true
-         RETURNING *`,
-        updateValues
-      );
+      if (updateData.is_active !== undefined) {
+        setClause.push(`is_active = $${paramIndex++}`);
+        values.push(updateData.is_active);
+      }
+
+      setClause.push(`updated_at = NOW()`);
+      values.push(workspaceId);
+
+      const query = `
+        UPDATE workspaces 
+        SET ${setClause.join(', ')}
+        WHERE id = $${paramIndex}
+        RETURNING *
+      `;
+
+      const result = await this.database.query<Workspace>(query, values);
 
       if (result.rows.length === 0) {
         throw new Error('Workspace not found');
       }
 
+      logger.info('Updated workspace', { workspaceId, updateData, userId });
       return result.rows[0];
     } catch (error) {
-      logger.error('Error updating workspace:', error);
-      throw new Error('Failed to update workspace');
+      logger.error('Error updating workspace', { workspaceId, updateData, userId, error });
+      throw new Error(`Failed to update workspace: ${error.message}`);
     }
   }
 
-  async deleteWorkspace(workspaceId: string, deletedBy: string): Promise<void> {
+  /**
+   * Delete workspace (soft delete)
+   */
+  async deleteWorkspace(workspaceId: string, userId: string): Promise<void> {
     try {
-      await db.query(
-        `UPDATE workspaces 
-         SET is_active = false, updated_at = NOW()
-         WHERE id = $1`,
+      // Check if user is workspace owner
+      const workspace = await this.getWorkspaceById(workspaceId);
+      
+      if (!workspace || workspace.owner_id !== userId) {
+        throw new Error('Only workspace owner can delete workspace');
+      }
+
+      // Soft delete
+      await this.database.query(
+        'UPDATE workspaces SET is_active = false, updated_at = NOW() WHERE id = $1',
         [workspaceId]
       );
 
-      // Clear related cache
-      await cache.delete(`workspace-${workspaceId}`);
+      logger.info('Deleted workspace', { workspaceId, userId });
     } catch (error) {
-      logger.error('Error deleting workspace:', error);
-      throw new Error('Failed to delete workspace');
+      logger.error('Error deleting workspace', { workspaceId, userId, error });
+      throw new Error(`Failed to delete workspace: ${error.message}`);
     }
   }
 
-  async getWorkspaceMembers(workspaceId: string): Promise<any[]> {
+  /**
+   * Check if user has access to workspace
+   */
+  async hasWorkspaceAccess(userId: string, workspaceId: string): Promise<boolean> {
     try {
-      const result = await db.query(
-        `SELECT u.id, u.email, u.first_name, u.last_name,
-                uw.status, uw.created_at as joined_at,
-                ARRAY_AGG(DISTINCT r.name) as roles,
-                MAX(r.level) as highest_role_level
-         FROM users u
-         JOIN user_workspaces uw ON u.id = uw.user_id
-         LEFT JOIN user_workspace_roles uwr ON u.id = uwr.user_id AND uwr.workspace_id = uw.workspace_id
-         LEFT JOIN roles r ON uwr.role_id = r.id
-         WHERE uw.workspace_id = $1 AND u.is_active = true
-         GROUP BY u.id, u.email, u.first_name, u.last_name, uw.status, uw.created_at
-         ORDER BY uw.created_at`,
-        [workspaceId]
-      );
+      const query = `
+        SELECT 1
+        FROM workspace_members wm
+        INNER JOIN workspaces w ON wm.workspace_id = w.id
+        WHERE wm.user_id = $1 
+          AND wm.workspace_id = $2
+          AND wm.is_active = true
+          AND w.is_active = true
+        LIMIT 1
+      `;
 
-      return result.rows;
+      const result = await this.database.query(query, [userId, workspaceId]);
+      return result.rows.length > 0;
     } catch (error) {
-      logger.error('Error fetching workspace members:', error);
-      throw new Error('Failed to fetch workspace members');
+      logger.error('Error checking workspace access', { userId, workspaceId, error });
+      return false;
     }
   }
 
-  async addUserToWorkspace(
-    workspaceId: string, 
+  /**
+   * Check user permissions in workspace
+   */
+  async checkUserPermission(
     userId: string, 
-    roleIds: string[], 
-    addedBy: string
-  ): Promise<void> {
-    try {
-      await db.transaction(async (client) => {
-        // Add user to workspace
-        await client.query(
-          `INSERT INTO user_workspaces (user_id, workspace_id, status, created_by)
-           VALUES ($1, $2, 'ACTIVE', $3)
-           ON CONFLICT (user_id, workspace_id) 
-           DO UPDATE SET status = 'ACTIVE', updated_at = NOW()`,
-          [userId, workspaceId, addedBy]
-        );
-
-        // Remove existing roles
-        await client.query(
-          'DELETE FROM user_workspace_roles WHERE user_id = $1 AND workspace_id = $2',
-          [userId, workspaceId]
-        );
-
-        // Add new roles
-        for (const roleId of roleIds) {
-          await client.query(
-            `INSERT INTO user_workspace_roles (user_id, workspace_id, role_id, assigned_by)
-             VALUES ($1, $2, $3, $4)`,
-            [userId, workspaceId, roleId, addedBy]
-          );
-        }
-      });
-
-      // Clear cache
-      await cache.delete(`user-workspaces-${userId}`);
-    } catch (error) {
-      logger.error('Error adding user to workspace:', error);
-      throw new Error('Failed to add user to workspace');
-    }
-  }
-
-  async removeUserFromWorkspace(workspaceId: string, userId: string, removedBy: string): Promise<void> {
-    try {
-      await db.transaction(async (client) => {
-        // Remove workspace roles
-        await client.query(
-          'DELETE FROM user_workspace_roles WHERE user_id = $1 AND workspace_id = $2',
-          [userId, workspaceId]
-        );
-
-        // Update membership status
-        await client.query(
-          `UPDATE user_workspaces 
-           SET status = 'REMOVED', updated_at = NOW()
-           WHERE user_id = $1 AND workspace_id = $2`,
-          [userId, workspaceId]
-        );
-      });
-
-      // Clear cache
-      await cache.delete(`user-workspaces-${userId}`);
-    } catch (error) {
-      logger.error('Error removing user from workspace:', error);
-      throw new Error('Failed to remove user from workspace');
-    }
-  }
-
-  async updateUserRoles(
     workspaceId: string, 
-    userId: string, 
-    roleIds: string[], 
-    updatedBy: string
-  ): Promise<void> {
+    requiredPermissions: string[]
+  ): Promise<boolean> {
     try {
-      await db.transaction(async (client) => {
-        // Remove existing roles
-        await client.query(
-          'DELETE FROM user_workspace_roles WHERE user_id = $1 AND workspace_id = $2',
-          [userId, workspaceId]
-        );
+      const query = `
+        SELECT DISTINCT p.name
+        FROM workspace_members wm
+        INNER JOIN roles r ON wm.role_id = r.id
+        INNER JOIN role_permissions rp ON r.id = rp.role_id
+        INNER JOIN permissions p ON rp.permission_id = p.id
+        WHERE wm.user_id = $1 
+          AND wm.workspace_id = $2
+          AND wm.is_active = true
+          AND p.name = ANY($3)
+      `;
 
-        // Add new roles
-        for (const roleId of roleIds) {
-          await client.query(
-            `INSERT INTO user_workspace_roles (user_id, workspace_id, role_id, assigned_by)
-             VALUES ($1, $2, $3, $4)`,
-            [userId, workspaceId, roleId, updatedBy]
-          );
-        }
-      });
-
-      // Clear cache
-      await cache.delete(`user-workspaces-${userId}`);
+      const result = await this.database.query(query, [userId, workspaceId, requiredPermissions]);
+      return result.rows.length > 0;
     } catch (error) {
-      logger.error('Error updating user roles:', error);
-      throw new Error('Failed to update user roles');
+      logger.error('Error checking user permissions', { userId, workspaceId, requiredPermissions, error });
+      return false;
     }
   }
 
+  /**
+   * Helper method to get highest role from role array
+   */
+  private getHighestRole(roles: string[]): string {
+    const roleHierarchy = ['owner', 'admin', 'manager', 'editor', 'viewer', 'member'];
+    
+    for (const role of roleHierarchy) {
+      if (roles.includes(role)) {
+        return role;
+      }
+    }
+    
+    return roles[0] || 'member';
+  }
+
+  /**
+   * Generate URL-friendly slug from name
+   */
+  private generateSlug(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, '') // Remove special characters
+      .replace(/\s+/g, '-') // Replace spaces with hyphens
+      .replace(/-+/g, '-') // Replace multiple hyphens with single
+      .trim();
+  }
+
+  /**
+   * Get workspace statistics
+   */
   async getWorkspaceStats(workspaceId: string): Promise<any> {
     try {
-      const result = await db.query(
-        `SELECT 
-          (SELECT COUNT(*) FROM user_workspaces WHERE workspace_id = $1 AND status = 'ACTIVE') as user_count,
-          (SELECT COUNT(*) FROM dashboards WHERE workspace_id = $1 AND is_active = true) as dashboard_count,
-          (SELECT COUNT(*) FROM datasets WHERE workspace_id = $1 AND is_active = true) as dataset_count,
-          (SELECT COUNT(*) FROM charts WHERE workspace_id = $1 AND is_active = true) as chart_count`,
-        [workspaceId]
-      );
+      const queries = [
+        // Member count
+        this.database.query(
+          'SELECT COUNT(*) as member_count FROM workspace_members WHERE workspace_id = $1 AND is_active = true',
+          [workspaceId]
+        ),
+        // Dashboard count (if dashboards table exists)
+        this.database.query(
+          'SELECT COUNT(*) as dashboard_count FROM dashboards WHERE workspace_id = $1',
+          [workspaceId]
+        ).catch(() => ({ rows: [{ dashboard_count: 0 }] })),
+        // Dataset count (if datasets table exists)
+        this.database.query(
+          'SELECT COUNT(*) as dataset_count FROM datasets WHERE workspace_id = $1',
+          [workspaceId]
+        ).catch(() => ({ rows: [{ dataset_count: 0 }] })),
+      ];
 
-      return result.rows[0];
+      const [memberResult, dashboardResult, datasetResult] = await Promise.all(queries);
+
+      return {
+        member_count: parseInt(memberResult.rows[0].member_count),
+        dashboard_count: parseInt(dashboardResult.rows[0].dashboard_count),
+        dataset_count: parseInt(datasetResult.rows[0].dataset_count),
+      };
     } catch (error) {
-      logger.error('Error fetching workspace stats:', error);
-      throw new Error('Failed to fetch workspace statistics');
+      logger.error('Error getting workspace stats', { workspaceId, error });
+      return {
+        member_count: 0,
+        dashboard_count: 0,
+        dataset_count: 0,
+      };
     }
   }
 }
+
+export default WorkspaceService;

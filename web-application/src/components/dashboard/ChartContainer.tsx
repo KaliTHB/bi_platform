@@ -25,7 +25,7 @@ import {
 // IMPORTS FROM EXTERNAL FILES
 // ============================================================================
 
-import { chartAPI } from '@/api/index';
+import { chartAPI } from '@/services/index';
 import { ChartRenderer } from '../chart/ChartRenderer';
 
 // Types from external file

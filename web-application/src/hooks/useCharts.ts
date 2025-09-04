@@ -1,7 +1,7 @@
 // web-application/src/hooks/useCharts.ts
 import { useState, useEffect, useCallback } from 'react';
 import { Chart } from '@/types/chart.types';
-import { chartAPI } from '@/api/index';
+import { chartAPI } from '@/services/index';
 import { useWorkspace } from '@/hooks/useWorkspace';
 
 interface UseChartsReturn {

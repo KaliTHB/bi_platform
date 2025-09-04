@@ -20,11 +20,11 @@ CREATE TABLE users (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Workspaces table
-CREATE TABLE workspaces (
+-- Create workspaces table
+CREATE TABLE IF NOT EXISTS workspaces (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name VARCHAR(255) NOT NULL,
-  slug VARCHAR(100) UNIQUE NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  slug VARCHAR(50) UNIQUE NOT NULL,
   description TEXT,
   logo_url TEXT,
   settings JSONB DEFAULT '{
@@ -42,7 +42,22 @@ CREATE TABLE workspaces (
       "api_access": true,
       "webhooks": false
     }
-  }',
+  }'
+  is_active BOOLEAN DEFAULT true,
+  owner_id UUID NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  CONSTRAINT workspaces_name_not_empty CHECK (char_length(trim(name)) > 0),
+  CONSTRAINT workspaces_slug_format CHECK (slug ~ '^[a-z0-9-]+$')
+);
+-- Workspaces table
+CREATE TABLE workspaces (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name VARCHAR(255) NOT NULL,
+  slug VARCHAR(100) UNIQUE NOT NULL,
+  description TEXT,
+  logo_url TEXT,
+  ,
   is_active BOOLEAN DEFAULT true,
   created_by UUID REFERENCES users(id),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -74,13 +89,29 @@ CREATE TABLE roles (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE(name, workspace_id)
 );
-
--- Role permissions
-CREATE TABLE role_permissions (
-  role_id UUID REFERENCES roles(id) ON DELETE CASCADE,
-  permission_id UUID REFERENCES permissions(id) ON DELETE CASCADE,
-  PRIMARY KEY (role_id, permission_id)
+-- Create roles table if not exists
+CREATE TABLE IF NOT EXISTS roles (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name VARCHAR(50) UNIQUE NOT NULL,
+  display_name VARCHAR(100) NOT NULL,
+  description TEXT,
+  level INTEGER NOT NULL DEFAULT 0,
+  is_system BOOLEAN DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Create permissions table if not exists
+CREATE TABLE IF NOT EXISTS permissions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name VARCHAR(100) UNIQUE NOT NULL,
+  display_name VARCHAR(150) NOT NULL,
+  description TEXT,
+  resource VARCHAR(50) NOT NULL,
+  action VARCHAR(50) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 
 -- User workspaces
 CREATE TABLE user_workspaces (
@@ -101,6 +132,32 @@ CREATE TABLE user_workspace_roles (
   assigned_by UUID REFERENCES users(id),
   PRIMARY KEY (user_id, workspace_id, role_id)
 );
+
+
+
+-- Create indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_workspaces_owner_id ON workspaces(owner_id);
+CREATE INDEX IF NOT EXISTS idx_workspaces_slug ON workspaces(slug);
+CREATE INDEX IF NOT EXISTS idx_workspaces_is_active ON workspaces(is_active);
+CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace_id ON workspace_members(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id ON workspace_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_members_active ON workspace_members(is_active);
+CREATE INDEX IF NOT EXISTS idx_roles_name ON roles(name);
+CREATE INDEX IF NOT EXISTS idx_permissions_name ON permissions(name);
+
+-- Create workspace_members table
+CREATE TABLE IF NOT EXISTS workspace_members (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL,
+  role_id UUID REFERENCES roles(id),
+  is_active BOOLEAN DEFAULT true,
+  joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(workspace_id, user_id)
+);
+
 
 -- Data sources table
 CREATE TABLE data_sources (
@@ -505,3 +562,29 @@ CREATE INDEX idx_dashboard_access_dashboard ON dashboard_access(dashboard_id);
 CREATE INDEX idx_datasources_workspace_plugin ON datasources(workspace_id, plugin_name);
 CREATE INDEX idx_datasets_workspace_type ON datasets(workspace_id, type);
 CREATE INDEX idx_dataset_access_dataset ON dataset_access(dataset_id);
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Create triggers for automatic updated_at updates
+DROP TRIGGER IF EXISTS update_workspaces_updated_at ON workspaces;
+CREATE TRIGGER update_workspaces_updated_at
+  BEFORE UPDATE ON workspaces
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_workspace_members_updated_at ON workspace_members;
+CREATE TRIGGER update_workspace_members_updated_at
+  BEFORE UPDATE ON workspace_members
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_roles_updated_at ON roles;
+CREATE TRIGGER update_roles_updated_at
+  BEFORE UPDATE ON roles
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();

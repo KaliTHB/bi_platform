@@ -1,72 +1,207 @@
-// web-application/src/components/common/ErrorBoundary.tsx
-import React from 'react';
+// web-application/src/components/shared/ErrorBoundary.tsx
+import React, { Component, ErrorInfo, ReactNode } from 'react';
+import {
+  Container,
+  Paper,
+  Typography,
+  Button,
+  Box,
+  Alert,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+} from '@mui/material';
+import {
+  ExpandMore,
+  Refresh,
+  Home,
+  BugReport,
+} from '@mui/icons-material';
 
 interface Props {
-  children: React.ReactNode;
+  children: ReactNode;
+  fallback?: ReactNode;
 }
 
 interface State {
   hasError: boolean;
-  error?: Error;
+  error: Error | null;
+  errorInfo: ErrorInfo | null;
+  errorId: string;
 }
 
-class ErrorBoundary extends React.Component<Props, State> {
+class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false };
+    this.state = {
+      hasError: false,
+      error: null,
+      errorInfo: null,
+      errorId: '',
+    };
   }
 
-  static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+  public static getDerivedStateFromError(error: Error): Partial<State> {
+    return {
+      hasError: true,
+      error,
+      errorId: Date.now().toString(36) + Math.random().toString(36).substr(2),
+    };
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('Error caught by boundary:', error, errorInfo);
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('ErrorBoundary caught an error:', error, errorInfo);
+    
+    this.setState({
+      error,
+      errorInfo,
+    });
+
+    // Log error to monitoring service (if available)
+    if (typeof window !== 'undefined' && (window as any).logError) {
+      (window as any).logError(error, errorInfo, this.state.errorId);
+    }
   }
 
-  render() {
+  private handleReload = () => {
+    window.location.reload();
+  };
+
+  private handleGoHome = () => {
+    window.location.href = '/';
+  };
+
+  private handleReportError = () => {
+    const errorReport = {
+      errorId: this.state.errorId,
+      message: this.state.error?.message,
+      stack: this.state.error?.stack,
+      componentStack: this.state.errorInfo?.componentStack,
+      timestamp: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      url: window.location.href,
+    };
+
+    // Copy error report to clipboard
+    navigator.clipboard.writeText(JSON.stringify(errorReport, null, 2)).then(() => {
+      alert('Error report copied to clipboard. Please send this to support.');
+    });
+  };
+
+  public render() {
     if (this.state.hasError) {
+      // Custom fallback UI
+      if (this.props.fallback) {
+        return this.props.fallback;
+      }
+
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-          <div className="max-w-md w-full bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6">
-            <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 dark:bg-red-900/20 rounded-full">
-              <svg
-                className="w-6 h-6 text-red-600 dark:text-red-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
-                />
-              </svg>
-            </div>
-            <h1 className="mt-4 text-xl font-semibold text-gray-900 dark:text-white text-center">
+        <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
+          <Paper elevation={3} sx={{ p: 4, textAlign: 'center' }}>
+            <BugReport sx={{ fontSize: 64, color: 'error.main', mb: 2 }} />
+            
+            <Typography variant="h4" component="h1" gutterBottom color="error">
               Something went wrong
-            </h1>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400 text-center">
-              An unexpected error occurred. Please refresh the page or try again later.
-            </p>
-            {process.env.NODE_ENV === 'development' && this.state.error && (
-              <details className="mt-4 text-xs text-gray-500 dark:text-gray-400">
-                <summary className="cursor-pointer">Error details</summary>
-                <pre className="mt-2 whitespace-pre-wrap break-words">
-                  {this.state.error.toString()}
-                </pre>
-              </details>
-            )}
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors"
-            >
-              Refresh Page
-            </button>
-          </div>
-        </div>
+            </Typography>
+            
+            <Typography variant="body1" paragraph color="text.secondary">
+              We're sorry, but something unexpected happened. The error has been logged 
+              and our team has been notified.
+            </Typography>
+
+            <Alert severity="error" sx={{ mb: 3, textAlign: 'left' }}>
+              <Typography variant="body2">
+                <strong>Error ID:</strong> {this.state.errorId}
+                <br />
+                <strong>Message:</strong> {this.state.error?.message || 'Unknown error'}
+              </Typography>
+            </Alert>
+
+            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', mb: 3 }}>
+              <Button
+                variant="contained"
+                startIcon={<Refresh />}
+                onClick={this.handleReload}
+              >
+                Reload Page
+              </Button>
+              
+              <Button
+                variant="outlined"
+                startIcon={<Home />}
+                onClick={this.handleGoHome}
+              >
+                Go Home
+              </Button>
+              
+              <Button
+                variant="text"
+                startIcon={<BugReport />}
+                onClick={this.handleReportError}
+              >
+                Report Error
+              </Button>
+            </Box>
+
+            {/* Technical Details */}
+            <Accordion sx={{ mt: 2, textAlign: 'left' }}>
+              <AccordionSummary expandIcon={<ExpandMore />}>
+                <Typography variant="subtitle2">Technical Details</Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="body2" component="div">
+                    <strong>Error Stack:</strong>
+                  </Typography>
+                  <Box
+                    component="pre"
+                    sx={{
+                      fontSize: '0.75rem',
+                      fontFamily: 'monospace',
+                      backgroundColor: 'grey.100',
+                      p: 1,
+                      borderRadius: 1,
+                      overflow: 'auto',
+                      maxHeight: 200,
+                      mt: 1,
+                    }}
+                  >
+                    {this.state.error?.stack}
+                  </Box>
+                </Box>
+
+                {this.state.errorInfo && (
+                  <Box>
+                    <Typography variant="body2" component="div">
+                      <strong>Component Stack:</strong>
+                    </Typography>
+                    <Box
+                      component="pre"
+                      sx={{
+                        fontSize: '0.75rem',
+                        fontFamily: 'monospace',
+                        backgroundColor: 'grey.100',
+                        p: 1,
+                        borderRadius: 1,
+                        overflow: 'auto',
+                        maxHeight: 200,
+                        mt: 1,
+                      }}
+                    >
+                      {this.state.errorInfo.componentStack}
+                    </Box>
+                  </Box>
+                )}
+              </AccordionDetails>
+            </Accordion>
+
+            <Box sx={{ mt: 3 }}>
+              <Typography variant="body2" color="text.secondary">
+                If this problem persists, please contact support with the error ID above.
+              </Typography>
+            </Box>
+          </Paper>
+        </Container>
       );
     }
 

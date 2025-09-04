@@ -1,178 +1,270 @@
 // web-application/next.config.js
 /** @type {import('next').NextConfig} */
-const { withBundleAnalyzer } = require('@next/bundle-analyzer');
-
 const nextConfig = {
-  // Enable React strict mode
   reactStrictMode: true,
-  
-  // Enable SWC minification
   swcMinify: true,
   
-  // Experimental features
+  // Optimize for development and build performance
   experimental: {
-    // Enable app directory
-    //appDir: true,
-    // Enable server components
-    serverComponentsExternalPackages: [],
+    // Disable instrumentation hook to prevent Windows permission issues
+    instrumentationHook: false,
+    // Enable modern bundling
+    esmExternals: true,
   },
   
-  // Environment variables
+  // Environment variables that will be available on both client and server
   env: {
-    CUSTOM_KEY: process.env.CUSTOM_KEY,
+    CUSTOM_BUILD_TIME: new Date().toISOString(),
   },
   
-  // Public runtime config
-  publicRuntimeConfig: {
-    apiUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001',
-    wsUrl: process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001',
-  },
-  
-  // Server runtime config
-  serverRuntimeConfig: {
-    secret: process.env.SECRET,
-  },
-  
-  // Image optimization
+  // Image optimization configuration
   images: {
-    domains: ['localhost', 'example.com'],
+    domains: ['localhost', '127.0.0.1'],
     formats: ['image/webp', 'image/avif'],
+    minimumCacheTTL: 60,
+    dangerouslyAllowSVG: true,
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
   
-  // Webpack configuration
+  // Webpack configuration for better performance and Windows compatibility
   webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
-    // Add custom webpack configurations here
+    // Fix for Windows development - prevents EPERM errors
+    if (dev && process.platform === 'win32') {
+      config.watchOptions = {
+        poll: 1000, // Check for changes every second
+        aggregateTimeout: 300, // Delay before rebuilding
+        ignored: [
+          '**/node_modules',
+          '**/.git',
+          '**/.next/**',
+          '**/out/**',
+          '**/.vscode/**',
+        ],
+      };
+    }
     
-    // Handle CSV files
-    config.module.rules.push({
-      test: /\.csv$/,
-      use: ['csv-loader'],
-    });
-    
-    // Optimize bundle splitting
-    if (!dev && !isServer) {
-      config.optimization.splitChunks = {
-        ...config.optimization.splitChunks,
-        cacheGroups: {
-          ...config.optimization.splitChunks.cacheGroups,
-          // Separate chunk for chart libraries
-          charts: {
-            name: 'charts',
-            chunks: 'all',
-            test: /[\\/]node_modules[\\/](echarts|plotly\.js|d3|chart\.js)/,
-            priority: 30,
-            reuseExistingChunk: true,
-          },
-          // Separate chunk for UI libraries
-          ui: {
-            name: 'ui',
-            chunks: 'all',
-            test: /[\\/]node_modules[\\/](@mui|@emotion)/,
-            priority: 25,
-            reuseExistingChunk: true,
-          },
-          // Separate chunk for utility libraries
-          utils: {
-            name: 'utils',
-            chunks: 'all',
-            test: /[\\/]node_modules[\\/](lodash|moment|uuid)/,
-            priority: 20,
-            reuseExistingChunk: true,
+    // Optimize bundle splitting for better performance
+    if (!isServer) {
+      config.optimization = {
+        ...config.optimization,
+        splitChunks: {
+          chunks: 'all',
+          cacheGroups: {
+            default: false,
+            vendors: false,
+            // Vendor chunk for node_modules
+            vendor: {
+              name: 'vendors',
+              chunks: 'all',
+              test: /[\\/]node_modules[\\/]/,
+              priority: 10,
+              enforce: true,
+            },
+            // Common chunk for shared code
+            common: {
+              minChunks: 2,
+              chunks: 'all',
+              name: 'common',
+              priority: 5,
+              enforce: true,
+            },
+            // MUI chunk
+            mui: {
+              name: 'mui',
+              chunks: 'all',
+              test: /[\\/]node_modules[\\/]@mui[\\/]/,
+              priority: 15,
+              enforce: true,
+            },
+            // Redux chunk
+            redux: {
+              name: 'redux',
+              chunks: 'all',
+              test: /[\\/]node_modules[\\/](redux|@reduxjs|react-redux|redux-persist)[\\/]/,
+              priority: 15,
+              enforce: true,
+            },
           },
         },
       };
     }
     
+    // Add resolve fallbacks for browser compatibility
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        net: false,
+        tls: false,
+      };
+    }
+    
+    // Bundle analyzer (only when ANALYZE=true)
+    if (process.env.ANALYZE === 'true') {
+      const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
+      config.plugins.push(
+        new BundleAnalyzerPlugin({
+          analyzerMode: 'static',
+          openAnalyzer: true,
+        })
+      );
+    }
+    
     return config;
   },
   
-  // Headers configuration
+  // Security and performance headers
   async headers() {
     return [
       {
-        source: '/api/:path*',
+        source: '/:path*',
         headers: [
+          // Security headers
           {
-            key: 'Access-Control-Allow-Origin',
-            value: '*',
+            key: 'X-DNS-Prefetch-Control',
+            value: 'on'
           },
           {
-            key: 'Access-Control-Allow-Methods',
-            value: 'GET, POST, PUT, DELETE, OPTIONS',
+            key: 'X-Frame-Options',
+            value: 'DENY'
           },
           {
-            key: 'Access-Control-Allow-Headers',
-            value: 'Content-Type, Authorization',
+            key: 'X-Content-Type-Options',
+            value: 'nosniff'
           },
+          {
+            key: 'Referrer-Policy',
+            value: 'origin-when-cross-origin'
+          },
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(), microphone=(), geolocation=()'
+          }
         ],
       },
+      // Cache headers for static assets
+      {
+        source: '/icons/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable'
+          }
+        ]
+      },
+      {
+        source: '/fonts/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable'
+          }
+        ]
+      }
     ];
   },
   
-  // Rewrites configuration
-  async rewrites() {
-    return [
-      // API proxy
-      {
-        source: '/api/:path*',
-        destination: `${process.env.API_URL || 'http://localhost:3001'}/api/:path*`,
-      },
-      // Webview panel rewrites
-      {
-        source: '/webview/:webviewSlug/:path*',
-        destination: '/webview/:webviewSlug/:path*',
-      },
-    ];
-  },
-  
-  // Redirects configuration
+  // Redirects for better UX
   async redirects() {
     return [
-      // Redirect root to workspace selector
       {
         source: '/',
-        destination: '/workspace-selector',
+        destination: '/login',
         permanent: false,
       },
-      // Legacy route redirects
+      // Redirect old URLs if needed
       {
-        source: '/dashboard/:slug*',
-        destination: '/workspace-selector',
+        source: '/dashboard/home',
+        destination: '/dashboard',
         permanent: true,
       },
+    ];
+  },
+  
+  // Rewrites for API proxy or URL masking
+  async rewrites() {
+    return [
+      // Example: Proxy API calls to avoid CORS in development
+      ...(process.env.NODE_ENV === 'development' ? [
+        {
+          source: '/api/:path*',
+          destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/:path*`,
+        }
+      ] : []),
     ];
   },
   
   // Output configuration
   output: 'standalone',
   
-  // Compression
+  // Compiler options
+  compiler: {
+    // Remove console logs in production
+    removeConsole: process.env.NODE_ENV === 'production' ? {
+      exclude: ['error', 'warn']
+    } : false,
+    
+    // Enable SWC emotion plugin for styled-components
+    styledComponents: true,
+    
+    // Enable relay support if needed
+    relay: undefined,
+  },
+  
+  // Custom build ID for cache busting
+  generateBuildId: async () => {
+    // Use git commit hash if available, otherwise use timestamp
+    try {
+      const { execSync } = require('child_process');
+      const gitHash = execSync('git rev-parse HEAD').toString().trim();
+      return gitHash.substring(0, 8);
+    } catch {
+      return `build-${Date.now()}`;
+    }
+  },
+  
+  // Power pack features (if available)
+  poweredByHeader: false,
   compress: true,
   
-  // Power by header
-  poweredByHeader: false,
+  // TypeScript configuration
+  typescript: {
+    // Dangerously allow builds to complete with TypeScript errors
+    // ignoreBuildErrors: false,
+  },
   
-  // Generate ETags
-  generateEtags: true,
+  // ESLint configuration
+  eslint: {
+    // Don't run ESLint during builds in production
+    ignoreDuringBuilds: process.env.NODE_ENV === 'production',
+  },
   
-  // Development configuration
-  ...(process.env.NODE_ENV === 'development' && {
-    // Enable source maps in development
-    productionBrowserSourceMaps: false,
-  }),
+  // Internationalization (i18n) - if needed later
+  // i18n: {
+  //   locales: ['en-US', 'es-ES'],
+  //   defaultLocale: 'en-US',
+  // },
   
-  // Production configuration
-  ...(process.env.NODE_ENV === 'production' && {
-    // Disable source maps in production
-    productionBrowserSourceMaps: false,
-    // Enable static optimization
-    optimizeFonts: true,
-  }),
+  // Server runtime configuration
+  serverRuntimeConfig: {
+    // Will only be available on the server side
+    mySecret: 'secret',
+  },
+  
+  // Public runtime configuration
+  publicRuntimeConfig: {
+    // Will be available on both server and client
+    staticFolder: '/static',
+  },
 };
 
-// Bundle analyzer configuration
-const withAnalyzer = require('@next/bundle-analyzer')({
-  enabled: process.env.ANALYZE === 'true',
-});
+// Optional: Add bundle analyzer dependency check
+if (process.env.ANALYZE === 'true') {
+  try {
+    require('webpack-bundle-analyzer');
+  } catch (e) {
+    console.warn('⚠️  webpack-bundle-analyzer not installed. Run: npm install --save-dev webpack-bundle-analyzer');
+  }
+}
 
-module.exports = withAnalyzer(nextConfig);
+module.exports = nextConfig;

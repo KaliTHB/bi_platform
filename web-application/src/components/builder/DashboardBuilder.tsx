@@ -49,7 +49,7 @@ import {
 import { Responsive, WidthProvider } from 'react-grid-layout';
 
 // API Services
-import { dashboardAPI, datasetAPI } from '@/api/index';
+import { dashboardAPI, datasetAPI } from '@/services/index';
 
 // Components
 import ChartContainer from '../dashboard/ChartContainer';

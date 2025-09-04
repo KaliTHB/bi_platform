@@ -50,7 +50,7 @@
         "./src/store/*"
       ],
       "@/services/*": [
-        "src/api/*"
+        "./src/services/*"
       ],
       "@/config/*": [
         "./src/config/*"
