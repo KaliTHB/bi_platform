@@ -26,7 +26,7 @@ export async function clearTestDatabase(db: Pool): Promise<void> {
     'webview_configs',
     'dashboard_categories',
     'user_role_assignments',
-    'custom_roles',
+    'roles',
     'users',
     'workspaces'
   ];
@@ -65,7 +65,7 @@ async function createTestTables(db: Pool): Promise<void> {
   `);
 
   await db.query(`
-    CREATE TABLE IF NOT EXISTS custom_roles (
+    CREATE TABLE IF NOT EXISTS roles (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       name VARCHAR(200) NOT NULL,
@@ -81,7 +81,7 @@ async function createTestTables(db: Pool): Promise<void> {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-      role_id UUID NOT NULL REFERENCES custom_roles(id) ON DELETE CASCADE,
+      role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
       assigned_by UUID NOT NULL REFERENCES users(id),
       assigned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       is_active BOOLEAN DEFAULT TRUE
@@ -108,7 +108,7 @@ async function createTestTables(db: Pool): Promise<void> {
     CREATE TABLE IF NOT EXISTS webview_access (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       webview_id UUID NOT NULL REFERENCES webview_configs(id) ON DELETE CASCADE,
-      role_id UUID REFERENCES custom_roles(id),
+      role_id UUID REFERENCES roles(id),
       permissions JSONB NOT NULL DEFAULT '["can_read"]',
       granted_by UUID NOT NULL REFERENCES users(id),
       granted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

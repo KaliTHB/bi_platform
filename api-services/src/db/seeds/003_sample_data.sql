@@ -47,7 +47,7 @@ BEGIN
         cr.id,
         '["can_read"]'::jsonb,
         admin_user_id
-    FROM custom_roles cr
+    FROM roles cr
     WHERE cr.workspace_id = default_workspace_id;
     
 END $;

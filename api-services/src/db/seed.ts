@@ -260,7 +260,7 @@ class DatabaseSeeder {
     for (const role of seedData.roles) {
       // Insert role
       await client.query(
-        `INSERT INTO custom_roles (name, display_name, description, is_system_role)
+        `INSERT INTO roles (name, display_name, description, is_system_role)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (name) DO UPDATE SET
          display_name = $2, description = $3`,
@@ -269,7 +269,7 @@ class DatabaseSeeder {
 
       // Get role ID
       const roleResult = await client.query(
-        'SELECT id FROM custom_roles WHERE name = $1',
+        'SELECT id FROM roles WHERE name = $1',
         [role.name]
       );
 
@@ -313,7 +313,7 @@ class DatabaseSeeder {
   private async assignRoles(client: any) {
     // Assign super_admin role to admin user
     const adminResult = await client.query('SELECT id FROM users WHERE username = $1', ['admin']);
-    const superAdminResult = await client.query('SELECT id FROM custom_roles WHERE name = $1', ['super_admin']);
+    const superAdminResult = await client.query('SELECT id FROM roles WHERE name = $1', ['super_admin']);
 
     if (adminResult.rows.length > 0 && superAdminResult.rows.length > 0) {
       const defaultWorkspace = await client.query('SELECT id FROM workspaces WHERE slug = $1', ['default']);
@@ -331,7 +331,7 @@ class DatabaseSeeder {
 
     // Assign analyst role to demo user
     const demoUserResult = await client.query('SELECT id FROM users WHERE username = $1', ['demo_user']);
-    const analystRoleResult = await client.query('SELECT id FROM custom_roles WHERE name = $1', ['analyst']);
+    const analystRoleResult = await client.query('SELECT id FROM roles WHERE name = $1', ['analyst']);
 
     if (demoUserResult.rows.length > 0 && analystRoleResult.rows.length > 0) {
       const demoWorkspace = await client.query('SELECT id FROM workspaces WHERE slug = $1', ['demo']);
@@ -398,7 +398,7 @@ class DatabaseSeeder {
       await client.query('DELETE FROM workspace_plugin_configs');
       await client.query('DELETE FROM workspace_users');
       await client.query('DELETE FROM role_permissions');
-      await client.query('DELETE FROM custom_roles WHERE is_system_role = false');
+      await client.query('DELETE FROM roles WHERE is_system_role = false');
       await client.query('DELETE FROM workspaces WHERE slug != \'default\'');
       await client.query('DELETE FROM users WHERE username != \'admin\'');
       await client.query('DELETE FROM permissions');

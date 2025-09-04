@@ -58,7 +58,7 @@ export class UserService extends DatabaseService {
                COALESCE(array_agg(DISTINCT cr.name) FILTER (WHERE cr.name IS NOT NULL), '{}') as roles
         FROM users u
         JOIN user_role_assignments ura ON u.id = ura.user_id AND ura.is_active = true
-        LEFT JOIN custom_roles cr ON ura.role_id = cr.id AND cr.is_active = true
+        LEFT JOIN roles cr ON ura.role_id = cr.id AND cr.is_active = true
         ${whereClause}
         GROUP BY u.id, u.email, u.first_name, u.last_name, u.avatar_url, u.last_login_at, u.created_at
         ORDER BY u.created_at DESC
@@ -128,7 +128,7 @@ export class UserService extends DatabaseService {
         for (const roleId of roleIds) {
           // Verify role exists and get role name
           const roleResult = await client.query(
-            'SELECT id, name FROM custom_roles WHERE id = $1 AND workspace_id = $2 AND is_active = true',
+            'SELECT id, name FROM roles WHERE id = $1 AND workspace_id = $2 AND is_active = true',
             [roleId, workspaceId]
           );
 
@@ -209,7 +209,7 @@ export class UserService extends DatabaseService {
       // Get user roles
       const rolesResult = await this.query(`
         SELECT cr.name
-        FROM custom_roles cr
+        FROM roles cr
         JOIN user_role_assignments ura ON cr.id = ura.role_id
         WHERE ura.user_id = $1 AND ura.is_active = true AND cr.is_active = true
       `, [userId]);
@@ -257,7 +257,7 @@ export class UserService extends DatabaseService {
     const dbClient = client || this;
     try {
       const result = await dbClient.query(
-        'SELECT id FROM custom_roles WHERE workspace_id = $1 AND name = $2 AND is_system_role = true AND is_active = true',
+        'SELECT id FROM roles WHERE workspace_id = $1 AND name = $2 AND is_system_role = true AND is_active = true',
         [workspaceId, 'Reader']
       );
       

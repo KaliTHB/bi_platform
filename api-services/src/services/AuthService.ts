@@ -135,7 +135,7 @@ export class AuthService extends DatabaseService {
       const query = `
         SELECT 1
         FROM user_role_assignments ura
-        JOIN custom_roles cr ON ura.role_id = cr.id
+        JOIN roles cr ON ura.role_id = cr.id
         WHERE ura.user_id = $1 
           AND ura.workspace_id = $2
           AND ura.is_active = true

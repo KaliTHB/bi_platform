@@ -192,7 +192,7 @@ export class RLSService {
       FROM users u
       CROSS JOIN workspaces w
       LEFT JOIN user_role_assignments ura ON u.id = ura.user_id AND w.id = ura.workspace_id
-      LEFT JOIN custom_roles cr ON ura.role_id = cr.id
+      LEFT JOIN roles cr ON ura.role_id = cr.id
       WHERE u.id = $1 AND w.id = $2 AND ura.is_active = true
       GROUP BY u.id, u.profile_data, w.id
     `;

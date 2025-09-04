@@ -57,7 +57,7 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
       FROM users u
       JOIN workspace_users wu ON u.id = wu.user_id
       JOIN workspaces w ON wu.workspace_id = w.id
-      JOIN custom_roles r ON wu.role_id = r.id
+      JOIN roles r ON wu.role_id = r.id
       WHERE u.id = $1 AND w.id = $2 AND u.is_active = true AND wu.is_active = true
     `;
 

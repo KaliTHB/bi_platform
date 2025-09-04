@@ -16,7 +16,7 @@ BEGIN
     SELECT id INTO admin_user_id FROM users WHERE username = 'admin';
     
     -- Create Administrator role
-    INSERT INTO custom_roles (workspace_id, name, description, permissions, is_system_role, created_by)
+    INSERT INTO roles (workspace_id, name, description, permissions, is_system_role, created_by)
     VALUES (
         default_workspace_id,
         'Administrator',
@@ -40,7 +40,7 @@ BEGIN
     ) RETURNING id INTO admin_role_id;
     
     -- Create Contributor role
-    INSERT INTO custom_roles (workspace_id, name, description, permissions, is_system_role, created_by)
+    INSERT INTO roles (workspace_id, name, description, permissions, is_system_role, created_by)
     VALUES (
         default_workspace_id,
         'Contributor',
@@ -60,7 +60,7 @@ BEGIN
     ) RETURNING id INTO contributor_role_id;
     
     -- Create Reader role
-    INSERT INTO custom_roles (workspace_id, name, description, permissions, is_system_role, created_by)
+    INSERT INTO roles (workspace_id, name, description, permissions, is_system_role, created_by)
     VALUES (
         default_workspace_id,
         'Reader',
