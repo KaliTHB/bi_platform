@@ -16,7 +16,10 @@ import {
   Alert,
   AlertTitle,
   Paper,
-  Container
+  Container,
+  ListItemIcon,
+  ListItemText,
+  Divider
 } from '@mui/material';
 import {
   Search,
@@ -25,7 +28,10 @@ import {
   AccountCircle,
   ExitToApp,
   Business,
-  Notifications
+  Notifications,
+  Settings as SettingsIcon,
+  Home,
+  ContactSupport
 } from '@mui/icons-material';
 import { useAuth } from '../../hooks/useAuth';
 import CollapsibleSidebar from './CollapsibleSidebar';
@@ -89,13 +95,14 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
     handleClose();
   };
 
-  const handleWorkspaceSelector = () => {
-    router.push('/workspace-selector');
+  const handleLogout = () => {
+    signOut();
     handleClose();
   };
 
-  const handleLogout = () => {
-    signOut();
+  const handleContactSupport = () => {
+    // You can customize this to open email, help desk, or support page
+    window.location.href = 'mailto:support@yourcompany.com?subject=Workspace Access Request';
     handleClose();
   };
 
@@ -170,7 +177,7 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
               </Button>
             )}
 
-            {showAddButton && (
+            {showAddButton && onAddClick && (
               <Button
                 variant="contained"
                 startIcon={<Add />}
@@ -215,22 +222,35 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
               onClose={handleClose}
             >
               <MenuItem onClick={handleProfile}>
-                <AccountCircle sx={{ mr: 1 }} />
-                Profile
+                <ListItemIcon>
+                  <AccountCircle fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Profile</ListItemText>
               </MenuItem>
+              
               {workspace && (
                 <MenuItem onClick={handleSettings}>
-                  <Business sx={{ mr: 1 }} />
-                  Workspace Settings
+                  <ListItemIcon>
+                    <SettingsIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText>Workspace Settings</ListItemText>
                 </MenuItem>
               )}
-              <MenuItem onClick={handleWorkspaceSelector}>
-                <Business sx={{ mr: 1 }} />
-                Select Workspace
+
+              <Divider />
+              
+              <MenuItem onClick={handleContactSupport}>
+                <ListItemIcon>
+                  <ContactSupport fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Contact Support</ListItemText>
               </MenuItem>
+              
               <MenuItem onClick={handleLogout}>
-                <ExitToApp sx={{ mr: 1 }} />
-                Logout
+                <ListItemIcon>
+                  <ExitToApp fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Logout</ListItemText>
               </MenuItem>
             </Menu>
           </Toolbar>
@@ -241,18 +261,28 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
           {/* No Workspace Found Message */}
           {noWorkspaceMessage && (
             <Container maxWidth="md" sx={{ mb: 4 }}>
-              <Alert severity="warning" sx={{ mb: 3 }}>
-                <AlertTitle>No Workspace Found</AlertTitle>
-                The workspace "{workspaceSlug}" was not found or you don't have access to it. 
-                You can browse available workspaces or contact your administrator.
-                <Box sx={{ mt: 2 }}>
+              <Alert severity="error" sx={{ mb: 3 }}>
+                <AlertTitle>Workspace Not Found</AlertTitle>
+                The workspace "{workspaceSlug}" was not found or you don't have access to it.
+                <Box sx={{ mt: 2, display: 'flex', gap: 2 }}>
                   <Button
                     variant="contained"
                     size="small"
-                    startIcon={<Business />}
-                    onClick={() => router.push('/workspace-selector')}
+                    startIcon={<Home />}
+                    onClick={() => {
+                      // Redirect to user's default workspace or login
+                      signOut(); // This will redirect to login and get default workspace
+                    }}
                   >
-                    Browse Workspaces
+                    Go to My Workspace
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<ContactSupport />}
+                    onClick={handleContactSupport}
+                  >
+                    Contact Support
                   </Button>
                 </Box>
               </Alert>

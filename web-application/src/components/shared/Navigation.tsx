@@ -1,3 +1,4 @@
+// web-application/src/components/shared/Navigation.tsx
 import React from 'react';
 import { useRouter } from 'next/router';
 import {
@@ -10,8 +11,18 @@ import {
   Menu,
   MenuItem,
   Avatar,
+  Divider,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
-import { AccountCircle, Settings, ExitToApp } from '@mui/icons-material';
+import { 
+  AccountCircle, 
+  Settings, 
+  ExitToApp, 
+  ContactSupport,
+  Home,
+  Business 
+} from '@mui/icons-material';
 import { useAuth } from '../../hooks/useAuth';
 
 interface NavigationProps {
@@ -32,12 +43,32 @@ const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
   };
 
   const handleProfile = () => {
-    router.push(`/workspace/${workspace?.slug}/profile`);
+    if (workspace) {
+      router.push(`/workspace/${workspace.slug}/profile`);
+    }
     handleClose();
   };
 
   const handleSettings = () => {
-    router.push(`/workspace/${workspace?.slug}/admin`);
+    if (workspace) {
+      router.push(`/workspace/${workspace.slug}/admin`);
+    }
+    handleClose();
+  };
+
+  const handleHome = () => {
+    if (workspace) {
+      router.push(`/workspace/${workspace.slug}/overview`);
+    } else {
+      // Redirect to login to get default workspace
+      signOut();
+    }
+    handleClose();
+  };
+
+  const handleContactSupport = () => {
+    // You can customize this to open email, help desk, or support page
+    window.location.href = 'mailto:support@yourcompany.com?subject=Workspace Access Request';
     handleClose();
   };
 
@@ -55,7 +86,7 @@ const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
 
         {workspace && (
           <Typography variant="body2" sx={{ mr: 2, opacity: 0.8 }}>
-            {workspace.name}
+            {workspace.display_name || workspace.name}
           </Typography>
         )}
 
@@ -87,17 +118,43 @@ const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
           open={Boolean(anchorEl)}
           onClose={handleClose}
         >
+          <MenuItem onClick={handleHome}>
+            <ListItemIcon>
+              <Home fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Home</ListItemText>
+          </MenuItem>
+          
           <MenuItem onClick={handleProfile}>
-            <AccountCircle sx={{ mr: 1 }} />
-            Profile
+            <ListItemIcon>
+              <AccountCircle fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Profile</ListItemText>
           </MenuItem>
-          <MenuItem onClick={handleSettings}>
-            <Settings sx={{ mr: 1 }} />
-            Settings
+          
+          {workspace && (
+            <MenuItem onClick={handleSettings}>
+              <ListItemIcon>
+                <Settings fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Workspace Settings</ListItemText>
+            </MenuItem>
+          )}
+
+          <Divider />
+
+          <MenuItem onClick={handleContactSupport}>
+            <ListItemIcon>
+              <ContactSupport fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Contact Support</ListItemText>
           </MenuItem>
+
           <MenuItem onClick={handleLogout}>
-            <ExitToApp sx={{ mr: 1 }} />
-            Logout
+            <ListItemIcon>
+              <ExitToApp fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Logout</ListItemText>
           </MenuItem>
         </Menu>
       </Toolbar>
