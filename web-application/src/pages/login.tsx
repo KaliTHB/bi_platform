@@ -58,7 +58,7 @@ const getTestCredentials = (): TestCredential[] => {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL;
   
   // Different credentials based on environment
-  if (env === 'development') {
+  if (env === 'development' ) {
     return [
       {
         email: 'admin@localhost.com',
@@ -66,38 +66,7 @@ const getTestCredentials = (): TestCredential[] => {
         role: 'Super Admin',
         description: 'Full system access',
         color: 'primary',
-      },
-      {
-        email: 'manager@localhost.com',
-        password: 'manager123',
-        role: 'Manager',
-        description: 'Workspace management',
-        color: 'secondary',
-      },
-      {
-        email: 'analyst@localhost.com',
-        password: 'analyst123',
-        role: 'Analyst',
-        description: 'Data analysis & reports',
-        color: 'success',
-      },
-      {
-        email: 'viewer@localhost.com',
-        password: 'viewer123',
-        role: 'Viewer',
-        description: 'Read-only access',
-        color: 'info',
-      },
-    ];
-  } else if (env === 'staging') {
-    return [
-      {
-        email: 'demo@staging.com',
-        password: 'demo2024',
-        role: 'Demo User',
-        description: 'Staging environment demo',
-        color: 'warning',
-      },
+      }
     ];
   }
   
@@ -519,25 +488,9 @@ export default function LoginPage() {
                       </Divider>
 
                       <Box sx={{ mb: 2 }}>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          fullWidth
-                          onClick={() => setShowCredentials(!showCredentials)}
-                          sx={{ mb: 2 }}
-                        >
-                          {showCredentials ? 'Hide' : 'Show'} Test Accounts
-                        </Button>
-
                         {showCredentials && (
                           <Fade in>
                             <Box>
-                              <Alert severity="info" sx={{ mb: 2, fontSize: '0.875rem' }}>
-                                <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
-                                  Click any credential to auto-fill the form
-                                </Typography>
-                                Environment: <Chip label={process.env.NODE_ENV} size="small" />
-                              </Alert>
                               
                               <Grid container spacing={1}>
                                 {testCredentials.map((cred, index) => (

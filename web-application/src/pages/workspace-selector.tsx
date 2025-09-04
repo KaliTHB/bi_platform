@@ -1,458 +1,263 @@
-// web-application/src/pages/workspace-selector.tsx
+// web-application/src/pages/workspace-selector.tsx (Fixed)
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { useSelector, useDispatch } from 'react-redux';
-import { RootState } from '@/store/index';
-import { setCurrentWorkspace } from '@/store/slices/workspaceSlice';
-import { restoreAuth, clearAuth } from '@/store/slices/authSlice';
-import { workspaceService } from '@/api/workspaceAPI';
-import {
-  Container,
-  Paper,
-  Typography,
-  Box,
-  Button,
-  Grid,
-  Card,
-  CardContent,
-  CardActions,
-  Alert,
-  CircularProgress,
-  Chip,
-  Avatar,
-  Skeleton,
-  IconButton,
-  Tooltip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-} from '@mui/material';
-import {
-  Business,
-  People,
-  Dashboard,
-  Refresh,
-  ExitToApp,
-  Settings,
-  Info,
-  Error as ErrorIcon,
-} from '@mui/icons-material';
+import { GetServerSideProps } from 'next';
+import { useAppSelector, useAppDispatch } from '../store/hooks'; // Fixed import path
+import { setCurrentWorkspace } from '../store/slices/workspaceSlice';
+import LoadingSpinner from '../components/shared/LoadingSpinner';
 
 interface Workspace {
   id: string;
   name: string;
   description?: string;
-  role: string;
-  member_count: number;
-  updated_at: string;
-  slug?: string;
-  logo_url?: string;
-  is_active?: boolean;
+  role?: string;
+  member_count?: number;
+  updated_at?: string;
 }
 
-const WorkspaceSelector: React.FC = () => {
+interface WorkspaceSelectorProps {
+  // No server-side props to reduce initial data size
+}
+
+const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = () => {
   const router = useRouter();
-  const dispatch = useDispatch();
-  const { user, isAuthenticated, token, isLoading: authLoading } = useSelector((state: RootState) => state.auth);
+  const dispatch = useAppDispatch();
+  
+  // Fixed: Added error handling for state selection
+  const auth = useAppSelector(state => state?.auth || {});
+  const { user, isAuthenticated, token } = auth;
   
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
-  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
 
-  // Auto-restore auth on component mount
   useEffect(() => {
-    const storedToken = localStorage.getItem('auth_token');
-    console.log('Workspace selector mounted - Auth status:', {
-      isAuthenticated,
-      hasToken: !!token,
-      hasStoredToken: !!storedToken,
-      authLoading
-    });
-    
-    if (!isAuthenticated && storedToken && storedToken !== 'undefined' && storedToken !== 'null') {
-      console.log('Restoring auth from localStorage');
-      dispatch(restoreAuth());
-    }
-  }, [dispatch, isAuthenticated, token, authLoading]);
-
-  // Fetch workspaces when authenticated
-  useEffect(() => {
-    const effectiveToken = token || localStorage.getItem('auth_token');
-    
-    if (!isAuthenticated && !effectiveToken) {
-      console.log('Not authenticated and no token, redirecting to login');
+    if (!isAuthenticated) {
       router.push('/login');
       return;
     }
 
-    if ((isAuthenticated || effectiveToken) && !authLoading) {
-      fetchWorkspaces();
-    }
-  }, [isAuthenticated, token, authLoading, router, retryCount]);
+    fetchWorkspaces();
+  }, [isAuthenticated, router, token]);
 
   const fetchWorkspaces = async () => {
-    const effectiveToken = token || localStorage.getItem('auth_token');
-    
-    if (!effectiveToken || effectiveToken === 'undefined' || effectiveToken === 'null') {
-      setError('No authentication token found');
+    if (!token) {
+      setError('No authentication token');
       setLoading(false);
-      handleAuthError();
       return;
     }
 
     try {
       setLoading(true);
       setError(null);
-      console.log('Fetching workspaces using workspaceService...');
 
-      // Use the workspaceService to fetch workspaces
-      const workspacesData = await workspaceService.getUserWorkspaces();
-      
-      console.log('Workspaces fetched successfully:', workspacesData);
-      setWorkspaces(workspacesData);
-      
-    } catch (err: any) {
-      console.error('Error fetching workspaces:', err);
-      
-      // Handle specific error types
-      if (err.message.includes('Authentication failed') || err.message.includes('401')) {
-        console.log('Authentication error, clearing auth');
-        handleAuthError();
-        return;
+      // Fixed API call - use correct data structure
+      const response = await fetch('/api/workspaces', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
+
+      const data = await response.json();
       
-      if (err.message.includes('fetch')) {
-        setError('Unable to connect to server. Please check your connection and try again.');
+      // Fixed: Handle different response structures
+      if (data.success && data.data) {
+        setWorkspaces(Array.isArray(data.data) ? data.data : [data.data]);
+      } else if (Array.isArray(data)) {
+        setWorkspaces(data);
       } else {
-        setError(err.message || 'Failed to load workspaces');
+        throw new Error(data.message || 'Failed to fetch workspaces');
       }
+    } catch (err) {
+      console.error('Error fetching workspaces:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load workspaces');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAuthError = () => {
-    dispatch(clearAuth());
-    router.push('/login');
-  };
-
-  const handleWorkspaceSelect = async (workspace: Workspace) => {
-    if (!workspace.is_active) {
-      setError('This workspace is currently inactive');
-      return;
-    }
-
-    setSelectedWorkspace(workspace.id);
-    
+  const handleWorkspaceSelect = (workspace: Workspace) => {
     try {
-      // Store workspace data in Redux
+      // Fixed: Only store essential workspace data in Redux
       dispatch(setCurrentWorkspace({
         id: workspace.id,
         name: workspace.name,
         description: workspace.description,
         role: workspace.role,
-        member_count: workspace.member_count,
-        created_at: new Date().toISOString(), // fallback
-        updated_at: workspace.updated_at,
+        member_count: workspace.member_count || 0,
+        created_at: new Date().toISOString(), // Placeholder
+        updated_at: workspace.updated_at || new Date().toISOString()
       }));
       
-      // Store selected workspace in localStorage for persistence
-      localStorage.setItem('selected_workspace_id', workspace.id);
-      localStorage.setItem('selected_workspace', JSON.stringify({
-        id: workspace.id,
-        name: workspace.name,
-        slug: workspace.slug,
-      }));
-      
-      console.log('Workspace selected, navigating to dashboard:', workspace);
-      
-      // Navigate to main application
-      router.push('/dashboard');
-      
-    } catch (error: any) {
+      router.push(`/workspace/${workspace.id}/dashboard`);
+    } catch (error) {
       console.error('Error selecting workspace:', error);
-      setError('Failed to select workspace. Please try again.');
-      setSelectedWorkspace(null);
+      setError('Failed to select workspace');
     }
   };
 
-  const handleRetry = () => {
-    setError(null);
-    setRetryCount(prev => prev + 1);
-  };
-
-  const handleRefresh = () => {
-    setRetryCount(prev => prev + 1);
-  };
-
-  const handleLogout = () => {
-    setShowLogoutDialog(false);
-    dispatch(clearAuth());
-    router.push('/login');
-  };
-
-  const formatLastUpdated = (dateString: string) => {
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString();
-    } catch {
-      return 'Unknown';
+  const getRoleColor = (role?: string) => {
+    if (!role) return 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20';
+    
+    switch (role.toLowerCase()) {
+      case 'owner': return 'text-purple-600 bg-purple-100 dark:text-purple-400 dark:bg-purple-900/20';
+      case 'admin': return 'text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-900/20';
+      case 'editor': return 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/20';
+      case 'viewer': return 'text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-900/20';
+      default: return 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/20';
     }
   };
 
-  // Loading state
-  if (loading || authLoading) {
+  if (!isAuthenticated) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-        <Box sx={{ textAlign: 'center', mb: 4 }}>
-          <Skeleton variant="text" width={300} height={60} sx={{ mx: 'auto', mb: 2 }} />
-          <Skeleton variant="text" width={200} height={30} sx={{ mx: 'auto' }} />
-        </Box>
-        
-        <Grid container spacing={3}>
-          {[1, 2, 3, 4].map((item) => (
-            <Grid item xs={12} sm={6} md={4} key={item}>
-              <Card>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <Skeleton variant="circular" width={40} height={40} sx={{ mr: 2 }} />
-                    <Box sx={{ flex: 1 }}>
-                      <Skeleton variant="text" width="80%" />
-                      <Skeleton variant="text" width="50%" />
-                    </Box>
-                  </Box>
-                  <Skeleton variant="text" width="100%" />
-                  <Skeleton variant="text" width="60%" />
-                </CardContent>
-                <CardActions>
-                  <Skeleton variant="rectangular" width="100%" height={36} />
-                </CardActions>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
-      </Container>
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner size="lg" text="Redirecting to login..." />
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <LoadingSpinner size="lg" text="Loading workspaces..." />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="max-w-md w-full bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6">
+          <div className="text-center">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 dark:bg-red-900/20">
+              <svg className="h-6 w-6 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+            </div>
+            <h3 className="mt-4 text-lg font-medium text-gray-900 dark:text-white">
+              Error Loading Workspaces
+            </h3>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+              {error}
+            </p>
+            <button
+              onClick={fetchWorkspaces}
+              className="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
-        <Box>
-          <Typography variant="h4" component="h1" gutterBottom>
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {/* Header */}
+        <div className="text-center mb-12">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
             Select Workspace
-          </Typography>
-          {user && (
-            <Typography variant="subtitle1" color="text.secondary">
-              Welcome back, {user.first_name || user.email}
-            </Typography>
-          )}
-        </Box>
-        
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Tooltip title="Refresh workspaces">
-            <IconButton onClick={handleRefresh} disabled={loading}>
-              <Refresh />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Sign out">
-            <IconButton onClick={() => setShowLogoutDialog(true)} color="error">
-              <ExitToApp />
-            </IconButton>
-          </Tooltip>
-        </Box>
-      </Box>
+          </h1>
+          <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
+            Choose a workspace to access your dashboards and analytics
+          </p>
+        </div>
 
-      {/* Error Alert */}
-      {error && (
-        <Alert 
-          severity="error" 
-          sx={{ mb: 3 }}
-          icon={<ErrorIcon />}
-          action={
-            <Button color="inherit" size="small" onClick={handleRetry}>
-              Retry
-            </Button>
-          }
-        >
-          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-            Error Loading Workspaces
-          </Typography>
-          {error}
-          <br />
-          <Typography variant="caption" sx={{ mt: 1, display: 'block' }}>
-            If this persists, try refreshing the page or contact support.
-          </Typography>
-        </Alert>
-      )}
+        {/* User Info - Minimal */}
+        {user && (
+          <div className="mb-8 text-center">
+            <div className="inline-flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center">
+                <span className="text-white font-medium">
+                  {user.first_name?.charAt(0)?.toUpperCase() || user.email?.charAt(0)?.toUpperCase() || 'U'}
+                </span>
+              </div>
+              <div className="text-left">
+                <p className="text-sm font-medium text-gray-900 dark:text-white">
+                  {user.first_name ? `${user.first_name} ${user.last_name}` : user.email}
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {user.email}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
-      {/* Debug Info (Development Only) */}
-      {process.env.NODE_ENV === 'development' && error && (
-        <Alert severity="info" sx={{ mb: 3 }}>
-          <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
-            Debug Information:
-          </Typography>
-          <Typography variant="caption" component="div">
-            • Token present: {token ? 'Yes' : 'No'}
-          </Typography>
-          <Typography variant="caption" component="div">
-            • Authenticated: {isAuthenticated ? 'Yes' : 'No'}
-          </Typography>
-          <Typography variant="caption" component="div">
-            • API URL: {process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}
-          </Typography>
-          <Typography variant="caption" component="div">
-            • Error: {error}
-          </Typography>
-        </Alert>
-      )}
-
-      {/* Empty State */}
-      {workspaces.length === 0 && !error && !loading && (
-        <Paper sx={{ p: 4, textAlign: 'center' }}>
-          <Business sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-          <Typography variant="h6" gutterBottom>
-            No Workspaces Available
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            You don't have access to any workspaces yet. Contact your administrator for access.
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
-            <Button variant="outlined" onClick={handleRetry} startIcon={<Refresh />}>
-              Refresh
-            </Button>
-            <Button variant="text" onClick={() => setShowLogoutDialog(true)} startIcon={<ExitToApp />}>
-              Sign Out
-            </Button>
-          </Box>
-        </Paper>
-      )}
-
-      {/* Workspaces Grid */}
-      {workspaces.length > 0 && (
-        <>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Found {workspaces.length} workspace{workspaces.length !== 1 ? 's' : ''}
-          </Typography>
-          
-          <Grid container spacing={3}>
+        {/* Workspaces Grid - Optimized */}
+        {workspaces.length > 0 ? (
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {workspaces.map((workspace) => (
-              <Grid item xs={12} sm={6} md={4} key={workspace.id}>
-                <Card 
-                  sx={{ 
-                    height: '100%',
-                    cursor: workspace.is_active ? 'pointer' : 'not-allowed',
-                    transition: 'transform 0.2s, box-shadow 0.2s',
-                    opacity: workspace.is_active === false ? 0.6 : 
-                             selectedWorkspace === workspace.id ? 0.8 : 1,
-                    '&:hover': workspace.is_active ? {
-                      transform: 'translateY(-2px)',
-                      boxShadow: (theme) => theme.shadows[8],
-                    } : {},
-                  }}
-                  onClick={() => workspace.is_active && handleWorkspaceSelect(workspace)}
-                >
-                  <CardContent sx={{ pb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                      {workspace.logo_url ? (
-                        <Avatar src={workspace.logo_url} sx={{ mr: 2 }}>
-                          <Business />
-                        </Avatar>
-                      ) : (
-                        <Avatar sx={{ bgcolor: 'primary.main', mr: 2 }}>
-                          <Business />
-                        </Avatar>
+              <div
+                key={workspace.id}
+                onClick={() => handleWorkspaceSelect(workspace)}
+                className="relative group cursor-pointer bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-400"
+              >
+                <div className="p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
+                        {workspace.name}
+                      </h3>
+                      {workspace.description && (
+                        <p className="mt-2 text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
+                          {workspace.description}
+                        </p>
                       )}
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography variant="h6" component="div" noWrap>
-                          {workspace.name}
-                        </Typography>
-                        <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
-                          <Chip 
-                            label={workspace.role} 
-                            size="small" 
-                            color="primary"
-                            variant="outlined"
-                          />
-                          {workspace.is_active === false && (
-                            <Chip 
-                              label="Inactive" 
-                              size="small" 
-                              color="error"
-                              variant="outlined"
-                            />
-                          )}
-                        </Box>
-                      </Box>
-                    </Box>
-                    
-                    {workspace.description && (
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        {workspace.description}
-                      </Typography>
-                    )}
-                    
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <People fontSize="small" />
-                        <Typography variant="caption">
-                          {workspace.member_count} {workspace.member_count === 1 ? 'member' : 'members'}
-                        </Typography>
-                      </Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Updated {formatLastUpdated(workspace.updated_at)}
-                      </Typography>
-                    </Box>
-                  </CardContent>
-                  
-                  <CardActions sx={{ pt: 0 }}>
-                    <Button 
-                      size="small" 
-                      variant="contained"
-                      fullWidth
-                      disabled={!workspace.is_active || selectedWorkspace === workspace.id}
-                      startIcon={
-                        selectedWorkspace === workspace.id 
-                          ? <CircularProgress size={16} color="inherit" /> 
-                          : <Dashboard />
-                      }
-                    >
-                      {selectedWorkspace === workspace.id 
-                        ? 'Opening...' 
-                        : workspace.is_active 
-                          ? 'Open Workspace' 
-                          : 'Inactive'
-                      }
-                    </Button>
-                  </CardActions>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
-        </>
-      )}
+                    </div>
+                  </div>
 
-      {/* Logout Confirmation Dialog */}
-      <Dialog open={showLogoutDialog} onClose={() => setShowLogoutDialog(false)}>
-        <DialogTitle>Sign Out</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to sign out? You'll need to log in again to access your workspaces.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShowLogoutDialog(false)}>Cancel</Button>
-          <Button onClick={handleLogout} color="error" variant="contained">
-            Sign Out
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Container>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center text-sm text-gray-500 dark:text-gray-400">
+                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                      </svg>
+                      {workspace.member_count || 0}
+                    </div>
+
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRoleColor(workspace.role)}`}>
+                      {workspace.role || 'member'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="absolute inset-0 bg-blue-50 dark:bg-blue-900/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <svg className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+            <h3 className="mt-4 text-lg font-medium text-gray-900 dark:text-white">
+              No workspaces found
+            </h3>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+              You don't have access to any workspaces yet. Contact your administrator for access.
+            </p>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="mt-12 text-center">
+          <button
+            onClick={() => router.push('/login')}
+            className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+          >
+            Switch Account
+          </button>
+        </div>
+      </div>
+    </div>
   );
 };
 
