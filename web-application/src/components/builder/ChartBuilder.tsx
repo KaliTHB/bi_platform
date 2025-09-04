@@ -38,7 +38,7 @@ import { Dataset} from '@/types/dataset.types';
 import {
   dashboardAPI,
   chartAPI
-} from '@/services/index';
+} from '@/api/index';
 
 // Import utility functions
 import {
@@ -47,7 +47,7 @@ import {
   validateBasicSQLQuery,
   generateChartColumnsFromData
 } from '@/utils/datasetUtils';
-import { datasetAPI  } from '@/services/datasetAPI';
+import { datasetAPI  } from '@/api/datasetAPI';
 // Import components
 import { ChartConfigPanel } from '@/components/builder/ChartConfigPanel';
 import { ChartRenderer } from '@/components/chart/ChartRenderer';

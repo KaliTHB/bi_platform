@@ -1,6 +1,6 @@
 // web-application/src/store/slices/authSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import { authAPI } from '@/services/index';
+import { authAPI } from '@/api/index';
 import { User, LoginRequest, LoginResponse } from '@/types/auth.types';
 
 interface AuthState {

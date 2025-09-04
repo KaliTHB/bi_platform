@@ -6,7 +6,7 @@ import { createTestDatabase, clearTestDatabase } from './helpers/database';
 
 describe('Webview API', () => {
   let db: Pool;
-  let authToken: string;
+  let auth_token: string;
 
   beforeAll(async () => {
     db = await createTestDatabase();
@@ -30,14 +30,14 @@ describe('Webview API', () => {
         workspaceSlug: 'test-workspace'
       });
 
-    authToken = loginResponse.body.data.token;
+    auth_token = loginResponse.body.data.token;
   });
 
   describe('GET /api/webview/:webviewName', () => {
     it('should get webview configuration', async () => {
       const response = await request(app)
         .get('/api/webview/test-webview')
-        .set('Authorization', `Bearer ${authToken}`);
+        .set('Authorization', `Bearer ${auth_token}`);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -48,7 +48,7 @@ describe('Webview API', () => {
     it('should reject non-existent webview', async () => {
       const response = await request(app)
         .get('/api/webview/nonexistent')
-        .set('Authorization', `Bearer ${authToken}`);
+        .set('Authorization', `Bearer ${auth_token}`);
 
       expect(response.status).toBe(404);
       expect(response.body.success).toBe(false);
@@ -67,7 +67,7 @@ describe('Webview API', () => {
     it('should get webview categories', async () => {
       const response = await request(app)
         .get('/api/webview/test-webview/categories')
-        .set('Authorization', `Bearer ${authToken}`);
+        .set('Authorization', `Bearer ${auth_token}`);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -79,7 +79,7 @@ describe('Webview API', () => {
     it('should track analytics event', async () => {
       const response = await request(app)
         .post('/api/webview/test-webview/analytics')
-        .set('Authorization', `Bearer ${authToken}`)
+        .set('Authorization', `Bearer ${auth_token}`)
         .send({
           event_type: 'category_expand',
           category_id: 'test-category-id',

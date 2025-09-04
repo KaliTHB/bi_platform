@@ -57,7 +57,7 @@ import {
   //ChartAnimation,
 } from '@/types/chart.types';
 import { Dataset,ColumnDefinition } from '@/types/index';
-import { datasetAPI } from '@/services/index';
+import { datasetAPI } from '@/api/index';
 import {AVAILABLE_THEMES} from '@/types/common.types';
 
 import {ChartConfigPanelProps} from '@/types/index'

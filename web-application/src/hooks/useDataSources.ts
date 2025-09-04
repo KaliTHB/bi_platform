@@ -28,7 +28,7 @@ export const useDataSources = (): UseDataSourcesResult => {
 
   // Helper function to get auth headers
   const getAuthHeaders = () => {
-    const token = auth.token || localStorage.getItem('authToken');
+    const token = auth.token || localStorage.getItem('auth_token');
     return {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',

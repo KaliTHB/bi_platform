@@ -68,7 +68,7 @@ describe('Authentication API', () => {
   });
 
   describe('POST /api/auth/refresh', () => {
-    let authToken: string;
+    let auth_token: string;
 
     beforeEach(async () => {
       const loginResponse = await request(app)
@@ -79,18 +79,18 @@ describe('Authentication API', () => {
           workspaceSlug: 'test-workspace'
         });
 
-      authToken = loginResponse.body.data.token;
+      auth_token = loginResponse.body.data.token;
     });
 
     it('should refresh token with valid auth', async () => {
       const response = await request(app)
         .post('/api/auth/refresh')
-        .set('Authorization', `Bearer ${authToken}`);
+        .set('Authorization', `Bearer ${auth_token}`);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(response.body.data.token).toBeDefined();
-      expect(response.body.data.token).not.toBe(authToken);
+      expect(response.body.data.token).not.toBe(auth_token);
     });
 
     it('should reject refresh without auth', async () => {

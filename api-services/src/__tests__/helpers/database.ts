@@ -58,7 +58,7 @@ async function createTestTables(db: Pool): Promise<void> {
       email VARCHAR(254) NOT NULL UNIQUE,
       password_hash VARCHAR(255),
       is_active BOOLEAN DEFAULT TRUE,
-      last_login TIMESTAMP WITH TIME ZONE,
+      last_login_at TIMESTAMP WITH TIME ZONE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
