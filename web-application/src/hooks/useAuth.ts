@@ -1,8 +1,8 @@
-// web-application/src/hooks/useAuth.ts
+// web-application/src/hooks/useAuth.ts - Complete Version with Error Handling
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 
-// Interfaces based on your existing auth.types.ts
+// Interfaces
 interface User {
   id: string;
   username: string;
@@ -17,7 +17,7 @@ interface User {
   created_at: string;
   updated_at: string;
   
-  // RLS-related fields for Row Level Security policies
+  // RLS-related fields
   department?: string;
   region?: string;
   level?: string;
@@ -25,8 +25,6 @@ interface User {
   team?: string;
   cost_center?: string;
   manager_id?: string;
-  
-  // Generic profile data for extensibility
   profile_data?: Record<string, any>;
 }
 
@@ -34,20 +32,17 @@ interface Workspace {
   id: string;
   name: string;
   slug: string;
+  display_name?: string;
   description?: string;
   logo_url?: string;
-  user_count?: number;      // For WorkspaceSwitcher component
-  dashboard_count?: number; // For WorkspaceSwitcher component
-  dataset_count?: number;   // For statistics
-  is_default?: boolean;     // If this is user's default workspace
+  user_count?: number;
+  dashboard_count?: number;
+  dataset_count?: number;
+  is_default?: boolean;
   role?: string;
-  
-  // Timestamps
   created_at: string;
   updated_at: string;
   last_accessed?: string;
-  
-  // Workspace configuration
   settings?: WorkspaceSettings;
   is_active?: boolean;
 }
@@ -94,6 +89,12 @@ interface SwitchWorkspaceResult {
   error?: string;
 }
 
+interface WorkspaceResult {
+  workspace: Workspace | null;
+  hasEndpoint: boolean;
+  error?: string;
+}
+
 export const useAuth = () => {
   const router = useRouter();
   const [authState, setAuthState] = useState<AuthState>({
@@ -104,6 +105,74 @@ export const useAuth = () => {
     isLoading: true
   });
 
+  // Get the correct API base URL
+  const getApiBaseUrl = () => {
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+  };
+
+  // Safe API call wrapper with error handling
+  const safeApiCall = async <T>(
+    url: string, 
+    options: RequestInit = {},
+    errorContext: string
+  ): Promise<{ data: T | null; error: string | null; status?: number }> => {
+    try {
+      const response = await fetch(url, {
+        timeout: 10000, // 10 second timeout
+        ...options,
+      });
+
+      let data: any = null;
+      const responseText = await response.text();
+      
+      if (responseText) {
+        try {
+          data = JSON.parse(responseText);
+        } catch (parseError) {
+          console.warn('Failed to parse JSON response:', responseText);
+          data = { message: responseText };
+        }
+      }
+
+      if (!response.ok) {
+        const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
+        console.error(`API Error in ${errorContext}:`, {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorMessage,
+          url,
+          data
+        });
+
+        return {
+          data: null,
+          error: errorMessage,
+          status: response.status
+        };
+      }
+
+      return { data, error: null, status: response.status };
+
+    } catch (error: any) {
+      const errorMessage = error.name === 'AbortError' || error.message?.includes('timeout')
+        ? 'Request timed out. Please check your connection and try again.'
+        : error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError')
+        ? 'Unable to connect to server. Please check your connection.'
+        : `Network error: ${error.message}`;
+
+      console.error(`Network Error in ${errorContext}:`, {
+        error: error.message,
+        url,
+        errorType: error.name
+      });
+
+      return {
+        data: null,
+        error: errorMessage
+      };
+    }
+  };
+
   // Initialize auth state from localStorage on mount
   useEffect(() => {
     const initializeAuth = () => {
@@ -112,264 +181,363 @@ export const useAuth = () => {
         const user = localStorage.getItem('user');
         const workspace = localStorage.getItem('workspace');
 
+        console.log('Initializing auth state:', { 
+          hasToken: !!token, 
+          hasUser: !!user, 
+          hasWorkspace: !!workspace 
+        });
+
         if (token && user) {
-          setAuthState(prev => ({
-            ...prev,
-            token,
-            user: JSON.parse(user),
-            workspace: workspace ? JSON.parse(workspace) : null,
-            isAuthenticated: true,
-            isLoading: false
-          }));
+          try {
+            const parsedUser = JSON.parse(user);
+            const parsedWorkspace = workspace ? JSON.parse(workspace) : null;
+
+            setAuthState(prev => ({
+              ...prev,
+              token,
+              user: parsedUser,
+              workspace: parsedWorkspace,
+              isAuthenticated: true,
+              isLoading: false
+            }));
+          } catch (parseError) {
+            console.error('Error parsing stored auth data:', parseError);
+            // Clear corrupted data
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            localStorage.removeItem('workspace');
+            setAuthState(prev => ({ ...prev, isLoading: false }));
+          }
         } else {
-          setAuthState(prev => ({ 
-            ...prev, 
-            isLoading: false 
-          }));
+          setAuthState(prev => ({ ...prev, isLoading: false }));
         }
       } catch (error) {
         console.error('Error initializing auth state:', error);
-        // Clear corrupted data
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        localStorage.removeItem('workspace');
-        setAuthState(prev => ({ 
-          ...prev, 
-          isLoading: false 
-        }));
+        setAuthState(prev => ({ ...prev, isLoading: false }));
       }
     };
 
     initializeAuth();
   }, []);
 
-  // Get user's default workspace
-  const getDefaultWorkspace = useCallback(async (): Promise<Workspace | null> => {
+  // Get default workspace with comprehensive error handling
+  const getDefaultWorkspace = useCallback(async (): Promise<WorkspaceResult> => {
     if (!authState.token) {
-      return null;
+      return { 
+        workspace: null, 
+        hasEndpoint: false, 
+        error: 'No authentication token available' 
+      };
     }
 
-    try {
-      // Try to get user's default workspace first
-      const defaultResponse = await fetch('/api/v1/user/default-workspace', {
+    console.log('🔍 Checking for default workspace endpoint...');
+    
+    const apiUrl = getApiBaseUrl();
+    const { data, error, status } = await safeApiCall<any>(
+      `${apiUrl}/api/user/default-workspace`,
+      {
         headers: {
           'Authorization': `Bearer ${authState.token}`,
           'Content-Type': 'application/json'
         }
-      });
+      },
+      'getDefaultWorkspace'
+    );
 
-      if (defaultResponse.ok) {
-        const data = await defaultResponse.json();
-        if (data.success && data.workspace) {
-          return data.workspace;
-        }
+    if (error) {
+      if (status === 404) {
+        console.log('⚠️ Default workspace endpoint not implemented yet (404)');
+        return { 
+          workspace: null, 
+          hasEndpoint: false, 
+          error: 'Default workspace endpoint not implemented yet' 
+        };
+      } else if (status === 401) {
+        console.log('⚠️ Authentication failed for default workspace');
+        return { 
+          workspace: null, 
+          hasEndpoint: true, 
+          error: 'Authentication failed. Please login again.' 
+        };
+      } else if (status === 500) {
+        console.log('⚠️ Server error getting default workspace');
+        return { 
+          workspace: null, 
+          hasEndpoint: true, 
+          error: 'Server error. Please try again later or contact support.' 
+        };
+      } else {
+        console.log('⚠️ Unexpected error getting default workspace:', error);
+        return { 
+          workspace: null, 
+          hasEndpoint: false, 
+          error: error 
+        };
       }
+    }
 
-      // Fallback: get first available workspace
-      const workspacesResponse = await fetch('/api/v1/user/workspaces', {
-        headers: {
-          'Authorization': `Bearer ${authState.token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (workspacesResponse.ok) {
-        const workspacesData = await workspacesResponse.json();
-        if (workspacesData.success && workspacesData.workspaces && workspacesData.workspaces.length > 0) {
-          return workspacesData.workspaces[0];
-        }
-      }
-
-      return null;
-    } catch (error) {
-      console.error('Error fetching default workspace:', error);
-      return null;
+    if (data?.success && data.workspace) {
+      console.log('✅ Default workspace endpoint found:', data.workspace.name);
+      
+      // Store the workspace
+      localStorage.setItem('workspace', JSON.stringify(data.workspace));
+      setAuthState(prev => ({
+        ...prev,
+        workspace: data.workspace
+      }));
+      
+      return { 
+        workspace: data.workspace, 
+        hasEndpoint: true 
+      };
+    } else {
+      console.log('⚠️ Default workspace endpoint available but no workspace assigned');
+      return { 
+        workspace: null, 
+        hasEndpoint: true, 
+        error: data?.message || 'No default workspace assigned' 
+      };
     }
   }, [authState.token]);
 
-  // Get all available workspaces for the current user
+  // Get available workspaces with error handling
   const getAvailableWorkspaces = useCallback(async (): Promise<Workspace[]> => {
     if (!authState.token) {
+      console.log('No token available for fetching workspaces');
       return [];
     }
 
-    try {
-      const response = await fetch('/api/v1/user/workspaces', {
-        headers: {
-          'Authorization': `Bearer ${authState.token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+    const apiUrl = getApiBaseUrl();
+    
+    // Try different possible endpoints for workspaces
+    const possibleEndpoints = [
+      '/api/user/workspaces',
+      '/api/workspaces', 
+      '/api/workspace/list'
+    ];
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.workspaces) {
-          return data.workspaces;
-        }
+    for (const endpoint of possibleEndpoints) {
+      console.log(`Trying workspace endpoint: ${endpoint}`);
+      
+      const { data, error } = await safeApiCall<any>(
+        `${apiUrl}${endpoint}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${authState.token}`,
+            'Content-Type': 'application/json'
+          }
+        },
+        `getAvailableWorkspaces-${endpoint}`
+      );
+
+      if (!error && data?.success && (data.workspaces || data.data)) {
+        console.log(`✅ Successfully fetched workspaces from ${endpoint}`);
+        return data.workspaces || data.data || [];
+      } else if (error) {
+        console.log(`❌ Endpoint ${endpoint} failed: ${error}`);
       }
-
-      return [];
-    } catch (error) {
-      console.error('Error fetching available workspaces:', error);
-      return [];
     }
+
+    console.log('No workspace endpoints available or all failed');
+    return [];
   }, [authState.token]);
 
-  // Login function - Updated to redirect to /workspace/overview
+  // Login function with comprehensive error handling
   const login = useCallback(async (credentials: LoginCredentials): Promise<LoginResult> => {
+    console.log('🔑 Starting login process for:', credentials.email || credentials.username);
+    
     try {
       setAuthState(prev => ({ ...prev, isLoading: true }));
 
-      // Support both email and username login
+      const apiUrl = getApiBaseUrl();
+      const loginEndpoint = `${apiUrl}/api/auth/login`;
+      
+      console.log('📡 Login endpoint:', loginEndpoint);
+
       const loginPayload = {
         password: credentials.password,
         ...(credentials.email ? { email: credentials.email } : { username: credentials.username })
       };
 
-      const response = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
+      const { data, error } = await safeApiCall<any>(
+        loginEndpoint,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(loginPayload)
         },
-        body: JSON.stringify(loginPayload)
-      });
+        'login'
+      );
 
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        const { user, token, workspace: initialWorkspace } = data.data;
-
-        // Store user and token immediately
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(user));
-
-        // Update auth state with user and token
-        setAuthState(prev => ({
-          ...prev,
-          user,
-          token,
-          isAuthenticated: true,
-          isLoading: false
-        }));
-
-        // Handle workspace setup
-        let workspaceToUse = initialWorkspace;
-        
-        if (!workspaceToUse) {
-          // Try to get default workspace
-          try {
-            workspaceToUse = await getDefaultWorkspace();
-          } catch (error) {
-            console.warn('Failed to get default workspace:', error);
-          }
-        }
-
-        if (workspaceToUse) {
-          // Store workspace and update state
-          localStorage.setItem('workspace', JSON.stringify(workspaceToUse));
-          setAuthState(prev => ({
-            ...prev,
-            workspace: workspaceToUse
-          }));
-        }
-
-        // Always redirect to the new overview page
-        router.push('/workspace/overview');
-
-        return { success: true };
-      } else {
-        setAuthState(prev => ({
-          ...prev,
-          isLoading: false
-        }));
+      if (error) {
+        setAuthState(prev => ({ ...prev, isLoading: false }));
         return { 
           success: false, 
-          error: data.message || 'Login failed' 
+          error: error.includes('401') || error.includes('Unauthorized') 
+            ? 'Invalid email or password. Please check your credentials and try again.'
+            : error.includes('timeout') || error.includes('connection')
+            ? 'Connection timeout. Please check your internet connection and try again.'
+            : error.includes('500') || error.includes('Internal Server Error')
+            ? 'Server error. Please try again later or contact support.'
+            : error
         };
       }
-    } catch (error) {
-      console.error('Login error:', error);
+
+      if (!data?.success || !data.data?.user || !data.data?.token) {
+        setAuthState(prev => ({ ...prev, isLoading: false }));
+        return { 
+          success: false, 
+          error: data?.message || 'Login failed. Invalid response from server.' 
+        };
+      }
+
+      const { user, token, workspace: initialWorkspace } = data.data;
+
+      console.log('✅ Login successful:', {
+        userEmail: user.email,
+        hasToken: !!token,
+        hasWorkspace: !!initialWorkspace
+      });
+
+      // Store user and token immediately
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(user));
+
+      // Update auth state
       setAuthState(prev => ({
         ...prev,
-        isLoading: false
+        user,
+        token,
+        isAuthenticated: true,
+        isLoading: false,
+        workspace: initialWorkspace || null
       }));
+
+      // Store workspace if provided by login response
+      if (initialWorkspace) {
+        localStorage.setItem('workspace', JSON.stringify(initialWorkspace));
+        console.log('📁 Workspace from login stored:', initialWorkspace.name);
+      }
+
+      // Redirect with multiple fallbacks
+      console.log('🚀 Redirecting to workspace overview...');
+      
+      const doRedirect = () => {
+        router.push('/workspace/overview').catch((routerError) => {
+          console.warn('Router redirect failed:', routerError);
+          console.log('Using window.location fallback...');
+          window.location.href = '/workspace/overview';
+        });
+      };
+
+      // Immediate redirect attempt
+      setTimeout(doRedirect, 100);
+      
+      // Backup redirect attempt
+      setTimeout(() => {
+        if (window.location.pathname === '/login') {
+          console.log('🔄 Backup redirect attempt...');
+          doRedirect();
+        }
+      }, 1000);
+
+      return { success: true };
+
+    } catch (error) {
+      console.error('❌ Critical login error:', error);
+      setAuthState(prev => ({ ...prev, isLoading: false }));
+      
       return { 
         success: false, 
-        error: error instanceof Error ? error.message : 'Network error occurred' 
+        error: 'An unexpected error occurred during login. Please try again.'
       };
     }
-  }, [router, getDefaultWorkspace]);
+  }, [router]);
 
-  // Switch workspace function - Updated to redirect to /workspace/overview
+  // Switch workspace function with error handling
   const switchWorkspace = useCallback(async (workspaceSlug: string): Promise<SwitchWorkspaceResult> => {
     if (!authState.token) {
       return { success: false, error: 'Not authenticated' };
     }
 
-    try {
-      const response = await fetch('/api/v1/auth/switch-workspace', {
+    console.log('🔄 Switching to workspace:', workspaceSlug);
+
+    const apiUrl = getApiBaseUrl();
+    const { data, error } = await safeApiCall<any>(
+      `${apiUrl}/api/auth/switch-workspace`,
+      {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${authState.token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ workspace_slug: workspaceSlug })
-      });
+      },
+      'switchWorkspace'
+    );
 
-      const data = await response.json();
+    if (!error && data?.success) {
+      const { workspace, token: newToken } = data.data;
 
-      if (response.ok && data.success) {
-        const { workspace, token: newToken } = data.data;
+      console.log('✅ Workspace switch successful:', workspace.name);
 
-        // Update localStorage with new workspace and token (if provided)
-        localStorage.setItem('workspace', JSON.stringify(workspace));
-        if (newToken) {
-          localStorage.setItem('token', newToken);
-        }
-
-        // Update auth state
-        setAuthState(prev => ({
-          ...prev,
-          workspace,
-          token: newToken || prev.token
-        }));
-
-        // Redirect to overview page (not workspace-specific URL)
-        router.push('/workspace/overview');
-        
-        return { success: true };
-      } else {
-        return { 
-          success: false, 
-          error: data.message || 'Failed to switch workspace' 
-        };
+      localStorage.setItem('workspace', JSON.stringify(workspace));
+      if (newToken) {
+        localStorage.setItem('token', newToken);
       }
-    } catch (error) {
-      console.error('Switch workspace error:', error);
+
+      setAuthState(prev => ({
+        ...prev,
+        workspace,
+        token: newToken || prev.token
+      }));
+
+      // Redirect after successful switch
+      setTimeout(() => {
+        router.push('/workspace/overview').catch((routerError) => {
+          console.warn('Switch redirect failed:', routerError);
+          window.location.href = '/workspace/overview';
+        });
+      }, 100);
+      
+      return { success: true };
+    } else {
+      console.warn('⚠️ Workspace switching not available or failed:', error);
+      // Still redirect to overview even if switch fails
+      setTimeout(() => {
+        router.push('/workspace/overview').catch(() => {
+          window.location.href = '/workspace/overview';
+        });
+      }, 100);
+      
       return { 
         success: false, 
-        error: error instanceof Error ? error.message : 'Network error occurred' 
+        error: error || 'Workspace switching not available'
       };
     }
   }, [authState.token, router]);
 
-  // Sign out function
+  // Sign out function with cleanup
   const signOut = useCallback(async (): Promise<void> => {
+    console.log('🔓 Signing out user');
+    
     try {
-      // Call logout API if we have a token
       if (authState.token) {
-        try {
-          await fetch('/api/v1/auth/logout', {
+        const apiUrl = getApiBaseUrl();
+        // Try to call logout API but don't wait for it
+        safeApiCall(
+          `${apiUrl}/api/auth/logout`,
+          {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${authState.token}`,
               'Content-Type': 'application/json'
             }
-          });
-        } catch (error) {
+          },
+          'signOut'
+        ).catch((error) => {
           console.warn('Logout API call failed:', error);
-          // Continue with local cleanup even if API call fails
-        }
+        });
       }
     } finally {
       // Always clear localStorage and reset state
@@ -377,7 +545,6 @@ export const useAuth = () => {
       localStorage.removeItem('user');
       localStorage.removeItem('workspace');
 
-      // Reset auth state
       setAuthState({
         user: null,
         token: null,
@@ -386,55 +553,42 @@ export const useAuth = () => {
         workspace: null
       });
 
-      // Redirect to login
       router.push('/login');
     }
   }, [authState.token, router]);
 
-  // Refresh current user data
+  // Refresh user data with error handling
   const refreshUser = useCallback(async (): Promise<boolean> => {
     if (!authState.token) {
       return false;
     }
 
-    try {
-      const response = await fetch('/api/v1/auth/me', {
+    const apiUrl = getApiBaseUrl();
+    const { data, error } = await safeApiCall<any>(
+      `${apiUrl}/api/auth/me`,
+      {
         headers: {
           'Authorization': `Bearer ${authState.token}`,
           'Content-Type': 'application/json'
         }
-      });
+      },
+      'refreshUser'
+    );
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.user) {
-          const updatedUser = data.user;
-          
-          // Update localStorage and state
-          localStorage.setItem('user', JSON.stringify(updatedUser));
-          setAuthState(prev => ({
-            ...prev,
-            user: updatedUser
-          }));
-          
-          return true;
-        }
-      }
-
-      return false;
-    } catch (error) {
-      console.error('Error refreshing user data:', error);
-      return false;
+    if (!error && data?.success && data.data) {
+      const updatedUser = data.data;
+      
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      setAuthState(prev => ({
+        ...prev,
+        user: updatedUser
+      }));
+      
+      return true;
     }
+
+    return false;
   }, [authState.token]);
-
-  // Check if user has access to a specific workspace
-  const hasWorkspaceAccess = useCallback((workspaceSlug?: string): boolean => {
-    if (!workspaceSlug || !authState.workspace) {
-      return false;
-    }
-    return authState.workspace.slug === workspaceSlug;
-  }, [authState.workspace]);
 
   // Validate current token
   const validateToken = useCallback(async (): Promise<boolean> => {
@@ -442,43 +596,20 @@ export const useAuth = () => {
       return false;
     }
 
-    try {
-      const response = await fetch('/api/v1/auth/validate', {
+    const apiUrl = getApiBaseUrl();
+    const { error } = await safeApiCall<any>(
+      `${apiUrl}/api/auth/validate`,
+      {
         headers: {
           'Authorization': `Bearer ${authState.token}`,
           'Content-Type': 'application/json'
         }
-      });
+      },
+      'validateToken'
+    );
 
-      return response.ok;
-    } catch (error) {
-      console.error('Token validation error:', error);
-      return false;
-    }
+    return !error;
   }, [authState.token]);
-
-  // Check if user is authenticated and token is valid
-  const isTokenValid = useCallback((): boolean => {
-    return Boolean(authState.token && authState.isAuthenticated);
-  }, [authState.token, authState.isAuthenticated]);
-
-  // Get current user's role in the current workspace
-  const getCurrentWorkspaceRole = useCallback((): string | null => {
-    return authState.workspace?.role || null;
-  }, [authState.workspace]);
-
-  // Update workspace data without switching
-  const updateWorkspaceData = useCallback((updates: Partial<Workspace>): void => {
-    if (authState.workspace) {
-      const updatedWorkspace = { ...authState.workspace, ...updates };
-      
-      localStorage.setItem('workspace', JSON.stringify(updatedWorkspace));
-      setAuthState(prev => ({
-        ...prev,
-        workspace: updatedWorkspace
-      }));
-    }
-  }, [authState.workspace]);
 
   return {
     // State
@@ -497,12 +628,30 @@ export const useAuth = () => {
     // Workspace helpers
     getDefaultWorkspace,
     getAvailableWorkspaces,
-    hasWorkspaceAccess,
-    getCurrentWorkspaceRole,
-    updateWorkspaceData,
+    hasWorkspaceAccess: (workspaceSlug?: string): boolean => {
+      if (!workspaceSlug || !authState.workspace) {
+        return false;
+      }
+      return authState.workspace.slug === workspaceSlug;
+    },
+    getCurrentWorkspaceRole: (): string | null => {
+      return authState.workspace?.role || null;
+    },
+    updateWorkspaceData: (updates: Partial<Workspace>): void => {
+      if (authState.workspace) {
+        const updatedWorkspace = { ...authState.workspace, ...updates };
+        localStorage.setItem('workspace', JSON.stringify(updatedWorkspace));
+        setAuthState(prev => ({
+          ...prev,
+          workspace: updatedWorkspace
+        }));
+      }
+    },
     
     // Token utilities
     validateToken,
-    isTokenValid
+    isTokenValid: (): boolean => {
+      return Boolean(authState.token && authState.isAuthenticated);
+    }
   };
 };

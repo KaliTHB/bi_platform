@@ -1,9 +1,7 @@
 // web-application/src/pages/login.tsx
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { useSelector, useDispatch } from 'react-redux';
-import { RootState } from '@/store/index';
-import { login, clearError } from '@/store/slices/authSlice';
+import { useAuth } from '../hooks/useAuth';
 import {
   Container,
   Paper,
@@ -34,10 +32,6 @@ import {
   Dashboard,
   Security,
   Analytics,
-  Speed,
-  Group,
-  FileCopy,
-  CheckCircle,
 } from '@mui/icons-material';
 
 interface LoginForm {
@@ -55,10 +49,8 @@ interface TestCredential {
 
 const getTestCredentials = (): TestCredential[] => {
   const env = process.env.NODE_ENV;
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
   
-  // Different credentials based on environment
-  if (env === 'development' ) {
+  if (env === 'development') {
     return [
       {
         email: 'admin@localhost.com',
@@ -70,13 +62,12 @@ const getTestCredentials = (): TestCredential[] => {
     ];
   }
   
-  return []; // Production - no test credentials
+  return [];
 };
 
 export default function LoginPage() {
   const router = useRouter();
-  const dispatch = useDispatch();
-  const { isAuthenticated, isLoading, error } = useSelector((state: RootState) => state.auth);
+  const { login, isAuthenticated, isLoading, user } = useAuth();
   
   const [formData, setFormData] = useState<LoginForm>({
     email: '',
@@ -84,25 +75,25 @@ export default function LoginPage() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [formErrors, setFormErrors] = useState<Partial<LoginForm>>({});
-  const [showCredentials, setShowCredentials] = useState(false);
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [loginError, setLoginError] = useState<string>('');
   
   const testCredentials = getTestCredentials();
   const isProduction = process.env.NODE_ENV === 'production';
 
   // Redirect if already authenticated
   useEffect(() => {
-    const token = localStorage.getItem('auth_token');
-    if (isAuthenticated || (token && token !== 'undefined' && token !== 'null')) {
-      console.log('User already authenticated, redirecting to workspace selector');
-      router.push('/workspace-selector');
+    if (isAuthenticated && user && !isLoading) {
+      console.log('User already authenticated, redirecting to workspace overview');
+      const timer = setTimeout(() => {
+        router.push('/workspace/overview').catch((error) => {
+          console.error('Redirect from login page failed:', error);
+          window.location.href = '/workspace/overview';
+        });
+      }, 100);
+      
+      return () => clearTimeout(timer);
     }
-  }, [isAuthenticated, router]);
-
-  // Clear any existing errors when component mounts
-  useEffect(() => {
-    dispatch(clearError());
-  }, [dispatch]);
+  }, [isAuthenticated, user, isLoading, router]);
 
   const validateForm = (): boolean => {
     const errors: Partial<LoginForm> = {};
@@ -129,14 +120,12 @@ export default function LoginPage() {
     const value = event.target.value;
     setFormData(prev => ({ ...prev, [field]: value }));
     
-    // Clear field error when user starts typing
     if (formErrors[field]) {
       setFormErrors(prev => ({ ...prev, [field]: undefined }));
     }
     
-    // Clear global error when user starts typing
-    if (error) {
-      dispatch(clearError());
+    if (loginError) {
+      setLoginError('');
     }
   };
 
@@ -149,20 +138,23 @@ export default function LoginPage() {
 
     try {
       console.log('Attempting login with email:', formData.email);
+      setLoginError('');
       
-      const resultAction = await dispatch(login({
+      const result = await login({
         email: formData.email.trim(),
         password: formData.password,
-      }));
+      });
       
-      if (login.fulfilled.match(resultAction)) {
-        console.log('Login successful, redirecting to workspace selector');
-        router.push('/workspace-selector');
+      if (result.success) {
+        console.log('Login successful');
+        // useAuth will handle the redirect automatically
       } else {
-        console.error('Login failed:', resultAction.payload);
+        console.error('Login failed:', result.error);
+        setLoginError(result.error || 'Login failed. Please check your credentials and try again.');
       }
     } catch (err: any) {
       console.error('Login error:', err);
+      setLoginError('An unexpected error occurred. Please try again.');
     }
   };
 
@@ -176,153 +168,137 @@ export default function LoginPage() {
     }
   };
 
-  const handleCredentialClick = async (credential: TestCredential, index: number) => {
+  const handleCredentialClick = async (credential: TestCredential) => {
     setFormData({
       email: credential.email,
       password: credential.password,
     });
-    
-    // Copy to clipboard
-    try {
-      await navigator.clipboard.writeText(`${credential.email} / ${credential.password}`);
-      setCopiedIndex(index);
-      setTimeout(() => setCopiedIndex(null), 2000);
-    } catch (err) {
-      console.log('Clipboard not available');
-    }
   };
 
-  // Show loading while checking existing authentication
-  if (isAuthenticated) {
+  // Show loading screen while checking auth state
+  if (isLoading) {
     return (
-      <Container maxWidth="sm" sx={{ mt: 8, textAlign: 'center' }}>
-        <CircularProgress size={60} />
-        <Typography variant="h6" sx={{ mt: 2 }}>
-          Redirecting...
-        </Typography>
-      </Container>
+      <Box 
+        display="flex" 
+        justifyContent="center" 
+        alignItems="center" 
+        minHeight="100vh"
+        sx={{
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        }}
+      >
+        <Paper elevation={3} sx={{ p: 4, textAlign: 'center' }}>
+          <CircularProgress size={40} sx={{ mb: 2 }} />
+          <Typography variant="h6">Checking authentication...</Typography>
+          <Typography variant="body2" sx={{ mt: 1, opacity: 0.7 }}>
+            Please wait while we verify your login status
+          </Typography>
+        </Paper>
+      </Box>
     );
   }
 
   return (
-    <Box sx={{ 
+    <Box sx={{
       minHeight: '100vh',
       background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
       display: 'flex',
       alignItems: 'center',
-      py: 4,
+      py: 3
     }}>
-      <Container maxWidth="lg">
-        <Grid container spacing={4} alignItems="center">
-          {/* Left Side - Branding & Features */}
+      <Container maxWidth="xl">
+        <Grid container spacing={4} alignItems="center" sx={{ minHeight: '100vh' }}>
+          {/* Left Side - Feature Showcase */}
           <Grid item xs={12} md={7}>
             <Fade in timeout={800}>
-              <Box sx={{ color: 'white', mb: 4 }}>
-                <Typography variant="h2" component="h1" gutterBottom sx={{ 
-                  fontWeight: 700,
-                  fontSize: { xs: '2.5rem', md: '3.5rem' },
-                  mb: 2,
-                }}>
-                  BI Platform
+              <Box sx={{ pr: { md: 4 } }}>
+                <Typography 
+                  variant="h2" 
+                  component="h1" 
+                  gutterBottom 
+                  sx={{ 
+                    color: 'white', 
+                    fontWeight: 700,
+                    fontSize: { xs: '2.5rem', md: '3.5rem' },
+                    mb: 3
+                  }}
+                >
+                  Business Intelligence Platform
                 </Typography>
-                <Typography variant="h5" sx={{ 
-                  opacity: 0.9,
-                  fontWeight: 400,
-                  mb: 4,
-                  lineHeight: 1.4,
-                }}>
-                  Transform your data into actionable insights with our enterprise-grade 
-                  business intelligence platform
+                
+                <Typography 
+                  variant="h5" 
+                  sx={{ 
+                    color: 'rgba(255, 255, 255, 0.9)', 
+                    mb: 4, 
+                    fontWeight: 300,
+                    lineHeight: 1.4
+                  }}
+                >
+                  Transform your data into actionable insights with our enterprise-grade analytics platform
                 </Typography>
 
-                {/* Feature Cards */}
-                <Grid container spacing={2} sx={{ mt: 2 }}>
-                  <Grid item xs={12} sm={6}>
-                    <Slide direction="right" in timeout={1000}>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <Slide in timeout={1000} direction="up">
                       <Card sx={{ 
-                        background: 'rgba(255, 255, 255, 0.1)', 
-                        backdropFilter: 'blur(10px)',
+                        height: '100%',
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        backdropFilter: 'blur(20px)',
                         border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: 'white',
+                        color: 'white'
                       }}>
-                        <CardContent sx={{ p: 3 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                            <Avatar sx={{ bgcolor: 'rgba(255, 255, 255, 0.2)', mr: 2 }}>
-                              <Dashboard />
-                            </Avatar>
-                            <Typography variant="h6">Interactive Dashboards</Typography>
-                          </Box>
-                          <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                            Create stunning, interactive dashboards with drag-and-drop simplicity
+                        <CardContent sx={{ textAlign: 'center', py: 3 }}>
+                          <Dashboard sx={{ fontSize: 48, color: '#4fc3f7', mb: 2 }} />
+                          <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
+                            Interactive Dashboards
+                          </Typography>
+                          <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                            Create stunning, real-time dashboards with 60+ chart types
                           </Typography>
                         </CardContent>
                       </Card>
                     </Slide>
                   </Grid>
                   
-                  <Grid item xs={12} sm={6}>
-                    <Slide direction="right" in timeout={1200}>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <Slide in timeout={1200} direction="up">
                       <Card sx={{ 
-                        background: 'rgba(255, 255, 255, 0.1)', 
-                        backdropFilter: 'blur(10px)',
+                        height: '100%',
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        backdropFilter: 'blur(20px)',
                         border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: 'white',
+                        color: 'white'
                       }}>
-                        <CardContent sx={{ p: 3 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                            <Avatar sx={{ bgcolor: 'rgba(255, 255, 255, 0.2)', mr: 2 }}>
-                              <Analytics />
-                            </Avatar>
-                            <Typography variant="h6">Advanced Analytics</Typography>
-                          </Box>
-                          <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                            Powerful analytics tools to uncover hidden patterns in your data
+                        <CardContent sx={{ textAlign: 'center', py: 3 }}>
+                          <Security sx={{ fontSize: 48, color: '#81c784', mb: 2 }} />
+                          <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
+                            Enterprise Security
+                          </Typography>
+                          <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                            Role-based access control with workspace isolation
                           </Typography>
                         </CardContent>
                       </Card>
                     </Slide>
                   </Grid>
                   
-                  <Grid item xs={12} sm={6}>
-                    <Slide direction="right" in timeout={1400}>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <Slide in timeout={1400} direction="up">
                       <Card sx={{ 
-                        background: 'rgba(255, 255, 255, 0.1)', 
-                        backdropFilter: 'blur(10px)',
+                        height: '100%',
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        backdropFilter: 'blur(20px)',
                         border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: 'white',
+                        color: 'white'
                       }}>
-                        <CardContent sx={{ p: 3 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                            <Avatar sx={{ bgcolor: 'rgba(255, 255, 255, 0.2)', mr: 2 }}>
-                              <Security />
-                            </Avatar>
-                            <Typography variant="h6">Enterprise Security</Typography>
-                          </Box>
-                          <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                            Bank-level security with role-based access controls
+                        <CardContent sx={{ textAlign: 'center', py: 3 }}>
+                          <Analytics sx={{ fontSize: 48, color: '#ffb74d', mb: 2 }} />
+                          <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
+                            Advanced Analytics
                           </Typography>
-                        </CardContent>
-                      </Card>
-                    </Slide>
-                  </Grid>
-                  
-                  <Grid item xs={12} sm={6}>
-                    <Slide direction="right" in timeout={1600}>
-                      <Card sx={{ 
-                        background: 'rgba(255, 255, 255, 0.1)', 
-                        backdropFilter: 'blur(10px)',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: 'white',
-                      }}>
-                        <CardContent sx={{ p: 3 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                            <Avatar sx={{ bgcolor: 'rgba(255, 255, 255, 0.2)', mr: 2 }}>
-                              <Speed />
-                            </Avatar>
-                            <Typography variant="h6">Real-time Performance</Typography>
-                          </Box>
-                          <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                            Lightning-fast queries and real-time data synchronization
+                          <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                            SQL editor with multi-stage data transformations
                           </Typography>
                         </CardContent>
                       </Card>
@@ -363,9 +339,13 @@ export default function LoginPage() {
                 </Box>
 
                 {/* Error Alert */}
-                {error && (
-                  <Alert severity="error" sx={{ mb: 3 }} onClose={() => dispatch(clearError())}>
-                    {error}
+                {loginError && (
+                  <Alert 
+                    severity="error" 
+                    sx={{ mb: 3 }} 
+                    onClose={() => setLoginError('')}
+                  >
+                    {loginError}
                   </Alert>
                 )}
 
@@ -480,12 +460,41 @@ export default function LoginPage() {
                     <>
                       <Divider sx={{ my: 3 }}>
                         <Chip 
-                          label={`(${process.env.NODE_ENV} - admin@localhost.com / admin123)`} 
+                          label={`Development - Click to use test credentials`} 
                           color="primary" 
                           variant="outlined" 
-                          size="small" 
+                          size="small"
                         />
                       </Divider>
+                      
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        {testCredentials.map((credential, index) => (
+                          <Button
+                            key={index}
+                            variant="outlined"
+                            size="small"
+                            onClick={() => handleCredentialClick(credential)}
+                            sx={{ 
+                              justifyContent: 'flex-start',
+                              textTransform: 'none',
+                              p: 2
+                            }}
+                          >
+                            <Box sx={{ textAlign: 'left' }}>
+                              <Typography variant="body2" fontWeight={600}>
+                                {credential.role}
+                              </Typography>
+                              <Typography variant="caption" color="textSecondary">
+                                {credential.email} / {credential.password}
+                              </Typography>
+                              <br />
+                              <Typography variant="caption" color="textSecondary">
+                                {credential.description}
+                              </Typography>
+                            </Box>
+                          </Button>
+                        ))}
+                      </Box>
                     </>
                   )}
 
