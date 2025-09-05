@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name VARCHAR(100) NOT NULL,
   slug VARCHAR(50) UNIQUE NOT NULL,
+  display_name VARCHAR(100) NOT NULL,
   description TEXT,
   logo_url TEXT,
   settings JSONB DEFAULT '{
@@ -42,7 +43,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
       "api_access": true,
       "webhooks": false
     }
-  }'
+  }',
   is_active BOOLEAN DEFAULT true,
   owner_id UUID NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

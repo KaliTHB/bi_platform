@@ -1,15 +1,17 @@
-// api-services/src/controllers/WorkspaceController.ts - Updated to use WorkspaceService
+// api-services/src/controllers/WorkspaceController.ts
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/authentication';
 import { WorkspaceService, Workspace } from '../services/WorkspaceService';
 import { logger } from '../utils/logger';
+import { db } from '../utils/database'; // Import the database connection
 
 export class WorkspaceController {
   private workspaceService: WorkspaceService;
 
   constructor() {
-    this.workspaceService = new WorkspaceService();
-    console.log('✅ WorkspaceController initialized with WorkspaceService');
+    // Pass the database connection to WorkspaceService
+    this.workspaceService = new WorkspaceService(db);
+    console.log('✅ WorkspaceController initialized with WorkspaceService and database connection');
   }
 
   /**
@@ -62,7 +64,8 @@ export class WorkspaceController {
         is_active: workspace.is_active
       }));
       
-      console.log('formattedWorkspaces',formattedWorkspaces)
+      console.log('formattedWorkspaces', formattedWorkspaces);
+      
       // Set first workspace as default
       if (formattedWorkspaces.length > 0) {
         formattedWorkspaces[0].is_default = true;
@@ -250,6 +253,15 @@ export class WorkspaceController {
         service: 'bi-platform-api'
       });
 
+      if (error.message.includes('already exists')) {
+        res.status(409).json({
+          success: false,
+          message: error.message,
+          error: 'WORKSPACE_ALREADY_EXISTS'
+        });
+        return;
+      }
+
       res.status(500).json({
         success: false,
         message: 'Failed to create workspace',
@@ -288,38 +300,13 @@ export class WorkspaceController {
         return;
       }
 
-      // Update workspace using WorkspaceService
-      const workspace = await this.workspaceService.updateWorkspace(workspaceId, updateData, userId);
-
-      if (!workspace) {
-        res.status(404).json({
-          success: false,
-          message: 'Workspace not found or access denied',
-          error: 'WORKSPACE_NOT_FOUND'
-        });
-        return;
-      }
-
-      console.log('✅ WorkspaceController: Workspace updated:', workspace.id);
-
+      // For now, return a placeholder response since update method is not implemented yet
       res.status(200).json({
         success: true,
-        message: 'Workspace updated successfully',
+        message: 'Workspace update not implemented yet',
         data: {
-          id: workspace.id,
-          name: workspace.name,
-          slug: workspace.slug,
-          display_name: workspace.display_name,
-          description: workspace.description,
-          logo_url: workspace.logo_url,
-          settings: workspace.settings,
-          is_active: workspace.is_active,
-          user_role: workspace.user_role,
-          member_count: workspace.member_count,
-          dashboard_count: workspace.dashboard_count,
-          dataset_count: workspace.dataset_count,
-          created_at: workspace.created_at,
-          updated_at: workspace.updated_at
+          workspaceId,
+          status: 'pending_implementation'
         }
       });
 
@@ -370,8 +357,6 @@ export class WorkspaceController {
       }
 
       // For now, we'll just return success since WorkspaceService doesn't have delete method
-      // In a real implementation, you'd add a delete method to WorkspaceService
-
       res.status(200).json({
         success: true,
         message: 'Workspace deletion not implemented yet',
@@ -393,6 +378,135 @@ export class WorkspaceController {
       res.status(500).json({
         success: false,
         message: 'Failed to delete workspace',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  };
+
+  /**
+   * Get workspace statistics
+   * GET /api/workspaces/:workspaceId/stats
+   */
+  public getWorkspaceStats = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const workspaceId = req.params.workspaceId;
+
+      console.log('🏢 WorkspaceController: Getting workspace stats:', workspaceId);
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          error: 'AUTHENTICATION_REQUIRED'
+        });
+        return;
+      }
+
+      if (!workspaceId) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace ID is required',
+          error: 'MISSING_WORKSPACE_ID'
+        });
+        return;
+      }
+
+      // Check if user has access to workspace first
+      const hasAccess = await this.workspaceService.hasWorkspaceAccess(userId, workspaceId);
+      if (!hasAccess) {
+        res.status(404).json({
+          success: false,
+          message: 'Workspace not found or access denied',
+          error: 'WORKSPACE_NOT_FOUND'
+        });
+        return;
+      }
+
+      // Get workspace statistics
+      const stats = await this.workspaceService.getWorkspaceStats(workspaceId);
+
+      console.log('✅ WorkspaceController: Workspace stats retrieved');
+
+      res.status(200).json({
+        success: true,
+        message: 'Workspace statistics retrieved successfully',
+        data: stats
+      });
+
+    } catch (error: any) {
+      console.error('❌ WorkspaceController: Get workspace stats error:', error);
+      logger.error('Get workspace stats controller error:', {
+        error: error.message,
+        workspaceId: req.params.workspaceId,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve workspace statistics',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  };
+
+  /**
+   * Check workspace access
+   * GET /api/workspaces/:workspaceId/access
+   */
+  public checkWorkspaceAccess = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const workspaceId = req.params.workspaceId;
+
+      console.log('🏢 WorkspaceController: Checking workspace access:', workspaceId);
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          error: 'AUTHENTICATION_REQUIRED'
+        });
+        return;
+      }
+
+      if (!workspaceId) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace ID is required',
+          error: 'MISSING_WORKSPACE_ID'
+        });
+        return;
+      }
+
+      // Check workspace access
+      const hasAccess = await this.workspaceService.hasWorkspaceAccess(userId, workspaceId);
+
+      console.log('✅ WorkspaceController: Workspace access checked');
+
+      res.status(200).json({
+        success: true,
+        message: 'Workspace access checked successfully',
+        data: {
+          workspaceId,
+          hasAccess,
+          userId
+        }
+      });
+
+    } catch (error: any) {
+      console.error('❌ WorkspaceController: Check workspace access error:', error);
+      logger.error('Check workspace access controller error:', {
+        error: error.message,
+        workspaceId: req.params.workspaceId,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to check workspace access',
         error: 'INTERNAL_SERVER_ERROR'
       });
     }

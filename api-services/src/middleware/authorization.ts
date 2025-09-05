@@ -315,7 +315,7 @@ async function getUserRoles(userId: string, workspaceId?: string): Promise<strin
       // Get workspace-specific roles
       query = `
         SELECT DISTINCT cr.name 
-        FROM custom_roles cr
+        FROM roles cr
         JOIN user_role_assignments ura ON cr.id = ura.role_id
         WHERE ura.user_id = $1 
           AND ura.workspace_id = $2 

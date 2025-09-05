@@ -17,6 +17,7 @@ interface UserRole {
 }
 
 export class PermissionService {
+  
   constructor(
     private database: Pool,
     private cacheService: CacheService
@@ -43,7 +44,7 @@ export class PermissionService {
       const roleResult = await this.database.query(`
         SELECT cr.permissions
         FROM user_role_assignments ura
-        JOIN custom_roles cr ON ura.role_id = cr.id
+        JOIN roles cr ON ura.role_id = cr.id
         WHERE ura.user_id = $1 
           AND ura.workspace_id = $2 
           AND ura.is_active = true
@@ -112,7 +113,7 @@ export class PermissionService {
     const result = await this.database.query(`
       SELECT cr.id, cr.name, cr.permissions
       FROM user_role_assignments ura
-      JOIN custom_roles cr ON ura.role_id = cr.id
+      JOIN roles cr ON ura.role_id = cr.id
       WHERE ura.user_id = $1 
         AND ura.workspace_id = $2 
         AND ura.is_active = true

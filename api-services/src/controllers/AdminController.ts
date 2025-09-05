@@ -24,7 +24,7 @@ export class AdminController {
         LEFT JOIN user_role_assignments ura ON u.id = ura.user_id 
           AND ura.workspace_id = $1 
           AND ura.is_active = true
-        LEFT JOIN custom_roles cr ON ura.role_id = cr.id
+        LEFT JOIN roles cr ON ura.role_id = cr.id
         WHERE u.is_active = true
         GROUP BY u.id, u.username, u.email, u.first_name, u.last_name, u.is_active, u.last_login, u.created_at
         ORDER BY u.created_at DESC
@@ -61,7 +61,7 @@ export class AdminController {
           is_system_role,
           level,
           created_at
-        FROM custom_roles 
+        FROM roles 
         WHERE workspace_id = $1 OR is_system_role = true
         ORDER BY level DESC, name ASC
       `, [workspaceId]);
@@ -109,10 +109,10 @@ export class AdminController {
       }
 
       const result = await db.query(`
-        INSERT INTO custom_roles (workspace_id, name, description, permissions, created_by)
+        INSERT INTO roles (name, description, permissions, created_by)
         VALUES ($1, $2, $3, $4, $5)
         RETURNING *
-      `, [workspaceId, name, description, JSON.stringify(permissions), req.user?.user_id]);
+      `, [name, description, JSON.stringify(permissions), req.user?.user_id]);
 
       res.status(201).json({
         success: true,

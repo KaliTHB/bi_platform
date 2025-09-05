@@ -167,4 +167,63 @@ router.delete('/:workspaceId',
   })
 );
 
+
+/**
+ * GET /api/workspaces/:workspaceId/stats
+ * Get workspace statistics
+ */
+router.get('/:workspaceId/stats', 
+  asyncHandler(async (req, res) => {
+    console.log('🏢 Workspace stats route hit for:', req.params.workspaceId);
+    try {
+      await workspaceController.getWorkspaceStats(req as any, res);
+    } catch (error) {
+      console.error('❌ Error in workspace stats route:', error);
+      logger.error('Workspace stats route error:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        workspaceId: req.params.workspaceId,
+        user_id: (req as any).user?.user_id,
+        service: 'bi-platform-api'
+      });
+      
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: 'Failed to retrieve workspace statistics',
+          error: 'INTERNAL_SERVER_ERROR'
+        });
+      }
+    }
+  })
+);
+
+/**
+ * GET /api/workspaces/:workspaceId/access
+ * Check workspace access
+ */
+router.get('/:workspaceId/access', 
+  asyncHandler(async (req, res) => {
+    console.log('🏢 Workspace access check route hit for:', req.params.workspaceId);
+    try {
+      await workspaceController.checkWorkspaceAccess(req as any, res);
+    } catch (error) {
+      console.error('❌ Error in workspace access check route:', error);
+      logger.error('Workspace access check route error:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        workspaceId: req.params.workspaceId,
+        user_id: (req as any).user?.user_id,
+        service: 'bi-platform-api'
+      });
+      
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: 'Failed to check workspace access',
+          error: 'INTERNAL_SERVER_ERROR'
+        });
+      }
+    }
+  })
+);
+
 export default router;
