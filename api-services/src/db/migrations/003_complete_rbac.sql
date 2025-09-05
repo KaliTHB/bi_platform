@@ -29,12 +29,14 @@ CREATE TABLE IF NOT EXISTS roles (
 
 -- Role-Permission junction table
 CREATE TABLE IF NOT EXISTS role_permissions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id BIGINT GENERATED ALWAYS AS identity NOT NULL,
     role_id UUID REFERENCES roles(id) ON DELETE CASCADE,
     permission_id UUID REFERENCES permissions(id) ON DELETE CASCADE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(role_id, permission_id)
+    CONSTRAINT role_permissions_pkey PRIMARY KEY (id),
+	CONSTRAINT role_permissions_role_id_permission_id_key UNIQUE (role_id, permission_id)
 );
+
 
 -- User-Role assignments
 CREATE TABLE IF NOT EXISTS user_role_assignments (

@@ -1,45 +1,155 @@
-// api-services/src/routes/auth.routes.ts (Debug Version)
+// api-services/src/routes/auth.routes.ts - Updated with AuthService DI
 import { Router } from 'express';
 import { AuthController } from '../controllers/AuthController';
+import { AuthService } from '../services/AuthService';
 import { authenticate } from '../middleware/authentication';
-import { validateRequest } from '../middleware/validation';
+import { asyncHandler } from '../middleware/errorHandler';
+import { db } from '../config/database';
+import { logger } from '../utils/logger';
 
 const router = Router();
-const authController = new AuthController();
 
-// Debug: Check which methods exist
-console.log('=== AuthController Debug Info ===');
-console.log('authController:', typeof authController);
-console.log('authController.login:', typeof authController.login);
-console.log('authController.register:', typeof authController.register);
-console.log('authController.logout:', typeof authController.logout);
-console.log('authController.getCurrentUser:', typeof authController.getCurrentUser);
-console.log('authController.validateToken:', typeof authController.validateToken);
-console.log('validateRequest:', typeof validateRequest);
-console.log('authenticate:', typeof authenticate);
-console.log('===================================');
+// Create AuthService instance with database dependency
+const authService = new AuthService(db);
 
-// Check if methods exist before using them
-const loginHandler = authController.login ? authController.login.bind(authController) : 
-  (req: any, res: any) => res.status(500).json({ error: 'login method not found' });
+// Create AuthController with AuthService dependency
+const authController = new AuthController(authService);
 
-const registerHandler = authController.register ? authController.register.bind(authController) : 
-  (req: any, res: any) => res.status(500).json({ error: 'register method not found' });
+// Middleware for request logging
+router.use((req, res, next) => {
+  logger.info('Auth API request', {
+    method: req.method,
+    path: req.path,
+    ip: req.ip,
+    userAgent: req.get('User-Agent'),
+    service: 'bi-platform-api'
+  });
+  next();
+});
 
-const logoutHandler = authController.logout ? authController.logout.bind(authController) : 
-  (req: any, res: any) => res.status(500).json({ error: 'logout method not found' });
+// Public routes (no authentication required)
+/**
+ * POST /api/auth/login
+ * Login with email/username and password, optionally with workspace
+ */
+router.post('/login', asyncHandler(async (req, res) => {
+  try {
+    await authController.login(req as any, res);
+  } catch (error) {
+    logger.error('Route handler error for login:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      ip: req.ip,
+      service: 'bi-platform-api'
+    });
+    
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: 'Server error during login',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  }
+}));
 
-const getCurrentUserHandler = authController.getCurrentUser ? authController.getCurrentUser.bind(authController) : 
-  (req: any, res: any) => res.status(500).json({ error: 'getCurrentUser method not found' });
+/**
+ * POST /api/auth/logout
+ * Logout current user
+ */
+router.post('/logout', asyncHandler(async (req, res) => {
+  try {
+    await authController.logout(req as any, res);
+  } catch (error) {
+    logger.error('Route handler error for logout:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      ip: req.ip,
+      service: 'bi-platform-api'
+    });
+    
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: 'Server error during logout',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  }
+}));
 
-const validateTokenHandler = authController.validateToken ? authController.validateToken.bind(authController) : 
-  (req: any, res: any) => res.status(500).json({ error: 'validateToken method not found' });
+// Protected routes (authentication required)
+router.use(authenticate);
 
-// Routes with error handling
-router.post('/login', validateRequest('login'), loginHandler);
-router.post('/register', validateRequest('register'), registerHandler);
-router.post('/logout', authenticate, logoutHandler);
-router.get('/me', authenticate, getCurrentUserHandler);
-router.get('/validate', authenticate, validateTokenHandler);
+/**
+ * POST /api/auth/switch-workspace
+ * Switch user's active workspace using AuthService
+ */
+router.post('/switch-workspace', asyncHandler(async (req, res) => {
+  try {
+    await authController.switchWorkspace(req as any, res);
+  } catch (error) {
+    logger.error('Route handler error for switch-workspace:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      user_id: (req as any).user?.user_id,
+      service: 'bi-platform-api'
+    });
+    
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: 'Server error during workspace switch',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  }
+}));
+
+/**
+ * GET /api/auth/me
+ * Get current user profile with workspace info using AuthService
+ */
+router.get('/me', asyncHandler(async (req, res) => {
+  try {
+    await authController.getCurrentUser(req as any, res);
+  } catch (error) {
+    logger.error('Route handler error for me:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      user_id: (req as any).user?.user_id,
+      service: 'bi-platform-api'
+    });
+    
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get user profile',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  }
+}));
+
+/**
+ * POST /api/auth/refresh
+ * Refresh authentication token using AuthService
+ */
+router.post('/refresh', asyncHandler(async (req, res) => {
+  try {
+    await authController.refreshToken(req as any, res);
+  } catch (error) {
+    logger.error('Route handler error for refresh:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      user_id: (req as any).user?.user_id,
+      service: 'bi-platform-api'
+    });
+    
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to refresh token',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  }
+}));
 
 export default router;

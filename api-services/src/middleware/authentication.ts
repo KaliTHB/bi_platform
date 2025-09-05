@@ -1,10 +1,40 @@
-// api-services/src/middleware/authentication.ts
+// api-services/src/middleware/authentication.ts - Fixed with proper exports
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
-import { JWTPayload, AuthUserData } from '../types/auth.types';
 
-// Extend Request interface for this module
+// JWT Payload interface
+export interface JWTPayload {
+  user_id: string;
+  email: string;
+  username?: string;
+  workspace_id?: string;
+  workspace_slug?: string;
+  workspace_role?: string;
+  is_admin?: boolean;
+  role_level?: number;
+  iat?: number;
+  exp?: number;
+}
+
+// User data interface
+export interface AuthUserData {
+  user_id: string;
+  email: string;
+  username?: string;
+  workspace_id?: string;
+  workspace_slug?: string;
+  workspace_role?: string;
+  is_admin?: boolean;
+  role_level?: number;
+}
+
+// Extended Request interface - EXPORTED
+export interface AuthenticatedRequest extends Request {
+  user?: AuthUserData;
+}
+
+// Extend Express Request globally for compatibility
 declare global {
   namespace Express {
     interface Request {
@@ -13,8 +43,12 @@ declare global {
   }
 }
 
+/**
+ * Authentication middleware
+ * Verifies JWT token and extracts user information
+ */
 export const authenticate = async (
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
@@ -22,13 +56,17 @@ export const authenticate = async (
     const authHeader = req.headers.authorization;
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      logger.warn('Authentication failed: Missing or invalid authorization header', {
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        path: req.path,
+        service: 'bi-platform-api'
+      });
+      
       res.status(401).json({
         success: false,
-        message: 'Authentication required',
-        errors: [{
-          code: 'MISSING_TOKEN',
-          message: 'Authorization token is required'
-        }]
+        message: 'Access token required',
+        error: 'MISSING_TOKEN'
       });
       return;
     }
@@ -39,82 +77,224 @@ export const authenticate = async (
       res.status(401).json({
         success: false,
         message: 'Invalid token format',
-        errors: [{
-          code: 'INVALID_TOKEN_FORMAT',
-          message: 'Token must be provided in Bearer format'
-        }]
+        error: 'INVALID_TOKEN_FORMAT'
       });
       return;
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-fallback-secret') as JWTPayload;
+      // Verify JWT token
+      const decoded = jwt.verify(
+        token, 
+        process.env.JWT_SECRET || 'your-jwt-secret'
+      ) as JWTPayload;
       
-      // Set user data on request
-      req.user = {
+      // Extract user data from token
+      const userData: AuthUserData = {
         user_id: decoded.user_id,
         email: decoded.email,
-        first_name: decoded.first_name || 'Unknown',
-        last_name: decoded.last_name || 'User',
+        username: decoded.username,
         workspace_id: decoded.workspace_id,
-        roles: decoded.roles || []
+        workspace_slug: decoded.workspace_slug,
+        workspace_role: decoded.workspace_role,
+        is_admin: decoded.is_admin || false,
+        role_level: decoded.role_level || 0
       };
       
-      logger.debug('User authenticated', {
-        user_id: req.user.user_id,
-        email: req.user.email,
-        workspace_id: req.user.workspace_id
+      // Attach user data to request
+      req.user = userData;
+      
+      logger.debug('User authenticated successfully', {
+        user_id: userData.user_id,
+        email: userData.email,
+        workspace_id: userData.workspace_id,
+        workspace_slug: userData.workspace_slug,
+        is_admin: userData.is_admin,
+        service: 'bi-platform-api'
       });
       
       next();
+      
     } catch (jwtError: any) {
       logger.warn('JWT verification failed', {
         error: jwtError.message,
+        name: jwtError.name,
         token: token.substring(0, 20) + '...',
-        ip: req.ip
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        service: 'bi-platform-api'
       });
+
+      let errorCode = 'TOKEN_VERIFICATION_FAILED';
+      let message = 'Invalid or expired token';
+      
+      if (jwtError.name === 'TokenExpiredError') {
+        errorCode = 'TOKEN_EXPIRED';
+        message = 'Access token expired';
+      } else if (jwtError.name === 'JsonWebTokenError') {
+        errorCode = 'INVALID_TOKEN';
+        message = 'Invalid access token';
+      }
 
       res.status(401).json({
         success: false,
-        message: 'Invalid or expired token',
-        errors: [{
-          code: 'TOKEN_VERIFICATION_FAILED',
-          message: 'The provided token is invalid or has expired'
-        }]
+        message,
+        error: errorCode
       });
       return;
     }
+    
   } catch (error: any) {
-    logger.error('Authentication middleware error:', error);
+    logger.error('Authentication middleware error:', {
+      error: error.message,
+      stack: error.stack,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      service: 'bi-platform-api'
+    });
     
     res.status(500).json({
       success: false,
-      message: 'Authentication failed',
-      errors: [{
-        code: 'AUTHENTICATION_ERROR',
-        message: 'An error occurred during authentication'
-      }]
+      message: 'Authentication failed due to server error',
+      error: 'AUTHENTICATION_ERROR'
     });
     return;
   }
 };
 
-// Helper function to generate JWT tokens
+/**
+ * Optional authentication middleware
+ * Does not fail if no token provided, but extracts user if token exists
+ */
+export const optionalAuthenticate = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    // No token provided, continue without authentication
+    next();
+    return;
+  }
+
+  try {
+    // Try to authenticate, but don't fail if it doesn't work
+    await authenticate(req, res, next);
+  } catch (error) {
+    logger.warn('Optional authentication failed, continuing without auth:', error);
+    // Continue without authentication
+    next();
+  }
+};
+
+/**
+ * Helper function to generate JWT tokens
+ */
 export const generateToken = (payload: Omit<JWTPayload, 'iat' | 'exp'>): string => {
   return jwt.sign(
     payload,
     process.env.JWT_SECRET || 'your-jwt-secret',
-    { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+    { 
+      expiresIn: process.env.JWT_EXPIRES_IN || '24h',
+      issuer: 'bi-platform-api'
+    }
   );
 };
 
-// Helper function to verify JWT tokens
+/**
+ * Helper function to verify JWT tokens without middleware
+ */
 export const verifyToken = (token: string): JWTPayload | null => {
   try {
-    return jwt.verify(token, process.env.JWT_SECRET || 'your-jwt-secret') as JWTPayload;
+    return jwt.verify(
+      token, 
+      process.env.JWT_SECRET || 'your-jwt-secret'
+    ) as JWTPayload;
   } catch {
     return null;
   }
 };
 
+/**
+ * Extract token from request headers
+ */
+export const extractToken = (req: Request): string | null => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+  
+  return authHeader.substring(7);
+};
+
+/**
+ * Check if user is admin
+ */
+export const isAdmin = (req: AuthenticatedRequest): boolean => {
+  return req.user?.is_admin === true || 
+         (req.user?.role_level || 0) >= 90;
+};
+
+/**
+ * Require admin access middleware
+ */
+export const requireAdmin = (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): void => {
+  if (!req.user) {
+    res.status(401).json({
+      success: false,
+      message: 'Authentication required',
+      error: 'AUTHENTICATION_REQUIRED'
+    });
+    return;
+  }
+  
+  if (!isAdmin(req)) {
+    res.status(403).json({
+      success: false,
+      message: 'Admin access required',
+      error: 'ADMIN_ACCESS_REQUIRED'
+    });
+    return;
+  }
+  
+  next();
+};
+
+/**
+ * Require workspace context middleware
+ */
+export const requireWorkspace = (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): void => {
+  if (!req.user) {
+    res.status(401).json({
+      success: false,
+      message: 'Authentication required',
+      error: 'AUTHENTICATION_REQUIRED'
+    });
+    return;
+  }
+  
+  if (!req.user.workspace_id) {
+    res.status(400).json({
+      success: false,
+      message: 'Workspace context required',
+      error: 'WORKSPACE_REQUIRED'
+    });
+    return;
+  }
+  
+  next();
+};
+
+// Default export for backward compatibility
 export default authenticate;

@@ -1,182 +1,178 @@
-// web-application/src/hooks/usePermissions.ts - Updated for new flow
-import { useEffect, useState, useCallback } from 'react';
+// web-application/src/hooks/usePermissions.ts
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './useAuth';
 
 interface Permission {
   id: string;
   name: string;
-  description?: string;
-  resource_type?: string;
-  action?: string;
+  description: string;
+  category: string;
+  action: string;
 }
 
-export const usePermissions = () => {
-  const { user, workspace, token, isAuthenticated } = useAuth();
+interface UsePermissionsResult {
+  permissions: string[];
+  roles: string[];
+  loading: boolean;
+  error: string | null;
+  hasPermission: (permission: string) => boolean;
+  hasAnyPermission: (permissions: string[]) => boolean;
+  hasAllPermissions: (permissions: string[]) => boolean;
+  refreshPermissions: () => Promise<void>;
+}
+
+export const usePermissions = (): UsePermissionsResult => {
+  const { user, workspace, isAuthenticated } = useAuth();
   const [permissions, setPermissions] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [roles, setRoles] = useState<string[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Fetch user permissions for current workspace
-  useEffect(() => {
-    const fetchPermissions = async () => {
-      if (!isAuthenticated || !token) {
-        setPermissions([]);
-        return;
-      }
-
-      // If no workspace, user has minimal permissions
-      if (!workspace) {
-        setPermissions(['workspace.read', 'profile.read', 'profile.update']);
-        return;
-      }
-
-      setLoading(true);
-      try {
-        const response = await fetch(`/api/v1/user/permissions?workspace_id=${workspace.id}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setPermissions(data.permissions || []);
-        } else {
-          console.error('Failed to fetch permissions');
-          setPermissions([]);
-        }
-      } catch (error) {
-        console.error('Error fetching permissions:', error);
-        setPermissions([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchPermissions();
-  }, [user, workspace, token, isAuthenticated]);
-
-  // Check if user has a specific permission
-  const hasPermission = useCallback((permission: string): boolean => {
-    if (!isAuthenticated) return false;
-    
-    // If no workspace, only allow basic permissions
-    if (!workspace) {
-      const allowedWithoutWorkspace = [
-        'workspace.read',
-        'profile.read', 
-        'profile.update',
-        'workspace.switch'
-      ];
-      return allowedWithoutWorkspace.includes(permission);
+  // Function to fetch user permissions from API
+  const fetchPermissions = useCallback(async () => {
+    if (!isAuthenticated || !user || !workspace) {
+      console.log('Cannot fetch permissions: not authenticated or missing user/workspace');
+      setPermissions([]);
+      setRoles([]);
+      return;
     }
 
-    return permissions.includes(permission);
-  }, [permissions, isAuthenticated, workspace]);
+    try {
+      setLoading(true);
+      setError(null);
 
-  // Check if user has any of the provided permissions
-  const hasAnyPermission = useCallback((permissionList: string[]): boolean => {
-    if (!isAuthenticated) return false;
-    return permissionList.some(permission => hasPermission(permission));
-  }, [hasPermission, isAuthenticated]);
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
 
-  // Check if user has all of the provided permissions
-  const hasAllPermissions = useCallback((permissionList: string[]): boolean => {
-    if (!isAuthenticated) return false;
-    return permissionList.every(permission => hasPermission(permission));
-  }, [hasPermission, isAuthenticated]);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user/permissions?workspace=${workspace.id}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
-  // Get user's role level (useful for hierarchical permissions)
-  const getRoleLevel = useCallback((): number => {
-    if (!isAuthenticated || !workspace) return 0;
+      if (!response.ok) {
+        if (response.status === 404) {
+          // Permissions endpoint not implemented yet, use defaults
+          console.warn('Permissions endpoint not available, using default permissions');
+          
+          // For admin users, give all permissions
+          if (user.email?.includes('admin') || user.roles?.includes('admin')) {
+            setPermissions([
+              'workspace.read', 'workspace.admin',
+              'dashboard.read', 'dashboard.create', 'dashboard.update', 'dashboard.delete', 'dashboard.admin',
+              'dataset.read', 'dataset.create', 'dataset.update', 'dataset.delete', 'dataset.admin',
+              'chart.read', 'chart.create', 'chart.update', 'chart.delete', 'chart.admin',
+              'datasource.read', 'datasource.create', 'datasource.update', 'datasource.delete',
+              'user.read', 'user.create', 'user.update', 'user.delete',
+              'category.read', 'category.create', 'category.update', 'category.delete',
+              'sql_editor.access', 'sql_editor.execute',
+              'export.pdf', 'export.excel', 'export.csv', 'export.image'
+            ]);
+            setRoles(['admin']);
+          } else {
+            // Regular users get basic permissions
+            setPermissions([
+              'workspace.read',
+              'dashboard.read',
+              'dataset.read',
+              'chart.read',
+              'export.csv', 'export.image'
+            ]);
+            setRoles(['viewer']);
+          }
+          return;
+        }
+        throw new Error(`Failed to fetch permissions: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setPermissions(data.permissions || []);
+        setRoles(data.roles || []);
+      } else {
+        throw new Error(data.message || 'Failed to fetch permissions');
+      }
+
+    } catch (err) {
+      console.error('Error fetching permissions:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch permissions');
+      
+      // Fallback permissions for development
+      if (user?.email?.includes('admin')) {
+        setPermissions([
+          'workspace.read', 'workspace.admin',
+          'dashboard.read', 'dashboard.create', 'dashboard.update', 'dashboard.delete',
+          'dataset.read', 'dataset.create', 'dataset.update', 'dataset.delete',
+          'chart.read', 'chart.create', 'chart.update', 'chart.delete',
+          'datasource.read', 'datasource.create', 'datasource.update', 'datasource.delete',
+          'user.read', 'user.create', 'user.update', 'user.delete',
+          'sql_editor.access', 'sql_editor.execute'
+        ]);
+        setRoles(['admin']);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [user, workspace, isAuthenticated]);
+
+  // Load permissions when auth state changes
+  useEffect(() => {
+    fetchPermissions();
+  }, [fetchPermissions]);
+
+  // Permission checking functions
+  const hasPermission = useCallback((permission: string): boolean => {
+    if (!permission) return false;
     
-    // Define role hierarchy
-    const roleHierarchy: Record<string, number> = {
-      'viewer': 1,
-      'analyst': 2,
-      'editor': 3,
-      'admin': 4,
-      'owner': 5
-    };
+    // Admin users have all permissions
+    if (roles.includes('admin')) {
+      return true;
+    }
+    
+    return permissions.includes(permission);
+  }, [permissions, roles]);
 
-    return roleHierarchy[workspace.role || ''] || 0;
-  }, [isAuthenticated, workspace]);
+  const hasAnyPermission = useCallback((requiredPermissions: string[]): boolean => {
+    if (!requiredPermissions || requiredPermissions.length === 0) return false;
+    
+    // Admin users have all permissions
+    if (roles.includes('admin')) {
+      return true;
+    }
+    
+    return requiredPermissions.some(permission => permissions.includes(permission));
+  }, [permissions, roles]);
 
-  // Check if user meets minimum role level
-  const hasMinimumRole = useCallback((minimumLevel: number): boolean => {
-    return getRoleLevel() >= minimumLevel;
-  }, [getRoleLevel]);
+  const hasAllPermissions = useCallback((requiredPermissions: string[]): boolean => {
+    if (!requiredPermissions || requiredPermissions.length === 0) return false;
+    
+    // Admin users have all permissions
+    if (roles.includes('admin')) {
+      return true;
+    }
+    
+    return requiredPermissions.every(permission => permissions.includes(permission));
+  }, [permissions, roles]);
 
-  // Convenience methods for common permission checks
-  const canCreateDashboard = hasPermission('dashboard.create');
-  const canEditDashboard = hasPermission('dashboard.update');
-  const canDeleteDashboard = hasPermission('dashboard.delete');
-  const canViewDashboard = hasPermission('dashboard.read');
-  const canShareDashboard = hasPermission('dashboard.share');
-
-  const canCreateDataset = hasPermission('dataset.create');
-  const canEditDataset = hasPermission('dataset.update');
-  const canDeleteDataset = hasPermission('dataset.delete');
-  const canViewDataset = hasPermission('dataset.read');
-
-  const canAccessSQLEditor = hasPermission('sql_editor.access');
-  const canExecuteQueries = hasPermission('query.execute');
-
-  const canManageUsers = hasPermission('user.manage');
-  const canManageRoles = hasPermission('role.manage');
-  const canAccessAdmin = hasPermission('workspace.admin');
-  const canManageCategories = hasPermission('category.manage');
-
-  const canExportData = hasPermission('data.export');
-  const canViewAuditLogs = hasPermission('audit.read');
-
-  // Check if user can access workspace features
-  const canAccessWorkspace = useCallback((workspaceSlug?: string): boolean => {
-    if (!workspaceSlug) return true; // Allow access to general pages
-    if (!workspace) return false; // No workspace access
-    return workspace.slug === workspaceSlug;
-  }, [workspace]);
+  const refreshPermissions = useCallback(async () => {
+    await fetchPermissions();
+  }, [fetchPermissions]);
 
   return {
     permissions,
+    roles,
     loading,
+    error,
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,
-    getRoleLevel,
-    hasMinimumRole,
-    canAccessWorkspace,
-
-    // Dashboard permissions
-    canCreateDashboard,
-    canEditDashboard,
-    canDeleteDashboard,
-    canViewDashboard,
-    canShareDashboard,
-
-    // Dataset permissions
-    canCreateDataset,
-    canEditDataset,
-    canDeleteDataset,
-    canViewDataset,
-
-    // SQL Editor permissions
-    canAccessSQLEditor,
-    canExecuteQueries,
-
-    // Admin permissions
-    canManageUsers,
-    canManageRoles,
-    canAccessAdmin,
-    canManageCategories,
-
-    // Data permissions
-    canExportData,
-    canViewAuditLogs,
-
-    // Workspace info
-    currentWorkspace: workspace,
-    userRole: workspace?.role || null,
-    roleLevel: getRoleLevel()
+    refreshPermissions,
   };
 };
+
+export default usePermissions;

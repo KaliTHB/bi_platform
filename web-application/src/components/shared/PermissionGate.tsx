@@ -1,99 +1,166 @@
+// web-application/src/components/shared/PermissionGate.tsx
 import React from 'react';
-import { usePermissions } from '../../contexts/PermissionContext';
+import { Box, CircularProgress, Alert } from '@mui/material';
+import { usePermissions } from '../../hooks/usePermissions';
 
 interface PermissionGateProps {
+  /**
+   * Single permission string or array of permissions to check
+   */
   permissions: string | string[];
-  requireAll?: boolean; // true = AND logic, false = OR logic (default)
+  
+  /**
+   * Logic for multiple permissions:
+   * - true: Require ALL permissions (AND logic)
+   * - false: Require ANY permission (OR logic) - default
+   */
+  requireAll?: boolean;
+  
+  /**
+   * Content to render when user has required permissions
+   */
   children: React.ReactNode;
+  
+  /**
+   * Content to render when user lacks permissions (optional)
+   */
   fallback?: React.ReactNode;
+  
+  /**
+   * Show loading spinner while permissions are being checked
+   */
   showLoading?: boolean;
+  
+  /**
+   * Show error message instead of hiding content
+   */
+  showError?: boolean;
 }
 
+/**
+ * PermissionGate - Controls rendering of content based on user permissions
+ * 
+ * Usage Examples:
+ * - Single permission: <PermissionGate permissions="dashboard.read">...</PermissionGate>
+ * - Multiple (OR): <PermissionGate permissions={["dashboard.read", "dashboard.admin"]}>...</PermissionGate>
+ * - Multiple (AND): <PermissionGate permissions={["dashboard.read", "dashboard.update"]} requireAll>...</PermissionGate>
+ * - With fallback: <PermissionGate permissions="dashboard.create" fallback={<Alert>No access</Alert>}>...</PermissionGate>
+ */
+export const PermissionGate: React.FC<PermissionGateProps> = ({
+  permissions,
+  requireAll = false,
+  children,
+  fallback,
+  showLoading = true,
+  showError = false
+}) => {
+  const { hasPermission, hasAnyPermission, loading, error } = usePermissions();
 
-export class PermissionService {
-  constructor(
-    private database: Pool,
-    private cacheService: CacheService
-  ) {}
-
-  async getUserEffectivePermissions(
-    userId: string, 
-    workspaceId: string
-  ): Promise<string[]> {
-    // Input validation
-    if (!userId || !workspaceId) {
-      console.warn('Invalid userId or workspaceId provided to getUserEffectivePermissions');
-      return [];
-    }
-
-    const cacheKey = `permissions:${userId}:${workspaceId}`;
-    
-    try {
-      // Try cache first
-      const cached = await this.cacheService.get(cacheKey);
-      if (cached) {
-        return JSON.parse(cached);
-      }
-
-      // Get all user roles in workspace
-      const roleResult = await this.database.query(`
-        SELECT cr.permissions
-        FROM user_role_assignments ura
-        JOIN custom_roles cr ON ura.role_id = cr.id
-        WHERE ura.user_id = $1 
-          AND ura.workspace_id = $2 
-          AND ura.is_active = true
-          AND cr.is_active = true
-      `, [userId, workspaceId]);
-
-      // Union all permissions from all roles
-      const allPermissions = new Set<string>();
-      roleResult.rows.forEach(row => {
-        const permissions = row.permissions || [];
-        if (Array.isArray(permissions)) {
-          permissions.forEach((perm: string) => {
-            if (perm && typeof perm === 'string') {
-              allPermissions.add(perm);
-            }
-          });
-        }
-      });
-
-      const effectivePermissions = Array.from(allPermissions);
-      
-      // Cache for 5 minutes
-      await this.cacheService.setex(cacheKey, 300, JSON.stringify(effectivePermissions));
-      
-      return effectivePermissions;
-    } catch (error) {
-      console.error('Error getting user permissions:', error);
-      return [];
-    }
+  // Handle loading state
+  if (loading && showLoading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" p={2}>
+        <CircularProgress size={24} />
+      </Box>
+    );
   }
 
-  async hasPermission(
-    userId: string, 
-    workspaceId: string, 
-    permission: string
-  ): Promise<boolean> {
-    if (!userId || !workspaceId || !permission) return false;
-    
-    const permissions = await this.getUserEffectivePermissions(userId, workspaceId);
-    return permissions.includes(permission);
+  // Handle error state
+  if (error && showError) {
+    return (
+      <Alert severity="error" sx={{ m: 1 }}>
+        Failed to load permissions: {error}
+      </Alert>
+    );
   }
 
-  async hasAnyPermission(
-    userId: string, 
-    workspaceId: string, 
-    permissions: string[]
-  ): Promise<boolean> {
-    if (!userId || !workspaceId || !Array.isArray(permissions) || permissions.length === 0) {
-      return false;
-    }
-    
-    const userPermissions = await this.getUserEffectivePermissions(userId, workspaceId);
-    return permissions.some(perm => userPermissions.includes(perm));
+  // Normalize permissions to array
+  const permissionArray = Array.isArray(permissions) ? permissions : [permissions];
+
+  // Check permissions based on logic type
+  let hasAccess = false;
+
+  if (requireAll) {
+    // AND logic - user must have ALL permissions
+    hasAccess = permissionArray.every(permission => hasPermission(permission));
+  } else {
+    // OR logic - user must have ANY of the permissions
+    hasAccess = hasAnyPermission ? 
+      hasAnyPermission(permissionArray) : 
+      permissionArray.some(permission => hasPermission(permission));
   }
 
-  // ... rest of the methods remain the same
-}
+  // Render content based on access
+  if (hasAccess) {
+    return <>{children}</>;
+  }
+
+  // Return fallback content or null
+  return <>{fallback || null}</>;
+};
+
+/**
+ * Higher-Order Component version of PermissionGate
+ * Wraps a component with permission checking
+ */
+export const withPermissionGate = <P extends object>(
+  Component: React.ComponentType<P>,
+  permissions: string | string[],
+  options: {
+    requireAll?: boolean;
+    fallback?: React.ReactNode;
+    showLoading?: boolean;
+  } = {}
+) => {
+  const PermissionWrappedComponent: React.FC<P> = (props) => {
+    return (
+      <PermissionGate 
+        permissions={permissions}
+        requireAll={options.requireAll}
+        fallback={options.fallback}
+        showLoading={options.showLoading}
+      >
+        <Component {...props} />
+      </PermissionGate>
+    );
+  };
+
+  PermissionWrappedComponent.displayName = `withPermissionGate(${Component.displayName || Component.name})`;
+  
+  return PermissionWrappedComponent;
+};
+
+/**
+ * Hook for permission checking within components
+ * Alternative to using PermissionGate component
+ */
+export const usePermissionGate = (
+  permissions: string | string[],
+  requireAll: boolean = false
+): {
+  hasAccess: boolean;
+  loading: boolean;
+  error: string | null;
+} => {
+  const { hasPermission, hasAnyPermission, loading, error } = usePermissions();
+
+  const permissionArray = Array.isArray(permissions) ? permissions : [permissions];
+  
+  let hasAccess = false;
+  if (requireAll) {
+    hasAccess = permissionArray.every(permission => hasPermission(permission));
+  } else {
+    hasAccess = hasAnyPermission ? 
+      hasAnyPermission(permissionArray) : 
+      permissionArray.some(permission => hasPermission(permission));
+  }
+
+  return {
+    hasAccess,
+    loading,
+    error
+  };
+};
+
+// Default export for backward compatibility
+export default PermissionGate;

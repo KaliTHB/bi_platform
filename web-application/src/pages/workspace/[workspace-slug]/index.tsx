@@ -6,7 +6,7 @@ import { Dashboard, DataObject, Analytics, Settings } from '@mui/icons-material'
 import { useAuth } from '../../../hooks/useAuth';
 import { usePermissions } from '../../../hooks/usePermissions';
 import Navigation from '../../../components/shared/Navigation';
-import PermissionGate from '../../../components/shared/PermissionGate';
+import {PermissionGate} from '../../../components/shared/PermissionGate';
 
 export default function WorkspaceDashboard() {
   const router = useRouter();

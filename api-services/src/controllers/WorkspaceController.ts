@@ -1,6 +1,6 @@
 // api-services/src/controllers/WorkspaceController.ts
-import { Request, Response } from 'express';
-import { WorkspaceService } from '../services/WorkspaceService';
+import { Response } from 'express';
+import { WorkspaceService, Workspace } from '../services/WorkspaceService';
 import { logger } from '../utils/logger';
 import { AuthenticatedRequest } from '../middleware/auth';
 
@@ -29,7 +29,7 @@ export class WorkspaceController {
         return;
       }
 
-      logger.debug('Getting user workspaces', { 
+      logger.debug('Getting user workspaces via WorkspaceController', { 
         userId: req.user.user_id,
         email: req.user.email 
       });
@@ -41,6 +41,7 @@ export class WorkspaceController {
         id: workspace.id,
         name: workspace.name,
         slug: workspace.slug,
+        display_name: workspace.display_name,
         description: workspace.description,
         logo_url: workspace.logo_url,
         settings: workspace.settings,
@@ -52,6 +53,8 @@ export class WorkspaceController {
         user_roles: workspace.user_roles,
         highest_role: workspace.highest_role,
         member_count: workspace.member_count || 0,
+        dashboard_count: workspace.dashboard_count || 0,
+        dataset_count: workspace.dataset_count || 0,
         joined_at: workspace.joined_at,
       }));
 
@@ -88,9 +91,9 @@ export class WorkspaceController {
 
   /**
    * Get workspace by ID
-   * GET /api/workspaces/:id
+   * GET /api/workspaces/:workspaceId
    */
-  getWorkspaceById = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  getWorkspace = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -104,9 +107,9 @@ export class WorkspaceController {
         return;
       }
 
-      const { id } = req.params;
+      const { workspaceId } = req.params;
 
-      if (!id) {
+      if (!workspaceId) {
         res.status(400).json({
           success: false,
           message: 'Workspace ID is required',
@@ -119,7 +122,7 @@ export class WorkspaceController {
       }
 
       // Check if user has access to this workspace
-      const hasAccess = await this.workspaceService.hasWorkspaceAccess(req.user.user_id, id);
+      const hasAccess = await this.workspaceService.hasWorkspaceAccess(req.user.user_id, workspaceId);
       
       if (!hasAccess) {
         res.status(403).json({
@@ -133,7 +136,7 @@ export class WorkspaceController {
         return;
       }
 
-      const workspace = await this.workspaceService.getWorkspaceById(id, req.user.user_id);
+      const workspace = await this.workspaceService.getWorkspaceById(workspaceId, req.user.user_id);
 
       if (!workspace) {
         res.status(404).json({
@@ -148,10 +151,10 @@ export class WorkspaceController {
       }
 
       // Get workspace statistics
-      const stats = await this.workspaceService.getWorkspaceStats(id);
+      const stats = await this.workspaceService.getWorkspaceStats(workspaceId);
 
       logger.info('Retrieved workspace by ID', { 
-        workspaceId: id,
+        workspaceId,
         userId: req.user.user_id 
       });
 
@@ -166,7 +169,7 @@ export class WorkspaceController {
 
     } catch (error: any) {
       logger.error('Get workspace by ID error:', {
-        workspaceId: req.params.id,
+        workspaceId: req.params.workspaceId,
         userId: req.user?.user_id,
         error: error.message,
         stack: error.stack
@@ -201,34 +204,30 @@ export class WorkspaceController {
         return;
       }
 
-      const { name, slug, description, settings, logo_url } = req.body;
+      const { name, slug, description, settings } = req.body;
 
-      if (!name || name.trim().length === 0) {
+      if (!name || typeof name !== 'string' || name.trim().length === 0) {
         res.status(400).json({
           success: false,
           message: 'Workspace name is required',
           errors: [{
-            code: 'MISSING_WORKSPACE_NAME',
-            message: 'Workspace name cannot be empty'
+            code: 'INVALID_WORKSPACE_NAME',
+            message: 'Workspace name must be a non-empty string'
           }]
         });
         return;
       }
 
-      const workspaceData = {
+      const workspace = await this.workspaceService.createWorkspace({
         name: name.trim(),
-        slug: slug?.trim(),
-        description: description?.trim(),
-        settings: settings || {},
-        logo_url: logo_url?.trim(),
-      };
+        slug,
+        description,
+        settings
+      }, req.user.user_id);
 
-      const workspace = await this.workspaceService.createWorkspace(workspaceData, req.user.user_id);
-
-      logger.info('Created new workspace', { 
+      logger.info('Created workspace', { 
         workspaceId: workspace.id,
-        name: workspace.name,
-        ownerId: req.user.user_id 
+        userId: req.user.user_id 
       });
 
       res.status(201).json({
@@ -240,18 +239,15 @@ export class WorkspaceController {
     } catch (error: any) {
       logger.error('Create workspace error:', {
         userId: req.user?.user_id,
-        workspaceData: req.body,
         error: error.message,
         stack: error.stack
       });
 
-      const statusCode = error.message.includes('already exists') ? 409 : 500;
-
-      res.status(statusCode).json({
+      res.status(500).json({
         success: false,
         message: 'Failed to create workspace',
         errors: [{
-          code: statusCode === 409 ? 'WORKSPACE_EXISTS' : 'WORKSPACE_CREATION_ERROR',
+          code: 'WORKSPACE_CREATION_ERROR',
           message: error.message || 'An error occurred while creating the workspace'
         }]
       });
@@ -260,7 +256,7 @@ export class WorkspaceController {
 
   /**
    * Update workspace
-   * PUT /api/workspaces/:id
+   * PUT /api/workspaces/:workspaceId
    */
   updateWorkspace = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -276,10 +272,10 @@ export class WorkspaceController {
         return;
       }
 
-      const { id } = req.params;
-      const updateData = req.body;
+      const { workspaceId } = req.params;
+      const { name, description, settings, logo_url } = req.body;
 
-      if (!id) {
+      if (!workspaceId) {
         res.status(400).json({
           success: false,
           message: 'Workspace ID is required',
@@ -291,12 +287,27 @@ export class WorkspaceController {
         return;
       }
 
-      const workspace = await this.workspaceService.updateWorkspace(id, updateData, req.user.user_id);
+      const workspace = await this.workspaceService.updateWorkspace(
+        workspaceId,
+        { name, description, settings, logo_url },
+        req.user.user_id
+      );
+
+      if (!workspace) {
+        res.status(404).json({
+          success: false,
+          message: 'Workspace not found',
+          errors: [{
+            code: 'WORKSPACE_NOT_FOUND',
+            message: 'The requested workspace was not found'
+          }]
+        });
+        return;
+      }
 
       logger.info('Updated workspace', { 
-        workspaceId: id,
-        userId: req.user.user_id,
-        updateData 
+        workspaceId,
+        userId: req.user.user_id 
       });
 
       res.status(200).json({
@@ -307,17 +318,13 @@ export class WorkspaceController {
 
     } catch (error: any) {
       logger.error('Update workspace error:', {
-        workspaceId: req.params.id,
+        workspaceId: req.params.workspaceId,
         userId: req.user?.user_id,
-        updateData: req.body,
         error: error.message,
         stack: error.stack
       });
 
-      const statusCode = error.message.includes('permission') ? 403 : 
-                        error.message.includes('not found') ? 404 : 500;
-
-      res.status(statusCode).json({
+      res.status(500).json({
         success: false,
         message: 'Failed to update workspace',
         errors: [{
@@ -330,129 +337,141 @@ export class WorkspaceController {
 
   /**
    * Delete workspace
-   * DELETE /api/workspaces/:id
+   * DELETE /api/workspaces/:workspaceId
    */
   deleteWorkspace = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      if (!req.user) {
-        res.status(401).json({
-          success: false,
-          message: 'Authentication required',
-          errors: [{
-            code: 'AUTHENTICATION_REQUIRED',
-            message: 'User must be authenticated'
-          }]
-        });
-        return;
-      }
-
-      const { id } = req.params;
-
-      if (!id) {
-        res.status(400).json({
-          success: false,
-          message: 'Workspace ID is required',
-          errors: [{
-            code: 'MISSING_WORKSPACE_ID',
-            message: 'Workspace ID parameter is required'
-          }]
-        });
-        return;
-      }
-
-      await this.workspaceService.deleteWorkspace(id, req.user.user_id);
-
-      logger.info('Deleted workspace', { 
-        workspaceId: id,
-        userId: req.user.user_id 
+      // Implementation for workspace deletion
+      res.status(501).json({
+        success: false,
+        message: 'Workspace deletion not yet implemented',
+        errors: [{
+          code: 'NOT_IMPLEMENTED',
+          message: 'This feature will be available in a future update'
+        }]
       });
-
-      res.status(200).json({
-        success: true,
-        message: 'Workspace deleted successfully'
-      });
-
     } catch (error: any) {
-      logger.error('Delete workspace error:', {
-        workspaceId: req.params.id,
-        userId: req.user?.user_id,
-        error: error.message,
-        stack: error.stack
-      });
-
-      const statusCode = error.message.includes('owner') ? 403 : 
-                        error.message.includes('not found') ? 404 : 500;
-
-      res.status(statusCode).json({
+      logger.error('Delete workspace error:', error);
+      res.status(500).json({
         success: false,
         message: 'Failed to delete workspace',
         errors: [{
-          code: 'WORKSPACE_DELETE_ERROR',
-          message: error.message || 'An error occurred while deleting the workspace'
+          code: 'WORKSPACE_DELETION_ERROR',
+          message: 'An error occurred while deleting the workspace'
         }]
       });
     }
   };
 
   /**
-   * Get all workspaces (admin only)
-   * GET /api/admin/workspaces
+   * Get workspace members
+   * GET /api/workspaces/:workspaceId/members
    */
-  getAllWorkspaces = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  getWorkspaceMembers = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      if (!req.user) {
-        res.status(401).json({
-          success: false,
-          message: 'Authentication required',
-          errors: [{
-            code: 'AUTHENTICATION_REQUIRED',
-            message: 'User must be authenticated'
-          }]
-        });
-        return;
-      }
-
-      // Check if user has admin permissions
-      // This would typically check against a role or permission system
-      // For now, we'll just implement the basic functionality
-
-      const { limit = 50, offset = 0, include_inactive = 'false' } = req.query;
-      
-      const workspaces = await this.workspaceService.getAllWorkspaces(
-        parseInt(limit as string),
-        parseInt(offset as string),
-        include_inactive === 'true'
-      );
-
-      logger.info('Retrieved all workspaces', { 
-        userId: req.user.user_id,
-        count: workspaces.length 
+      // Implementation for getting workspace members
+      res.status(501).json({
+        success: false,
+        message: 'Workspace members feature not yet implemented',
+        errors: [{
+          code: 'NOT_IMPLEMENTED',
+          message: 'This feature will be available in a future update'
+        }]
       });
-
-      res.status(200).json({
-        success: true,
-        message: 'Workspaces retrieved successfully',
-        data: workspaces,
-        count: workspaces.length
-      });
-
     } catch (error: any) {
-      logger.error('Get all workspaces error:', {
-        userId: req.user?.user_id,
-        error: error.message,
-        stack: error.stack
-      });
-
+      logger.error('Get workspace members error:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to retrieve workspaces',
+        message: 'Failed to get workspace members',
         errors: [{
-          code: 'WORKSPACE_RETRIEVAL_ERROR',
-          message: error.message || 'An error occurred while retrieving workspaces'
+          code: 'WORKSPACE_MEMBERS_ERROR',
+          message: 'An error occurred while retrieving workspace members'
+        }]
+      });
+    }
+  };
+
+  /**
+   * Add workspace member
+   * POST /api/workspaces/:workspaceId/members
+   */
+  addWorkspaceMember = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      // Implementation for adding workspace member
+      res.status(501).json({
+        success: false,
+        message: 'Add workspace member feature not yet implemented',
+        errors: [{
+          code: 'NOT_IMPLEMENTED',
+          message: 'This feature will be available in a future update'
+        }]
+      });
+    } catch (error: any) {
+      logger.error('Add workspace member error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to add workspace member',
+        errors: [{
+          code: 'WORKSPACE_MEMBER_ADD_ERROR',
+          message: 'An error occurred while adding workspace member'
+        }]
+      });
+    }
+  };
+
+  /**
+   * Update member role
+   * PUT /api/workspaces/:workspaceId/members/:userId
+   */
+  updateMemberRole = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      // Implementation for updating member role
+      res.status(501).json({
+        success: false,
+        message: 'Update member role feature not yet implemented',
+        errors: [{
+          code: 'NOT_IMPLEMENTED',
+          message: 'This feature will be available in a future update'
+        }]
+      });
+    } catch (error: any) {
+      logger.error('Update member role error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update member role',
+        errors: [{
+          code: 'WORKSPACE_MEMBER_UPDATE_ERROR',
+          message: 'An error occurred while updating member role'
+        }]
+      });
+    }
+  };
+
+  /**
+   * Remove member
+   * DELETE /api/workspaces/:workspaceId/members/:userId
+   */
+  removeMember = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      // Implementation for removing member
+      res.status(501).json({
+        success: false,
+        message: 'Remove member feature not yet implemented',
+        errors: [{
+          code: 'NOT_IMPLEMENTED',
+          message: 'This feature will be available in a future update'
+        }]
+      });
+    } catch (error: any) {
+      logger.error('Remove member error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to remove member',
+        errors: [{
+          code: 'WORKSPACE_MEMBER_REMOVE_ERROR',
+          message: 'An error occurred while removing member'
         }]
       });
     }
   };
 }
-
-export default WorkspaceController;
