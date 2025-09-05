@@ -57,7 +57,9 @@ const corsOptions = {
     'Content-Type',
     'Accept',
     'Authorization',
-    'X-Workspace-Id'
+    'X-Workspace-Id',
+    'X-Workspace-Slug',    // ✅ ADD THIS - what frontend sends
+    'x-workspace-slug',    // ✅ ADD THIS - lowercase version
   ],
 };
 

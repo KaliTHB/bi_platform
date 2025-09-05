@@ -11,7 +11,7 @@ const datasetController = new DatasetController();
 router.use(authenticate);
 
 // All dataset routes with new permission system
-router.get('/', 
+router.get('/datasets', 
   validateWorkspaceAccess, 
   requirePermission(['dataset.read']),
   asyncHandler(datasetController.getDatasets.bind(datasetController))

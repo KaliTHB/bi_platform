@@ -1,4 +1,4 @@
-// web-application/src/store/index.ts - COMPLETE STORE SETUP
+// web-application/src/store/index.ts - FIXED STORE SETUP WITH RTK QUERY
 import { configureStore, combineReducers } from "@reduxjs/toolkit";
 import {
   persistStore,
@@ -22,11 +22,12 @@ import categoryReducer from "./slices/categorySlice";
 import uiReducer from "./slices/uiSlice";
 import webviewReducer from "./slices/webviewSlice";
 
-// RTK Query APIs (if available)
-// import { authApi } from "./api/authApi";
-// import { userApi } from "./api/userApi";
+// RTK Query APIs - NOW PROPERLY IMPORTED
+import { baseApi } from "./api/baseApi";
+import { authApi } from "./api/authApi";
+import { dashboardApi } from "./api/dashboardApi";
+// Uncomment these as you implement them
 // import { workspaceApi } from "./api/workspaceApi";
-// import { dashboardApi } from "./api/dashboardApi";
 // import { datasetApi } from "./api/datasetApi";
 // import { categoryApi } from "./api/categoryApi";
 // import { webviewApi } from "./api/webviewApi";
@@ -63,7 +64,7 @@ const workspacePersistConfig = {
   blacklist: ["isLoading", "error"],
 };
 
-// Root persist configuration
+// Root persist configuration - EXCLUDE RTK Query from persistence
 const rootPersistConfig = {
   key: "root",
   storage,
@@ -76,18 +77,19 @@ const rootPersistConfig = {
     "dashboard",
     "dataset",
     "category",
-    // RTK Query API slices (if available)
-    // authApi.reducerPath,
-    // userApi.reducerPath,
+    // RTK Query API slices - DO NOT PERSIST
+    baseApi.reducerPath,
+    authApi.reducerPath,
+    dashboardApi.reducerPath,
+    // Add these when implemented
     // workspaceApi.reducerPath,
-    // dashboardApi.reducerPath,
     // datasetApi.reducerPath,
     // categoryApi.reducerPath,
     // webviewApi.reducerPath,
   ],
 };
 
-// Combine all reducers
+// Combine all reducers - NOW INCLUDING RTK QUERY APIS
 const rootReducer = combineReducers({
   // Persisted slices
   auth: persistReducer(authPersistConfig, authReducer),
@@ -100,11 +102,12 @@ const rootReducer = combineReducers({
   ui: uiReducer,
   webview: webviewReducer,
 
-  // RTK Query slices (if available)
-  // [authApi.reducerPath]: authApi.reducer,
-  // [userApi.reducerPath]: userApi.reducer,
+  // RTK Query API slices - NOW PROPERLY ADDED
+  [baseApi.reducerPath]: baseApi.reducer,
+  [authApi.reducerPath]: authApi.reducer,
+  [dashboardApi.reducerPath]: dashboardApi.reducer,
+  // Uncomment these as you implement them
   // [workspaceApi.reducerPath]: workspaceApi.reducer,
-  // [dashboardApi.reducerPath]: dashboardApi.reducer,
   // [datasetApi.reducerPath]: datasetApi.reducer,
   // [categoryApi.reducerPath]: categoryApi.reducer,
   // [webviewApi.reducerPath]: webviewApi.reducer,
@@ -113,20 +116,30 @@ const rootReducer = combineReducers({
 // Create persisted reducer
 const persistedReducer = persistReducer(rootPersistConfig, rootReducer);
 
-// Configure store
+// Configure store - NOW WITH RTK QUERY MIDDLEWARE
 export const store = configureStore({
   reducer: persistedReducer,
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
       serializableCheck: {
         ignoredActions: [FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER],
+        // Ignore RTK Query cache actions as they may contain non-serializable data
+        ignoredActionsPaths: ['meta.arg', 'payload.timestamp'],
+        ignoredPaths: [
+          'register', 
+          // RTK Query paths that may contain functions
+          `${baseApi.reducerPath}`,
+          `${authApi.reducerPath}`,
+          `${dashboardApi.reducerPath}`,
+        ],
       },
     })
-    // Add RTK Query middleware (if available)
-    // .concat(authApi.middleware)
-    // .concat(userApi.middleware)
+    // Add RTK Query middleware - NOW PROPERLY CONFIGURED
+    .concat(baseApi.middleware) // This handles all injected endpoints including dashboardApi
+    .concat(authApi.middleware) // This is a separate API with its own middleware
+    // Note: dashboardApi uses baseApi.middleware (no separate middleware needed)
+    // Uncomment these as you implement them as separate APIs
     // .concat(workspaceApi.middleware)
-    // .concat(dashboardApi.middleware)
     // .concat(datasetApi.middleware)
     // .concat(categoryApi.middleware)
     // .concat(webviewApi.middleware)

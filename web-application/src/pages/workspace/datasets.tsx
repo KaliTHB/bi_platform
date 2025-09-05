@@ -1,5 +1,5 @@
 // =============================================================================
-// web-application/src/pages/workspace/[workspace-slug]/datasets.tsx
+// web-application/src/pages/workspace/datasets.tsx
 // =============================================================================
 
 import React from 'react';

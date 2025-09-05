@@ -23,7 +23,7 @@ router.post('/test-connection',
 router.use('/:workspaceId', validateWorkspaceAccess);
 
 // Get all datasources in workspace
-router.get('/:workspaceId/datasources',
+router.get('/datasources',
   requireWorkspaceRole(['viewer', 'analyst', 'editor', 'admin', 'owner']),
   asyncHandler(dataSourceController.getDataSources.bind(dataSourceController))
 );

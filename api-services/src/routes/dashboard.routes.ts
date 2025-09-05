@@ -11,7 +11,7 @@ const dashboardController = new DashboardController();
 router.use(authenticate);
 
 // Fixed: All middleware now uses standard RequestHandler type
-router.get('/',
+router.get('/dashboards',
   validateWorkspaceAccess,
   requirePermission(['dashboard.read']),
   asyncHandler(dashboardController.getDashboards.bind(dashboardController))

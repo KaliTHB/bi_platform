@@ -12,7 +12,7 @@ const chartController = new ChartController();
 router.use(authenticate);
 
 // Get all charts in workspace
-router.get('/',
+router.get('/charts',
   validateWorkspaceAccess,
   requireWorkspaceRole(['viewer', 'analyst', 'editor', 'admin', 'owner']),
   asyncHandler(chartController.getCharts.bind(chartController))

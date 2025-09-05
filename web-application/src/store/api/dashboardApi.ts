@@ -1,24 +1,9 @@
-// web-application/src/store/api/dashboardApi.ts
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+// web-application/src/store/api/dashboardApi.ts - UPDATED WITH SHARED BASE CONFIG
+import { baseApi } from './baseApi';
 import { Dashboard, DashboardWithCharts, CreateDashboardRequest, UpdateDashboardRequest } from '../../types/dashboard.types';
 
-// Base query configuration
-const baseQuery = fetchBaseQuery({
-  baseUrl: '/api/dashboards',
-  prepareHeaders: (headers, { getState }) => {
-    const token = (getState() as any).auth.token;
-    if (token) {
-      headers.set('authorization', `Bearer ${token}`);
-    }
-    return headers;
-  },
-});
-
-// Dashboard API slice
-export const dashboardApi = createApi({
-  reducerPath: 'dashboardApi',
-  baseQuery,
-  tagTypes: ['Dashboard', 'DashboardData', 'DashboardCharts', 'DashboardCache', 'DashboardAnalytics'],
+// Dashboard API slice extending baseApi (shares the same middleware and reducer)
+export const dashboardApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     // ✅ EXISTING ENDPOINTS
     getDashboards: builder.query<
@@ -26,7 +11,7 @@ export const dashboardApi = createApi({
       { workspaceId: string; params?: any }
     >({
       query: ({ workspaceId, params = {} }) => ({
-        url: '',
+        url: '/dashboards',
         method: 'GET',
         params: { workspace_id: workspaceId, ...params },
       }),
@@ -37,7 +22,7 @@ export const dashboardApi = createApi({
       { success: boolean; dashboard: DashboardWithCharts; message?: string },
       string
     >({
-      query: (id) => `/${id}`,
+      query: (id) => `/dashboards/${id}`,
       providesTags: (result, error, id) => [{ type: 'Dashboard', id }],
     }),
 
@@ -46,7 +31,7 @@ export const dashboardApi = createApi({
       CreateDashboardRequest
     >({
       query: (data) => ({
-        url: '',
+        url: '/dashboards',
         method: 'POST',
         body: data,
       }),
@@ -58,15 +43,13 @@ export const dashboardApi = createApi({
       { id: string; data: UpdateDashboardRequest }
     >({
       query: ({ id, data }) => ({
-        url: `/${id}`,
+        url: `/dashboards/${id}`,
         method: 'PUT',
         body: data,
       }),
       invalidatesTags: (result, error, { id }) => [
         { type: 'Dashboard', id },
         'Dashboard',
-        { type: 'DashboardData', id },
-        { type: 'DashboardCache', id }
       ],
     }),
 
@@ -75,7 +58,7 @@ export const dashboardApi = createApi({
       string
     >({
       query: (id) => ({
-        url: `/${id}`,
+        url: `/dashboards/${id}`,
         method: 'DELETE',
       }),
       invalidatesTags: ['Dashboard'],
@@ -86,27 +69,14 @@ export const dashboardApi = createApi({
       { id: string; data: { name: string; slug: string } }
     >({
       query: ({ id, data }) => ({
-        url: `/${id}/duplicate`,
+        url: `/dashboards/${id}/duplicate`,
         method: 'POST',
         body: data,
       }),
       invalidatesTags: ['Dashboard'],
     }),
 
-    getDashboardAnalytics: builder.query<
-      { success: boolean; analytics: any; message?: string },
-      { id: string; params?: any }
-    >({
-      query: ({ id, params }) => ({
-        url: `/${id}/analytics`,
-        method: 'GET',
-        params,
-      }),
-      providesTags: (result, error, { id }) => [{ type: 'DashboardAnalytics', id }],
-    }),
-
-    // 🚀 NEW ENDPOINTS - CRITICAL CACHE & FILTER OPERATIONS
-
+    // 🚀 ENHANCED DASHBOARD DATA ENDPOINTS
     getDashboardData: builder.query<
       {
         success: boolean;
@@ -122,25 +92,23 @@ export const dashboardApi = createApi({
         };
         message?: string;
       },
-      {
+      { 
         id: string;
-        params?: {
-          refresh?: boolean;
-          filters?: any[];
-          limit?: number;
-          offset?: number;
-          [key: string]: any;
-        };
+        refresh?: boolean;
+        filters?: any[];
+        limit?: number;
+        offset?: number;
       }
     >({
-      query: ({ id, params }) => ({
-        url: `/${id}/data`,
+      query: ({ id, ...params }) => ({
+        url: `/dashboards/${id}/data`,
         method: 'GET',
         params,
       }),
-      providesTags: (result, error, { id }) => [{ type: 'DashboardData', id }],
-      // Keep cached data for 5 minutes unless refresh=true
-      keepUnusedDataFor: 300,
+      providesTags: (result, error, { id }) => [
+        { type: 'Dashboard', id },
+        'Dashboard',
+      ],
     }),
 
     refreshDashboard: builder.mutation<
@@ -156,24 +124,23 @@ export const dashboardApi = createApi({
       string
     >({
       query: (id) => ({
-        url: `/${id}/refresh`,
+        url: `/dashboards/${id}/refresh`,
         method: 'POST',
         body: {},
       }),
       invalidatesTags: (result, error, id) => [
-        { type: 'DashboardData', id },
-        { type: 'DashboardCache', id },
-        { type: 'DashboardCharts', id }
+        { type: 'Dashboard', id },
+        'Dashboard',
       ],
     }),
 
     applyGlobalFilter: builder.mutation<
       {
         success: boolean;
-        results: Array<{
-          chart_id: string;
-          success: boolean;
-          data?: any;
+        results: Array<{ 
+          chart_id: string; 
+          success: boolean; 
+          data?: any; 
           error?: string;
           cache_invalidated?: boolean;
         }>;
@@ -182,20 +149,19 @@ export const dashboardApi = createApi({
         affected_charts: number;
         message?: string;
       },
-      {
-        id: string;
-        filter_id: string;
-        filter_value: any;
-      }
+      { id: string; filterId: string; filterValue: any }
     >({
-      query: ({ id, filter_id, filter_value }) => ({
-        url: `/${id}/filter`,
+      query: ({ id, filterId, filterValue }) => ({
+        url: `/dashboards/${id}/filter`,
         method: 'POST',
-        body: { filter_id, filter_value },
+        body: {
+          filter_id: filterId,
+          filter_value: filterValue
+        },
       }),
       invalidatesTags: (result, error, { id }) => [
-        { type: 'DashboardData', id },
-        { type: 'DashboardCharts', id }
+        { type: 'Dashboard', id },
+        'Dashboard',
       ],
     }),
 
@@ -223,136 +189,51 @@ export const dashboardApi = createApi({
           width?: number;
           height?: number;
           quality?: number;
-          [key: string]: any;
-        };
+        }
       }
     >({
       query: ({ id, options }) => ({
-        url: `/${id}/export`,
+        url: `/dashboards/${id}/export`,
         method: 'POST',
         body: options,
       }),
-    }),
-
-    // 🔧 ADDITIONAL UTILITY ENDPOINTS
-
-    getDashboardCharts: builder.query<
-      {
-        success: boolean;
-        charts: any[];
-        total: number;
-        message?: string;
-      },
-      string
-    >({
-      query: (id) => `/${id}/charts`,
-      providesTags: (result, error, id) => [{ type: 'DashboardCharts', id }],
-    }),
-
-    updateDashboardLayout: builder.mutation<
-      {
-        success: boolean;
-        layout: any;
-        message: string;
-      },
-      {
-        id: string;
-        layout: any;
-      }
-    >({
-      query: ({ id, layout }) => ({
-        url: `/${id}/layout`,
-        method: 'PUT',
-        body: { layout },
-      }),
       invalidatesTags: (result, error, { id }) => [
         { type: 'Dashboard', id },
-        { type: 'DashboardData', id }
       ],
     }),
 
-    updateDashboardFilters: builder.mutation<
-      {
-        success: boolean;
-        filters: any[];
-        message: string;
-      },
-      {
-        id: string;
-        filters: any[];
-      }
+    getDashboardAnalytics: builder.query<
+      { success: boolean; analytics: any; message?: string },
+      { id: string; params?: any }
     >({
-      query: ({ id, filters }) => ({
-        url: `/${id}/filters`,
-        method: 'PUT',
-        body: { filters },
+      query: ({ id, params }) => ({
+        url: `/dashboards/${id}/analytics`,
+        method: 'GET',
+        params,
       }),
-      invalidatesTags: (result, error, { id }) => [
+      providesTags: (result, error, { id }) => [
         { type: 'Dashboard', id },
-        { type: 'DashboardData', id }
       ],
     }),
 
-    clearDashboardCache: builder.mutation<
-      {
-        success: boolean;
-        cache_cleared: boolean;
-        affected_charts: number;
-        message?: string;
-      },
-      string
-    >({
-      query: (id) => ({
-        url: `/${id}/cache/clear`,
-        method: 'POST',
-        body: {},
-      }),
-      invalidatesTags: (result, error, id) => [
-        { type: 'DashboardCache', id },
-        { type: 'DashboardData', id }
-      ],
-    }),
-
-    getDashboardCacheStatus: builder.query<
-      {
-        success: boolean;
-        cache_status: {
-          dashboard_cached: boolean;
-          charts_cached: number;
-          total_charts: number;
-          last_cache_update?: Date;
-          cache_size_mb?: number;
-        };
-        message?: string;
-      },
-      string
-    >({
-      query: (id) => `/${id}/cache/status`,
-      providesTags: (result, error, id) => [{ type: 'DashboardCache', id }],
-    }),
-
-    // ✅ EXISTING UTILITY ENDPOINTS
+    // 🔧 UTILITY ENDPOINTS
     toggleDashboardStatus: builder.mutation<
       { success: boolean; dashboard: Dashboard; message: string },
-      { id: string; status: 'active' | 'inactive' | 'archived' }
+      { id: string; status: 'draft' | 'published' | 'archived' }
     >({
       query: ({ id, status }) => ({
-        url: `/${id}/status`,
+        url: `/dashboards/${id}/status`,
         method: 'PATCH',
         body: { status },
       }),
       invalidatesTags: (result, error, { id }) => [
         { type: 'Dashboard', id },
-        'Dashboard'
+        'Dashboard',
       ],
     }),
 
     shareDashboard: builder.mutation<
-      {
-        success: boolean;
-        sharing_config: any;
-        message: string;
-      },
+      { success: boolean; shareConfig: any; message: string },
       {
         id: string;
         shareData: {
@@ -363,7 +244,7 @@ export const dashboardApi = createApi({
       }
     >({
       query: ({ id, shareData }) => ({
-        url: `/${id}/share`,
+        url: `/dashboards/${id}/share`,
         method: 'POST',
         body: shareData,
       }),
@@ -375,7 +256,7 @@ export const dashboardApi = createApi({
       { id: string; is_featured: boolean }
     >({
       query: ({ id, is_featured }) => ({
-        url: `/${id}/favorite`,
+        url: `/dashboards/${id}/favorite`,
         method: 'PATCH',
         body: { is_featured },
       }),
@@ -404,14 +285,7 @@ export const {
   useApplyGlobalFilterMutation,
   useExportDashboardMutation,
   
-  // 🔧 ADDITIONAL UTILITY HOOKS
-  useGetDashboardChartsQuery,
-  useUpdateDashboardLayoutMutation,
-  useUpdateDashboardFiltersMutation,
-  useClearDashboardCacheMutation,
-  useGetDashboardCacheStatusQuery,
-  
-  // ✅ EXISTING UTILITY HOOKS
+  // ✅ UTILITY HOOKS
   useToggleDashboardStatusMutation,
   useShareDashboardMutation,
   useToggleDashboardFavoriteMutation,
