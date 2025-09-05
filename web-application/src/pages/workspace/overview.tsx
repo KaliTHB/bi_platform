@@ -45,6 +45,12 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../../hooks/useAuth';
 import EnhancedWorkspaceLayout from '../../components/layout/WorkspaceLayout';
+import { Workspace } from '../../types/auth.types';
+
+interface WorkspaceOption extends Workspace {
+  // Add any additional properties specific to this component
+  is_default?: boolean;
+}
 
 interface WorkspaceOption {
   id: string;
