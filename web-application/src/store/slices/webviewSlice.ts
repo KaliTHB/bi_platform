@@ -34,42 +34,23 @@ const initialState: WebviewState = {
   publicWebview: null,
 };
 
+
+const initialWebviewState: WebviewState = {
+  webviews: [],
+  currentWebview: null,
+  isLoading: false,
+  error: null,
+};
+
 const webviewSlice = createSlice({
   name: 'webview',
-  initialState,
+  initialState: initialWebviewState,
   reducers: {
-    setWebviews: (state, action: PayloadAction<Webview[]>) => {
+    setWebviews: (state, action: PayloadAction<any[]>) => {
       state.webviews = action.payload;
     },
-    setCurrentWebview: (state, action: PayloadAction<Webview | null>) => {
-      state.current = action.payload;
-    },
-    setPublicWebview: (state, action: PayloadAction<Webview | null>) => {
-      state.publicWebview = action.payload;
-    },
-    addWebview: (state, action: PayloadAction<Webview>) => {
-      state.webviews.push(action.payload);
-    },
-    updateWebview: (state, action: PayloadAction<Webview>) => {
-      const index = state.webviews.findIndex(w => w.id === action.payload.id);
-      if (index !== -1) {
-        state.webviews[index] = action.payload;
-      }
-      if (state.current?.id === action.payload.id) {
-        state.current = action.payload;
-      }
-      if (state.publicWebview?.id === action.payload.id) {
-        state.publicWebview = action.payload;
-      }
-    },
-    removeWebview: (state, action: PayloadAction<string>) => {
-      state.webviews = state.webviews.filter(w => w.id !== action.payload);
-      if (state.current?.id === action.payload) {
-        state.current = null;
-      }
-      if (state.publicWebview?.id === action.payload) {
-        state.publicWebview = null;
-      }
+    setCurrentWebview: (state, action: PayloadAction<any | null>) => {
+      state.currentWebview = action.payload;
     },
     setLoading: (state, action: PayloadAction<boolean>) => {
       state.isLoading = action.payload;
@@ -77,25 +58,8 @@ const webviewSlice = createSlice({
     setError: (state, action: PayloadAction<string | null>) => {
       state.error = action.payload;
     },
-    clearWebviews: (state) => {
-      state.webviews = [];
-      state.current = null;
-      state.publicWebview = null;
-      state.error = null;
-    },
   },
 });
 
-export const {
-  setWebviews,
-  setCurrentWebview,
-  setPublicWebview,
-  addWebview,
-  updateWebview,
-  removeWebview,
-  setLoading,
-  setError,
-  clearWebviews,
-} = webviewSlice.actions;
-
+export const { setWebviews, setCurrentWebview } = webviewSlice.actions;
 export default webviewSlice.reducer;

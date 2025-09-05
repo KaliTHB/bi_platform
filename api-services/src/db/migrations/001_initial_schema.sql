@@ -7,15 +7,15 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- Users table
 CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  username VARCHAR(255) NULL,
   email VARCHAR(255) UNIQUE NOT NULL,
   password_hash VARCHAR(255),
   first_name VARCHAR(100) NOT NULL,
   last_name VARCHAR(100) NOT NULL,
-  role VARCHAR(50) NOT NULL DEFAULT 'USER' CHECK (role IN ('SUPER_ADMIN', 'ADMIN', 'USER')),
   avatar_url TEXT,
   is_active BOOLEAN DEFAULT true,
   email_verified BOOLEAN DEFAULT false,
-  last_login_at TIMESTAMP WITH TIME ZONE,
+  last_login TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

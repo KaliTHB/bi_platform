@@ -43,11 +43,11 @@ import {
   ChartInteractionEvent,
   ChartError
 } from '@/types/chart.types';
-import { Dataset } from '@/types/dashboard.types';
+import { Dataset } from '@/types/dataset.types';
 
 // Import utilities
 import { createDefaultDimensions, createCompleteChartConfig } from '@/utils/chartUtils';
-import { chartAPI , datasetAPI } from '@/services/index';
+import { chartAPI , datasetAPI } from '@/api/index';
 
 
 interface ChartBuilderPageProps {

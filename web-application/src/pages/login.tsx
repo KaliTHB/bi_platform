@@ -1,4 +1,4 @@
-// web-application/src/pages/login.tsx
+// web-application/src/pages/login.tsx - FIXED VERSION
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../hooks/useAuth';
@@ -26,6 +26,7 @@ import {
   Visibility,
   VisibilityOff,
   Email,
+  Person, // CHANGED: Added Person icon for email/username field
   Lock,
   Login as LoginIcon,
   Business,
@@ -34,8 +35,9 @@ import {
   Analytics,
 } from '@mui/icons-material';
 
+// FIXED: Updated interface to support both email and username
 interface LoginForm {
-  email: string;
+  emailOrUsername: string; // CHANGED: from 'email' to 'emailOrUsername'
   password: string;
 }
 
@@ -70,7 +72,7 @@ export default function LoginPage() {
   const { login, isAuthenticated, isLoading, user } = useAuth();
   
   const [formData, setFormData] = useState<LoginForm>({
-    email: '',
+    emailOrUsername: '', // CHANGED: from 'email' to 'emailOrUsername'
     password: '',
   });
   const [showPassword, setShowPassword] = useState(false);
@@ -95,13 +97,14 @@ export default function LoginPage() {
     }
   }, [isAuthenticated, user, isLoading, router]);
 
+  // FIXED: More flexible validation that accepts both email and username formats
   const validateForm = (): boolean => {
     const errors: Partial<LoginForm> = {};
     
-    if (!formData.email.trim()) {
-      errors.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      errors.email = 'Please enter a valid email address';
+    if (!formData.emailOrUsername.trim()) {
+      errors.emailOrUsername = 'Email or username is required';
+    } else if (formData.emailOrUsername.trim().length < 3) {
+      errors.emailOrUsername = 'Email or username must be at least 3 characters';
     }
     
     if (!formData.password.trim()) {
@@ -112,6 +115,11 @@ export default function LoginPage() {
     
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
+  };
+
+  // FIXED: Helper function to determine if input looks like an email
+  const isEmailFormat = (input: string): boolean => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
   };
 
   const handleInputChange = (field: keyof LoginForm) => (
@@ -137,13 +145,19 @@ export default function LoginPage() {
     }
 
     try {
-      console.log('Attempting login with email:', formData.email);
+      console.log('Attempting login with:', formData.emailOrUsername);
       setLoginError('');
       
-      const result = await login({
-        email: formData.email.trim(),
+      // FIXED: Send the appropriate field based on format detection
+      const credentials = {
         password: formData.password,
-      });
+        ...(isEmailFormat(formData.emailOrUsername.trim()) 
+          ? { email: formData.emailOrUsername.trim() }
+          : { username: formData.emailOrUsername.trim() }
+        )
+      };
+      
+      const result = await login(credentials);
       
       if (result.success) {
         console.log('Login successful');
@@ -170,7 +184,7 @@ export default function LoginPage() {
 
   const handleCredentialClick = async (credential: TestCredential) => {
     setFormData({
-      email: credential.email,
+      emailOrUsername: credential.email, // CHANGED: from 'email' to 'emailOrUsername'
       password: credential.password,
     });
   };
@@ -223,87 +237,61 @@ export default function LoginPage() {
                     mb: 3
                   }}
                 >
-                  Business Intelligence Platform
+                  Business Intelligence
                 </Typography>
-                
                 <Typography 
                   variant="h5" 
                   sx={{ 
                     color: 'rgba(255, 255, 255, 0.9)', 
                     mb: 4, 
-                    fontWeight: 300,
-                    lineHeight: 1.4
+                    lineHeight: 1.4,
+                    fontSize: { xs: '1.25rem', md: '1.5rem' }
                   }}
                 >
-                  Transform your data into actionable insights with our enterprise-grade analytics platform
+                  Transform your data into actionable insights with our comprehensive analytics platform
                 </Typography>
 
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Slide in timeout={1000} direction="up">
-                      <Card sx={{ 
-                        height: '100%',
-                        background: 'rgba(255, 255, 255, 0.1)',
-                        backdropFilter: 'blur(20px)',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: 'white'
-                      }}>
-                        <CardContent sx={{ textAlign: 'center', py: 3 }}>
-                          <Dashboard sx={{ fontSize: 48, color: '#4fc3f7', mb: 2 }} />
+                {/* Feature Cards */}
+                <Grid container spacing={2} sx={{ mb: 4 }}>
+                  {[
+                    { icon: <Dashboard />, title: 'Interactive Dashboards', desc: 'Create stunning visualizations' },
+                    { icon: <Analytics />, title: 'Advanced Analytics', desc: 'Deep insights from your data' },
+                    { icon: <Security />, title: 'Enterprise Security', desc: 'Bank-level data protection' },
+                  ].map((feature, index) => (
+                    <Grid item xs={12} sm={4} key={index}>
+                      <Slide direction="up" in timeout={1000 + (index * 200)}>
+                        <Card 
+                          elevation={8}
+                          sx={{ 
+                            background: 'rgba(255, 255, 255, 0.1)',
+                            backdropFilter: 'blur(10px)',
+                            border: '1px solid rgba(255, 255, 255, 0.2)',
+                            color: 'white',
+                            textAlign: 'center',
+                            p: 2,
+                            height: '100%'
+                          }}
+                        >
+                          <Avatar sx={{ 
+                            bgcolor: 'rgba(255, 255, 255, 0.2)', 
+                            color: 'white',
+                            width: 48, 
+                            height: 48,
+                            mx: 'auto',
+                            mb: 2 
+                          }}>
+                            {feature.icon}
+                          </Avatar>
                           <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                            Interactive Dashboards
+                            {feature.title}
                           </Typography>
                           <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                            Create stunning, real-time dashboards with 60+ chart types
+                            {feature.desc}
                           </Typography>
-                        </CardContent>
-                      </Card>
-                    </Slide>
-                  </Grid>
-                  
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Slide in timeout={1200} direction="up">
-                      <Card sx={{ 
-                        height: '100%',
-                        background: 'rgba(255, 255, 255, 0.1)',
-                        backdropFilter: 'blur(20px)',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: 'white'
-                      }}>
-                        <CardContent sx={{ textAlign: 'center', py: 3 }}>
-                          <Security sx={{ fontSize: 48, color: '#81c784', mb: 2 }} />
-                          <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                            Enterprise Security
-                          </Typography>
-                          <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                            Role-based access control with workspace isolation
-                          </Typography>
-                        </CardContent>
-                      </Card>
-                    </Slide>
-                  </Grid>
-                  
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Slide in timeout={1400} direction="up">
-                      <Card sx={{ 
-                        height: '100%',
-                        background: 'rgba(255, 255, 255, 0.1)',
-                        backdropFilter: 'blur(20px)',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: 'white'
-                      }}>
-                        <CardContent sx={{ textAlign: 'center', py: 3 }}>
-                          <Analytics sx={{ fontSize: 48, color: '#ffb74d', mb: 2 }} />
-                          <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                            Advanced Analytics
-                          </Typography>
-                          <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                            SQL editor with multi-stage data transformations
-                          </Typography>
-                        </CardContent>
-                      </Card>
-                    </Slide>
-                  </Grid>
+                        </Card>
+                      </Slide>
+                    </Grid>
+                  ))}
                 </Grid>
               </Box>
             </Fade>
@@ -351,27 +339,28 @@ export default function LoginPage() {
 
                 {/* Login Form */}
                 <Box component="form" onSubmit={handleSubmit} noValidate>
+                  {/* FIXED: Updated email field to support both email and username */}
                   <TextField
                     fullWidth
-                    id="email"
-                    name="email"
-                    type="email"
-                    label="Email Address"
-                    value={formData.email}
-                    onChange={handleInputChange('email')}
+                    id="emailOrUsername"
+                    name="emailOrUsername"
+                    type="text" // CHANGED: from "email" to "text"
+                    label="Email or Username" // CHANGED: Updated label
+                    value={formData.emailOrUsername}
+                    onChange={handleInputChange('emailOrUsername')}
                     onKeyPress={handleKeyPress}
-                    error={!!formErrors.email}
-                    helperText={formErrors.email}
+                    error={!!formErrors.emailOrUsername}
+                    helperText={formErrors.emailOrUsername}
                     disabled={isLoading}
                     margin="normal"
                     required
-                    autoComplete="email"
+                    autoComplete="username" // CHANGED: More appropriate autocomplete
                     autoFocus
                     sx={{ mb: 2 }}
                     InputProps={{
                       startAdornment: (
                         <InputAdornment position="start">
-                          <Email color="action" />
+                          <Person color="action" /> {/* CHANGED: From Email to Person icon */}
                         </InputAdornment>
                       ),
                     }}
@@ -419,7 +408,7 @@ export default function LoginPage() {
                     fullWidth
                     variant="contained"
                     size="large"
-                    disabled={isLoading || !formData.email || !formData.password}
+                    disabled={isLoading || !formData.emailOrUsername || !formData.password} // CHANGED: Updated field name
                     startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <LoginIcon />}
                     sx={{ 
                       mt: 2, 
@@ -507,11 +496,17 @@ export default function LoginPage() {
                     </Alert>
                   )}
                 </Box>
+
+                {/* ADDED: Helpful hint for users */}
+                <Box sx={{ mt: 3, textAlign: 'center' }}>
+                  <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.875rem' }}>
+                    💡 You can sign in with either your email address or username
+                  </Typography>
+                </Box>
               </Paper>
             </Fade>
           </Grid>
         </Grid>
-
         {/* Footer */}
         <Box sx={{ mt: 6, textAlign: 'center' }}>
           <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>

@@ -25,7 +25,7 @@ import {
 // IMPORTS FROM EXTERNAL FILES
 // ============================================================================
 
-import { chartAPI } from '@/services/index';
+import { chartAPI } from '@/api/index';
 import { ChartRenderer } from '../chart/ChartRenderer';
 
 // Types from external file
@@ -44,6 +44,8 @@ import {
   DEFAULT_CHART_DIMENSIONS,
   validateChartForRendering
 } from '@/types/chart.types';
+
+
 
 // Utilities from external file
 import {

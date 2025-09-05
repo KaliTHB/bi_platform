@@ -94,8 +94,10 @@ export class AuthService {
         return null;
       }
 
+      console.log(password,user.password_hash)
       // Verify password
       const isValidPassword = await bcrypt.compare(password, user.password_hash);
+      console.log("isValidPassword",isValidPassword)
       if (!isValidPassword) {
         logger.warn('Authentication failed: Invalid password', { 
           emailOrUsername, 
@@ -395,6 +397,7 @@ export class AuthService {
    */
   async login(emailOrUsername: string, password: string, workspaceSlug?: string): Promise<LoginResult> {
     try {
+      console.log("emailOrUsername",emailOrUsername)
       // Authenticate user
       const user = await this.authenticateUser(emailOrUsername, password);
       if (!user) {
