@@ -180,39 +180,39 @@ export class RLSService {
   }
 
   async getUserContext(userId: string, workspaceId: string): Promise<UserContext> {
-    const query = `
-      SELECT 
-        u.id as user_id,
-        u.profile_data,
-        w.id as workspace_id,
-        array_agg(DISTINCT cr.name) as roles,
-        COALESCE(u.profile_data->>'department', '') as department,
-        COALESCE(u.profile_data->>'region', '') as region,
-        COALESCE(u.profile_data->>'level', '') as level
-      FROM users u
-      CROSS JOIN workspaces w
-      LEFT JOIN user_role_assignments ura ON u.id = ura.user_id AND w.id = ura.workspace_id
-      LEFT JOIN roles cr ON ura.role_id = cr.id
-      WHERE u.id = $1 AND w.id = $2 AND ura.is_active = true
-      GROUP BY u.id, u.profile_data, w.id
-    `;
+  const query = `
+    SELECT 
+      u.id as user_id,
+      u.profile_data,
+      w.id as workspace_id,
+      array_agg(DISTINCT r.name) as roles,  -- Changed from cr.name to r.name
+      COALESCE(u.profile_data->>'department', '') as department,
+      COALESCE(u.profile_data->>'region', '') as region,
+      COALESCE(u.profile_data->>'level', '') as level
+    FROM users u
+    CROSS JOIN workspaces w
+    LEFT JOIN user_role_assignments ura ON u.id = ura.user_id AND w.id = ura.workspace_id
+    LEFT JOIN roles r ON ura.role_id = r.id  -- Changed from custom_roles cr to roles r
+    WHERE u.id = $1 AND w.id = $2 AND ura.is_active = true
+    GROUP BY u.id, u.profile_data, w.id
+  `;
 
-    const result = await this.db.query(query, [userId, workspaceId]);
-    
-    if (result.rows.length === 0) {
-      throw new Error('User context not found');
-    }
-
-    const row = result.rows[0];
-    return {
-      user_id: row.user_id,
-      workspace_id: row.workspace_id,
-      roles: row.roles || [],
-      groups: [], // Would need additional groups table
-      department: row.department,
-      region: row.region,
-      level: row.level,
-      ...row.profile_data
-    };
+  const result = await this.db.query(query, [userId, workspaceId]);
+  
+  if (result.rows.length === 0) {
+    throw new Error('User context not found');
   }
+
+  const row = result.rows[0];
+  return {
+    user_id: row.user_id,
+    workspace_id: row.workspace_id,
+    roles: row.roles || [],
+    groups: [], // Would need additional groups table
+    department: row.department,
+    region: row.region,
+    level: row.level,
+    ...row.profile_data
+  };
+}
 }
