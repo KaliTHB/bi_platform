@@ -1,4 +1,4 @@
-// web-application/src/hooks/useAuth.ts
+// web-application/src/hooks/useAuth.ts - Enhanced version supporting email/username
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import { useRouter } from 'next/router';
 import type { NextRouter } from 'next/router';
@@ -48,8 +48,20 @@ export interface SwitchWorkspaceResult {
   error?: string;
 }
 
+// Enhanced login credentials interface
+export interface LoginCredentials {
+  email?: string;
+  username?: string;
+  password: string;
+  workspace_slug?: string;
+}
+
 export interface AuthContextType extends AuthState {
-  login: (email: string, password: string, workspaceSlug?: string) => Promise<LoginResult>;
+  // Support both old and new login signatures for backward compatibility
+  login: {
+    (emailOrUsername: string, password: string, workspaceSlug?: string): Promise<LoginResult>;
+    (credentials: LoginCredentials): Promise<LoginResult>;
+  };
   signOut: () => Promise<void>;
   switchWorkspace: (workspaceSlug: string) => Promise<SwitchWorkspaceResult>;
   refreshUser: () => Promise<boolean>;
@@ -195,6 +207,11 @@ const getApiBaseUrl = (): string => {
   return process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
 };
 
+// Helper function to detect email format
+const isEmailFormat = (input: string): boolean => {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
+};
+
 const safeApiCall = async (
   url: string, 
   options: RequestInit, 
@@ -325,22 +342,86 @@ function useAuthHook(): AuthContextType {
     initializeAuth();
   }, []);
 
-  // Enhanced login function with robust redirect
-  const login = useCallback(async (
-    email: string, 
-    password: string, 
+  // Enhanced login function with flexible signature support
+  const loginFunction = useCallback(async (
+    emailOrUsernameOrCredentials: string | LoginCredentials,
+    password?: string,
     workspaceSlug?: string
   ): Promise<LoginResult> => {
-    console.log('🔑 Starting login process...', { email, hasWorkspace: Boolean(workspaceSlug) });
     
     setAuthState(prev => ({ ...prev, isLoading: true }));
 
-    const apiUrl: string = getApiBaseUrl();
-    const loginData: Record<string, string> = { email, password };
-    
-    if (workspaceSlug) {
-      loginData.workspace_slug = workspaceSlug;
+    let loginData: Record<string, string>;
+
+    // Handle different function signatures
+    if (typeof emailOrUsernameOrCredentials === 'string') {
+      // Called with individual parameters: login(emailOrUsername, password, workspaceSlug?)
+      if (!password) {
+        setAuthState(prev => ({ ...prev, isLoading: false }));
+        return { success: false, error: 'Password is required' };
+      }
+
+      console.log('🔑 Login called with individual parameters');
+      
+      const emailOrUsername = emailOrUsernameOrCredentials.trim();
+      
+      if (isEmailFormat(emailOrUsername)) {
+        loginData = { 
+          email: emailOrUsername,
+          password: password
+        };
+        console.log('📧 Detected email format:', emailOrUsername);
+      } else {
+        loginData = { 
+          username: emailOrUsername,
+          password: password
+        };
+        console.log('👤 Detected username format:', emailOrUsername);
+      }
+      
+      if (workspaceSlug) {
+        loginData.workspace_slug = workspaceSlug;
+      }
+    } else {
+      // Called with credentials object: login({ email/username, password, workspace_slug? })
+      console.log('🔑 Login called with credentials object');
+      
+      const credentials = emailOrUsernameOrCredentials;
+      
+      if (!credentials.password) {
+        setAuthState(prev => ({ ...prev, isLoading: false }));
+        return { success: false, error: 'Password is required' };
+      }
+
+      if (!credentials.email && !credentials.username) {
+        setAuthState(prev => ({ ...prev, isLoading: false }));
+        return { success: false, error: 'Email or username is required' };
+      }
+
+      loginData = {
+        password: credentials.password
+      };
+
+      if (credentials.email) {
+        loginData.email = credentials.email;
+        console.log('📧 Using email from credentials:', credentials.email);
+      } else if (credentials.username) {
+        loginData.username = credentials.username;
+        console.log('👤 Using username from credentials:', credentials.username);
+      }
+
+      if (credentials.workspace_slug) {
+        loginData.workspace_slug = credentials.workspace_slug;
+      }
     }
+
+    console.log('🔑 Starting login process with:', { 
+      hasEmail: !!loginData.email,
+      hasUsername: !!loginData.username,
+      hasWorkspace: !!loginData.workspace_slug 
+    });
+
+    const apiUrl: string = getApiBaseUrl();
 
     try {
       const apiResult = await safeApiCall(
@@ -377,6 +458,7 @@ function useAuthHook(): AuthContextType {
 
       console.log('✅ Login successful:', {
         userEmail: user.email,
+        username: user.username,
         hasToken: Boolean(token),
         hasWorkspace: Boolean(initialWorkspace)
       });
@@ -639,7 +721,7 @@ function useAuthHook(): AuthContextType {
 
   return {
     ...authState,
-    login,
+    login: loginFunction as AuthContextType['login'],
     signOut,
     switchWorkspace,
     refreshUser,

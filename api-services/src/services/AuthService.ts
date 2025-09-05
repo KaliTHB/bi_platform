@@ -1,42 +1,26 @@
-// api-services/src/services/AuthService.ts - Complete Implementation
+// api-services/src/services/AuthService.ts - Updated to use WorkspaceService
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
-import { db } from '../utils/database';  // ← Add this import at the top
+import { WorkspaceService, Workspace } from './WorkspaceService';
 
 export interface AuthenticatedUser {
   id: string;
   username: string;
   email: string;
-  first_name?: string;
-  last_name?: string;
-  avatar_url?: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  display_name?: string | null;
+  avatar_url?: string | null;
   is_active: boolean;
-  last_login?: Date;
+  last_login?: Date | null;
   created_at: Date;
   updated_at: Date;
 }
 
-export interface WorkspaceInfo {
-  id: string;
-  name: string;
-  slug: string;
-  display_name?: string;
-  description?: string;
-  logo_url?: string;
-  settings?: any;
-  is_active: boolean;
-  created_at: Date;
-  updated_at: Date;
-  user_role?: string;
-  role_display_name?: string;
-  role_level?: number;
-  member_count?: number;
-  dashboard_count?: number;
-  dataset_count?: number;
-  joined_at?: Date;
-}
+// Use the Workspace interface from WorkspaceService
+export interface WorkspaceInfo extends Workspace {}
 
 export interface UserPermissions {
   permissions: string[];
@@ -64,9 +48,18 @@ export interface WorkspaceSwitchResult {
 
 export class AuthService {
   private db: Pool;
+  private workspaceService: WorkspaceService;
 
   constructor(database: Pool) {
     this.db = database;
+    this.workspaceService = new WorkspaceService();
+    
+    // Verify database connection is properly initialized
+    if (!this.db) {
+      throw new Error('Database connection is required for AuthService');
+    }
+    
+    console.log('✅ AuthService initialized with WorkspaceService integration');
   }
 
   /**
@@ -79,25 +72,25 @@ export class AuthService {
         service: 'bi-platform-api' 
       });
 
-      // Query user by email or username
-      const result = await db.query(
+      // Query user by email or username with all required fields
+      const result = await this.db.query(
         `SELECT id, username, email, password_hash, first_name, last_name,
-                avatar_url, is_active, last_login, created_at, updated_at
+                display_name, avatar_url, is_active, last_login, created_at, updated_at
         FROM users
         WHERE (email = $1 OR username = $1) AND is_active = true`,
         [emailOrUsername]
       );
+      
       const user = result.rows[0];
-      console.log(user)
+      console.log('User found:', !!user);
+
       if (!user) {
         logger.warn('Authentication failed: User not found', { emailOrUsername });
         return null;
       }
 
-      console.log(password,user.password_hash)
       // Verify password
       const isValidPassword = await bcrypt.compare(password, user.password_hash);
-      console.log("isValidPassword",isValidPassword)
       if (!isValidPassword) {
         logger.warn('Authentication failed: Invalid password', { 
           emailOrUsername, 
@@ -114,7 +107,7 @@ export class AuthService {
         email: authenticatedUser.email 
       });
       
-      return authenticatedUser;
+      return authenticatedUser as AuthenticatedUser;
       
     } catch (error: any) {
       logger.error('Authentication service error:', {
@@ -133,14 +126,14 @@ export class AuthService {
   async getUserById(userId: string): Promise<AuthenticatedUser | null> {
     try {
       const query = `
-        SELECT id, username, email, first_name, last_name, 
+        SELECT id, username, email, first_name, last_name, display_name,
                avatar_url, is_active, last_login, created_at, updated_at
         FROM users 
         WHERE id = $1 AND is_active = true
       `;
       
       const result = await this.db.query(query, [userId]);
-      return result.rows[0] || null;
+      return result.rows[0] as AuthenticatedUser || null;
       
     } catch (error: any) {
       logger.error('Get user by ID error:', {
@@ -153,83 +146,65 @@ export class AuthService {
   }
 
   /**
-   * Get workspace by slug and verify user access
+   * Get workspace by slug using WorkspaceService
    */
   async getWorkspaceBySlug(workspaceSlug: string, userId?: string): Promise<WorkspaceInfo | null> {
     try {
-      let query = `
-        SELECT DISTINCT 
-          w.id, w.name, w.slug, w.display_name, w.description,
-          w.branding_config->>'logo_url' as logo_url,
-          w.settings_json as settings,
-          w.is_active, w.created_at, w.updated_at
-        FROM workspaces w
-        WHERE w.slug = $1 AND w.is_active = true
-      `;
+      console.log('🔍 Getting workspace by slug via WorkspaceService:', workspaceSlug, 'for user:', userId);
       
-      const params = [workspaceSlug];
-      
-      // If userId provided, also get user's role information
-      if (userId) {
-        query = `
-          SELECT DISTINCT 
-            w.id, w.name, w.slug, w.display_name, w.description,
-            w.branding_config->>'logo_url' as logo_url,
-            w.settings_json as settings,
-            w.is_active, w.created_at, w.updated_at,
-            wm.joined_at,
-            r.name as user_role,
-            r.display_name as role_display_name,
-            r.level as role_level,
-            
-            -- Get workspace statistics
-            (SELECT COUNT(*) FROM workspace_members wm2 
-             WHERE wm2.workspace_id = w.id AND wm2.is_active = true) as member_count,
-            (SELECT COUNT(*) FROM dashboards d 
-             WHERE d.workspace_id = w.id AND d.is_active = true) as dashboard_count,
-            (SELECT COUNT(*) FROM datasets ds 
-             WHERE ds.workspace_id = w.id AND ds.is_active = true) as dataset_count
-             
-          FROM workspaces w
-          LEFT JOIN workspace_members wm ON w.id = wm.workspace_id AND wm.user_id = $2
-          LEFT JOIN roles r ON wm.role_id = r.id
-          WHERE w.slug = $1 AND w.is_active = true
-        `;
-        params.push(userId);
-      }
-
-      const result = await this.db.query(query, params);
-      
-      if (result.rows.length === 0) {
+      if (!userId) {
+        console.log('⚠️ No userId provided for workspace access check');
         return null;
       }
 
-      const row = result.rows[0];
-      return {
-        id: row.id,
-        name: row.name,
-        slug: row.slug,
-        display_name: row.display_name,
-        description: row.description,
-        logo_url: row.logo_url,
-        settings: row.settings || {},
-        is_active: row.is_active,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-        user_role: row.user_role,
-        role_display_name: row.role_display_name,
-        role_level: row.role_level,
-        member_count: parseInt(row.member_count) || 0,
-        dashboard_count: parseInt(row.dashboard_count) || 0,
-        dataset_count: parseInt(row.dataset_count) || 0,
-        joined_at: row.joined_at
+      // Use WorkspaceService to get user's workspaces
+      const workspaces = await this.workspaceService.getUserWorkspaces(userId);
+      
+      // Find workspace by slug
+      const workspace = workspaces.find(w => w.slug === workspaceSlug);
+      
+      if (!workspace) {
+        console.log('⚠️ Workspace not found or user has no access:', workspaceSlug);
+        return null;
+      }
+
+      console.log('✅ Workspace found via WorkspaceService:', {
+        id: workspace.id,
+        name: workspace.name,
+        slug: workspace.slug,
+        userRole: workspace.user_role
+      });
+
+      // Convert to WorkspaceInfo format
+      const workspaceInfo: WorkspaceInfo = {
+        id: workspace.id,
+        name: workspace.name,
+        slug: workspace.slug,
+        display_name: workspace.display_name,
+        description: workspace.description,
+        logo_url: workspace.logo_url,
+        settings: workspace.settings,
+        is_active: workspace.is_active,
+        created_at: workspace.created_at,
+        updated_at: workspace.updated_at,
+        user_role: workspace.user_role,
+        role_display_name: workspace.user_role, // Use user_role as display name
+        role_level: this.getRoleLevel(workspace.user_role),
+        member_count: workspace.member_count,
+        dashboard_count: workspace.dashboard_count,
+        dataset_count: workspace.dataset_count,
+        joined_at: workspace.joined_at
       };
+
+      return workspaceInfo;
       
     } catch (error: any) {
+      console.error('❌ Get workspace by slug error:', error);
       logger.error('Get workspace by slug error:', {
         workspaceSlug,
         userId,
         error: error.message,
+        stack: error.stack,
         service: 'bi-platform-api'
       });
       return null;
@@ -237,250 +212,41 @@ export class AuthService {
   }
 
   /**
-   * Check if user has access to workspace
+   * Get role level for permission calculations
    */
-  async checkUserWorkspaceAccess(userId: string, workspaceId: string): Promise<boolean> {
-    try {
-      const query = `
-        SELECT 1 
-        FROM workspace_members wm
-        INNER JOIN workspaces w ON wm.workspace_id = w.id
-        WHERE wm.user_id = $1 
-          AND wm.workspace_id = $2
-          AND wm.is_active = true 
-          AND w.is_active = true
-        LIMIT 1
-      `;
-
-      const result = await this.db.query(query, [userId, workspaceId]);
-      return result.rows.length > 0;
-      
-    } catch (error: any) {
-      logger.error('Check user workspace access error:', {
-        userId,
-        workspaceId,
-        error: error.message,
-        service: 'bi-platform-api'
-      });
-      return false;
-    }
-  }
-
-  /**
-   * Get user permissions for a workspace
-   */
-  async getUserPermissions(userId: string, workspaceId: string): Promise<UserPermissions> {
-    try {
-      const permissionsQuery = `
-        SELECT DISTINCT 
-          p.name as permission_name,
-          r.name as role_name,
-          r.display_name as role_display_name,
-          r.level as role_level
-        FROM permissions p
-        INNER JOIN role_permissions rp ON p.id = rp.permission_id
-        INNER JOIN roles r ON rp.role_id = r.id
-        INNER JOIN workspace_members wm ON r.id = wm.role_id
-        WHERE wm.user_id = $1 
-          AND wm.workspace_id = $2
-          AND wm.is_active = true
-          
-        UNION
-        
-        -- Also check user_role_assignments table if it exists
-        SELECT DISTINCT 
-          p.name as permission_name,
-          r.name as role_name,
-          r.display_name as role_display_name,
-          r.level as role_level
-        FROM permissions p
-        INNER JOIN role_permissions rp ON p.id = rp.permission_id
-        INNER JOIN roles r ON rp.role_id = r.id
-        INNER JOIN user_role_assignments ura ON r.id = ura.role_id
-        WHERE ura.user_id = $1 
-          AND ura.workspace_id = $2
-          AND ura.is_active = true
-          AND (ura.expires_at IS NULL OR ura.expires_at > NOW())
-      `;
-
-      const result = await this.db.query(permissionsQuery, [userId, workspaceId]);
-
-      const permissions = [...new Set(result.rows.map(row => row.permission_name))];
-      const roles = [...new Set(result.rows.map(row => row.role_name))];
-      const maxRoleLevel = Math.max(...result.rows.map(row => row.role_level || 0), 0);
-
-      // Determine admin status based on role level or role name
-      const isAdmin = maxRoleLevel >= 90 || 
-                     roles.includes('admin') || 
-                     roles.includes('owner') || 
-                     roles.includes('super_admin');
-
-      return {
-        permissions,
-        roles,
-        is_admin: isAdmin,
-        role_level: maxRoleLevel
-      };
-      
-    } catch (error: any) {
-      logger.error('Get user permissions error:', {
-        userId,
-        workspaceId,
-        error: error.message,
-        service: 'bi-platform-api'
-      });
-      
-      // Return basic permissions as fallback
-      return {
-        permissions: ['workspace.read'],
-        roles: ['viewer'],
-        is_admin: false,
-        role_level: 0
-      };
-    }
-  }
-
-  /**
-   * Update user last login timestamp
-   */
-  async updateLastLogin(userId: string): Promise<void> {
-    try {
-      const query = `
-        UPDATE users 
-        SET last_login = NOW(), updated_at = NOW()
-        WHERE id = $1
-      `;
-      
-      await this.db.query(query, [userId]);
-      
-    } catch (error: any) {
-      logger.warn('Update last login failed:', {
-        userId,
-        error: error.message,
-        service: 'bi-platform-api'
-      });
-      // Non-critical error, don't throw
-    }
-  }
-
-  /**
-   * Generate JWT token with user and workspace context
-   */
-  generateToken(user: AuthenticatedUser, workspace?: WorkspaceInfo, permissions?: UserPermissions): string {
-    const payload = {
-      user_id: user.id,
-      email: user.email,
-      username: user.username,
-      workspace_id: workspace?.id || null,
-      workspace_slug: workspace?.slug || null,
-      workspace_role: workspace?.user_role || null,
-      is_admin: permissions?.is_admin || false,
-      role_level: permissions?.role_level || 0
+  private getRoleLevel(role?: string): number {
+    const roleLevels: Record<string, number> = {
+      'viewer': 1,
+      'editor': 2,
+      'admin': 3,
+      'owner': 4,
+      'super_admin': 5
     };
-    return jwt.sign(
-  {
-    user_id: user.id,
-    email: user.email,
-    workspace_id: workspace?.id || null,
-  },
-  process.env.JWT_SECRET as string || 'your-jwt-secret',
-  { 
-        expiresIn: process.env.JWT_EXPIRES_IN || '24h',
-        issuer: 'bi-platform-api',
-        subject: user.id
-      } as jwt.SignOptions
-);
+    return roleLevels[role || 'viewer'] || 1;
   }
 
   /**
-   * Login user with optional workspace
-   */
-  async login(emailOrUsername: string, password: string, workspaceSlug?: string): Promise<LoginResult> {
-    try {
-      console.log("emailOrUsername",emailOrUsername)
-      // Authenticate user
-      const user = await this.authenticateUser(emailOrUsername, password);
-      if (!user) {
-        return {
-          success: false,
-          error: 'Invalid credentials'
-        };
-      }
-
-      let workspace: WorkspaceInfo | null = null;
-      let permissions: UserPermissions | null = null;
-
-      // Get workspace if provided
-      if (workspaceSlug) {
-        workspace = await this.getWorkspaceBySlug(workspaceSlug, user.id);
-        if (!workspace) {
-          return {
-            success: false,
-            error: 'Workspace not found or access denied'
-          };
-        }
-
-        // Check access
-        const hasAccess = await this.checkUserWorkspaceAccess(user.id, workspace.id);
-        if (!hasAccess) {
-          return {
-            success: false,
-            error: 'Access denied to workspace'
-          };
-        }
-
-        // Get permissions
-        permissions = await this.getUserPermissions(user.id, workspace.id);
-      }
-
-      // Update last login (non-blocking)
-      this.updateLastLogin(user.id).catch(error => {
-        logger.warn('Failed to update last login:', error);
-      });
-
-      // Generate token
-      const token = this.generateToken(user, workspace || undefined, permissions || undefined);
-
-      return {
-        success: true,
-        user,
-        workspace: workspace || undefined,
-        token,
-        permissions: permissions?.permissions || []
-      };
-      
-    } catch (error: any) {
-      logger.error('Login service error:', {
-        emailOrUsername,
-        workspaceSlug,
-        error: error.message,
-        service: 'bi-platform-api'
-      });
-      
-      return {
-        success: false,
-        error: 'Login service error'
-      };
-    }
-  }
-
-  /**
-   * Switch user workspace
+   * Switch user workspace using WorkspaceService
    */
   async switchWorkspace(userId: string, workspaceSlug: string): Promise<WorkspaceSwitchResult> {
     try {
-      // Get workspace with user context
+      console.log('🔄 AuthService: Switching workspace for user:', userId, 'to:', workspaceSlug);
+      
+      // Get workspace using WorkspaceService
       const workspace = await this.getWorkspaceBySlug(workspaceSlug, userId);
+      
       if (!workspace) {
+        console.log('⚠️ AuthService: Workspace not found or access denied:', workspaceSlug);
         return {
           success: false,
           error: 'Workspace not found'
         };
       }
 
-      // Verify access
-      const hasAccess = await this.checkUserWorkspaceAccess(userId, workspace.id);
+      // Check if user has access (already verified in getWorkspaceBySlug)
+      const hasAccess = await this.workspaceService.hasWorkspaceAccess(userId, workspace.id);
       if (!hasAccess) {
+        console.log('⚠️ AuthService: Access denied to workspace:', workspaceSlug);
         return {
           success: false,
           error: 'Access denied to workspace'
@@ -496,12 +262,13 @@ export class AuthService {
         };
       }
 
-      // Get permissions
-      const permissions = await this.getUserPermissions(userId, workspace.id);
+      // Get permissions (mock for now, based on workspace role)
+      const permissions = this.getPermissionsFromRole(workspace.user_role);
 
       // Generate new token
       const token = this.generateToken(user, workspace, permissions);
 
+      console.log('✅ AuthService: Workspace switch successful');
       return {
         success: true,
         workspace,
@@ -510,16 +277,195 @@ export class AuthService {
       };
       
     } catch (error: any) {
+      console.error('❌ AuthService: Switch workspace error:', error);
       logger.error('Switch workspace service error:', {
         userId,
         workspaceSlug,
         error: error.message,
+        stack: error.stack,
         service: 'bi-platform-api'
       });
       
       return {
         success: false,
         error: 'Workspace switch service error'
+      };
+    }
+  }
+
+  /**
+   * Get permissions based on role (mock implementation)
+   */
+  private getPermissionsFromRole(role?: string): UserPermissions {
+    const rolePermissions: Record<string, string[]> = {
+      'viewer': ['read_dashboards', 'read_datasets'],
+      'editor': ['read_dashboards', 'read_datasets', 'write_dashboards', 'write_datasets'],
+      'admin': ['read_dashboards', 'read_datasets', 'write_dashboards', 'write_datasets', 'manage_workspace'],
+      'owner': ['read_dashboards', 'read_datasets', 'write_dashboards', 'write_datasets', 'manage_workspace', 'admin_access'],
+      'super_admin': ['admin_access', 'super_admin_access']
+    };
+
+    const permissions = rolePermissions[role || 'viewer'] || rolePermissions['viewer'];
+    const isAdmin = role === 'admin' || role === 'owner' || role === 'super_admin';
+    const roleLevel = this.getRoleLevel(role);
+
+    return {
+      permissions,
+      roles: [role || 'viewer'],
+      is_admin: isAdmin,
+      role_level: roleLevel
+    };
+  }
+
+  /**
+   * Check if user has access to workspace (delegated to WorkspaceService)
+   */
+  async checkUserWorkspaceAccess(userId: string, workspaceId: string): Promise<boolean> {
+    try {
+      return await this.workspaceService.hasWorkspaceAccess(userId, workspaceId);
+    } catch (error: any) {
+      logger.error('Check workspace access error:', {
+        userId,
+        workspaceId,
+        error: error.message,
+        service: 'bi-platform-api'
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Get user permissions for workspace
+   */
+  async getUserPermissions(userId: string, workspaceId?: string): Promise<UserPermissions> {
+    try {
+      if (workspaceId) {
+        // Get workspace to determine user's role
+        const workspaces = await this.workspaceService.getUserWorkspaces(userId);
+        const workspace = workspaces.find(w => w.id === workspaceId);
+        
+        if (workspace) {
+          return this.getPermissionsFromRole(workspace.user_role);
+        }
+      }
+
+      // Default permissions
+      return this.getPermissionsFromRole('viewer');
+      
+    } catch (error: any) {
+      logger.error('Get user permissions error:', {
+        userId,
+        workspaceId,
+        error: error.message,
+        service: 'bi-platform-api'
+      });
+      
+      return {
+        permissions: [],
+        roles: [],
+        is_admin: false,
+        role_level: 0
+      };
+    }
+  }
+
+  /**
+   * Generate JWT token
+   */
+  generateToken(user: AuthenticatedUser, workspace?: WorkspaceInfo, permissions?: UserPermissions): string {
+    const payload = {
+      user_id: user.id,
+      username: user.username,
+      email: user.email,
+      workspace_id: workspace?.id,
+      workspace_slug: workspace?.slug,
+      permissions: permissions?.permissions || [],
+      roles: permissions?.roles || [],
+      is_admin: permissions?.is_admin || false,
+      iat: Math.floor(Date.now() / 1000)
+    };
+
+    const secret = process.env.JWT_SECRET || 'your-secret-key';
+    const options = {
+      expiresIn: process.env.JWT_EXPIRES_IN || '24h',
+      issuer: 'bi-platform-api',
+      audience: 'bi-platform-web'
+    };
+
+    return jwt.sign(payload, secret, options);
+  }
+
+  /**
+   * Login user with email/username and password, optionally with workspace
+   */
+  async login(emailOrUsername: string, password: string, workspaceSlug?: string): Promise<LoginResult> {
+    try {
+      console.log('🔑 AuthService: Login attempt for:', emailOrUsername);
+      
+      // Authenticate user
+      const user = await this.authenticateUser(emailOrUsername, password);
+      if (!user) {
+        return {
+          success: false,
+          error: 'Invalid credentials'
+        };
+      }
+
+      let workspace: WorkspaceInfo | undefined;
+      let permissions: UserPermissions;
+
+      // If workspace specified, get that workspace
+      if (workspaceSlug) {
+        workspace = await this.getWorkspaceBySlug(workspaceSlug, user.id);
+        if (!workspace) {
+          return {
+            success: false,
+            error: 'Specified workspace not found or access denied'
+          };
+        }
+        permissions = this.getPermissionsFromRole(workspace.user_role);
+      } else {
+        // Get default workspace (first available from WorkspaceService)
+        const workspaces = await this.workspaceService.getUserWorkspaces(user.id);
+        if (workspaces.length > 0) {
+          const firstWorkspace = workspaces[0];
+          workspace = await this.getWorkspaceBySlug(firstWorkspace.slug, user.id);
+          permissions = this.getPermissionsFromRole(workspace?.user_role);
+        } else {
+          permissions = this.getPermissionsFromRole('viewer');
+        }
+      }
+
+      // Generate token
+      const token = this.generateToken(user, workspace, permissions);
+
+      // Update last login
+      await this.db.query(
+        'UPDATE users SET last_login = NOW() WHERE id = $1',
+        [user.id]
+      );
+
+      console.log('✅ AuthService: Login successful');
+      return {
+        success: true,
+        user,
+        workspace,
+        token,
+        permissions: permissions.permissions
+      };
+      
+    } catch (error: any) {
+      console.error('❌ AuthService: Login error:', error);
+      logger.error('Login service error:', {
+        emailOrUsername,
+        error: error.message,
+        stack: error.stack,
+        service: 'bi-platform-api'
+      });
+      
+      return {
+        success: false,
+        error: 'Login service error'
       };
     }
   }
