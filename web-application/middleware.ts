@@ -1,4 +1,4 @@
-// web-application/middleware.ts
+// web-application/middleware.ts - FIXED VERSION
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -48,28 +48,37 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Redirect workspace-specific overview to main overview
-  if (pathname.match(/^\/workspace\/[^\/]+\/overview$/)) {
-    console.log('Redirecting workspace-specific overview to main overview');
-    return NextResponse.redirect(new URL('/workspace/overview', request.url));
-  }
-
-  // Redirect workspace root to overview
-  if (pathname.match(/^\/workspace\/[^\/]+$/)) {
-    console.log('Redirecting workspace root to overview');
-    return NextResponse.redirect(new URL('/workspace/overview', request.url));
-  }
-
-  // Redirect bare /workspace to overview
+  // 🔥 FIXED: Only redirect bare /workspace to overview
   if (pathname === '/workspace') {
     console.log('Redirecting bare workspace to overview');
     return NextResponse.redirect(new URL('/workspace/overview', request.url));
+  }
+
+  // 🔥 FIXED: Allow all workspace-specific routes to pass through
+  // This includes /workspace/[slug]/datasets, /workspace/[slug]/dashboards, etc.
+  if (pathname.startsWith('/workspace/')) {
+    console.log('Workspace-specific route, allowing access');
+    
+    // Only redirect if the user doesn't have a token
+    if (!token) {
+      console.log('Protected workspace route without token, redirecting to login');
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('returnUrl', pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+    
+    return NextResponse.next();
   }
 
   // Allow API routes to pass through without authentication check
   if (pathname.startsWith('/api/')) {
     console.log('API route, passing through');
     return NextResponse.next();
+  }
+  
+  if (pathname.match(/^\/workspace\/[^\/]+\/overview$/)) {
+    console.log('Redirecting workspace-specific overview to main overview');
+    return NextResponse.redirect(new URL('/workspace/overview', request.url));
   }
 
   // Allow public routes

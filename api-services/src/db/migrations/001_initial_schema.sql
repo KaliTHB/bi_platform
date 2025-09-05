@@ -286,6 +286,7 @@ CREATE TABLE dashboards (
     status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),
     is_public BOOLEAN DEFAULT FALSE,
     is_featured BOOLEAN DEFAULT FALSE,
+    is_active bool NULL DEFAULT TRUE,
     sort_order INTEGER DEFAULT 0,
     tags TEXT[] DEFAULT '{}',
     version INTEGER DEFAULT 1,

@@ -645,22 +645,22 @@ export class WorkspaceService {
     // Get workspace statistics for each workspace
     const workspaceIds = workspaceResult.rows.map(row => row.id);
     const statsQuery = `
-      SELECT 
-        workspace_id,
-        -- Count of active members
-        (SELECT COUNT(DISTINCT ura.user_id) 
-         FROM user_role_assignments ura 
-         WHERE ura.workspace_id = w.id AND ura.is_active = true) as member_count,
-        -- Count of dashboards
-        (SELECT COUNT(*) 
-         FROM dashboards d 
-         WHERE d.workspace_id = w.id AND d.is_active = true) as dashboard_count,
-        -- Count of datasets
-        (SELECT COUNT(*) 
-         FROM datasets ds 
-         WHERE ds.workspace_id = w.id AND ds.is_active = true) as dataset_count
-      FROM workspaces w
-      WHERE w.id = ANY($1::uuid[])
+     SELECT 
+   id as workspace_id,
+  -- Count of active members
+  (SELECT COUNT(DISTINCT ura.user_id) 
+   FROM user_role_assignments ura 
+   WHERE ura.workspace_id = w.id AND ura.is_active = true) as member_count,
+  -- Count of dashboards
+  (SELECT COUNT(*) 
+   FROM dashboards d 
+   WHERE d.workspace_id = w.id AND d.is_active = true) as dashboard_count,
+  -- Count of datasets
+  (SELECT COUNT(*) 
+   FROM datasets ds 
+   WHERE ds.workspace_id = w.id AND ds.is_active = true) as dataset_count
+FROM workspaces w
+WHERE w.id = ANY($1::uuid[])
     `;
 
     const statsResult = await this.db.query(statsQuery, [workspaceIds]);

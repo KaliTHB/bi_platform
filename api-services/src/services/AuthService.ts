@@ -526,11 +526,12 @@ async getUserById(userId: string): Promise<AuthenticatedUser | undefined> {
       if (userId) {
         query = `
           SELECT w.id, w.name, w.slug, w.description, w.is_active, 
-                 w.created_at, w.updated_at,
-                 ura.role_name as role, ura.role_level,
-                 ura.created_at as joined_at
+          w.created_at, w.updated_at,
+          r.name as role,
+          ura.assigned_at as joined_at
           FROM workspaces w
-          LEFT JOIN user_role_assignments ura ON w.id = ura.workspace_id AND ura.user_id = $2
+          LEFT JOIN user_role_assignments ura ON w.id = ura.workspace_id AND ura.user_id = $2 AND ura.is_active = true
+          LEFT JOIN roles r ON ura.role_id = r.id
           WHERE w.slug = $1 AND w.is_active = true
         `;
         params.push(userId);
@@ -556,10 +557,11 @@ async getUserById(userId: string): Promise<AuthenticatedUser | undefined> {
   async getUserPermissions(userId: string, workspaceId: string): Promise<UserPermissions> {
     try {
       const query = `
-        SELECT ura.role_name, ura.role_level, r.permissions
+        SELECT r.role_name, r.role_level, r.permissions
         FROM user_role_assignments ura
         LEFT JOIN roles r ON ura.role_name = r.name AND ura.workspace_id = r.workspace_id
         WHERE ura.user_id = $1 AND ura.workspace_id = $2 AND ura.is_active = true
+
       `;
       
       const result = await this.db.query(query, [userId, workspaceId]);
