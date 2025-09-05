@@ -181,52 +181,44 @@ VALUES (
 -- Create sample workspace
 INSERT INTO workspaces (name, slug, description, created_by)
 VALUES (
-    'Demo Workspace',
-    'demo-workspace',
-    'A sample workspace for demonstration purposes',
-    (SELECT id FROM users WHERE email = 'admin@system.local')
-);
-
--- Add super admin to sample workspace
-INSERT INTO user_workspaces (user_id, workspace_id, status)
-VALUES (
-    (SELECT id FROM users WHERE email = 'admin@system.local'),
-    (SELECT id FROM workspaces WHERE slug = 'demo-workspace'),
-    'ACTIVE'
+    'THB Workspace',
+    'default',
+    'Default workspace for dashboarding purposes',
+    (SELECT id FROM users WHERE email = 'admin@localhost.com')
 );
 
 -- Assign owner role to super admin in sample workspace
-INSERT INTO user_workspace_roles (user_id, workspace_id, role_id, assigned_by)
+INSERT INTO user_role_assignments (user_id, workspace_id, role_id, assigned_by)
 VALUES (
-    (SELECT id FROM users WHERE email = 'admin@system.local'),
-    (SELECT id FROM workspaces WHERE slug = 'demo-workspace'),
+    (SELECT id FROM users WHERE email = 'admin@localhost.com'),
+    (SELECT id FROM workspaces WHERE slug = 'default'),
     (SELECT id FROM roles WHERE name = 'owner' AND is_system = true),
-    (SELECT id FROM users WHERE email = 'admin@system.local')
+    (SELECT id FROM users WHERE email = 'admin@localhost.com')
 );
 
 -- Create sample categories
 INSERT INTO categories (workspace_id, name, description, icon, color, created_by) VALUES
 (
-    (SELECT id FROM workspaces WHERE slug = 'demo-workspace'),
+    (SELECT id FROM workspaces WHERE slug = 'default'),
     'Sales & Marketing',
     'Sales performance and marketing analytics dashboards',
     'trending_up',
     '#4CAF50',
-    (SELECT id FROM users WHERE email = 'admin@system.local')
+    (SELECT id FROM users WHERE email = 'admin@localhost.com')
 ),
 (
-    (SELECT id FROM workspaces WHERE slug = 'demo-workspace'),
+    (SELECT id FROM workspaces WHERE slug = 'default'),
     'Operations',
     'Operational metrics and KPI dashboards',
     'settings',
     '#FF9800',
-    (SELECT id FROM users WHERE email = 'admin@system.local')
+    (SELECT id FROM users WHERE email = 'admin@localhost.com')
 ),
 (
-    (SELECT id FROM workspaces WHERE slug = 'demo-workspace'),
+    (SELECT id FROM workspaces WHERE slug = 'default'),
     'Finance',
     'Financial reporting and budget tracking',
     'account_balance',
     '#2196F3',
-    (SELECT id FROM users WHERE email = 'admin@system.local')
+    (SELECT id FROM users WHERE email = 'admin@localhost.com')
 );

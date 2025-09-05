@@ -18,7 +18,7 @@ BEGIN
     -- Check direct access to this dataset
     SELECT EXISTS(
         SELECT 1 FROM dataset_access da
-        LEFT JOIN user_roles ura ON da.role_id = ura.role_id
+        LEFT JOIN user_role_assignments ura ON da.role_id = ura.role_id
         WHERE da.dataset_id = p_dataset_id
         AND da.is_active = TRUE
         AND (da.expires_at IS NULL OR da.expires_at > NOW())

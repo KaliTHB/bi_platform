@@ -23,9 +23,9 @@ export async function clearTestDatabase(db: Pool): Promise<void> {
   const tables = [
     'webview_analytics',
     'webview_access',
-    'webview_configs',
+    'webviews',
     'dashboard_categories',
-    'user_roles',
+    'user_role_assignments',
     'roles',
     'users',
     'workspaces'
@@ -77,7 +77,7 @@ async function createTestTables(db: Pool): Promise<void> {
   `);
 
   await db.query(`
-    CREATE TABLE IF NOT EXISTS user_roles (
+    CREATE TABLE IF NOT EXISTS user_role_assignments  (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -89,7 +89,7 @@ async function createTestTables(db: Pool): Promise<void> {
   `);
 
   await db.query(`
-    CREATE TABLE IF NOT EXISTS webview_configs (
+    CREATE TABLE IF NOT EXISTS webviews (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       webview_name VARCHAR(100) NOT NULL,
@@ -97,17 +97,24 @@ async function createTestTables(db: Pool): Promise<void> {
       theme_config JSONB DEFAULT '{}',
       navigation_config JSONB DEFAULT '{}',
       branding_config JSONB DEFAULT '{}',
+      access_config JSONB DEFAULT '{}'::jsonb,
+      default_category_id UUID REFERENCES public.dashboard_categories(id),
+
+      -- Lifecycle
       is_active BOOLEAN DEFAULT TRUE,
-      created_by UUID REFERENCES users(id),
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT unique_webview_per_workspace UNIQUE(workspace_id, webview_name)
+      created_by UUID REFERENCES public.users(id),
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+
+      -- Constraints
+      CONSTRAINT unique_webview_per_workspace UNIQUE (workspace_id, name)
     );
   `);
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS webview_access (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      webview_id UUID NOT NULL REFERENCES webview_configs(id) ON DELETE CASCADE,
+      webview_id UUID NOT NULL REFERENCES webviews(id) ON DELETE CASCADE,
       role_id UUID REFERENCES roles(id),
       permissions JSONB NOT NULL DEFAULT '["can_read"]',
       granted_by UUID NOT NULL REFERENCES users(id),

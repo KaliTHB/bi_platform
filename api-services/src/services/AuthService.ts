@@ -159,12 +159,12 @@ async getUserDefaultWorkspace(userId: string): Promise<WorkspaceInfo | undefined
       SELECT w.id, w.name, w.slug, w.description, w.is_active, 
              w.created_at, w.updated_at,
              wr.role, wr.role_level,
-             (SELECT COUNT(*) FROM workspace_members wm2 WHERE wm2.workspace_id = w.id) as member_count,
+             (SELECT COUNT(*) FROM user_role_assignments wm2 WHERE wm2.workspace_id = w.id) as member_count,
              (SELECT COUNT(*) FROM dashboards d WHERE d.workspace_id = w.id) as dashboard_count,
              (SELECT COUNT(*) FROM datasets ds WHERE ds.workspace_id = w.id) as dataset_count,
              wm.joined_at
       FROM workspaces w
-      INNER JOIN workspace_members wm ON w.id = wm.workspace_id
+      INNER JOIN user_role_assignments wm ON w.id = wm.workspace_id
       LEFT JOIN workspace_roles wr ON wm.role_id = wr.id
       WHERE wm.user_id = $1 AND wm.is_active = true AND w.is_active = true
       ORDER BY wm.joined_at ASC
@@ -193,7 +193,7 @@ async getUserWorkspacePermissions(userId: string, workspaceId: string): Promise<
       FROM permissions p
       INNER JOIN role_permissions rp ON p.id = rp.permission_id
       INNER JOIN workspace_roles wr ON rp.role_id = wr.id
-      INNER JOIN workspace_members wm ON wr.id = wm.role_id
+      INNER JOIN user_role_assignments wm ON wr.id = wm.role_id
       WHERE wm.user_id = $1 AND wm.workspace_id = $2 AND wm.is_active = true
     `;
     
@@ -530,7 +530,7 @@ async getUserById(userId: string): Promise<AuthenticatedUser | undefined> {
                  ura.role_name as role, ura.role_level,
                  ura.created_at as joined_at
           FROM workspaces w
-          LEFT JOIN user_roles ura ON w.id = ura.workspace_id AND ura.user_id = $2
+          LEFT JOIN user_role_assignments ura ON w.id = ura.workspace_id AND ura.user_id = $2
           WHERE w.slug = $1 AND w.is_active = true
         `;
         params.push(userId);
@@ -557,7 +557,7 @@ async getUserById(userId: string): Promise<AuthenticatedUser | undefined> {
     try {
       const query = `
         SELECT ura.role_name, ura.role_level, r.permissions
-        FROM user_roles ura
+        FROM user_role_assignments ura
         LEFT JOIN roles r ON ura.role_name = r.name AND ura.workspace_id = r.workspace_id
         WHERE ura.user_id = $1 AND ura.workspace_id = $2 AND ura.is_active = true
       `;

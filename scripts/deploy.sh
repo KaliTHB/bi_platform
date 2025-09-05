@@ -384,7 +384,7 @@ show_deployment_info() {
     echo ""
     
     echo "🔐 Default Login Credentials:"
-    echo "   Email: admin@system.local"
+    echo "   Email: admin@localhost.com"
     echo "   Password: admin123"
     echo ""
     

@@ -10,7 +10,7 @@ BEGIN
     FROM (
         SELECT jsonb_array_elements(cr.permissions) AS perm
         FROM roles cr
-        JOIN user_roles ura ON cr.id = ura.role_id
+        JOIN user_role_assignments ura ON cr.id = ura.role_id
         WHERE ura.user_id = p_user_id 
         AND ura.workspace_id = p_workspace_id
         AND ura.is_active = TRUE

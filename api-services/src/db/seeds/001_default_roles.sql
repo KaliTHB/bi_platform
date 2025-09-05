@@ -76,7 +76,7 @@ BEGIN
     ) RETURNING id INTO reader_role_id;
     
     -- Assign Administrator role to admin user
-    INSERT INTO user_roles (user_id, role_id, assigned_by)
-    VALUES (admin_user_id , admin_role_id, admin_user_id);
+    INSERT INTO user_role_assignments (user_id, role_id, workspace_id, assigned_by)
+    VALUES (admin_user_id , admin_role_id, default_workspace_id, admin_user_id);
     
 END $$;

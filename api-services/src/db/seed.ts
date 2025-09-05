@@ -59,15 +59,9 @@ const seedData: SeedData = {
   workspaces: [
     {
       name: 'Default Workspace',
-      display_name: 'Default Workspace',
+      display_name: 'THB Workspace',
       slug: 'default',
       owner_username: 'admin'
-    },
-    {
-      name: 'Demo Workspace',
-      display_name: 'Demo Analytics Workspace',
-      slug: 'demo',
-      owner_username: 'demo_user'
     }
   ],
   permissions: [

@@ -126,7 +126,7 @@ docker-compose -f docker-compose.prod.yml up -d
 - Health Check: http://localhost/health
 
 5. **Default credentials**
-- Email: `admin@system.local`
+- Email: `admin@localhost.com`
 - Password: `admin123`
 
 ### Option 2: Manual Installation

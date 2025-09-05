@@ -60,7 +60,7 @@ export class WorkspaceService {
           name: 'THB',
           slug: 'thb',
           display_name: 'The Hub',
-          description: 'Primary administrative workspace with full system access',
+          description: '',
           logo_url: null,
           settings: {
             theme: 'default',

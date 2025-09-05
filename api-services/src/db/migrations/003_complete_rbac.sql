@@ -1,32 +1,6 @@
 -- Complete RBAC Schema
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- System permissions table (if not exists)
-CREATE TABLE IF NOT EXISTS permissions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(255) UNIQUE NOT NULL,
-    display_name VARCHAR(255) NOT NULL,
-    description TEXT,
-    category VARCHAR(100) NOT NULL DEFAULT 'general',
-    is_system BOOLEAN DEFAULT true,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- System roles table
-CREATE TABLE IF NOT EXISTS roles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(255) NOT NULL,
-    display_name VARCHAR(255) NOT NULL,
-    description TEXT,
-    level INTEGER DEFAULT 0, -- Role hierarchy level
-    is_system BOOLEAN DEFAULT false,
-    workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(name, workspace_id)
-);
-
 -- Role-Permission junction table
 CREATE TABLE IF NOT EXISTS role_permissions (
     id BIGINT GENERATED ALWAYS AS identity NOT NULL,
@@ -37,43 +11,32 @@ CREATE TABLE IF NOT EXISTS role_permissions (
 	CONSTRAINT role_permissions_role_id_permission_id_key UNIQUE (role_id, permission_id)
 );
 
+ CREATE TABLE user_role_assignments (
+            id PRIMARY KEY BIGINT GENERATED ALWAYS AS identity NOT NULL,
+            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+            role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+            assigned_by UUID REFERENCES users(id),
+            assigned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP WITH TIME ZONE,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, workspace_id, role_id)
+        );
 
--- User-Role assignments
-CREATE TABLE IF NOT EXISTS user_roles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
-    role_id UUID REFERENCES roles(id) ON DELETE CASCADE,
-    assigned_by UUID REFERENCES users(id),
-    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP,
-    is_active BOOLEAN DEFAULT true,
-    UNIQUE(user_id, workspace_id, role_id)
-);
-
--- User-specific permission overrides
-CREATE TABLE IF NOT EXISTS user_permission_overrides (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
-    permission_id UUID REFERENCES permissions(id) ON DELETE CASCADE,
-    granted BOOLEAN NOT NULL, -- true = grant, false = revoke
-    granted_by UUID REFERENCES users(id),
-    granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP,
-    reason TEXT,
-    UNIQUE(user_id, workspace_id, permission_id)
-);
+CREATE INDEX IF NOT EXISTS idx_user_role_assignments_user_workspace 
+        ON user_role_assignments(user_id, workspace_id) WHERE is_active = TRUE;
+        
+        CREATE INDEX IF NOT EXISTS idx_user_role_assignments_role 
+        ON user_role_assignments(role_id) WHERE is_active = TRUE;
 
 -- Indexes for performance
-CREATE INDEX IF NOT EXISTS idx_user_roles_user_workspace 
-ON user_roles(user_id, workspace_id) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_user_role_assignments_user_workspace 
+ON user_role_assignments(user_id, workspace_id) WHERE is_active = true;
 
 CREATE INDEX IF NOT EXISTS idx_role_permissions_role 
 ON role_permissions(role_id);
-
-CREATE INDEX IF NOT EXISTS idx_user_permission_overrides_user_workspace 
-ON user_permission_overrides(user_id, workspace_id);
 
 -- Insert system permissions
 INSERT INTO permissions (name, display_name, description, category) VALUES

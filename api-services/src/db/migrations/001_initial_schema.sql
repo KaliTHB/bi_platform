@@ -50,19 +50,6 @@ CREATE TABLE IF NOT EXISTS workspaces (
   CONSTRAINT workspaces_name_not_empty CHECK (char_length(trim(name)) > 0),
   CONSTRAINT workspaces_slug_format CHECK (slug ~ '^[a-z0-9-]+$')
 );
--- Workspaces table
-CREATE TABLE workspaces (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name VARCHAR(255) NOT NULL,
-  slug VARCHAR(100) UNIQUE NOT NULL,
-  description TEXT,
-  logo_url TEXT,
-  ,
-  is_active BOOLEAN DEFAULT true,
-  created_by UUID REFERENCES users(id),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
 
 -- Permissions table
 CREATE TABLE permissions (
@@ -84,21 +71,9 @@ CREATE TABLE roles (
   description TEXT,
   level INTEGER NOT NULL DEFAULT 1,
   is_system BOOLEAN DEFAULT false,
-  workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE(name, workspace_id)
-);
--- Create roles table if not exists
-CREATE TABLE IF NOT EXISTS roles (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name VARCHAR(50) UNIQUE NOT NULL,
-  display_name VARCHAR(100) NOT NULL,
-  description TEXT,
-  level INTEGER NOT NULL DEFAULT 0,
-  is_system BOOLEAN DEFAULT false,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Create permissions table if not exists
@@ -112,25 +87,6 @@ CREATE TABLE IF NOT EXISTS permissions (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- User roles
-CREATE TABLE public.user_roles (
-	user_id uuid NULL,
-	role_id uuid NULL,
-	assigned_by uuid NULL,
-	assigned_at timestamp NULL,
-	is_active bool NULL,
-	CONSTRAINT user_roles_pkey PRIMARY KEY (user_id,role_id)
-);
-
--- User workspaces
-CREATE TABLE user_workspaces (
-  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-  workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
-  status VARCHAR(20) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INVITED', 'SUSPENDED')),
-  joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  invited_by UUID REFERENCES users(id),
-  PRIMARY KEY (user_id, workspace_id)
-);
 
 -- User workspace roles
 CREATE TABLE user_workspace_roles (
@@ -142,31 +98,28 @@ CREATE TABLE user_workspace_roles (
   PRIMARY KEY (user_id, workspace_id, role_id)
 );
 
-
-
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_workspaces_owner_id ON workspaces(owner_id);
 CREATE INDEX IF NOT EXISTS idx_workspaces_slug ON workspaces(slug);
 CREATE INDEX IF NOT EXISTS idx_workspaces_is_active ON workspaces(is_active);
-CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace_id ON workspace_members(workspace_id);
-CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id ON workspace_members(user_id);
-CREATE INDEX IF NOT EXISTS idx_workspace_members_active ON workspace_members(is_active);
+CREATE INDEX IF NOT EXISTS idx_user_role_assignments_workspace_id ON user_role_assignments(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_user_role_assignments_user_id ON user_role_assignments(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_role_assignments_active ON user_role_assignments(is_active);
 CREATE INDEX IF NOT EXISTS idx_roles_name ON roles(name);
 CREATE INDEX IF NOT EXISTS idx_permissions_name ON permissions(name);
 
--- Create workspace_members table
-CREATE TABLE IF NOT EXISTS workspace_members (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+-- Create user_role_assignments table
+CREATE TABLE IF NOT EXISTS user_role_assignments (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL,
+  user_id UUID NOT NULL REFERENCES users(id),
   role_id UUID REFERENCES roles(id),
   is_active BOOLEAN DEFAULT true,
-  joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(workspace_id, user_id)
+  joined_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (workspace_id, user_id)
 );
-
 
 -- Data sources table
 CREATE TABLE data_sources (
@@ -274,28 +227,10 @@ CREATE TABLE dashboard_categories (
     CONSTRAINT unique_category_per_workspace UNIQUE(workspace_id, name)
 );
 
--- Webview Configurations
-CREATE TABLE webview_configs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    webview_name VARCHAR(100) NOT NULL,
-    display_name VARCHAR(200),
-    description TEXT,
-    theme_config JSONB DEFAULT '{}',
-    navigation_config JSONB DEFAULT '{}',
-    branding_config JSONB DEFAULT '{}',
-    default_category_id UUID REFERENCES dashboard_categories(id),
-    is_active BOOLEAN DEFAULT TRUE,
-    created_by UUID REFERENCES users(id),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT unique_webview_per_workspace UNIQUE(workspace_id, webview_name)
-);
-
 -- Webview Access Control
 CREATE TABLE webview_access (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    webview_id UUID NOT NULL REFERENCES webview_configs(id) ON DELETE CASCADE,
+    webview_id UUID NOT NULL REFERENCES webview(id) ON DELETE CASCADE,
     user_id UUID REFERENCES users(id),
     group_id UUID,
     role_id UUID REFERENCES roles(id),
@@ -315,7 +250,7 @@ CREATE TABLE webview_access (
 CREATE TABLE webview_analytics (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    webview_id UUID NOT NULL REFERENCES webview_configs(id) ON DELETE CASCADE,
+    webview_id UUID NOT NULL REFERENCES webviews(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id),
     category_id UUID REFERENCES dashboard_categories(id),
     dashboard_id UUID,
@@ -398,23 +333,49 @@ CREATE TABLE charts (
 );
 
 -- Webviews table
-CREATE TABLE webviews (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  name VARCHAR(255) NOT NULL,
-  slug VARCHAR(255) UNIQUE NOT NULL,
-  description TEXT,
-  theme_config JSONB DEFAULT '{"primary_color": "#1976d2", "secondary_color": "#dc004e"}',
-  navigation_config JSONB DEFAULT '{"show_categories": true, "show_search": true}',
-  access_config JSONB DEFAULT '{"public": false, "allowed_domains": []}',
-  is_active BOOLEAN DEFAULT true,
-  created_by UUID REFERENCES users(id),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+-- Drop old tables if needed
+
+CREATE TABLE public.webviews (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
+    
+    -- Identity & naming
+    name VARCHAR(255) NOT NULL,
+    slug VARCHAR(255) UNIQUE NOT NULL,
+    display_name VARCHAR(200),
+    description TEXT,
+
+    -- Configurations merged from both tables
+    theme_config JSONB DEFAULT '{}'::jsonb,
+    navigation_config JSONB DEFAULT '{}'::jsonb,
+    branding_config JSONB DEFAULT '{}'::jsonb,
+    access_config JSONB DEFAULT '{}'::jsonb,
+
+    -- Optional linkage
+    default_category_id UUID REFERENCES public.dashboard_categories(id),
+
+    -- Lifecycle
+    is_active BOOLEAN DEFAULT TRUE,
+    created_by UUID REFERENCES public.users(id),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+
+    -- Constraints
+    CONSTRAINT unique_webview_per_workspace UNIQUE (workspace_id, name)
 );
 
+-- Index for fast workspace lookups
+CREATE INDEX idx_webviews_workspace ON public.webviews USING btree (workspace_id);
+
+-- Trigger to auto-update updated_at
+CREATE TRIGGER update_webviews_updated_at
+BEFORE UPDATE ON public.webviews
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+
 -- Webview permissions
-CREATE TABLE webview_permissions (
+CREATE TABLE webview_access (
   webview_id UUID REFERENCES webviews(id) ON DELETE CASCADE,
   dashboard_id UUID REFERENCES dashboards(id) ON DELETE CASCADE,
   is_visible BOOLEAN DEFAULT true,
@@ -465,8 +426,6 @@ CREATE TABLE user_invitations (
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_workspaces_slug ON workspaces(slug);
-CREATE INDEX idx_user_workspaces_user ON user_workspaces(user_id);
-CREATE INDEX idx_user_workspaces_workspace ON user_workspaces(workspace_id);
 CREATE INDEX idx_datasets_workspace ON datasets(workspace_id);
 CREATE INDEX idx_datasets_type ON datasets(type);
 CREATE INDEX idx_dashboards_workspace ON dashboards(workspace_id);
@@ -539,7 +498,7 @@ CREATE TABLE datasources (
 
 -- Performance Indexes
 CREATE INDEX idx_categories_workspace_parent ON dashboard_categories(workspace_id, parent_category_id);
-CREATE INDEX idx_webview_configs_workspace ON webview_configs(workspace_id);
+CREATE INDEX idx_webview_workspace ON webviews(workspace_id);
 CREATE INDEX idx_webview_analytics_webview_timestamp ON webview_analytics(webview_id, action_timestamp);
 
 -- Dashboard Access Control
@@ -586,9 +545,9 @@ CREATE TRIGGER update_workspaces_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
-DROP TRIGGER IF EXISTS update_workspace_members_updated_at ON workspace_members;
-CREATE TRIGGER update_workspace_members_updated_at
-  BEFORE UPDATE ON workspace_members
+DROP TRIGGER IF EXISTS update_user_role_assignments_updated_at ON user_role_assignments;
+CREATE TRIGGER update_user_role_assignments_updated_at
+  BEFORE UPDATE ON user_role_assignments
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 

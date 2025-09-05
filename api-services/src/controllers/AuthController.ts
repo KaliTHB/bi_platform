@@ -381,16 +381,16 @@ export class AuthController {
 
       // Get workspace info if available
       let workspaceInfo = null;
+      let permissions: string[] = [];
       if (workspaceId) {
         // Note: We would need a getWorkspaceById method for this
         // For now, we'll skip workspace info in token refresh
+        // Get permissions
+        const permissions = await this.authService.getUserPermissions(userId, workspaceId);
       }
 
-      // Get permissions
-      const permissions = await this.authService.getUserPermissions(userId, workspaceId);
-
       // Generate new token
-      const token = this.authService.generateToken(user, workspaceInfo, permissions);
+      const token = this.authService.generateAuthToken(user, workspaceInfo, permissions);
 
       res.status(200).json({
         success: true,

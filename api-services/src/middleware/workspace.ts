@@ -360,7 +360,7 @@ export async function addWorkspaceContext(
  */
 async function hasWorkspaceAccess(userId: string, workspaceId: string): Promise<boolean> {
   try {
-    // In a real implementation, this would check the workspace_memberships table
+    // In a real implementation, this would check the user_role_assignmentships table
     // For now, we'll use a simple check with the permission service
     return await permissionService.hasPermission(userId, workspaceId, 'workspace.read');
   } catch (error: any) {

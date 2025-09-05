@@ -41,7 +41,7 @@ export class UserController {
       const query = `
         SELECT DISTINCT w.slug
         FROM workspaces w
-        INNER JOIN workspace_members wm ON w.id = wm.workspace_id
+        INNER JOIN user_role_assignments wm ON w.id = wm.workspace_id
         WHERE wm.user_id = $1 AND wm.is_active = true AND w.is_active = true
         ORDER BY wm.joined_at ASC
         LIMIT 1
@@ -129,7 +129,7 @@ export class UserController {
       const query = `
         SELECT DISTINCT w.slug
         FROM workspaces w
-        INNER JOIN workspace_members wm ON w.id = wm.workspace_id
+        INNER JOIN user_role_assignments wm ON w.id = wm.workspace_id
         WHERE wm.user_id = $1 AND wm.is_active = true AND w.is_active = true
         ORDER BY w.name ASC
       `;

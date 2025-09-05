@@ -57,7 +57,7 @@ export class UserService extends DatabaseService {
         SELECT DISTINCT u.id, u.email, u.first_name, u.last_name, u.avatar_url, u.last_login_at, u.created_at,
                COALESCE(array_agg(DISTINCT cr.name) FILTER (WHERE cr.name IS NOT NULL), '{}') as roles
         FROM users u
-        JOIN user_roles ura ON u.id = ura.user_id AND ura.is_active = true
+        JOIN user_role_assignments ura ON u.id = ura.user_id AND ura.is_active = true
         LEFT JOIN roles cr ON ura.role_id = cr.id AND cr.is_active = true
         ${whereClause}
         GROUP BY u.id, u.email, u.first_name, u.last_name, u.avatar_url, u.last_login_at, u.created_at
@@ -72,7 +72,7 @@ export class UserService extends DatabaseService {
       const countQuery = `
         SELECT COUNT(DISTINCT u.id) as total
         FROM users u
-        JOIN user_roles ura ON u.id = ura.user_id AND ura.is_active = true
+        JOIN user_role_assignments ura ON u.id = ura.user_id AND ura.is_active = true
         ${whereClause}
       `;
 
@@ -134,7 +134,7 @@ export class UserService extends DatabaseService {
 
           if (roleResult.rows.length > 0) {
             await client.query(`
-              INSERT INTO user_roles (user_id, workspace_id, role_id, assigned_by)
+              INSERT INTO user_role_assignments (user_id, workspace_id, role_id, assigned_by)
               VALUES ($1, $2, $3, $4)
             `, [newUser.id, workspaceId, roleId, createdBy]);
             
@@ -210,7 +210,7 @@ export class UserService extends DatabaseService {
       const rolesResult = await this.query(`
         SELECT cr.name
         FROM roles cr
-        JOIN user_roles ura ON cr.id = ura.role_id
+        JOIN user_role_assignments ura ON cr.id = ura.role_id
         WHERE ura.user_id = $1 AND ura.is_active = true AND cr.is_active = true
       `, [userId]);
 
@@ -241,7 +241,7 @@ export class UserService extends DatabaseService {
 
       // Deactivate role assignments
       await this.query(`
-        UPDATE user_roles
+        UPDATE user_role_assignments
         SET is_active = false
         WHERE user_id = $1
       `, [userId]);

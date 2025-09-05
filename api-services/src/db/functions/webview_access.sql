@@ -20,7 +20,7 @@ BEGIN
     -- Check webview access
     SELECT EXISTS(
         SELECT 1 FROM webview_access wa
-        LEFT JOIN user_roles ura ON wa.role_id = ura.role_id
+        LEFT JOIN user_role_assignments ura ON wa.role_id = ura.role_id
         WHERE wa.webview_id = p_webview_id
         AND wa.is_active = TRUE
         AND (wa.expires_at IS NULL OR wa.expires_at > NOW())
@@ -38,7 +38,7 @@ BEGIN
     -- Check dashboard access
     SELECT EXISTS(
         SELECT 1 FROM dashboard_access da
-        LEFT JOIN user_roles ura ON da.role_id = ura.role_id
+        LEFT JOIN user_role_assignments ura ON da.role_id = ura.role_id
         WHERE da.dashboard_id = p_dashboard_id
         AND da.is_active = TRUE
         AND (da.expires_at IS NULL OR da.expires_at > NOW())

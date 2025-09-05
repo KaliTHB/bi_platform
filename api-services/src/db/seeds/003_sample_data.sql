@@ -30,7 +30,7 @@ BEGIN
         RETURNING id INTO operations_category_id;
     
     -- Create default webview
-    INSERT INTO webview_configs (workspace_id, webview_name, display_name, description, default_category_id, created_by)
+    INSERT INTO webview (workspace_id, webview_name, display_name, description, default_category_id, created_by)
     VALUES (
         default_workspace_id, 
         'main-portal', 

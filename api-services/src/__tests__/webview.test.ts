@@ -121,13 +121,13 @@ async function seedWebviewTestData(db: Pool) {
 
   // Assign role to user
   await db.query(`
-    INSERT INTO user_roles (user_id, workspace_id, role_id, assigned_by)
+    INSERT INTO user_role_assignments  (user_id, workspace_id, role_id, assigned_by)
     VALUES ('test-user-id', 'test-workspace-id', 'test-role-id', 'test-user-id')
   `);
 
   // Create test webview
   await db.query(`
-    INSERT INTO webview_configs (id, workspace_id, webview_name, display_name, is_active, created_by)
+    INSERT INTO webviews (id, workspace_id, webview_name, display_name, is_active, created_by)
     VALUES ('test-webview-id', 'test-workspace-id', 'test-webview', 'Test Webview', true, 'test-user-id')
   `);
 

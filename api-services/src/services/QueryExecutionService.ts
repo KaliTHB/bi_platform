@@ -125,7 +125,7 @@ export class QueryExecutionService {
     const permissionResult = await DatabaseConfig.query(
       `SELECT COUNT(*) as count
        FROM dataset_permissions dp
-       JOIN user_workspace_roles uwr ON dp.role_id = uwr.role_id
+       JOIN user_role_assignments uwr ON dp.role_id = uwr.role_id
        JOIN datasets d ON dp.dataset_id = d.id
        WHERE dp.dataset_id = $1 AND uwr.user_id = $2 AND d.is_active = true`,
       [datasetId, userId]
