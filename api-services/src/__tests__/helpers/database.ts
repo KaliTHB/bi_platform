@@ -25,7 +25,7 @@ export async function clearTestDatabase(db: Pool): Promise<void> {
     'webview_access',
     'webview_configs',
     'dashboard_categories',
-    'user_role_assignments',
+    'user_roles',
     'roles',
     'users',
     'workspaces'
@@ -77,7 +77,7 @@ async function createTestTables(db: Pool): Promise<void> {
   `);
 
   await db.query(`
-    CREATE TABLE IF NOT EXISTS user_role_assignments (
+    CREATE TABLE IF NOT EXISTS user_roles (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,

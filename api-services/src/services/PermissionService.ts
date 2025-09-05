@@ -42,7 +42,7 @@ export class PermissionService {
       // Get all user roles in workspace
       const roleResult = await this.database.query(`
         SELECT cr.permissions
-        FROM user_role_assignments ura
+        FROM user_roles ura
         JOIN custom_roles cr ON ura.role_id = cr.id
         WHERE ura.user_id = $1 
           AND ura.workspace_id = $2 
@@ -111,7 +111,7 @@ export class PermissionService {
   async getUserRoles(userId: string, workspaceId: string): Promise<UserRole[]> {
     const result = await this.database.query(`
       SELECT cr.id, cr.name, cr.permissions
-      FROM user_role_assignments ura
+      FROM user_roles ura
       JOIN custom_roles cr ON ura.role_id = cr.id
       WHERE ura.user_id = $1 
         AND ura.workspace_id = $2 

@@ -61,7 +61,8 @@ export class WorkspaceController {
         updated_at: workspace.updated_at,
         is_active: workspace.is_active
       }));
-
+      
+      console.log('formattedWorkspaces',formattedWorkspaces)
       // Set first workspace as default
       if (formattedWorkspaces.length > 0) {
         formattedWorkspaces[0].is_default = true;

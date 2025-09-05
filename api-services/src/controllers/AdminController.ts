@@ -21,7 +21,7 @@ export class AdminController {
           u.created_at,
           array_agg(cr.name) as roles
         FROM users u
-        LEFT JOIN user_role_assignments ura ON u.id = ura.user_id 
+        LEFT JOIN user_roles ura ON u.id = ura.user_id 
           AND ura.workspace_id = $1 
           AND ura.is_active = true
         LEFT JOIN custom_roles cr ON ura.role_id = cr.id

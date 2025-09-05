@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS role_permissions (
 
 
 -- User-Role assignments
-CREATE TABLE IF NOT EXISTS user_role_assignments (
+CREATE TABLE IF NOT EXISTS user_roles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -66,8 +66,8 @@ CREATE TABLE IF NOT EXISTS user_permission_overrides (
 );
 
 -- Indexes for performance
-CREATE INDEX IF NOT EXISTS idx_user_role_assignments_user_workspace 
-ON user_role_assignments(user_id, workspace_id) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_user_roles_user_workspace 
+ON user_roles(user_id, workspace_id) WHERE is_active = true;
 
 CREATE INDEX IF NOT EXISTS idx_role_permissions_role 
 ON role_permissions(role_id);

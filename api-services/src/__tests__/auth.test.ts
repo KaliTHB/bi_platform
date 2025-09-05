@@ -124,7 +124,7 @@ async function seedTestData(db: Pool) {
 
   // Assign role to user
   await db.query(`
-    INSERT INTO user_role_assignments (user_id, workspace_id, role_id, assigned_by)
+    INSERT INTO user_roles (user_id, workspace_id, role_id, assigned_by)
     VALUES ('test-user-id', 'test-workspace-id', 'test-role-id', 'test-user-id')
   `);
 }
