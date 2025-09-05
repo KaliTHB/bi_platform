@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
+import { db } from '../utils/database';  // ← Add this import at the top
 
 export interface AuthenticatedUser {
   id: string;
@@ -79,16 +80,15 @@ export class AuthService {
       });
 
       // Query user by email or username
-      const query = `
-        SELECT id, username, email, password_hash, first_name, last_name, 
-               avatar_url, is_active, last_login, created_at, updated_at
-        FROM users 
-        WHERE (email = $1 OR username = $1) AND is_active = true
-      `;
-      
-      const result = await this.db.query(query, [emailOrUsername]);
+      const result = await db.query(
+        `SELECT id, username, email, password_hash, first_name, last_name,
+                avatar_url, is_active, last_login, created_at, updated_at
+        FROM users
+        WHERE (email = $1 OR username = $1) AND is_active = true`,
+        [emailOrUsername]
+      );
       const user = result.rows[0];
-
+      console.log(user)
       if (!user) {
         logger.warn('Authentication failed: User not found', { emailOrUsername });
         return null;
@@ -375,16 +375,19 @@ export class AuthService {
       is_admin: permissions?.is_admin || false,
       role_level: permissions?.role_level || 0
     };
-
     return jwt.sign(
-      payload,
-      process.env.JWT_SECRET || 'your-jwt-secret',
-      { 
+  {
+    user_id: user.id,
+    email: user.email,
+    workspace_id: workspace?.id || null,
+  },
+  process.env.JWT_SECRET as string || 'your-jwt-secret',
+  { 
         expiresIn: process.env.JWT_EXPIRES_IN || '24h',
         issuer: 'bi-platform-api',
         subject: user.id
-      }
-    );
+      } as jwt.SignOptions
+);
   }
 
   /**

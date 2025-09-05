@@ -1,4 +1,4 @@
-// api-services/src/routes/index.ts
+// api-services/src/routes/index.ts - COMPLETE FIXED VERSION
 import { Router } from 'express';
 import authRoutes from './auth.routes';
 import workspaceRoutes from './workspace.routes';
@@ -9,8 +9,7 @@ import dashboardRoutes from './dashboard.routes';
 import chartRoutes from './chart.routes';
 import pluginRoutes from './plugin.routes';
 import webviewRoutes from './webview.routes';
-// Fix: Make sure the import path matches your actual file name
-import datasourceRoutes from './datasource.routes'; // Changed from './datasource.route'
+import datasourceRoutes from './datasource.routes';
 import { authenticate } from '../middleware/authentication';
 
 const router = Router();
@@ -53,16 +52,21 @@ router.use('/auth', authRoutes);
 router.use('/webviews', webviewRoutes); // Includes both public and protected routes
 
 // Protected routes (authentication required)
+
+// 🔥 CRITICAL FIX 1: Fix workspace routes to properly handle /api/workspaces
 router.use('/workspaces', authenticate, workspaceRoutes);
-router.use('/users', authenticate, userRoutes);
+
+// 🔥 CRITICAL FIX 2: Change '/users' to '/user' to match frontend expectations  
+router.use('/user', authenticate, userRoutes);  // ✅ SINGULAR - matches frontend
+
 router.use('/categories', authenticate, categoryRoutes);
 router.use('/datasets', authenticate, datasetRoutes);
 router.use('/dashboards', authenticate, dashboardRoutes);
 router.use('/charts', authenticate, chartRoutes);
 router.use('/plugins', authenticate, pluginRoutes);
-router.use('/datasources', authenticate, datasourceRoutes); // This is line 43 - the problem line
+router.use('/datasources', authenticate, datasourceRoutes);
 
-// API Documentation endpoint
+// API Documentation endpoint with updated paths
 router.get('/docs', (req, res) => {
   res.json({
     success: true,
@@ -81,15 +85,31 @@ router.get('/docs', (req, res) => {
           'POST /auth/refresh'
         ]
       },
+      // Fixed user endpoint documentation
+      user: {
+        base_path: '/user',
+        authentication_required: true,
+        endpoints: [
+          'GET /user/default-workspace',
+          'GET /user/workspaces', 
+          'GET /user/:id',
+          'PUT /user/:id',
+          'DELETE /user/:id'
+        ]
+      },
       workspaces: {
         base_path: '/workspaces',
         authentication_required: true,
         endpoints: [
-          'GET /workspaces',
+          'GET /workspaces',           // ✅ This should now work
           'POST /workspaces',
           'GET /workspaces/:id',
           'PUT /workspaces/:id',
-          'DELETE /workspaces/:id'
+          'DELETE /workspaces/:id',
+          'GET /workspaces/:id/members',
+          'POST /workspaces/:id/members',
+          'PUT /workspaces/:id/members/:userId',
+          'DELETE /workspaces/:id/members/:userId'
         ]
       },
       datasets: {
@@ -156,16 +176,6 @@ router.get('/docs', (req, res) => {
           'DELETE /categories/:categoryId'
         ]
       },
-      users: {
-        base_path: '/users',
-        authentication_required: true,
-        endpoints: [
-          'GET /users',
-          'POST /users',
-          'PUT /users/:userId',
-          'DELETE /users/:userId'
-        ]
-      },
       datasources: {
         base_path: '/datasources',
         authentication_required: true,
@@ -193,7 +203,8 @@ router.use('*', (req, res) => {
       code: 'ENDPOINT_NOT_FOUND',
       message: `The requested endpoint ${req.method} ${req.originalUrl} does not exist`
     }],
-    available_endpoints: '/docs'
+    available_endpoints: '/docs',
+    hint: 'Check the /docs endpoint for available API routes'
   });
 });
 

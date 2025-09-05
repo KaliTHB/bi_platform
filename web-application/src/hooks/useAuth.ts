@@ -234,7 +234,7 @@ export const useAuth = () => {
     
     const apiUrl = getApiBaseUrl();
     const { data, error, status } = await safeApiCall<any>(
-      `${apiUrl}/api/user/default-workspace`,
+      `${apiUrl}/api/workspaces`,
       {
         headers: {
           'Authorization': `Bearer ${authState.token}`,
@@ -276,28 +276,26 @@ export const useAuth = () => {
       }
     }
 
-    if (data?.success && data.workspace) {
-      console.log('✅ Default workspace endpoint found:', data.workspace.name);
-      
-      // Store the workspace
-      localStorage.setItem('workspace', JSON.stringify(data.workspace));
-      setAuthState(prev => ({
-        ...prev,
-        workspace: data.workspace
-      }));
-      
-      return { 
-        workspace: data.workspace, 
-        hasEndpoint: true 
-      };
-    } else {
-      console.log('⚠️ Default workspace endpoint available but no workspace assigned');
-      return { 
-        workspace: null, 
-        hasEndpoint: true, 
-        error: data?.message || 'No default workspace assigned' 
-      };
-    }
+    if (data?.success && (data.workspaces || data.data)) {
+  const workspaces = data.workspaces || data.data || [];
+  const defaultWorkspace = workspaces.find(w => w.is_default) || workspaces[0];
+  
+  if (defaultWorkspace) {
+    console.log('✅ Default workspace found:', defaultWorkspace.name);
+    
+    // Store the workspace
+    localStorage.setItem('workspace', JSON.stringify(defaultWorkspace));
+    setAuthState(prev => ({
+      ...prev,
+      workspace: defaultWorkspace
+    }));
+    
+    return { 
+      workspace: defaultWorkspace, 
+      hasEndpoint: true 
+    };
+  }
+}
   }, [authState.token]);
 
   // Get available workspaces with error handling
@@ -311,9 +309,7 @@ export const useAuth = () => {
     
     // Try different possible endpoints for workspaces
     const possibleEndpoints = [
-      '/api/user/workspaces',
       '/api/workspaces', 
-      '/api/workspace/list'
     ];
 
     for (const endpoint of possibleEndpoints) {
