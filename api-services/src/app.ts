@@ -1,4 +1,4 @@
-// api-services/src/app.ts
+// api-services/src/app.ts - COMPLETE SETUP WITH ALL ROUTES
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -7,9 +7,17 @@ import rateLimit from 'express-rate-limit';
 import { config } from 'dotenv';
 import { logger } from './utils/logger';
 
-// Import routes
+// Import ALL routes
 import authRoutes from './routes/auth.routes';
 import workspaceRoutes from './routes/workspace.routes';
+import adminRoutes from './routes/admin.route';           // ✅ ADD THIS - Missing admin routes
+import userRoutes from './routes/user.routes';
+import permissionRoutes from './routes/permissions.routes';
+import pluginRoutes from './routes/plugin.routes';
+import datasourceRoutes from './routes/datasource.routes';
+import chartRoutes from './routes/chart.routes';
+import webviewRoutes from './routes/webview.routes';
+import categoryRoutes from './routes/category.routes';
 
 // Load environment variables
 config();
@@ -58,8 +66,8 @@ const corsOptions = {
     'Accept',
     'Authorization',
     'X-Workspace-Id',
-    'X-Workspace-Slug',    // ✅ ADD THIS - what frontend sends
-    'x-workspace-slug',    // ✅ ADD THIS - lowercase version
+    'X-Workspace-Slug',
+    'x-workspace-slug',
   ],
 };
 
@@ -70,162 +78,125 @@ const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // limit each IP to 100 requests per windowMs
   message: {
-    error: 'Too many requests from this IP, please try again later.',
+    error: 'Too many requests from this IP, please try again later.'
   },
-  standardHeaders: true,
-  legacyHeaders: false,
 });
 
-app.use('/api/', limiter);
+app.use(limiter);
+
+// Logging middleware
+app.use(morgan('combined', {
+  stream: {
+    write: (message: string) => {
+      logger.info(message.trim(), { service: 'bi-platform-api' });
+    }
+  }
+}));
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Logging middleware
-if (process.env.NODE_ENV !== 'test') {
-  app.use(morgan('combined', {
-    stream: {
-      write: (message: string) => {
-        logger.info(message.trim());
-      }
-    }
-  }));
-}
-
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({
-    status: 'ok',
+    status: 'healthy',
     timestamp: new Date().toISOString(),
     service: 'bi-platform-api',
-    version: process.env.npm_package_version || '1.0.0',
-    environment: process.env.NODE_ENV || 'development',
+    version: process.env.npm_package_version || '1.0.0'
   });
 });
 
-// API routes
+// ✅ REGISTER ALL API ROUTES
+console.log('🔧 Registering API routes...');
+
+// Authentication routes
 app.use('/api/auth', authRoutes);
-app.use('/api/workspaces', workspaceRoutes);
+console.log('✅ Auth routes registered at /api/auth');
 
-// Root endpoint
-app.get('/', (req: Request, res: Response) => {
-  res.status(200).json({
-    message: 'BI Platform API',
-    version: process.env.npm_package_version || '1.0.0',
-    status: 'running',
-    timestamp: new Date().toISOString(),
-    endpoints: {
-      health: '/health',
-      auth: '/api/auth',
-      workspaces: '/api/workspaces',
-    },
-  });
-});
+// User routes  
+app.use('/api/user', userRoutes);
+console.log('✅ User routes registered at /api/user');
+
+// Workspace routes
+app.use('/api/workspaces', workspaceRoutes);
+console.log('✅ Workspace routes registered at /api/workspaces');
+
+// ⚠️ CRITICAL: Admin routes (THIS WAS MISSING!)
+app.use('/api/admin', adminRoutes);
+console.log('✅ Admin routes registered at /api/admin');
+
+// Permission routes
+app.use('/api/permissions', permissionRoutes);
+console.log('✅ Permission routes registered at /api/permissions');
+
+// Plugin routes
+app.use('/api/plugins', pluginRoutes);
+console.log('✅ Plugin routes registered at /api/plugins');
+
+// Data source routes
+app.use('/api/datasources', datasourceRoutes);
+console.log('✅ Data source routes registered at /api/datasources');
+
+// Chart routes
+app.use('/api/charts', chartRoutes);
+console.log('✅ Chart routes registered at /api/charts');
+
+// Webview routes
+app.use('/api/webviews', webviewRoutes);
+console.log('✅ Webview routes registered at /api/webviews');
+
+// Category routes
+app.use('/api/categories', categoryRoutes);
+console.log('✅ Category routes registered at /api/categories');
+
+console.log('🎉 All API routes registered successfully!');
 
 // 404 handler
 app.use('*', (req: Request, res: Response) => {
-  logger.warn('404 - Route not found:', {
+  logger.warn('404 - Route not found', {
     method: req.method,
     url: req.originalUrl,
     ip: req.ip,
+    userAgent: req.get('User-Agent'),
+    service: 'bi-platform-api'
   });
-  
+
   res.status(404).json({
     success: false,
-    message: 'Route not found',
-    error: {
-      code: 'ROUTE_NOT_FOUND',
-      message: `Cannot ${req.method} ${req.originalUrl}`,
-    },
+    message: `Route ${req.method} ${req.originalUrl} not found`,
+    error: 'ROUTE_NOT_FOUND',
+    availableRoutes: [
+      '/api/auth',
+      '/api/user', 
+      '/api/workspaces',
+      '/api/admin',          // ✅ This will now be available
+      '/api/permissions',
+      '/api/plugins',
+      '/api/datasources',
+      '/api/charts',
+      '/api/webviews',
+      '/api/categories',
+      '/health'
+    ]
   });
 });
 
 // Global error handler
-app.use((err: any, req: Request, res: Response, next: Function) => {
-  logger.error('Global error handler:', {
-    error: err.message,
-    stack: err.stack,
-    method: req.method,
+app.use((error: any, req: Request, res: Response, next: any) => {
+  logger.error('Global error handler', {
+    error: error.message,
+    stack: error.stack,
     url: req.originalUrl,
-    ip: req.ip,
+    method: req.method,
+    service: 'bi-platform-api'
   });
 
-  // Handle specific error types
-  if (err.name === 'ValidationError') {
-    return res.status(400).json({
-      success: false,
-      message: 'Validation error',
-      errors: err.details || [{ 
-        code: 'VALIDATION_ERROR', 
-        message: err.message 
-      }],
-    });
-  }
-
-  if (err.name === 'UnauthorizedError' || err.status === 401) {
-    return res.status(401).json({
-      success: false,
-      message: 'Unauthorized',
-      errors: [{
-        code: 'UNAUTHORIZED',
-        message: 'Invalid or expired token',
-      }],
-    });
-  }
-
-  if (err.name === 'CastError') {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid ID format',
-      errors: [{
-        code: 'INVALID_ID',
-        message: 'The provided ID is not valid',
-      }],
-    });
-  }
-
-  // Default error response
-  const statusCode = err.status || err.statusCode || 500;
-  const message = process.env.NODE_ENV === 'production' 
-    ? 'Something went wrong!' 
-    : err.message || 'Internal server error';
-
-  res.status(statusCode).json({
+  res.status(500).json({
     success: false,
     message: 'Internal server error',
-    errors: [{
-      code: 'INTERNAL_SERVER_ERROR',
-      message: message,
-    }],
-    ...(process.env.NODE_ENV !== 'production' && {
-      stack: err.stack,
-      details: err,
-    }),
+    error: 'INTERNAL_SERVER_ERROR'
   });
-});
-
-// Graceful shutdown handling
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down gracefully');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down gracefully');
-  process.exit(0);
-});
-
-// Handle uncaught exceptions
-process.on('uncaughtException', (err) => {
-  logger.error('Uncaught Exception:', err);
-  process.exit(1);
-});
-
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
 });
 
 export default app;

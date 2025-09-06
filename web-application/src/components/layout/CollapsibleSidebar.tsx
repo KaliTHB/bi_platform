@@ -183,13 +183,13 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
           id: 'users',
           label: 'Users',
           icon: <Group />,
-          path: `/workspace/admin/users`
+          path: `/workspace/admin/user-management`
         },
         {
           id: 'workspace-settings',
           label: 'Workspace',
           icon: <Business />,
-          path: `/workspace/admin/workspace`
+          path: `/workspace/admin/workspaces`
         },
         {
           id: 'settings',

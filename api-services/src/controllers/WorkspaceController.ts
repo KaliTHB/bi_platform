@@ -1397,4 +1397,88 @@ export class WorkspaceController {
     }
   };
 
+  /**
+ * Toggle workspace status (Admin-level)
+ * POST /api/admin/workspaces/:workspaceId/activate
+ */
+public toggleWorkspaceStatus = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.user_id;
+    const workspaceId = req.params.workspaceId;
+    const { is_active } = req.body;
+
+    console.log('🏢 Admin WorkspaceController: Toggling workspace status:', { workspaceId, is_active });
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+        error: 'AUTHENTICATION_REQUIRED'
+      });
+      return;
+    }
+
+    if (typeof is_active !== 'boolean') {
+      res.status(400).json({
+        success: false,
+        message: 'is_active must be a boolean value',
+        error: 'INVALID_STATUS_VALUE'
+      });
+      return;
+    }
+
+    // Ensure database connection exists
+    if (!this.db) {
+      console.error('❌ Database connection not available in WorkspaceController');
+      res.status(500).json({
+        success: false,
+        message: 'Database connection error',
+        error: 'DATABASE_CONNECTION_ERROR'
+      });
+      return;
+    }
+
+    const updateQuery = `
+      UPDATE workspaces 
+      SET is_active = $1, updated_at = NOW()
+      WHERE id = $2
+      RETURNING *
+    `;
+
+    const result = await this.db.query(updateQuery, [is_active, workspaceId]);
+
+    if (result.rows.length === 0) {
+      res.status(404).json({
+        success: false,
+        message: 'Workspace not found',
+        error: 'WORKSPACE_NOT_FOUND'
+      });
+      return;
+    }
+
+    const workspace = result.rows[0];
+
+    res.status(200).json({
+      success: true,
+      message: `Workspace ${is_active ? 'activated' : 'deactivated'} successfully`,
+      data: workspace
+    });
+
+  } catch (error: any) {
+    console.error('❌ Admin WorkspaceController: Toggle workspace status error:', error);
+    logger.error('Admin toggle workspace status controller error:', {
+      error: error.message,
+      workspaceId: req.params.workspaceId,
+      user_id: req.user?.user_id,
+      service: 'bi-platform-api'
+    });
+
+    res.status(500).json({
+      success: false,
+      message: 'Failed to toggle workspace status',
+      error: 'INTERNAL_SERVER_ERROR'
+    });
+  }
+};
+
 }
