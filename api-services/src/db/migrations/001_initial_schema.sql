@@ -182,24 +182,6 @@ CREATE TABLE dataset_permissions (
   PRIMARY KEY (dataset_id, role_id)
 );
 
--- Categories table
-CREATE TABLE categories (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  name VARCHAR(255) NOT NULL,
-  description TEXT,
-  icon VARCHAR(100),
-  color VARCHAR(7),
-  parent_id UUID REFERENCES categories(id) ON DELETE CASCADE,
-  sort_order INTEGER DEFAULT 0,
-  is_active BOOLEAN DEFAULT true,
-  created_by UUID REFERENCES users(id),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(workspace_id, name, parent_id)
-);
-
--- Dashboard Categories for Webview Panel
 CREATE TABLE dashboard_categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -208,7 +190,7 @@ CREATE TABLE dashboard_categories (
     description TEXT,
     icon VARCHAR(100),
     color VARCHAR(20),
-    parent_category_id UUID REFERENCES dashboard_categories(id),
+    parent_category_id UUID REFERENCES dashboard_categories(id), -- For hierarchy
     sort_order INTEGER DEFAULT 0,
     is_active BOOLEAN DEFAULT TRUE,
     created_by UUID REFERENCES users(id),
