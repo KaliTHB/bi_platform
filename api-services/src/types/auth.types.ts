@@ -18,38 +18,6 @@ export interface User {
   updated_at: Date;
 }
 
-export interface Workspace {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string;
-  logo_url?: string;
-  settings?: WorkspaceSettings;
-  is_active: boolean;
-  created_at: Date;
-  updated_at: Date;
-  user_count?: number;
-  dashboard_count?: number;
-  dataset_count?: number;
-}
-
-export interface WorkspaceSettings {
-  theme: 'light' | 'dark' | 'auto';
-  timezone: string;
-  date_format: string;
-  number_format: string;
-  language: string;
-  max_query_timeout: number;
-  max_export_rows: number;
-  features: {
-    sql_editor: boolean;
-    dashboard_builder: boolean;
-    data_exports: boolean;
-    api_access: boolean;
-    webhooks: boolean;
-  };
-}
-
 export interface LoginRequest {
   username: string;
   password: string;
@@ -82,20 +50,6 @@ export interface UpdateUserRequest {
   avatar_url?: string;
   is_active?: boolean;
   password?: string;
-}
-
-export interface CreateWorkspaceRequest {
-  name: string;
-  slug: string;
-  description?: string;
-  settings?: Partial<WorkspaceSettings>;
-}
-
-export interface UpdateWorkspaceRequest {
-  name?: string;
-  description?: string;
-  logo_url?: string;
-  settings?: Partial<WorkspaceSettings>;
 }
 
 // api-services/src/types/auth.types.ts

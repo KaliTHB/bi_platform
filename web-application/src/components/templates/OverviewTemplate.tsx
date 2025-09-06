@@ -696,3 +696,4 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
 };
 
 export default OverviewTemplate;
+export { OverviewTemplate };

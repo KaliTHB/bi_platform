@@ -100,7 +100,7 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
             <DashboardList
               onDashboardSelect={(dashboard) => {
                 // Navigate to individual dashboard page
-                router.push(`/workspace/${workspaceSlug}/dashboard/${dashboard.id}`);
+                router.push(`/workspace/dashboard/${dashboard.id}`);
               }}
               showCreateButton={true}
             />
@@ -113,7 +113,7 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
             <DatasetList
               onDatasetSelect={(dataset) => {
                 // Navigate to dataset detail page
-                router.push(`/workspace/${workspaceSlug}/dataset/${dataset.id}`);
+                router.push(`/workspace/dataset/${dataset.id}`);
               }}
               showCreateButton={true}
             />
@@ -126,7 +126,7 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
             <DatasourceList
               onDataSourceSelect={(datasource) => {
                 // Navigate to datasource detail page
-                router.push(`/workspace/${workspaceSlug}/datasource/${datasource.id}`);
+                router.push(`/workspace/datasource/${datasource.id}`);
               }}
               showCreateButton={true}
             />
@@ -141,10 +141,10 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
               loading={false}
               error={undefined}
               onChartSelect={(chart) => {
-                router.push(`/workspace/${workspaceSlug}/chart/${chart.id}`);
+                router.push(`/workspace/chart/${chart.id}`);
               }}
               onChartEdit={(chart) => {
-                router.push(`/workspace/${workspaceSlug}/chart-builder?id=${chart.id}`);
+                router.push(`/workspace/chart-builder?id=${chart.id}`);
               }}
               onChartDelete={async (chartId) => {
                 console.log('Delete chart:', chartId);
@@ -169,7 +169,7 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
             <Button 
               variant="contained" 
               sx={{ mt: 2 }}
-              onClick={() => router.push(`/workspace/${workspaceSlug}/dashboard-builder`)}
+              onClick={() => router.push(`/workspace/dashboard-builder`)}
             >
               Open Full Dashboard Builder
             </Button>
@@ -188,7 +188,7 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
             <Button 
               variant="contained" 
               sx={{ mt: 2 }}
-              onClick={() => router.push(`/workspace/${workspaceSlug}/sql-editor`)}
+              onClick={() => router.push(`/workspace/sql-editor`)}
             >
               Open Full SQL Editor
             </Button>

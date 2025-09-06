@@ -27,45 +27,6 @@ export interface User {
   profile_data?: Record<string, any>;
 }
 
-export interface Workspace {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string;
-  logo_url?: string;
-  user_count?: number;      // For WorkspaceSwitcher component
-  dashboard_count?: number; // For WorkspaceSwitcher component
-  dataset_count?: number;   // For statistics
-  is_default?: boolean;     // If this is user's default workspace
-  role?: string;
-// Timestamps
-  created_at: string;
-  updated_at: string;
-  last_accessed?: string;
-  
-  // Workspace configuration
-  settings?: WorkspaceSettings;
-  is_active?: boolean;
-}
-
-export interface WorkspaceSettings {
-  theme?: 'light' | 'dark' | 'auto';
-  timezone?: string;
-  date_format?: string;
-  number_format?: string;
-  language?: string;
-  currency?: string;
-  max_query_timeout?: number;
-  max_export_rows?: number;
-  features?: {
-    sql_editor?: boolean;
-    dashboard_builder?: boolean;
-    data_exports?: boolean;
-    api_access?: boolean;
-    webhooks?: boolean;
-  };
-}
-
 // Updated LoginRequest - removed workspace_slug
 export interface LoginRequest {
   username: string;  // Can be username or email

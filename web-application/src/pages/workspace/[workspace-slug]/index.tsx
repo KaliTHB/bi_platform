@@ -26,7 +26,7 @@ export default function WorkspaceDashboard() {
       title: 'SQL Editor',
       description: 'Write and execute SQL queries',
       icon: <DataObject sx={{ fontSize: 40 }} />,
-      action: () => router.push(`/workspace/${workspaceSlug}/sql-editor`),
+      action: () => router.push(`/workspace/sql-editor`),
       permissions: ['sql_editor.access'],
     },
     {

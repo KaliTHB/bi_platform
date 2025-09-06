@@ -1,14 +1,36 @@
 // web-application/src/pages/workspace/overview.tsx
 import React from 'react';
 import { NextPage } from 'next';
-import OverviewTemplate from '../../components/templates/OverviewTemplate';
+import { GetServerSideProps } from 'next';
+import { OverviewTemplate } from '@/components/templates/OverviewTemplate';
+import { useAuth } from '../../hooks/useAuth';
+import { PermissionGate } from '@/components/shared/PermissionGate';
 
-const WorkspaceOverviewPage: NextPage = () => {
+interface WorkspaceOverviewPageProps {
+  workspaceSlug?: string;
+}
+
+const WorkspaceOverviewPage: NextPage<WorkspaceOverviewPageProps> = ({ workspaceSlug }) => {
+  const { workspace } = useAuth();
+
   return (
-    <OverviewTemplate 
-      title="Workspace Overview"
-    />
+    <PermissionGate permissions={['workspace.read']} fallback="/login">
+      <OverviewTemplate 
+        title={`${workspace?.display_name || workspace?.name || 'Workspace'} Overview`}
+        showNavigation={true}
+      />
+    </PermissionGate>
   );
+};
+
+export const getServerSideProps: GetServerSideProps = async (context) => {
+  const { workspaceSlug } = context.params || {};
+
+  return {
+    props: {
+      workspaceSlug: workspaceSlug || null,
+    },
+  };
 };
 
 export default WorkspaceOverviewPage;

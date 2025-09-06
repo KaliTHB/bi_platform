@@ -14,6 +14,8 @@ import {
   Divider,
   ListItemIcon,
   ListItemText,
+  MenuList,
+  Chip
 } from '@mui/material';
 import { 
   AccountCircle, 
@@ -21,9 +23,18 @@ import {
   ExitToApp, 
   ContactSupport,
   Home,
-  Business 
+  Business,
+  Web as WebviewIcon,
+  Add as AddIcon,
+  AdminPanelSettings,
+  Dashboard as DashboardIcon,
+  Category as CategoryIcon,
+  People as PeopleIcon,
+  Security as SecurityIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../hooks/useAuth';
+import { usePermissions } from '../../hooks/usePermissions';
+import { PermissionGate } from './PermissionGate';
 
 interface NavigationProps {
   title?: string;
@@ -32,6 +43,7 @@ interface NavigationProps {
 const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
   const router = useRouter();
   const { user, workspace, signOut } = useAuth();
+  const { canAccess } = usePermissions();
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
 
   const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
@@ -85,6 +97,22 @@ const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
     handleClose();
   };
 
+  // Handle webview navigation
+  const handleWebviewNavigation = (path: string) => {
+    if (workspace) {
+      router.push(`/workspace/${workspace.slug}/${path}`);
+    }
+    handleClose();
+  };
+
+  // Handle admin navigation
+  const handleAdminNavigation = (path: string) => {
+    if (workspace) {
+      router.push(`/workspace/${workspace.slug}/admin/${path}`);
+    }
+    handleClose();
+  };
+
   return (
     <AppBar position="static" elevation={1}>
       <Toolbar>
@@ -93,9 +121,19 @@ const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
         </Typography>
 
         {workspace && (
-          <Typography variant="body2" sx={{ mr: 2, opacity: 0.8 }}>
-            {workspace.display_name || workspace.name}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
+            <Chip 
+              label={workspace.display_name || workspace.name}
+              color="primary"
+              variant="outlined"
+              size="small"
+              sx={{ 
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                color: 'inherit',
+                borderColor: 'rgba(255, 255, 255, 0.3)'
+              }}
+            />
+          </Box>
         )}
 
         <IconButton
@@ -125,7 +163,11 @@ const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
           }}
           open={Boolean(anchorEl)}
           onClose={handleClose}
+          PaperProps={{
+            sx: { minWidth: 280, maxHeight: '80vh' }
+          }}
         >
+          {/* Navigation Section */}
           <MenuItem onClick={handleHome}>
             <ListItemIcon>
               <Home fontSize="small" />
@@ -137,20 +179,106 @@ const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
             <ListItemIcon>
               <AccountCircle fontSize="small" />
             </ListItemIcon>
-            <ListItemText>Profile</ListItemText>
+            <ListItemText>My Profile</ListItemText>
           </MenuItem>
-          
-          {workspace && (
-            <MenuItem onClick={handleSettings}>
-              <ListItemIcon>
-                <Settings fontSize="small" />
-              </ListItemIcon>
-              <ListItemText>Workspace Settings</ListItemText>
-            </MenuItem>
-          )}
 
           <Divider />
 
+          {/* Webview Management Section */}
+          <PermissionGate permissions={['webview.read']}>
+            <MenuItem disabled sx={{ opacity: 0.7 }}>
+              <ListItemIcon>
+                <WebviewIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>
+                <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                  WEBVIEW MANAGEMENT
+                </Typography>
+              </ListItemText>
+            </MenuItem>
+
+            <MenuItem onClick={() => handleWebviewNavigation('webviews')}>
+              <ListItemIcon sx={{ pl: 1 }}>
+                <WebviewIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>View All Webviews</ListItemText>
+            </MenuItem>
+
+            <PermissionGate permissions={['webview.create']}>
+              <MenuItem onClick={() => handleWebviewNavigation('webviews/create')}>
+                <ListItemIcon sx={{ pl: 1 }}>
+                  <AddIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Create New Webview</ListItemText>
+              </MenuItem>
+            </PermissionGate>
+
+            <PermissionGate permissions={['webview.admin']}>
+              <MenuItem onClick={() => handleAdminNavigation('webviews')}>
+                <ListItemIcon sx={{ pl: 1 }}>
+                  <Settings fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Configure Webviews</ListItemText>
+              </MenuItem>
+            </PermissionGate>
+
+            <Divider />
+          </PermissionGate>
+
+          {/* Workspace Settings Section */}
+          {workspace && (
+            <PermissionGate permissions={['workspace.admin']}>
+              <MenuItem disabled sx={{ opacity: 0.7 }}>
+                <ListItemIcon>
+                  <AdminPanelSettings fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>
+                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                    WORKSPACE ADMIN
+                  </Typography>
+                </ListItemText>
+              </MenuItem>
+
+              <MenuItem onClick={handleSettings}>
+                <ListItemIcon sx={{ pl: 1 }}>
+                  <Settings fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Admin Overview</ListItemText>
+              </MenuItem>
+
+              <MenuItem onClick={() => handleAdminNavigation('users')}>
+                <ListItemIcon sx={{ pl: 1 }}>
+                  <PeopleIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>User Management</ListItemText>
+              </MenuItem>
+
+              <MenuItem onClick={() => handleAdminNavigation('categories')}>
+                <ListItemIcon sx={{ pl: 1 }}>
+                  <CategoryIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Manage Categories</ListItemText>
+              </MenuItem>
+
+              <MenuItem onClick={() => handleAdminNavigation('security')}>
+                <ListItemIcon sx={{ pl: 1 }}>
+                  <SecurityIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Security & Audit</ListItemText>
+              </MenuItem>
+
+              <MenuItem onClick={() => handleAdminNavigation('settings')}>
+                <ListItemIcon sx={{ pl: 1 }}>
+                  <Settings fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Workspace Settings</ListItemText>
+              </MenuItem>
+
+              <Divider />
+            </PermissionGate>
+          )}
+
+          {/* General Actions */}
           <MenuItem onClick={handleContactSupport}>
             <ListItemIcon>
               <ContactSupport fontSize="small" />

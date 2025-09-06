@@ -109,7 +109,7 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
         id: 'overview',
         label: 'Overview',
         icon: <Home />,
-        path: `/workspace/${effectiveWorkspaceSlug}`
+        path: `/workspace/overview`
       },
       
       // Main List Pages - Always show (permissions handled by pages)
@@ -117,25 +117,25 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
         id: 'dashboard-list',
         label: 'Dashboard List',
         icon: <ViewList />,
-        path: `/workspace/${effectiveWorkspaceSlug}/dashboards`
+        path: `/workspace/dashboards`
       },
       {
         id: 'dataset-list', 
         label: 'Dataset List',
         icon: <TableChart />,
-        path: `/workspace/${effectiveWorkspaceSlug}/datasets`
+        path: `/workspace/datasets`
       },
       {
         id: 'datasource-list',
         label: 'Data Source List', 
         icon: <Storage />,
-        path: `/workspace/${effectiveWorkspaceSlug}/datasources`
+        path: `/workspace/datasources`
       },
       {
         id: 'chart-list',
         label: 'Chart List',
         icon: <BarChart />,
-        path: `/workspace/${effectiveWorkspaceSlug}/charts`,
+        path: `/workspace/charts`,
         divider: true
       },
 
@@ -144,13 +144,13 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
         id: 'dashboard-builder',
         label: 'Dashboard Builder',
         icon: <Analytics />,
-        path: `/workspace/${effectiveWorkspaceSlug}/dashboard-builder`
+        path: `/workspace/dashboard-builder`
       },
       {
         id: 'sql-editor',
         label: 'SQL Editor', 
         icon: <DataObject />,
-        path: `/workspace/${effectiveWorkspaceSlug}/sql-editor`,
+        path: `/workspace/sql-editor`,
         divider: true
       },
 
@@ -159,13 +159,13 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
         id: 'recent',
         label: 'Recent',
         icon: <Assessment />,
-        path: `/workspace/${effectiveWorkspaceSlug}/recent`
+        path: `/workspace/recent`
       },
       {
         id: 'favorites',
         label: 'Favorites',
         icon: <Star />,
-        path: `/workspace/${effectiveWorkspaceSlug}/favorites`,
+        path: `/workspace/favorites`,
         divider: true
       }
     ];
@@ -177,25 +177,25 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
           id: 'categories',
           label: 'Categories',
           icon: <Category />,
-          path: `/workspace/${effectiveWorkspaceSlug}/admin/categories`
+          path: `/workspace/admin/categories`
         },
         {
           id: 'users',
           label: 'Users',
           icon: <Group />,
-          path: `/workspace/${effectiveWorkspaceSlug}/admin/users`
+          path: `/workspace/admin/users`
         },
         {
           id: 'workspace-settings',
           label: 'Workspace',
           icon: <Business />,
-          path: `/workspace/${effectiveWorkspaceSlug}/admin/workspace`
+          path: `/workspace/admin/workspace`
         },
         {
           id: 'settings',
           label: 'Settings',
           icon: <Settings />,
-          path: `/workspace/${effectiveWorkspaceSlug}/admin/settings`
+          path: `/workspace/admin/settings`
         }
       );
     }
