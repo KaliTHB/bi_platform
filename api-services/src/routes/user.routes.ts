@@ -5,7 +5,7 @@ import { AuthService } from '../services/AuthService';
 import { authenticate } from '../middleware/authentication';
 import { asyncHandler } from '../middleware/errorHandler';
 import { logger } from '../utils/logger';
-import { db } from '../config/database';
+import { db } from '../utils/database';
 
 const router = Router();
 
