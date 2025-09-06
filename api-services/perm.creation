@@ -1,7 +1,7 @@
 'viewer', 'analyst', 'editor', 'admin', 'owner'
 
 -- Create all system roles in one statement
-INSERT INTO public.roles (id, name, description, permissions, is_system_role) VALUES 
+INSERT INTO public.roles (id, name, description, permissions, is_system) VALUES 
 (
     gen_random_uuid(),
     'admin',

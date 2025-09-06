@@ -36,7 +36,7 @@ interface Role {
   name: string;
   description: string;
   permissions: string[];
-  is_system_role: boolean;
+  is_system: boolean;
 }
 
 interface RoleEditorProps {
@@ -126,7 +126,7 @@ export const RoleEditor: React.FC<RoleEditorProps> = ({
     name: '',
     description: '',
     permissions: [],
-    is_system_role: false
+    is_system: false
   });
   const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(new Set());
   const [loading, setSaving] = useState(false);
@@ -141,7 +141,7 @@ export const RoleEditor: React.FC<RoleEditorProps> = ({
         name: '',
         description: '',
         permissions: [],
-        is_system_role: false
+        is_system: false
       });
       setSelectedPermissions(new Set());
     }
@@ -242,7 +242,7 @@ export const RoleEditor: React.FC<RoleEditorProps> = ({
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               error={!formData.name.trim() && error !== ''}
               helperText={!formData.name.trim() && error !== '' ? 'Role name is required' : ''}
-              disabled={formData.is_system_role}
+              disabled={formData.is_system}
             />
           </Grid>
           
@@ -257,7 +257,7 @@ export const RoleEditor: React.FC<RoleEditorProps> = ({
             />
           </Grid>
           
-          {formData.is_system_role && (
+          {formData.is_system && (
             <Grid item xs={12}>
               <Alert severity="info">
                 This is a system role. The name cannot be modified, but permissions can be customized.

@@ -19,7 +19,7 @@ interface Role {
   display_name?: string;
   description: string;
   permissions: string[];
-  is_system_role: boolean;
+  is_system: boolean;
   level?: number;
   workspace_id?: string;
   created_at?: string;
@@ -208,7 +208,7 @@ export const useRoleManagement = (workspaceId?: string) => {
         display_name: role.display_name || role.name,
         description: role.description,
         permissions: role.permissions,
-        is_system_role: role.is_system_role,
+        is_system: role.is_system,
         level: role.level || 1
       })
     });

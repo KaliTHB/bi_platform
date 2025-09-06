@@ -257,7 +257,7 @@ export class UserService extends DatabaseService {
     const dbClient = client || this;
     try {
       const result = await dbClient.query(
-        'SELECT id FROM roles WHERE workspace_id = $1 AND name = $2 AND is_system_role = true AND is_active = true',
+        'SELECT id FROM roles WHERE workspace_id = $1 AND name = $2 AND is_system = true AND is_active = true',
         [workspaceId, 'Reader']
       );
       

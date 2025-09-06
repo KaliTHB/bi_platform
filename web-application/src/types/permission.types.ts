@@ -15,7 +15,7 @@ export interface Role {
   name: string;
   description?: string;
   permissions: Permission[];
-  is_system_role: boolean;
+  is_system: boolean;
   created_by: string;
   created_at: string;
   updated_at: string;

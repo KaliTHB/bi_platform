@@ -70,7 +70,7 @@ async function createTestTables(db: Pool): Promise<void> {
       workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       name VARCHAR(200) NOT NULL,
       permissions JSONB NOT NULL DEFAULT '[]',
-      is_system_role BOOLEAN DEFAULT FALSE,
+      is_system BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT unique_role_per_workspace UNIQUE(workspace_id, name)
     );

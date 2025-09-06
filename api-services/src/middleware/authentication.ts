@@ -1,9 +1,9 @@
 // api-services/src/middleware/authentication.ts - Fixed with proper exports
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { logger } from '@/utils/logger';
-import { AuthService } from '@/services/AuthService';
-import { db } from '@/utils/database';
+import { logger } from '../utils/logger';
+import { AuthService } from '../services/AuthService';
+import { db } from '../utils/database';
 
 // Create AuthService instance for admin checks
 const authService = new AuthService(db);

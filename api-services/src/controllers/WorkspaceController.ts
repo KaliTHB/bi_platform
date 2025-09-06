@@ -1,6 +1,6 @@
 // Fixed api-services/src/controllers/WorkspaceController.ts
 // Robust version with comprehensive database validation
-
+import { Pool } from 'pg';
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/authentication';
 import { WorkspaceService, Workspace } from '../services/WorkspaceService';
@@ -11,6 +11,7 @@ import { db, validateDbExport, getPoolHealth, testConnection } from '../utils/da
 
 export class WorkspaceController {
   private workspaceService: WorkspaceService;
+  private db: Pool; // Add this property declaration
 
   constructor() {
     console.log('🔧 WorkspaceController: Starting initialization...');
@@ -66,8 +67,12 @@ export class WorkspaceController {
         console.error('❌ Database connection test error:', error);
       });
       
-      // Step 5: Initialize WorkspaceService
-      console.log('🔍 Step 5: Initializing WorkspaceService...');
+      // Step 5: Assign database connection to instance property
+      console.log('🔍 Step 5: Assigning database connection...');
+      this.db = db; // ADD THIS LINE!
+      
+      // Step 6: Initialize WorkspaceService
+      console.log('🔍 Step 6: Initializing WorkspaceService...');
       this.workspaceService = new WorkspaceService(db);
       
       console.log('✅ WorkspaceController initialized successfully');

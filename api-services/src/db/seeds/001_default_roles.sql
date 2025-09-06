@@ -16,7 +16,7 @@ BEGIN
     SELECT id INTO admin_user_id FROM users WHERE username = 'admin';
     
     -- Create Administrator role
-    INSERT INTO roles ( name, description, permissions, is_system_role, created_by)
+    INSERT INTO roles ( name, description, permissions, is_system, created_by)
     VALUES (
         'Administrator',
         'Full system access with all permissions',
@@ -39,7 +39,7 @@ BEGIN
     ) RETURNING id INTO admin_role_id;
     
     -- Create Contributor role
-    INSERT INTO roles ( name, description, permissions, is_system_role, created_by)
+    INSERT INTO roles ( name, description, permissions, is_system, created_by)
     VALUES (
         'Contributor',
         'Can create and manage content but limited admin access',
@@ -58,7 +58,7 @@ BEGIN
     ) RETURNING id INTO contributor_role_id;
     
     -- Create Reader role
-    INSERT INTO roles ( name, description, permissions, is_system_role, created_by)
+    INSERT INTO roles ( name, description, permissions, is_system, created_by)
     VALUES (
         'Reader',
         'Read-only access to published dashboards through webview',

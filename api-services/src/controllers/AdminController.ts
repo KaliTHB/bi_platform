@@ -58,11 +58,11 @@ export class AdminController {
           name,
           description,
           permissions,
-          is_system_role,
+          is_system,
           level,
           created_at
         FROM roles 
-        WHERE workspace_id = $1 OR is_system_role = true
+        WHERE workspace_id = $1 OR is_system = true
         ORDER BY level DESC, name ASC
       `, [workspaceId]);
 

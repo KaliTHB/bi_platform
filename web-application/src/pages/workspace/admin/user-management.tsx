@@ -67,7 +67,7 @@ interface UserListItem extends BaseListItem {
 
 // Role interfaces
 interface RoleListItem extends BaseListItem {
-  is_system_role: boolean;
+  is_system: boolean;
   permissions: string[];
   user_count: number;
   color?: string;
@@ -191,7 +191,7 @@ const UserManagementPage: React.FC = () => {
               name: 'administrator',
               display_name: 'Administrator',
               description: 'Full system access and user management',
-              is_system_role: true,
+              is_system: true,
               permissions: [
                 'workspace.admin', 'user.create', 'user.update', 'user.delete',
                 'dashboard.admin', 'dataset.admin', 'role.admin'
@@ -206,7 +206,7 @@ const UserManagementPage: React.FC = () => {
               name: 'analyst',
               display_name: 'Data Analyst',
               description: 'Create and manage dashboards and datasets',
-              is_system_role: false,
+              is_system: false,
               permissions: [
                 'workspace.read', 'dashboard.create', 'dashboard.update',
                 'dataset.create', 'dataset.update', 'chart.create'
@@ -221,7 +221,7 @@ const UserManagementPage: React.FC = () => {
               name: 'viewer',
               display_name: 'Viewer',
               description: 'View-only access to dashboards',
-              is_system_role: true,
+              is_system: true,
               permissions: [
                 'workspace.read', 'dashboard.read', 'chart.read'
               ],
@@ -665,7 +665,7 @@ const UserManagementPage: React.FC = () => {
               <Typography variant="subtitle2" fontWeight="bold">
                 {item.display_name || item.name}
               </Typography>
-              {item.is_system_role && (
+              {item.is_system && (
                 <Chip label="System" size="small" variant="outlined" />
               )}
             </Box>
@@ -707,7 +707,7 @@ const UserManagementPage: React.FC = () => {
       icon: <EditIcon fontSize="small" />,
       onClick: (item) => console.log('Edit role:', item.id),
       requiresPermission: 'role.update',
-      disabled: (item) => item.is_system_role
+      disabled: (item) => item.is_system
     },
     {
       label: 'Delete',
@@ -719,13 +719,13 @@ const UserManagementPage: React.FC = () => {
       },
       requiresPermission: 'role.delete',
       color: 'error',
-      disabled: (item) => item.is_system_role
+      disabled: (item) => item.is_system
     }
   ];
 
   const roleFilterOptions: FilterOption[] = [
     {
-      key: 'is_system_role',
+      key: 'is_system',
       label: 'Role Type',
       type: 'select',
       options: [
@@ -1002,7 +1002,7 @@ const UserManagementPage: React.FC = () => {
                       <Checkbox checked={newUser.role_ids.includes(role.id)} />
                       <Box display="flex" alignItems="center" gap={1}>
                         {role.display_name}
-                        {role.is_system_role && (
+                        {role.is_system && (
                           <Chip label="System" size="small" variant="outlined" />
                         )}
                       </Box>

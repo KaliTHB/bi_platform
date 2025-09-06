@@ -114,7 +114,7 @@ async function seedWebviewTestData(db: Pool) {
 
   // Create test role with webview permissions
   await db.query(`
-    INSERT INTO roles (id, workspace_id, name, permissions, is_system_role)
+    INSERT INTO roles (id, workspace_id, name, permissions, is_system)
     VALUES ('test-role-id', 'test-workspace-id', 'Test Role', 
             '["workspace.read", "webview.read", "dashboard.read", "dataset.read"]', true)
   `);

@@ -31,7 +31,7 @@ export interface Role {
   name: string;
   display_name: string;
   description?: string;
-  is_system_role: boolean;
+  is_system: boolean;
   level?: number;
   workspace_id?: string;
   permissions?: string[];

@@ -118,7 +118,7 @@ async function seedTestData(db: Pool) {
 
   // Create test role
   await db.query(`
-    INSERT INTO roles (id, workspace_id, name, permissions, is_system_role)
+    INSERT INTO roles (id, workspace_id, name, permissions, is_system)
     VALUES ('test-role-id', 'test-workspace-id', 'Test Role', '["workspace.read"]', true)
   `);
 
