@@ -48,8 +48,8 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ onClose }) => {
     // Check localStorage
     try {
       results.localStorage = {
-        auth_token: localStorage.getItem('auth_token') ? 'Present' : 'Missing',
-        token_length: localStorage.getItem('auth_token')?.length || 0,
+        token: localStorage.getItem('token') ? 'Present' : 'Missing',
+        token_length: localStorage.getItem('token')?.length || 0,
         workspace_id: localStorage.getItem('selected_workspace_id') || 'None',
         workspace_data: localStorage.getItem('selected_workspace') || 'None',
       };
@@ -200,9 +200,9 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ onClose }) => {
                 <Typography variant="subtitle2">
                   LocalStorage
                   <Chip 
-                    label={testResults.localStorage.auth_token === 'Present' ? 'OK' : 'ISSUE'} 
+                    label={testResults.localStorage.token === 'Present' ? 'OK' : 'ISSUE'} 
                     size="small" 
-                    color={testResults.localStorage.auth_token === 'Present' ? 'success' : 'error'} 
+                    color={testResults.localStorage.token === 'Present' ? 'success' : 'error'} 
                     sx={{ ml: 1 }} 
                   />
                 </Typography>

@@ -466,4 +466,62 @@ export class DataSourceController {
       });
     }
   };
+
+  // Workspace-scoped datasources
+  getWorkspaceDatasources = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const { workspaceId } = req.params;
+      const userId = req.user?.user_id;
+      const { page = 1, limit = 20, search, type, status } = req.query;
+
+      if (!workspaceId) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace ID is required',
+          error: 'WORKSPACE_REQUIRED'
+        });
+        return;
+      }
+
+      logger.info('Getting workspace datasources', { 
+        workspaceId, 
+        user_id: userId,
+        service: 'bi-platform-api' 
+      });
+
+      // Get datasources for this workspace  
+      const result = await this.dataSourceService.getDataSources({
+        workspace_id: workspaceId,
+        search: search as string,
+        type: type as string,
+        status: status as string
+      }, {
+        page: parseInt(page as string),
+        limit: parseInt(limit as string)
+      });
+
+      res.status(200).json({
+        success: true,
+        data: result.data,
+        pagination: result.pagination,
+        message: 'Datasources retrieved successfully'
+      });
+
+    } catch (error: any) {
+      logger.error('Error getting workspace datasources:', {
+        error: error.message,
+        workspace_id: req.params.workspaceId,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve datasources',
+        error: 'GET_DATASOURCES_ERROR',
+        details: error.message
+      });
+    }
+  };
+  
 }

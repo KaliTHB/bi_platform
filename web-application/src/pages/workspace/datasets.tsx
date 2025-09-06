@@ -62,7 +62,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 
 // Helper function to get auth headers
 const getAuthHeaders = () => {
-  const token = localStorage.getItem('token') || localStorage.getItem('auth_token');
+  const token = localStorage.getItem('token') ;
   return {
     'Content-Type': 'application/json',
     ...(token && { 'Authorization': `Bearer ${token}` }),
@@ -172,7 +172,7 @@ const DatasetsPage: NextPage = () => {
       setError(null);
       
       // API call to get all datasets in workspace
-      const response = await fetch('/api/v1/workspaces/datasets', {
+      const response = await fetch('/api/workspaces/${workspace.id}/datasets', {
         method: 'GET',
         headers: getAuthHeaders(),
       });
@@ -208,7 +208,7 @@ const DatasetsPage: NextPage = () => {
 
   const loadDatasources = async () => {
     try {
-      const response = await fetch('/api/v1/workspaces/datasources', {
+      const response = await fetch('/api/v1/workspaces/${workspace.id}/datasources', {
         method: 'GET',
         headers: getAuthHeaders(),
       });

@@ -74,7 +74,7 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       // Token expired or invalid - clear auth and redirect to login
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('auth_token');
+        localStorage.removeItem('token');
         localStorage.removeItem('current_workspace_id');
         
         // Only redirect if not already on login page
@@ -117,14 +117,14 @@ export const apiUtils = {
   // Set auth token
   setAuthToken: (token: string) => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('auth_token', token);
+      localStorage.setItem('token', token);
     }
   },
   
   // Clear auth token
   clearAuthToken: () => {
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('auth_token');
+      localStorage.removeItem('token');
       localStorage.removeItem('current_workspace_id');
     }
   },

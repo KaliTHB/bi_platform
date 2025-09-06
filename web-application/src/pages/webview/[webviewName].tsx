@@ -40,7 +40,7 @@ export default function WebviewPage({ webviewConfig, error }: WebviewPageProps) 
     try {
       const response = await fetch(`/api/webviews/${webviewConfig.id}/stats`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
         },
       });
 

@@ -176,7 +176,7 @@ router.get('/:workspaceId/stats',
   asyncHandler(async (req, res) => {
     console.log('🏢 Workspace stats route hit for:', req.params.workspaceId);
     try {
-      await workspaceController.getWorkspaceStats(req as any, res);
+      await workspaceController.getWorkspaceStatsAdmin(req as any, res);
     } catch (error) {
       console.error('❌ Error in workspace stats route:', error);
       logger.error('Workspace stats route error:', {

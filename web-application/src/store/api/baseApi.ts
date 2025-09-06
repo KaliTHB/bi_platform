@@ -58,7 +58,7 @@ const baseQueryWithReauth = async (args: any, api: any, extraOptions: any) => {
     if (typeof window !== 'undefined') {
       // Clear localStorage
       localStorage.removeItem('persist:root');
-      localStorage.removeItem('auth_token');
+      localStorage.removeItem('token');
       
       // Redirect to login
       window.location.href = '/login';
