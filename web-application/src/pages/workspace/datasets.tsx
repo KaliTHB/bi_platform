@@ -1,281 +1,281 @@
 // web-application/src/pages/workspace/datasets.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { NextPage } from 'next';
 import { useRouter } from 'next/router';
 import {
   Box,
   Typography,
-  Button,
   Chip,
   Avatar,
+  IconButton,
+  Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
+  Button,
   TextField,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  Switch,
-  FormControlLabel,
   Alert,
-  CircularProgress,
+  Grid,
+  Card,
+  CardContent,
+  FormControlLabel,
+  Switch,
   LinearProgress
 } from '@mui/material';
 import {
-  Dataset as DatasetIcon,
+  Storage as DatasetIcon,
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
+  Visibility as ViewIcon,
   Refresh as RefreshIcon,
-  PlayArrow as QueryIcon,
+  FileCopy as DuplicateIcon,
+  Transform as TransformIcon,
+  QueryStats as QueryIcon,
+  TableChart as TableIcon,
   Schedule as ScheduleIcon,
-  CheckCircle as CheckIcon,
+  CloudSync as SyncIcon,
   Error as ErrorIcon,
+  CheckCircle as CheckIcon,
   Warning as WarningIcon,
-  Storage as StorageIcon
+  PlayArrow as ExecuteIcon,
+  Settings as SettingsIcon
 } from '@mui/icons-material';
-import { useAuth } from '@/hooks/useAuth';
-import { usePermissions } from '@/hooks/usePermissions';
+
+// Import common components
+import WorkspaceLayout from '../../components/layout/WorkspaceLayout';
 import CommonTableLayout, { 
-  BaseListItem, 
   TableColumn, 
   TableAction, 
   FilterOption 
-} from '@/components/shared/CommonTableLayout';
-import { PermissionGate } from '@/components/shared/PermissionGate';
-import WorkspaceLayout from '@/components/layout/WorkspaceLayout';
+} from '../../components/shared/CommonTableLayout';
+import { PermissionGate } from '../../components/shared/PermissionGate';
 
-interface DatasetListItem extends BaseListItem {
-  datasource_id: string;
-  datasource_name: string;
-  type: 'table' | 'query' | 'view' | 'file';
-  query: string;
-  columns_info: Array<{
-    name: string;
-    type: string;
-    nullable: boolean;
-  }>;
+// Import hooks and services
+import { useAuth } from '../../hooks/useAuth';
+import { usePermissions } from '../../hooks/usePermissions';
+
+// Helper function to get auth headers
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('token') || localStorage.getItem('auth_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token && { 'Authorization': `Bearer ${token}` }),
+  };
+};
+
+// Types
+interface DatasetData {
+  id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  type: 'table' | 'query' | 'transformation';
+  datasource_ids: string[];
+  datasource_names?: string[];
+  parent_dataset_ids?: string[];
+  parent_dataset_names?: string[];
+  base_query?: string;
   row_count?: number;
   size_bytes?: number;
-  last_refreshed?: string;
-  refresh_status: 'pending' | 'running' | 'success' | 'error';
+  cache_ttl: number;
   is_active: boolean;
+  status: 'active' | 'inactive' | 'draft' | 'error' | 'refreshing';
+  refresh_status: 'pending' | 'running' | 'completed' | 'failed';
+  last_refreshed?: string;
   version: number;
-  schema_name?: string;
-  refresh_interval?: number;
-  chart_count: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string;
   owner?: {
     id: string;
     name: string;
     email: string;
   };
+  schema_json?: {
+    columns: Array<{
+      name: string;
+      data_type: string;
+      is_nullable: boolean;
+    }>;
+  };
+  metadata_json?: Record<string, any>;
+  usage_stats?: {
+    chart_count: number;
+    dashboard_count: number;
+    query_count: number;
+  };
 }
 
-const DatasetsPage: React.FC = () => {
+interface DatasetFormData {
+  name: string;
+  display_name: string;
+  description: string;
+  type: 'table' | 'query' | 'transformation';
+  datasource_ids: string[];
+  parent_dataset_ids: string[];
+  base_query: string;
+  cache_ttl: number;
+  is_active: boolean;
+}
+
+interface DataSource {
+  id: string;
+  name: string;
+  display_name: string;
+  type: string;
+}
+
+const DatasetsPage: NextPage = () => {
   const router = useRouter();
-  const { workspace, user } = useAuth();
+  const { user, workspace } = useAuth();
   const { hasPermission } = usePermissions();
 
-  const [datasets, setDatasets] = useState<DatasetListItem[]>([]);
-  const [datasources, setDatasources] = useState<any[]>([]);
+  // State management
+  const [datasets, setDatasets] = useState<DatasetData[]>([]);
+  const [datasources, setDatasources] = useState<DataSource[]>([]);
+  const [availableDatasets, setAvailableDatasets] = useState<DatasetData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [refreshingDataset, setRefreshingDataset] = useState<string | null>(null);
-  const [newDataset, setNewDataset] = useState({
+  const [error, setError] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [selectedDataset, setSelectedDataset] = useState<DatasetData | null>(null);
+  const [formData, setFormData] = useState<DatasetFormData>({
     name: '',
     display_name: '',
     description: '',
-    datasource_id: '',
-    type: 'table' as const,
-    query: '',
+    type: 'table',
+    datasource_ids: [],
+    parent_dataset_ids: [],
+    base_query: '',
+    cache_ttl: 3600,
     is_active: true
   });
+  const [submitting, setSubmitting] = useState(false);
 
-  // Mock data - replace with actual API calls
+  // Load datasets and supporting data
   useEffect(() => {
-    const fetchDatasets = async () => {
-      try {
-        setLoading(true);
-        // Simulate API call
-        setTimeout(() => {
-          setDatasets([
-            {
-              id: '1',
-              name: 'sales_orders',
-              display_name: 'Sales Orders',
-              description: 'Daily sales order data with customer information',
-              datasource_id: 'ds1',
-              datasource_name: 'Main Database',
-              type: 'table',
-              query: 'SELECT * FROM sales_orders',
-              columns_info: [
-                { name: 'order_id', type: 'uuid', nullable: false },
-                { name: 'customer_id', type: 'uuid', nullable: false },
-                { name: 'order_date', type: 'date', nullable: false },
-                { name: 'total_amount', type: 'decimal', nullable: false },
-                { name: 'status', type: 'varchar', nullable: false }
-              ],
-              row_count: 15420,
-              size_bytes: 2048000,
-              last_refreshed: '2024-01-15T10:30:00Z',
-              refresh_status: 'success',
-              is_active: true,
-              version: 3,
-              schema_name: 'public',
-              refresh_interval: 3600,
-              chart_count: 8,
-              created_at: '2024-01-01T00:00:00Z',
-              updated_at: '2024-01-15T10:30:00Z',
-              owner: {
-                id: 'user1',
-                name: 'John Doe',
-                email: 'john@company.com'
-              }
-            },
-            {
-              id: '2',
-              name: 'customer_analytics',
-              display_name: 'Customer Analytics View',
-              description: 'Aggregated customer metrics and behavior data',
-              datasource_id: 'ds1',
-              datasource_name: 'Main Database',
-              type: 'query',
-              query: `SELECT 
-                c.customer_id,
-                c.customer_name,
-                COUNT(o.order_id) as order_count,
-                SUM(o.total_amount) as total_spent,
-                MAX(o.order_date) as last_order_date
-              FROM customers c
-              LEFT JOIN sales_orders o ON c.customer_id = o.customer_id
-              WHERE o.order_date >= CURRENT_DATE - INTERVAL '365 days'
-              GROUP BY c.customer_id, c.customer_name`,
-              columns_info: [
-                { name: 'customer_id', type: 'uuid', nullable: false },
-                { name: 'customer_name', type: 'varchar', nullable: false },
-                { name: 'order_count', type: 'bigint', nullable: true },
-                { name: 'total_spent', type: 'decimal', nullable: true },
-                { name: 'last_order_date', type: 'date', nullable: true }
-              ],
-              row_count: 8934,
-              size_bytes: 456000,
-              last_refreshed: '2024-01-14T15:45:00Z',
-              refresh_status: 'error',
-              is_active: true,
-              version: 2,
-              refresh_interval: 7200,
-              chart_count: 5,
-              created_at: '2024-01-10T00:00:00Z',
-              updated_at: '2024-01-14T15:45:00Z',
-              owner: {
-                id: 'user2',
-                name: 'Jane Smith',
-                email: 'jane@company.com'
-              }
-            },
-            {
-              id: '3',
-              name: 'product_catalog',
-              display_name: 'Product Catalog',
-              description: 'Complete product information and inventory',
-              datasource_id: 'ds2',
-              datasource_name: 'Analytics DB',
-              type: 'view',
-              query: 'SELECT * FROM products_view',
-              columns_info: [
-                { name: 'product_id', type: 'uuid', nullable: false },
-                { name: 'product_name', type: 'varchar', nullable: false },
-                { name: 'category', type: 'varchar', nullable: false },
-                { name: 'price', type: 'decimal', nullable: false },
-                { name: 'inventory_count', type: 'integer', nullable: true }
-              ],
-              row_count: 2156,
-              size_bytes: 128000,
-              last_refreshed: '2024-01-15T09:00:00Z',
-              refresh_status: 'running',
-              is_active: true,
-              version: 1,
-              schema_name: 'catalog',
-              chart_count: 3,
-              created_at: '2024-01-12T00:00:00Z',
-              updated_at: '2024-01-15T09:00:00Z',
-              owner: {
-                id: 'user3',
-                name: 'Mike Johnson',
-                email: 'mike@company.com'
-              }
-            }
-          ]);
+    if (workspace?.id) {
+      loadDatasets();
+      loadDatasources();
+    }
+  }, [workspace?.id]);
 
-          setDatasources([
-            { id: 'ds1', name: 'Main Database', type: 'postgresql' },
-            { id: 'ds2', name: 'Analytics DB', type: 'mysql' },
-            { id: 'ds3', name: 'Sales API', type: 'rest' }
-          ]);
+  const loadDatasets = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // API call to get all datasets in workspace
+      const response = await fetch('/api/v1/workspaces/datasets', {
+        method: 'GET',
+        headers: getAuthHeaders(),
+      });
 
-          setLoading(false);
-        }, 1000);
-      } catch (error) {
-        console.error('Error fetching datasets:', error);
-        setLoading(false);
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Authentication failed. Please log in again.');
+        } else if (response.status === 403) {
+          throw new Error('You do not have permission to view datasets.');
+        } else if (response.status === 404) {
+          throw new Error('Workspace not found.');
+        } else {
+          throw new Error(`Failed to load datasets (${response.status})`);
+        }
       }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setDatasets(data.datasets || data.data || []);
+        // Also set available datasets for parent selection (exclude transformation types to avoid circular references)
+        setAvailableDatasets((data.datasets || data.data || []).filter((d: DatasetData) => d.type !== 'transformation'));
+      } else {
+        throw new Error(data.message || 'Failed to load datasets');
+      }
+    } catch (error: any) {
+      console.error('Failed to load datasets:', error);
+      setError(error.message || 'Failed to load datasets. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadDatasources = async () => {
+    try {
+      const response = await fetch('/api/v1/workspaces/datasources', {
+        method: 'GET',
+        headers: getAuthHeaders(),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setDatasources(data.datasources || []);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load datasources:', error);
+      // Set default datasources if API fails
+      setDatasources([
+        { id: 'ds-1', name: 'primary-db', display_name: 'Primary Database', type: 'postgresql' },
+        { id: 'ds-2', name: 'analytics-db', display_name: 'Analytics Database', type: 'mysql' },
+        { id: 'ds-3', name: 'warehouse-db', display_name: 'Data Warehouse', type: 'snowflake' }
+      ]);
+    }
+  };
+
+  // Dataset type icon mapping
+  const getDatasetTypeIcon = (type: string) => {
+    const iconMap: { [key: string]: React.ReactNode } = {
+      table: <TableIcon fontSize="small" />,
+      query: <QueryIcon fontSize="small" />,
+      transformation: <TransformIcon fontSize="small" />
     };
+    return iconMap[type] || <DatasetIcon fontSize="small" />;
+  };
 
-    if (workspace) {
-      fetchDatasets();
+  // Status color and icon mapping
+  const getStatusInfo = (status: string, refreshStatus?: string) => {
+    if (refreshStatus === 'running' || status === 'refreshing') {
+      return { color: 'info' as const, icon: <SyncIcon fontSize="small" /> };
     }
-  }, [workspace]);
-
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'table': return <StorageIcon />;
-      case 'query': return <QueryIcon />;
-      case 'view': return <DatasetIcon />;
-      case 'file': return <DatasetIcon />;
-      default: return <DatasetIcon />;
-    }
+    
+    const statusMap: { [key: string]: { color: 'success' | 'warning' | 'error' | 'default', icon: React.ReactNode } } = {
+      active: { color: 'success', icon: <CheckIcon fontSize="small" /> },
+      inactive: { color: 'default', icon: <WarningIcon fontSize="small" /> },
+      draft: { color: 'warning', icon: <WarningIcon fontSize="small" /> },
+      error: { color: 'error', icon: <ErrorIcon fontSize="small" /> }
+    };
+    return statusMap[status] || { color: 'default', icon: <DatasetIcon fontSize="small" /> };
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'success': return <CheckIcon color="success" fontSize="small" />;
-      case 'error': return <ErrorIcon color="error" fontSize="small" />;
-      case 'running': return <CircularProgress size={16} />;
-      case 'pending': return <ScheduleIcon color="warning" fontSize="small" />;
-      default: return <WarningIcon color="disabled" fontSize="small" />;
-    }
-  };
-
-  const formatBytes = (bytes?: number) => {
-    if (!bytes) return 'Unknown';
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
-  };
-
-  const formatNumber = (num?: number) => {
-    if (!num) return 'Unknown';
-    return new Intl.NumberFormat().format(num);
-  };
-
-  const columns: TableColumn<DatasetListItem>[] = [
+  // Table columns configuration
+  const columns: TableColumn<DatasetData>[] = useMemo(() => [
     {
       key: 'name',
       label: 'Dataset',
       sortable: true,
-      render: (item) => (
-        <Box display="flex" alignItems="center" gap={2}>
-          <Avatar variant="rounded" sx={{ width: 40, height: 40, bgcolor: 'secondary.main' }}>
-            {getTypeIcon(item.type)}
-          </Avatar>
+      render: (dataset: DatasetData) => (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 40, borderRadius: 1, bgcolor: 'primary.light', color: 'primary.contrastText' }}>
+            {getDatasetTypeIcon(dataset.type)}
+          </Box>
           <Box>
-            <Typography variant="subtitle2" fontWeight="bold">
-              {item.display_name || item.name}
+            <Typography variant="body2" fontWeight={500}>
+              {dataset.display_name}
             </Typography>
-            {item.description && (
-              <Typography variant="caption" color="textSecondary" noWrap>
-                {item.description}
+            <Typography variant="caption" color="text.secondary">
+              {dataset.name}
+            </Typography>
+            {dataset.description && (
+              <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>
+                {dataset.description}
               </Typography>
             )}
           </Box>
@@ -284,354 +284,671 @@ const DatasetsPage: React.FC = () => {
     },
     {
       key: 'type',
-      label: 'Type',
+      label: 'Type & Status',
       sortable: true,
-      render: (item) => (
-        <Chip
-          label={item.type}
-          size="small"
-          color="primary"
-          variant="outlined"
-        />
-      )
+      render: (dataset: DatasetData) => {
+        const statusInfo = getStatusInfo(dataset.status, dataset.refresh_status);
+        return (
+          <Box>
+            <Chip
+              label={dataset.type.toUpperCase()}
+              size="small"
+              variant="outlined"
+              sx={{ mb: 0.5 }}
+            />
+            <br />
+            <Chip
+              label={dataset.status.toUpperCase()}
+              size="small"
+              color={statusInfo.color}
+              variant="filled"
+              icon={statusInfo.icon}
+            />
+          </Box>
+        );
+      }
     },
     {
-      key: 'datasource_name',
-      label: 'Data Source',
-      sortable: true,
-      render: (item) => (
-        <Typography variant="body2">
-          {item.datasource_name}
-        </Typography>
-      )
-    },
-    {
-      key: 'row_count',
-      label: 'Records',
-      sortable: true,
-      render: (item) => (
-        <Typography variant="body2">
-          {formatNumber(item.row_count)}
-        </Typography>
-      )
-    },
-    {
-      key: 'size_bytes',
-      label: 'Size',
-      sortable: true,
-      render: (item) => (
-        <Typography variant="body2">
-          {formatBytes(item.size_bytes)}
-        </Typography>
-      )
-    },
-    {
-      key: 'refresh_status',
-      label: 'Status',
-      sortable: true,
-      render: (item) => (
-        <Box display="flex" alignItems="center" gap={1}>
-          {refreshingDataset === item.id ? (
-            <CircularProgress size={16} />
-          ) : (
-            getStatusIcon(item.refresh_status)
-          )}
-          <Typography variant="body2" color={
-            item.refresh_status === 'success' ? 'success.main' :
-            item.refresh_status === 'error' ? 'error.main' :
-            item.refresh_status === 'running' ? 'info.main' : 'text.secondary'
-          }>
-            {item.refresh_status === 'success' ? 'Fresh' :
-             item.refresh_status === 'error' ? 'Error' :
-             item.refresh_status === 'running' ? 'Running' : 'Pending'}
-          </Typography>
+      key: 'datasource_names',
+      label: 'Data Sources',
+      render: (dataset: DatasetData) => (
+        <Box>
+          {dataset.datasource_names?.map((datasource, index) => (
+            <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+              <DatasetIcon fontSize="small" color="action" />
+              <Typography variant="body2">
+                {datasource}
+              </Typography>
+            </Box>
+          ))}
         </Box>
       )
     },
     {
-      key: 'chart_count',
-      label: 'Charts',
+      key: 'parent_dataset_names',
+      label: 'Dependencies',
+      render: (dataset: DatasetData) => (
+        dataset.parent_dataset_names && dataset.parent_dataset_names.length > 0 ? (
+          <Box>
+            {dataset.parent_dataset_names.map((parent, index) => (
+              <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                <TransformIcon fontSize="small" color="secondary" />
+                <Typography variant="body2">
+                  {parent}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            None
+          </Typography>
+        )
+      )
+    },
+    {
+      key: 'row_count',
+      label: 'Data Size',
       sortable: true,
-      render: (item) => (
-        <Typography variant="body2">
-          {item.chart_count}
-        </Typography>
+      align: 'center',
+      render: (dataset: DatasetData) => (
+        <Box>
+          <Typography variant="body2" fontWeight={500}>
+            {dataset.row_count?.toLocaleString() || 'Unknown'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            rows
+          </Typography>
+          {dataset.size_bytes && (
+            <Typography variant="caption" display="block" color="text.secondary">
+              {(dataset.size_bytes / (1024 * 1024)).toFixed(1)} MB
+            </Typography>
+          )}
+        </Box>
+      )
+    },
+    {
+      key: 'usage_stats',
+      label: 'Usage',
+      sortable: false,
+      align: 'center',
+      render: (dataset: DatasetData) => (
+        dataset.usage_stats ? (
+          <Box>
+            <Typography variant="body2" fontWeight={500}>
+              {dataset.usage_stats.chart_count || 0}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              charts
+            </Typography>
+            <Typography variant="caption" display="block" color="text.secondary">
+              {dataset.usage_stats.dashboard_count || 0} dashboards
+            </Typography>
+          </Box>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            No usage
+          </Typography>
+        )
       )
     },
     {
       key: 'owner',
       label: 'Owner',
       sortable: true,
-      render: (item) => item.owner ? (
-        <Box display="flex" alignItems="center" gap={1}>
-          <Avatar sx={{ width: 24, height: 24, fontSize: '0.75rem' }}>
-            {item.owner.name.charAt(0)}
-          </Avatar>
-          <Typography variant="body2">{item.owner.name}</Typography>
+      render: (dataset: DatasetData) => (
+        <Box>
+          <Typography variant="body2" fontWeight={500}>
+            {dataset.owner?.name || 'Unknown'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {dataset.owner?.email}
+          </Typography>
         </Box>
-      ) : (
-        <Typography variant="body2" color="textSecondary">Unknown</Typography>
+      )
+    },
+    {
+      key: 'last_refreshed',
+      label: 'Last Refreshed',
+      sortable: true,
+      render: (dataset: DatasetData) => (
+        <Box>
+          {dataset.last_refreshed ? (
+            <>
+              <Typography variant="body2">
+                {new Date(dataset.last_refreshed).toLocaleDateString()}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {new Date(dataset.last_refreshed).toLocaleTimeString()}
+              </Typography>
+            </>
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              Never
+            </Typography>
+          )}
+          {dataset.refresh_status === 'running' && (
+            <LinearProgress size="small" sx={{ mt: 0.5 }} />
+          )}
+        </Box>
       )
     }
-  ];
+  ], []);
 
-  const handleRefreshDataset = async (datasetId: string) => {
-    setRefreshingDataset(datasetId);
-    try {
-      // Simulate API call to refresh dataset
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      // Update the dataset status
-      setDatasets(prev => prev.map(ds => 
-        ds.id === datasetId 
-          ? { ...ds, refresh_status: 'success' as const, last_refreshed: new Date().toISOString() }
-          : ds
-      ));
-    } catch (error) {
-      setDatasets(prev => prev.map(ds => 
-        ds.id === datasetId 
-          ? { ...ds, refresh_status: 'error' as const }
-          : ds
-      ));
-    } finally {
-      setRefreshingDataset(null);
-    }
-  };
-
-  const actions: TableAction<DatasetListItem>[] = [
+  // Table actions
+  const actions: TableAction<DatasetData>[] = useMemo(() => [
     {
-      label: 'Query',
-      icon: <QueryIcon fontSize="small" />,
-      onClick: (item) => {
-        router.push(`/workspace/${workspace?.slug}/sql-editor?dataset=${item.id}`);
+      label: 'Preview Data',
+      icon: <ViewIcon fontSize="small" />,
+      onClick: (dataset) => {
+        router.push(`/workspace/datasets/${dataset.id}/preview`);
       },
-      requiresPermission: 'dataset.query'
+      color: 'primary'
     },
     {
-      label: 'Refresh',
-      icon: <RefreshIcon fontSize="small" />,
-      onClick: (item) => handleRefreshDataset(item.id),
-      requiresPermission: 'dataset.refresh'
-    },
-    {
-      label: 'Edit',
+      label: 'Edit Dataset (Form)',
       icon: <EditIcon fontSize="small" />,
-      onClick: (item) => {
-        router.push(`/workspace/${workspace?.slug}/datasets/${item.id}/edit`);
+      onClick: (dataset) => {
+        handleEditDataset(dataset);
       },
-      requiresPermission: 'dataset.update'
+      color: 'primary',
+      show: () => hasPermission('dataset.update')
     },
     {
-      label: 'Schedule',
-      icon: <ScheduleIcon fontSize="small" />,
-      onClick: (item) => {
-        console.log('Schedule refresh for:', item.id);
+      label: 'Refresh Dataset',
+      icon: <RefreshIcon fontSize="small" />,
+      onClick: (dataset) => {
+        handleRefreshDataset(dataset);
       },
-      requiresPermission: 'dataset.schedule'
+      color: 'info',
+      show: () => hasPermission('dataset.update'),
+      disabled: (dataset) => dataset.refresh_status === 'running'
     },
     {
-      label: 'Delete',
+      label: 'Execute Query',
+      icon: <ExecuteIcon fontSize="small" />,
+      onClick: (dataset) => {
+        router.push(`/workspace/sql-editor?dataset=${dataset.id}`);
+      },
+      color: 'secondary',
+      show: (dataset) => dataset.type === 'query' && hasPermission('dataset.read')
+    },
+    {
+      label: 'Duplicate Dataset',
+      icon: <DuplicateIcon fontSize="small" />,
+      onClick: (dataset) => {
+        handleDuplicateDataset(dataset);
+      },
+      color: 'secondary',
+      show: () => hasPermission('dataset.create')
+    },
+    {
+      label: 'Dataset Settings',
+      icon: <SettingsIcon fontSize="small" />,
+      onClick: (dataset) => {
+        router.push(`/workspace/datasets/${dataset.id}/settings`);
+      },
+      color: 'default',
+      show: () => hasPermission('dataset.update')
+    },
+    {
+      label: 'Delete Dataset',
       icon: <DeleteIcon fontSize="small" />,
-      onClick: (item) => {
-        if (confirm(`Are you sure you want to delete "${item.display_name}"? This will also remove all associated charts.`)) {
-          console.log('Delete dataset:', item.id);
-        }
+      onClick: (dataset) => {
+        handleDeleteDataset(dataset);
       },
-      requiresPermission: 'dataset.delete',
-      color: 'error'
+      color: 'error',
+      show: (dataset) => hasPermission('dataset.delete') && 
+        (dataset.created_by === user?.id || hasPermission('dataset.admin')),
+      disabled: (dataset) => (dataset.usage_stats?.chart_count || 0) > 0 || 
+        (dataset.usage_stats?.dashboard_count || 0) > 0
     }
-  ];
+  ], [hasPermission, router, workspace?.slug, user?.id]);
 
-  const filterOptions: FilterOption[] = [
+  // Filter options
+  const filters: FilterOption[] = [
     {
       key: 'type',
       label: 'Type',
-      type: 'select',
       options: [
         { value: 'table', label: 'Table' },
         { value: 'query', label: 'Query' },
-        { value: 'view', label: 'View' },
-        { value: 'file', label: 'File' }
+        { value: 'transformation', label: 'Transformation' }
       ]
     },
     {
-      key: 'datasource_id',
-      label: 'Data Source',
-      type: 'select',
-      options: datasources.map(ds => ({
-        value: ds.id,
-        label: ds.name
-      }))
+      key: 'status',
+      label: 'Status',
+      options: [
+        { value: 'active', label: 'Active' },
+        { value: 'inactive', label: 'Inactive' },
+        { value: 'draft', label: 'Draft' },
+        { value: 'error', label: 'Error' }
+      ]
     },
     {
       key: 'refresh_status',
-      label: 'Status',
-      type: 'select',
+      label: 'Refresh Status',
       options: [
-        { value: 'success', label: 'Fresh' },
-        { value: 'error', label: 'Error' },
+        { value: 'completed', label: 'Completed' },
         { value: 'running', label: 'Running' },
+        { value: 'failed', label: 'Failed' },
         { value: 'pending', label: 'Pending' }
       ]
     }
   ];
 
-  const handleCreateDataset = async () => {
+  // Handle dataset actions
+  const handleCreateDataset = () => {
+    // Navigate to dataset form page
+    router.push(`/workspace/datasets/create`);
+  };
+
+  const handleEditDataset = (dataset: DatasetData) => {
+    setSelectedDataset(dataset);
+    setFormData({
+      name: dataset.name,
+      display_name: dataset.display_name,
+      description: dataset.description || '',
+      type: dataset.type,
+      datasource_ids: dataset.datasource_ids,
+      parent_dataset_ids: dataset.parent_dataset_ids || [],
+      base_query: dataset.base_query || '',
+      cache_ttl: dataset.cache_ttl,
+      is_active: dataset.is_active
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleRefreshDataset = async (dataset: DatasetData) => {
     try {
-      // Handle create logic
-      console.log('Create dataset:', newDataset);
-      setCreateDialogOpen(false);
-      setNewDataset({
-        name: '',
-        display_name: '',
-        description: '',
-        datasource_id: '',
-        type: 'table',
-        query: '',
-        is_active: true
+      setError(null);
+      
+      // API call to refresh dataset
+      const response = await fetch(`/api/v1/workspaces/datasets/${dataset.id}/refresh`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
       });
-    } catch (error) {
-      console.error('Error creating dataset:', error);
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Authentication failed. Please log in again.');
+        } else if (response.status === 403) {
+          throw new Error('You do not have permission to refresh this dataset.');
+        } else {
+          throw new Error(`Failed to refresh dataset (${response.status})`);
+        }
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to refresh dataset');
+      }
+
+      // Refresh datasets list
+      await loadDatasets();
+      
+      console.log('Dataset refresh initiated successfully');
+    } catch (error: any) {
+      console.error('Failed to refresh dataset:', error);
+      setError(error.message || 'Failed to refresh dataset. Please try again.');
     }
   };
 
-  if (!workspace) {
-    return <div>Loading workspace...</div>;
-  }
+  const handleDuplicateDataset = async (dataset: DatasetData) => {
+    try {
+      setError(null);
+      
+      // API call to duplicate dataset
+      const response = await fetch(`/api/v1/workspaces/datasets/${dataset.id}/duplicate`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ 
+          new_name: `${dataset.name}_copy`, 
+          new_display_name: `${dataset.display_name} (Copy)`
+        })
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Authentication failed. Please log in again.');
+        } else if (response.status === 403) {
+          throw new Error('You do not have permission to duplicate datasets.');
+        } else if (response.status === 409) {
+          throw new Error('A dataset with that name already exists.');
+        } else {
+          throw new Error(`Failed to duplicate dataset (${response.status})`);
+        }
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to duplicate dataset');
+      }
+
+      // Refresh datasets list after duplication
+      await loadDatasets();
+      
+      console.log('Dataset duplicated successfully');
+    } catch (error: any) {
+      console.error('Failed to duplicate dataset:', error);
+      setError(error.message || 'Failed to duplicate dataset. Please try again.');
+    }
+  };
+
+  const handleDeleteDataset = (dataset: DatasetData) => {
+    setSelectedDataset(dataset);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleFormSubmit = async () => {
+    if (!selectedDataset) return;
+
+    try {
+      setSubmitting(true);
+      setError(null);
+      
+      // API call to update dataset
+      const response = await fetch(`/api/v1/workspaces/datasets/${selectedDataset.id}`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(formData)
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Authentication failed. Please log in again.');
+        } else if (response.status === 403) {
+          throw new Error('You do not have permission to edit this dataset.');
+        } else if (response.status === 409) {
+          throw new Error('A dataset with that name already exists.');
+        } else {
+          throw new Error(`Failed to update dataset (${response.status})`);
+        }
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to update dataset');
+      }
+      
+      // Close dialog and refresh
+      setEditDialogOpen(false);
+      await loadDatasets();
+      
+      console.log('Dataset updated successfully');
+    } catch (error: any) {
+      console.error('Failed to update dataset:', error);
+      setError(error.message || 'Failed to update dataset. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!selectedDataset) return;
+
+    try {
+      setSubmitting(true);
+      setError(null);
+      
+      // API call to delete dataset
+      const response = await fetch(`/api/v1/workspaces/datasets/${selectedDataset.id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Authentication failed. Please log in again.');
+        } else if (response.status === 403) {
+          throw new Error('You do not have permission to delete this dataset.');
+        } else if (response.status === 409) {
+          throw new Error('Cannot delete dataset. It may be in use by charts or dashboards.');
+        } else {
+          throw new Error(`Failed to delete dataset (${response.status})`);
+        }
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to delete dataset');
+      }
+      
+      // Close dialog and refresh
+      setDeleteDialogOpen(false);
+      await loadDatasets();
+      
+      console.log('Dataset deleted successfully');
+    } catch (error: any) {
+      console.error('Failed to delete dataset:', error);
+      setError(error.message || 'Failed to delete dataset. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRefresh = () => {
+    loadDatasets();
+  };
 
   return (
     <WorkspaceLayout>
       <Box sx={{ p: 3 }}>
-        <Box display="flex" justifyContent="between" alignItems="center" mb={3}>
-          <Box>
-            <Typography variant="h4" component="h1" gutterBottom>
-              Datasets
-            </Typography>
-            <Typography variant="body1" color="textSecondary">
-              Manage your data models and transformations
-            </Typography>
-          </Box>
-          
-          <Box display="flex" gap={2}>
-            <Button
-              variant="outlined"
-              startIcon={<QueryIcon />}
-              onClick={() => router.push(`/workspace/sql-editor`)}
-            >
-              SQL Editor
-            </Button>
-            <PermissionGate permissions={['dataset.read']}>
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => setCreateDialogOpen(true)}
-              >
-                Create Dataset
-              </Button>
-            </PermissionGate>
-          </Box>
+        {/* Header */}
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h4" gutterBottom>
+            Datasets
+          </Typography>
+          <Typography variant="body1" color="text.secondary">
+            Manage your data sources and create datasets for analysis and visualization
+          </Typography>
         </Box>
 
+        {/* Error Alert */}
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+            {error}
+          </Alert>
+        )}
+
+        {/* Datasets Table */}
         <CommonTableLayout
           data={datasets}
+          loading={loading}
+          error={error}
           columns={columns}
           actions={actions}
-          filterOptions={filterOptions}
-          loading={loading}
-          searchPlaceholder="Search datasets..."
-          emptyMessage="No datasets found. Create your first dataset to get started."
-          onRowClick={(item) => router.push(`/workspace/${workspace?.slug}/datasets/${item.id}`)}
+          title="All Datasets"
+          subtitle={`${datasets.length} datasets found`}
+          searchable={true}
+          searchPlaceholder="Search datasets by name, type, or description..."
+          filters={filters}
+          showCreateButton={true}
+          createButtonLabel="Add Dataset"
+          onCreateClick={handleCreateDataset}
+          onRefresh={handleRefresh}
+          pagination={true}
+          itemsPerPage={25}
         />
 
-        {/* Create Dataset Dialog */}
+        {/* Edit Dataset Dialog */}
         <Dialog 
-          open={createDialogOpen} 
-          onClose={() => setCreateDialogOpen(false)}
-          maxWidth="md"
+          open={editDialogOpen} 
+          onClose={() => setEditDialogOpen(false)}
+          maxWidth="lg"
           fullWidth
         >
-          <DialogTitle>Create New Dataset</DialogTitle>
+          <DialogTitle>
+            Edit Dataset: {selectedDataset?.display_name}
+          </DialogTitle>
           <DialogContent>
-            <Box display="flex" flexDirection="column" gap={2} pt={1}>
-              <TextField
-                autoFocus
-                label="Name"
-                fullWidth
-                value={newDataset.name}
-                onChange={(e) => setNewDataset({...newDataset, name: e.target.value})}
-                helperText="Unique identifier for this dataset"
-              />
-              <TextField
-                label="Display Name"
-                fullWidth
-                value={newDataset.display_name}
-                onChange={(e) => setNewDataset({...newDataset, display_name: e.target.value})}
-              />
-              <TextField
-                label="Description"
-                fullWidth
-                multiline
-                rows={2}
-                value={newDataset.description}
-                onChange={(e) => setNewDataset({...newDataset, description: e.target.value})}
-              />
-              <FormControl fullWidth>
-                <InputLabel>Data Source</InputLabel>
-                <Select
-                  value={newDataset.datasource_id}
-                  onChange={(e) => setNewDataset({...newDataset, datasource_id: e.target.value})}
-                >
-                  {datasources.map(ds => (
-                    <MenuItem key={ds.id} value={ds.id}>
-                      {ds.name} ({ds.type})
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <FormControl fullWidth>
-                <InputLabel>Type</InputLabel>
-                <Select
-                  value={newDataset.type}
-                  onChange={(e) => setNewDataset({...newDataset, type: e.target.value as any})}
-                >
-                  <MenuItem value="table">Table</MenuItem>
-                  <MenuItem value="query">Custom Query</MenuItem>
-                  <MenuItem value="view">Database View</MenuItem>
-                  <MenuItem value="file">File Upload</MenuItem>
-                </Select>
-              </FormControl>
-              
-              {newDataset.type === 'query' && (
+            <Grid container spacing={2} sx={{ mt: 1 }}>
+              <Grid item xs={12} md={6}>
                 <TextField
-                  label="SQL Query"
+                  fullWidth
+                  label="Dataset Name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  helperText="Internal name for the dataset"
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Display Name"
+                  value={formData.display_name}
+                  onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+                  helperText="User-friendly display name"
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
                   fullWidth
                   multiline
-                  rows={4}
-                  value={newDataset.query}
-                  onChange={(e) => setNewDataset({...newDataset, query: e.target.value})}
-                  placeholder="SELECT * FROM your_table WHERE condition..."
+                  rows={3}
+                  label="Description"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  helperText="Brief description of the dataset"
                 />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <FormControl fullWidth>
+                  <InputLabel>Dataset Type</InputLabel>
+                  <Select
+                    value={formData.type}
+                    onChange={(e) => setFormData({ ...formData, type: e.target.value as any })}
+                    label="Dataset Type"
+                  >
+                    <MenuItem value="table">Table</MenuItem>
+                    <MenuItem value="query">Query</MenuItem>
+                    <MenuItem value="transformation">Transformation</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <FormControl fullWidth>
+                  <InputLabel>Data Sources</InputLabel>
+                  <Select
+                    multiple
+                    value={formData.datasource_ids}
+                    onChange={(e) => setFormData({ ...formData, datasource_ids: e.target.value as string[] })}
+                    label="Data Sources"
+                  >
+                    {datasources.map((datasource) => (
+                      <MenuItem key={datasource.id} value={datasource.id}>
+                        {datasource.display_name} ({datasource.type})
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Cache TTL (seconds)"
+                  type="number"
+                  value={formData.cache_ttl}
+                  onChange={(e) => setFormData({ ...formData, cache_ttl: parseInt(e.target.value) || 3600 })}
+                  helperText="Time to live for cached data"
+                />
+              </Grid>
+              {formData.type === 'transformation' && (
+                <Grid item xs={12}>
+                  <FormControl fullWidth>
+                    <InputLabel>Parent Datasets</InputLabel>
+                    <Select
+                      multiple
+                      value={formData.parent_dataset_ids}
+                      onChange={(e) => setFormData({ ...formData, parent_dataset_ids: e.target.value as string[] })}
+                      label="Parent Datasets"
+                    >
+                      {availableDatasets.map((dataset) => (
+                        <MenuItem key={dataset.id} value={dataset.id}>
+                          {dataset.display_name} ({dataset.type})
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
               )}
-
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={newDataset.is_active}
-                    onChange={(e) => setNewDataset({...newDataset, is_active: e.target.checked})}
+              {formData.type === 'query' && (
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={6}
+                    label="Base Query"
+                    value={formData.base_query}
+                    onChange={(e) => setFormData({ ...formData, base_query: e.target.value })}
+                    helperText="SQL query that defines this dataset"
+                    placeholder="SELECT * FROM your_table WHERE condition = 'value'"
                   />
-                }
-                label="Active"
-              />
-            </Box>
+                </Grid>
+              )}
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formData.is_active}
+                      onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+                    />
+                  }
+                  label="Active Dataset"
+                />
+              </Grid>
+            </Grid>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+            <Button onClick={() => setEditDialogOpen(false)}>
+              Cancel
+            </Button>
             <Button 
-              onClick={handleCreateDataset}
+              onClick={handleFormSubmit}
               variant="contained"
-              disabled={!newDataset.name || !newDataset.datasource_id}
+              disabled={submitting || !formData.name || !formData.display_name}
             >
-              Create
+              {submitting ? 'Updating...' : 'Update Dataset'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog 
+          open={deleteDialogOpen} 
+          onClose={() => setDeleteDialogOpen(false)}
+        >
+          <DialogTitle>Confirm Deletion</DialogTitle>
+          <DialogContent>
+            <Typography>
+              Are you sure you want to delete the dataset "{selectedDataset?.display_name}"?
+            </Typography>
+            {selectedDataset?.usage_stats && (
+              (selectedDataset.usage_stats.chart_count > 0 || selectedDataset.usage_stats.dashboard_count > 0) && (
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                  This dataset is being used by {selectedDataset.usage_stats.chart_count} chart(s) 
+                  and {selectedDataset.usage_stats.dashboard_count} dashboard(s). 
+                  Deleting it will break these dependencies.
+                </Alert>
+              )
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleDeleteConfirm}
+              color="error"
+              variant="contained"
+              disabled={submitting}
+            >
+              {submitting ? 'Deleting...' : 'Delete Dataset'}
             </Button>
           </DialogActions>
         </Dialog>

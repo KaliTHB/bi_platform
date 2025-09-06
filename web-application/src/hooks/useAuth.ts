@@ -19,7 +19,7 @@ export interface User {
 }
 
 export interface Workspace {
-  workspace_id: number;
+  id: number;
   name: string;
   slug: string;
   display_name?: string;

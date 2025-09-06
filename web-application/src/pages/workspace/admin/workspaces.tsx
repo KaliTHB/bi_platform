@@ -145,28 +145,68 @@ const WorkspacesAdminPage: NextPage = () => {
   }, []);
 
   const loadWorkspaces = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  try {
+    setLoading(true);
+    setError(null);
 
-      const response = await fetch('/api/admin/workspaces', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to load workspaces: ${response.statusText}`);
+    const response = await fetch('/api/admin/workspaces', {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
       }
+    });
 
-      const data = await response.json();
-      setWorkspaces(data.workspaces || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load workspaces');
-    } finally {
-      setLoading(false);
+    if (!response.ok) {
+      throw new Error(`Failed to load workspaces: ${response.statusText}`);
     }
-  };
+
+    const result = await response.json();
+    
+    console.log('API Response:', result); // For debugging
+    
+    // Fix: Map backend data to frontend interface
+    if (result.success && result.data) {
+      const mappedWorkspaces = result.data.map((workspace: any) => ({
+        id: workspace.id,
+        name: workspace.name,
+        display_name: workspace.display_name || workspace.name,
+        description: workspace.description || '',
+        slug: workspace.slug,
+        logo_url: workspace.logo_url || null,
+        user_count: workspace.member_count || 0,
+        dashboard_count: workspace.dashboard_count || 0,
+        dataset_count: workspace.dataset_count || 0,
+        is_active: workspace.is_active,
+        is_default: false, // You can determine this based on your logic
+        status: workspace.is_active ? 'active' : 'inactive' as 'active' | 'inactive' | 'suspended', // Map boolean to status
+        created_at: workspace.created_at,
+        updated_at: workspace.updated_at,
+        last_accessed: workspace.last_accessed || null,
+        owner: workspace.owner || null,
+        settings: workspace.settings || {
+          timezone: 'UTC',
+          theme: 'light' as const,
+          max_users: 50,
+          features: {
+            sql_editor: true,
+            dashboard_builder: true,
+            data_exports: true,
+            api_access: true
+          }
+        }
+      }));
+      
+      setWorkspaces(mappedWorkspaces);
+    } else {
+      setWorkspaces([]);
+      setError('Failed to load workspaces data');
+    }
+  } catch (err) {
+    setError(err instanceof Error ? err.message : 'Failed to load workspaces');
+    setWorkspaces([]);
+  } finally {
+    setLoading(false);
+  }
+};
 
   // Table column definitions
   const columns: TableColumn<WorkspaceData>[] = useMemo(() => [
@@ -327,7 +367,7 @@ const WorkspacesAdminPage: NextPage = () => {
       label: 'Manage Users',
       icon: <AdminIcon fontSize="small" />,
       onClick: (workspace) => {
-        router.push(`/workspace/${workspace.slug}/admin/users`);
+        router.push(`/workspace/admin/users`);
       },
       color: 'default',
       show: () => hasPermission('user_mgmt', 'read')
