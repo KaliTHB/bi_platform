@@ -5,9 +5,6 @@ import {
   Box,
   Typography,
   Button,
-  Tabs,
-  Tab,
-  Paper,
   Chip,
   Avatar,
   Dialog,
@@ -22,18 +19,10 @@ import {
   Switch,
   FormControlLabel,
   Alert,
-  IconButton,
-  Tooltip,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Checkbox,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails
+  Tabs,
+  Tab,
+  Paper
 } from '@mui/material';
 import {
   Person as PersonIcon,
@@ -46,7 +35,6 @@ import {
   Shield as PermissionIcon,
   Add as AddIcon,
   Email as EmailIcon,
-  ExpandMore as ExpandMoreIcon,
   Key as KeyIcon,
   Group as GroupIcon
 } from '@mui/icons-material';
@@ -86,11 +74,8 @@ interface RoleListItem extends BaseListItem {
 }
 
 // Permission interfaces
-interface PermissionItem {
-  id: string;
-  name: string;
+interface PermissionItem extends BaseListItem {
   display_name: string;
-  description: string;
   category: string;
 }
 
@@ -102,7 +87,7 @@ interface TabPanelProps {
 
 const TabPanel = ({ children, value, index }: TabPanelProps) => (
   <div role="tabpanel" hidden={value !== index}>
-    {value === index && <Box sx={{ pt: 3 }}>{children}</Box>}
+    {value === index && <Box>{children}</Box>}
   </div>
 );
 
@@ -250,42 +235,250 @@ const UserManagementPage: React.FC = () => {
           // Mock permissions
           setPermissions([
             // Workspace permissions
-            { id: 'workspace.read', name: 'workspace.read', display_name: 'View Workspace', description: 'View workspace information', category: 'Workspace' },
-            { id: 'workspace.update', name: 'workspace.update', display_name: 'Update Workspace', description: 'Modify workspace settings', category: 'Workspace' },
-            { id: 'workspace.admin', name: 'workspace.admin', display_name: 'Administer Workspace', description: 'Full workspace control', category: 'Workspace' },
+            { 
+              id: 'workspace.read', 
+              name: 'workspace.read', 
+              display_name: 'View Workspace', 
+              description: 'View workspace information', 
+              category: 'Workspace',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'workspace.update', 
+              name: 'workspace.update', 
+              display_name: 'Update Workspace', 
+              description: 'Modify workspace settings', 
+              category: 'Workspace',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'workspace.admin', 
+              name: 'workspace.admin', 
+              display_name: 'Administer Workspace', 
+              description: 'Full workspace control', 
+              category: 'Workspace',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
             
             // User management permissions
-            { id: 'user.read', name: 'user.read', display_name: 'View Users', description: 'View user information', category: 'User Management' },
-            { id: 'user.create', name: 'user.create', display_name: 'Create Users', description: 'Add new users', category: 'User Management' },
-            { id: 'user.update', name: 'user.update', display_name: 'Update Users', description: 'Modify user information', category: 'User Management' },
-            { id: 'user.delete', name: 'user.delete', display_name: 'Delete Users', description: 'Remove users', category: 'User Management' },
+            { 
+              id: 'user.read', 
+              name: 'user.read', 
+              display_name: 'View Users', 
+              description: 'View user information', 
+              category: 'User Management',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'user.create', 
+              name: 'user.create', 
+              display_name: 'Create Users', 
+              description: 'Add new users', 
+              category: 'User Management',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'user.update', 
+              name: 'user.update', 
+              display_name: 'Update Users', 
+              description: 'Modify user information', 
+              category: 'User Management',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'user.delete', 
+              name: 'user.delete', 
+              display_name: 'Delete Users', 
+              description: 'Remove users', 
+              category: 'User Management',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
             
             // Dashboard permissions
-            { id: 'dashboard.read', name: 'dashboard.read', display_name: 'View Dashboards', description: 'View dashboards', category: 'Dashboard' },
-            { id: 'dashboard.create', name: 'dashboard.create', display_name: 'Create Dashboards', description: 'Create new dashboards', category: 'Dashboard' },
-            { id: 'dashboard.update', name: 'dashboard.update', display_name: 'Update Dashboards', description: 'Modify dashboards', category: 'Dashboard' },
-            { id: 'dashboard.delete', name: 'dashboard.delete', display_name: 'Delete Dashboards', description: 'Remove dashboards', category: 'Dashboard' },
-            { id: 'dashboard.admin', name: 'dashboard.admin', display_name: 'Administer Dashboards', description: 'Full dashboard control', category: 'Dashboard' },
+            { 
+              id: 'dashboard.read', 
+              name: 'dashboard.read', 
+              display_name: 'View Dashboards', 
+              description: 'View dashboards', 
+              category: 'Dashboard',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'dashboard.create', 
+              name: 'dashboard.create', 
+              display_name: 'Create Dashboards', 
+              description: 'Create new dashboards', 
+              category: 'Dashboard',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'dashboard.update', 
+              name: 'dashboard.update', 
+              display_name: 'Update Dashboards', 
+              description: 'Modify dashboards', 
+              category: 'Dashboard',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'dashboard.delete', 
+              name: 'dashboard.delete', 
+              display_name: 'Delete Dashboards', 
+              description: 'Remove dashboards', 
+              category: 'Dashboard',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'dashboard.admin', 
+              name: 'dashboard.admin', 
+              display_name: 'Administer Dashboards', 
+              description: 'Full dashboard control', 
+              category: 'Dashboard',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
             
             // Dataset permissions
-            { id: 'dataset.read', name: 'dataset.read', display_name: 'View Datasets', description: 'View datasets', category: 'Dataset' },
-            { id: 'dataset.create', name: 'dataset.create', display_name: 'Create Datasets', description: 'Create new datasets', category: 'Dataset' },
-            { id: 'dataset.update', name: 'dataset.update', display_name: 'Update Datasets', description: 'Modify datasets', category: 'Dataset' },
-            { id: 'dataset.delete', name: 'dataset.delete', display_name: 'Delete Datasets', description: 'Remove datasets', category: 'Dataset' },
-            { id: 'dataset.admin', name: 'dataset.admin', display_name: 'Administer Datasets', description: 'Full dataset control', category: 'Dataset' },
+            { 
+              id: 'dataset.read', 
+              name: 'dataset.read', 
+              display_name: 'View Datasets', 
+              description: 'View datasets', 
+              category: 'Dataset',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'dataset.create', 
+              name: 'dataset.create', 
+              display_name: 'Create Datasets', 
+              description: 'Create new datasets', 
+              category: 'Dataset',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'dataset.update', 
+              name: 'dataset.update', 
+              display_name: 'Update Datasets', 
+              description: 'Modify datasets', 
+              category: 'Dataset',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'dataset.delete', 
+              name: 'dataset.delete', 
+              display_name: 'Delete Datasets', 
+              description: 'Remove datasets', 
+              category: 'Dataset',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'dataset.admin', 
+              name: 'dataset.admin', 
+              display_name: 'Administer Datasets', 
+              description: 'Full dataset control', 
+              category: 'Dataset',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
             
             // Chart permissions
-            { id: 'chart.read', name: 'chart.read', display_name: 'View Charts', description: 'View charts', category: 'Chart' },
-            { id: 'chart.create', name: 'chart.create', display_name: 'Create Charts', description: 'Create new charts', category: 'Chart' },
-            { id: 'chart.update', name: 'chart.update', display_name: 'Update Charts', description: 'Modify charts', category: 'Chart' },
-            { id: 'chart.delete', name: 'chart.delete', display_name: 'Delete Charts', description: 'Remove charts', category: 'Chart' },
+            { 
+              id: 'chart.read', 
+              name: 'chart.read', 
+              display_name: 'View Charts', 
+              description: 'View charts', 
+              category: 'Chart',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'chart.create', 
+              name: 'chart.create', 
+              display_name: 'Create Charts', 
+              description: 'Create new charts', 
+              category: 'Chart',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'chart.update', 
+              name: 'chart.update', 
+              display_name: 'Update Charts', 
+              description: 'Modify charts', 
+              category: 'Chart',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'chart.delete', 
+              name: 'chart.delete', 
+              display_name: 'Delete Charts', 
+              description: 'Remove charts', 
+              category: 'Chart',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
             
             // Role permissions
-            { id: 'role.read', name: 'role.read', display_name: 'View Roles', description: 'View roles', category: 'Role Management' },
-            { id: 'role.create', name: 'role.create', display_name: 'Create Roles', description: 'Create custom roles', category: 'Role Management' },
-            { id: 'role.update', name: 'role.update', display_name: 'Update Roles', description: 'Modify roles', category: 'Role Management' },
-            { id: 'role.delete', name: 'role.delete', display_name: 'Delete Roles', description: 'Remove custom roles', category: 'Role Management' },
-            { id: 'role.admin', name: 'role.admin', display_name: 'Administer Roles', description: 'Full role control', category: 'Role Management' }
+            { 
+              id: 'role.read', 
+              name: 'role.read', 
+              display_name: 'View Roles', 
+              description: 'View roles', 
+              category: 'Role Management',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'role.create', 
+              name: 'role.create', 
+              display_name: 'Create Roles', 
+              description: 'Create custom roles', 
+              category: 'Role Management',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'role.update', 
+              name: 'role.update', 
+              display_name: 'Update Roles', 
+              description: 'Modify roles', 
+              category: 'Role Management',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'role.delete', 
+              name: 'role.delete', 
+              display_name: 'Delete Roles', 
+              description: 'Remove custom roles', 
+              category: 'Role Management',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            },
+            { 
+              id: 'role.admin', 
+              name: 'role.admin', 
+              display_name: 'Administer Roles', 
+              description: 'Full role control', 
+              category: 'Role Management',
+              created_at: '2024-01-01T00:00:00Z',
+              updated_at: '2024-01-01T00:00:00Z'
+            }
           ]);
 
           setPermissionCategories([
@@ -428,6 +621,27 @@ const UserManagementPage: React.FC = () => {
     }
   ];
 
+  const userFilterOptions: FilterOption[] = [
+    {
+      key: 'is_active',
+      label: 'Status',
+      type: 'select',
+      options: [
+        { value: 'true', label: 'Active' },
+        { value: 'false', label: 'Inactive' }
+      ]
+    },
+    {
+      key: 'invitation_status',
+      label: 'Invitation',
+      type: 'select',
+      options: [
+        { value: 'pending', label: 'Pending' },
+        { value: 'accepted', label: 'Accepted' }
+      ]
+    }
+  ];
+
   // Role management columns and actions
   const roleColumns: TableColumn<RoleListItem>[] = [
     {
@@ -509,6 +723,77 @@ const UserManagementPage: React.FC = () => {
     }
   ];
 
+  const roleFilterOptions: FilterOption[] = [
+    {
+      key: 'is_system_role',
+      label: 'Role Type',
+      type: 'select',
+      options: [
+        { value: 'true', label: 'System Roles' },
+        { value: 'false', label: 'Custom Roles' }
+      ]
+    }
+  ];
+
+  // Permission management columns
+  const permissionColumns: TableColumn<PermissionItem>[] = [
+    {
+      key: 'display_name',
+      label: 'Permission',
+      sortable: true,
+      render: (item) => (
+        <Box display="flex" alignItems="center" gap={2}>
+          <Avatar variant="rounded" sx={{ width: 40, height: 40, bgcolor: 'secondary.main' }}>
+            <PermissionIcon />
+          </Avatar>
+          <Box>
+            <Typography variant="subtitle2" fontWeight="bold">
+              {item.display_name}
+            </Typography>
+            <Typography variant="caption" color="textSecondary" fontFamily="monospace">
+              {item.name}
+            </Typography>
+          </Box>
+        </Box>
+      )
+    },
+    {
+      key: 'category',
+      label: 'Category',
+      sortable: true,
+      render: (item) => (
+        <Chip
+          label={item.category}
+          size="small"
+          variant="outlined"
+          color="primary"
+        />
+      )
+    },
+    {
+      key: 'description',
+      label: 'Description',
+      sortable: false,
+      render: (item) => (
+        <Typography variant="body2" color="textSecondary">
+          {item.description}
+        </Typography>
+      )
+    }
+  ];
+
+  const permissionFilterOptions: FilterOption[] = [
+    {
+      key: 'category',
+      label: 'Category',
+      type: 'select',
+      options: permissionCategories.map(cat => ({
+        value: cat,
+        label: cat
+      }))
+    }
+  ];
+
   const handleCreateUser = async () => {
     try {
       console.log('Create user:', newUser);
@@ -540,71 +825,6 @@ const UserManagementPage: React.FC = () => {
     }
   };
 
-  const renderPermissionsTab = () => (
-    <Box>
-      <Typography variant="h6" gutterBottom>
-        System Permissions
-      </Typography>
-      <Typography variant="body2" color="textSecondary" paragraph>
-        Below are all available permissions in the system, organized by category.
-      </Typography>
-      
-      {permissionCategories.map((category) => {
-        const categoryPermissions = permissions.filter(p => p.category === category);
-        
-        return (
-          <Accordion key={category} defaultExpanded>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Box display="flex" alignItems="center" gap={2}>
-                <PermissionIcon color="primary" />
-                <Typography variant="h6">{category}</Typography>
-                <Chip 
-                  label={`${categoryPermissions.length} permissions`}
-                  size="small"
-                  variant="outlined"
-                />
-              </Box>
-            </AccordionSummary>
-            <AccordionDetails>
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Permission</TableCell>
-                      <TableCell>Name</TableCell>
-                      <TableCell>Description</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {categoryPermissions.map((permission) => (
-                      <TableRow key={permission.id}>
-                        <TableCell>
-                          <Typography variant="body2" fontFamily="monospace">
-                            {permission.name}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" fontWeight="medium">
-                            {permission.display_name}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" color="textSecondary">
-                            {permission.description}
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </AccordionDetails>
-          </Accordion>
-        );
-      })}
-    </Box>
-  );
-
   if (!workspace) {
     return <div>Loading workspace...</div>;
   }
@@ -627,7 +847,7 @@ const UserManagementPage: React.FC = () => {
           <Tabs
             value={tabValue}
             onChange={(_, newValue) => setTabValue(newValue)}
-            sx={{ borderBottom: 1, borderColor: 'divider' }}
+            sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
           >
             <Tab 
               icon={<PersonIcon />} 
@@ -648,8 +868,8 @@ const UserManagementPage: React.FC = () => {
 
           {/* Users Tab */}
           <TabPanel value={tabValue} index={0}>
-            <Box sx={{ p: 2 }}>
-              <Box display="flex" justifyContent="between" alignItems="center" mb={2}>
+            <Box sx={{ p: 3 }}>
+              <Box display="flex" justifyContent="between" alignItems="center" mb={3}>
                 <Typography variant="h6">Workspace Users</Typography>
                 <PermissionGate permission="user.create">
                   <Button
@@ -666,6 +886,7 @@ const UserManagementPage: React.FC = () => {
                 data={users}
                 columns={userColumns}
                 actions={userActions}
+                filterOptions={userFilterOptions}
                 loading={loading}
                 searchPlaceholder="Search users..."
                 emptyMessage="No users found in this workspace."
@@ -675,8 +896,8 @@ const UserManagementPage: React.FC = () => {
 
           {/* Roles Tab */}
           <TabPanel value={tabValue} index={1}>
-            <Box sx={{ p: 2 }}>
-              <Box display="flex" justifyContent="between" alignItems="center" mb={2}>
+            <Box sx={{ p: 3 }}>
+              <Box display="flex" justifyContent="between" alignItems="center" mb={3}>
                 <Typography variant="h6">Workspace Roles</Typography>
                 <PermissionGate permission="role.create">
                   <Button
@@ -693,6 +914,7 @@ const UserManagementPage: React.FC = () => {
                 data={roles}
                 columns={roleColumns}
                 actions={roleActions}
+                filterOptions={roleFilterOptions}
                 loading={loading}
                 searchPlaceholder="Search roles..."
                 emptyMessage="No roles found in this workspace."
@@ -702,8 +924,26 @@ const UserManagementPage: React.FC = () => {
 
           {/* Permissions Tab */}
           <TabPanel value={tabValue} index={2}>
-            <Box sx={{ p: 2 }}>
-              {renderPermissionsTab()}
+            <Box sx={{ p: 3 }}>
+              <Box mb={3}>
+                <Typography variant="h6" gutterBottom>
+                  System Permissions
+                </Typography>
+                <Typography variant="body2" color="textSecondary">
+                  Below are all available permissions in the system, organized by category.
+                </Typography>
+              </Box>
+              
+              <CommonTableLayout
+                data={permissions}
+                columns={permissionColumns}
+                filterOptions={permissionFilterOptions}
+                loading={loading}
+                searchPlaceholder="Search permissions..."
+                emptyMessage="No permissions found."
+                showActions={false}
+                defaultPageSize={50}
+              />
             </Box>
           </TabPanel>
         </Paper>

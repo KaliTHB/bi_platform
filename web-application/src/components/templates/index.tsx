@@ -9,7 +9,7 @@ export { default as DashboardTemplate } from './DashboardTemplate';
 export { default as AdminTemplate } from './AdminTemplate';
 
 // Form templates
-export { default as FormTemplate } from './FormTemplate';
+//export { default as FormTemplate } from './FormTemplate';
 
 // Re-export template types
-export type { TemplateProps } from './types';
+//export type { TemplateProps } from './types';

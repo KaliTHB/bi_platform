@@ -516,11 +516,11 @@ const DatasetsPage: React.FC = () => {
             <Button
               variant="outlined"
               startIcon={<QueryIcon />}
-              onClick={() => router.push(`/workspace/${workspace?.slug}/sql-editor`)}
+              onClick={() => router.push(`/workspace/sql-editor`)}
             >
               SQL Editor
             </Button>
-            <PermissionGate permission="dataset.create">
+            <PermissionGate permissions={['dataset.read']}>
               <Button
                 variant="contained"
                 startIcon={<AddIcon />}

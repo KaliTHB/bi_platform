@@ -270,6 +270,896 @@ export class WorkspaceController {
     }
   };
 
+    /**
+   * Get all workspaces (Admin-level access)
+   * GET /api/admin/workspaces
+   */
+  public getAllWorkspacesAdmin = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+
+      console.log('🏢 Admin WorkspaceController: Getting all workspaces');
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          error: 'AUTHENTICATION_REQUIRED'
+        });
+        return;
+      }
+
+      // Query to get all workspaces with statistics
+      const query = `
+        SELECT 
+          w.id,
+          w.name,
+          w.slug,
+          w.display_name,
+          w.description,
+          w.logo_url,
+          w.settings,
+          w.is_active,
+          w.created_at,
+          w.updated_at,
+          COUNT(DISTINCT ura.user_id) as member_count,
+          COUNT(DISTINCT d.id) as dashboard_count,
+          COUNT(DISTINCT dt.id) as dataset_count
+        FROM workspaces w
+        LEFT JOIN user_role_assignments ura ON w.id = ura.workspace_id AND ura.is_active = true
+        LEFT JOIN dashboards d ON w.id = d.workspace_id AND d.is_active = true
+        LEFT JOIN datasets dt ON w.id = dt.workspace_id AND dt.is_active = true
+        GROUP BY w.id, w.name, w.slug, w.display_name, w.description, w.logo_url, w.settings, w.is_active, w.created_at, w.updated_at
+        ORDER BY w.created_at DESC
+      `;
+
+      const result = await this.db.query(query, []);
+      const workspaces = result.rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        display_name: row.display_name,
+        description: row.description,
+        logo_url: row.logo_url,
+        settings: row.settings,
+        is_active: row.is_active,
+        member_count: parseInt(row.member_count) || 0,
+        dashboard_count: parseInt(row.dashboard_count) || 0,
+        dataset_count: parseInt(row.dataset_count) || 0,
+        created_at: row.created_at,
+        updated_at: row.updated_at
+      }));
+
+      res.status(200).json({
+        success: true,
+        message: 'All workspaces retrieved successfully',
+        data: workspaces,
+        count: workspaces.length
+      });
+
+    } catch (error: any) {
+      console.error('❌ Admin WorkspaceController: Get all workspaces error:', error);
+      logger.error('Admin get all workspaces controller error:', {
+        error: error.message,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve workspaces',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  };
+
+  /**
+   * Create workspace (Admin-level)
+   * POST /api/admin/workspaces
+   */
+  public createWorkspaceAdmin = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const { name, display_name, description, owner_id } = req.body;
+
+      console.log('🏢 Admin WorkspaceController: Creating workspace:', { name, owner_id });
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          error: 'AUTHENTICATION_REQUIRED'
+        });
+        return;
+      }
+
+      if (!name) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace name is required',
+          error: 'MISSING_REQUIRED_FIELDS'
+        });
+        return;
+      }
+
+      // Create workspace using WorkspaceService
+      const workspace = await this.workspaceService.createWorkspace({
+        name,
+        display_name: display_name || name,
+        description: description || '',
+        owner_id: owner_id || userId // Use specified owner or current user
+      }, userId);
+
+      res.status(201).json({
+        success: true,
+        message: 'Workspace created successfully',
+        data: workspace
+      });
+
+    } catch (error: any) {
+      console.error('❌ Admin WorkspaceController: Create workspace error:', error);
+      logger.error('Admin create workspace controller error:', {
+        error: error.message,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create workspace',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  };
+
+  /**
+   * Get workspace by ID (Admin-level)
+   * GET /api/admin/workspaces/:workspaceId
+   */
+  public getWorkspaceByIdAdmin = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const workspaceId = req.params.workspaceId;
+
+      console.log('🏢 Admin WorkspaceController: Getting workspace by ID:', workspaceId);
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          error: 'AUTHENTICATION_REQUIRED'
+        });
+        return;
+      }
+
+      // Get detailed workspace information
+      const query = `
+        SELECT 
+          w.*,
+          COUNT(DISTINCT ura.user_id) as member_count,
+          COUNT(DISTINCT d.id) as dashboard_count,
+          COUNT(DISTINCT dt.id) as dataset_count,
+          u.email as owner_email,
+          u.name as owner_name
+        FROM workspaces w
+        LEFT JOIN user_role_assignments ura ON w.id = ura.workspace_id AND ura.is_active = true
+        LEFT JOIN dashboards d ON w.id = d.workspace_id AND d.is_active = true
+        LEFT JOIN datasets dt ON w.id = dt.workspace_id AND dt.is_active = true
+        LEFT JOIN users u ON w.owner_id = u.id
+        WHERE w.id = $1 OR w.slug = $1
+        GROUP BY w.id, u.email, u.name
+      `;
+
+      const result = await this.db.query(query, [workspaceId]);
+
+      if (result.rows.length === 0) {
+        res.status(404).json({
+          success: false,
+          message: 'Workspace not found',
+          error: 'WORKSPACE_NOT_FOUND'
+        });
+        return;
+      }
+
+      const row = result.rows[0];
+      const workspace = {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        display_name: row.display_name,
+        description: row.description,
+        logo_url: row.logo_url,
+        settings: row.settings,
+        is_active: row.is_active,
+        owner_id: row.owner_id,
+        owner_email: row.owner_email,
+        owner_name: row.owner_name,
+        member_count: parseInt(row.member_count) || 0,
+        dashboard_count: parseInt(row.dashboard_count) || 0,
+        dataset_count: parseInt(row.dataset_count) || 0,
+        created_at: row.created_at,
+        updated_at: row.updated_at
+      };
+
+      res.status(200).json({
+        success: true,
+        message: 'Workspace retrieved successfully',
+        data: workspace
+      });
+
+    } catch (error: any) {
+      console.error('❌ Admin WorkspaceController: Get workspace by ID error:', error);
+      logger.error('Admin get workspace by ID controller error:', {
+        error: error.message,
+        workspaceId: req.params.workspaceId,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve workspace',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  };
+
+  /**
+   * Update workspace (Admin-level)
+   * PUT /api/admin/workspaces/:workspaceId
+   */
+  public updateWorkspaceAdmin = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const workspaceId = req.params.workspaceId;
+      const updateData = req.body;
+
+      console.log('🏢 Admin WorkspaceController: Updating workspace:', workspaceId);
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          error: 'AUTHENTICATION_REQUIRED'
+        });
+        return;
+      }
+
+      // Admin can update any workspace, so we don't use the regular updateWorkspace method
+      const allowedFields = ['name', 'display_name', 'description', 'logo_url', 'settings', 'is_active', 'owner_id'];
+      const updates = {};
+      const values = [];
+      let paramIndex = 1;
+
+      for (const [key, value] of Object.entries(updateData)) {
+        if (allowedFields.includes(key)) {
+          updates[key] = `$${paramIndex}`;
+          values.push(value);
+          paramIndex++;
+        }
+      }
+
+      if (Object.keys(updates).length === 0) {
+        res.status(400).json({
+          success: false,
+          message: 'No valid fields to update',
+          error: 'NO_VALID_FIELDS'
+        });
+        return;
+      }
+
+      const updateQuery = `
+        UPDATE workspaces 
+        SET ${Object.entries(updates).map(([key, placeholder]) => `${key} = ${placeholder}`).join(', ')},
+            updated_at = NOW()
+        WHERE id = $${paramIndex}
+        RETURNING *
+      `;
+
+      values.push(workspaceId);
+      const result = await this.db.query(updateQuery, values);
+
+      if (result.rows.length === 0) {
+        res.status(404).json({
+          success: false,
+          message: 'Workspace not found',
+          error: 'WORKSPACE_NOT_FOUND'
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Workspace updated successfully',
+        data: result.rows[0]
+      });
+
+    } catch (error: any) {
+      console.error('❌ Admin WorkspaceController: Update workspace error:', error);
+      logger.error('Admin update workspace controller error:', {
+        error: error.message,
+        workspaceId: req.params.workspaceId,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update workspace',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  };
+
+  /**
+   * Delete workspace (Admin-level)
+   * DELETE /api/admin/workspaces/:workspaceId
+   */
+  public deleteWorkspaceAdmin = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const workspaceId = req.params.workspaceId;
+
+      console.log('🏢 Admin WorkspaceController: Deleting workspace:', workspaceId);
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          error: 'AUTHENTICATION_REQUIRED'
+        });
+        return;
+      }
+
+      // For safety, we'll do a soft delete by setting is_active = false
+      const query = `
+        UPDATE workspaces 
+        SET is_active = false, updated_at = NOW()
+        WHERE id = $1 OR slug = $1
+        RETURNING id, name, slug
+      `;
+
+      const result = await this.db.query(query, [workspaceId]);
+
+      if (result.rows.length === 0) {
+        res.status(404).json({
+          success: false,
+          message: 'Workspace not found',
+          error: 'WORKSPACE_NOT_FOUND'
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Workspace deleted successfully',
+        data: {
+          id: result.rows[0].id,
+          name: result.rows[0].name,
+          slug: result.rows[0].slug,
+          deleted: true
+        }
+      });
+
+    } catch (error: any) {
+      console.error('❌ Admin WorkspaceController: Delete workspace error:', error);
+      logger.error('Admin delete workspace controller error:', {
+        error: error.message,
+        workspaceId: req.params.workspaceId,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to delete workspace',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  };
+
+  /**
+   * Get workspace members (Admin-level)
+   * GET /api/admin/workspaces/:workspaceId/members
+   */
+  public getWorkspaceMembersAdmin = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const workspaceId = req.params.workspaceId;
+
+      console.log('🏢 Admin WorkspaceController: Getting workspace members:', workspaceId);
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          error: 'AUTHENTICATION_REQUIRED'
+        });
+        return;
+      }
+
+      const query = `
+        SELECT 
+          u.id,
+          u.email,
+          u.name,
+          u.avatar_url,
+          u.is_active as user_active,
+          ura.role_id,
+          r.name as role_name,
+          r.display_name as role_display_name,
+          ura.assigned_at,
+          ura.assigned_by,
+          ura.is_active as assignment_active,
+          assigner.email as assigned_by_email
+        FROM users u
+        INNER JOIN user_role_assignments ura ON u.id = ura.user_id
+        LEFT JOIN roles r ON ura.role_id = r.id
+        LEFT JOIN users assigner ON ura.assigned_by = assigner.id
+        WHERE ura.workspace_id = $1
+        ORDER BY ura.assigned_at ASC
+      `;
+
+      const result = await this.db.query(query, [workspaceId]);
+      const members = result.rows.map(row => ({
+        id: row.id,
+        email: row.email,
+        name: row.name,
+        avatar_url: row.avatar_url,
+        user_active: row.user_active,
+        role_id: row.role_id,
+        role_name: row.role_name,
+        role_display_name: row.role_display_name,
+        assigned_at: row.assigned_at,
+        assigned_by: row.assigned_by,
+        assigned_by_email: row.assigned_by_email,
+        assignment_active: row.assignment_active
+      }));
+
+      res.status(200).json({
+        success: true,
+        message: 'Workspace members retrieved successfully',
+        data: members,
+        count: members.length
+      });
+
+    } catch (error: any) {
+      console.error('❌ Admin WorkspaceController: Get workspace members error:', error);
+      logger.error('Admin get workspace members controller error:', {
+        error: error.message,
+        workspaceId: req.params.workspaceId,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve workspace members',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  };
+
+  /**
+   * Add member to workspace (Admin-level)
+   * POST /api/admin/workspaces/:workspaceId/members
+   */
+  public addWorkspaceMemberAdmin = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const workspaceId = req.params.workspaceId;
+      const { user_id, role_id, email } = req.body;
+
+      console.log('🏢 Admin WorkspaceController: Adding workspace member:', { workspaceId, user_id, email });
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          error: 'AUTHENTICATION_REQUIRED'
+        });
+        return;
+      }
+
+      if (!user_id && !email) {
+        res.status(400).json({
+          success: false,
+          message: 'User ID or email is required',
+          error: 'MISSING_USER_IDENTIFIER'
+        });
+        return;
+      }
+
+      let targetUserId = user_id;
+
+      // If email provided instead of user_id, find the user
+      if (!targetUserId && email) {
+        const userQuery = 'SELECT id FROM users WHERE email = $1';
+        const userResult = await this.db.query(userQuery, [email]);
+        
+        if (userResult.rows.length === 0) {
+          res.status(404).json({
+            success: false,
+            message: 'User not found with that email',
+            error: 'USER_NOT_FOUND'
+          });
+          return;
+        }
+        
+        targetUserId = userResult.rows[0].id;
+      }
+
+      // Check if user is already a member
+      const existingQuery = `
+        SELECT id FROM user_role_assignments 
+        WHERE user_id = $1 AND workspace_id = $2 AND is_active = true
+      `;
+      const existingResult = await this.db.query(existingQuery, [targetUserId, workspaceId]);
+
+      if (existingResult.rows.length > 0) {
+        res.status(409).json({
+          success: false,
+          message: 'User is already a member of this workspace',
+          error: 'ALREADY_MEMBER'
+        });
+        return;
+      }
+
+      // Add the user to the workspace
+      const insertQuery = `
+        INSERT INTO user_role_assignments (user_id, workspace_id, role_id, assigned_by, assigned_at, is_active)
+        VALUES ($1, $2, $3, $4, NOW(), true)
+        RETURNING id
+      `;
+
+      const insertResult = await this.db.query(insertQuery, [
+        targetUserId, 
+        workspaceId, 
+        role_id || 'viewer', // Default to viewer role if not specified
+        userId
+      ]);
+
+      res.status(201).json({
+        success: true,
+        message: 'User added to workspace successfully',
+        data: {
+          assignment_id: insertResult.rows[0].id,
+          user_id: targetUserId,
+          workspace_id: workspaceId,
+          role_id: role_id || 'viewer'
+        }
+      });
+
+    } catch (error: any) {
+      console.error('❌ Admin WorkspaceController: Add workspace member error:', error);
+      logger.error('Admin add workspace member controller error:', {
+        error: error.message,
+        workspaceId: req.params.workspaceId,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to add user to workspace',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  };
+
+  /**
+   * Update workspace member role (Admin-level)
+   * PUT /api/admin/workspaces/:workspaceId/members/:userId
+   */
+  public updateWorkspaceMemberAdmin = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const workspaceId = req.params.workspaceId;
+      const targetUserId = req.params.userId;
+      const { role_id } = req.body;
+
+      console.log('🏢 Admin WorkspaceController: Updating workspace member:', { workspaceId, targetUserId, role_id });
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          error: 'AUTHENTICATION_REQUIRED'
+        });
+        return;
+      }
+
+      if (!role_id) {
+        res.status(400).json({
+          success: false,
+          message: 'Role ID is required',
+          error: 'MISSING_ROLE_ID'
+        });
+        return;
+      }
+
+      const updateQuery = `
+        UPDATE user_role_assignments 
+        SET role_id = $1, updated_at = NOW()
+        WHERE user_id = $2 AND workspace_id = $3 AND is_active = true
+        RETURNING id
+      `;
+
+      const result = await this.db.query(updateQuery, [role_id, targetUserId, workspaceId]);
+
+      if (result.rows.length === 0) {
+        res.status(404).json({
+          success: false,
+          message: 'Workspace member not found',
+          error: 'MEMBER_NOT_FOUND'
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Workspace member role updated successfully',
+        data: {
+          assignment_id: result.rows[0].id,
+          user_id: targetUserId,
+          workspace_id: workspaceId,
+          new_role_id: role_id
+        }
+      });
+
+    } catch (error: any) {
+      console.error('❌ Admin WorkspaceController: Update workspace member error:', error);
+      logger.error('Admin update workspace member controller error:', {
+        error: error.message,
+        workspaceId: req.params.workspaceId,
+        targetUserId: req.params.userId,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update workspace member',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  };
+
+  /**
+   * Remove member from workspace (Admin-level)
+   * DELETE /api/admin/workspaces/:workspaceId/members/:userId
+   */
+  public removeWorkspaceMemberAdmin = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const workspaceId = req.params.workspaceId;
+      const targetUserId = req.params.userId;
+
+      console.log('🏢 Admin WorkspaceController: Removing workspace member:', { workspaceId, targetUserId });
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          error: 'AUTHENTICATION_REQUIRED'
+        });
+        return;
+      }
+
+      // Soft delete - set is_active to false
+      const updateQuery = `
+        UPDATE user_role_assignments 
+        SET is_active = false, updated_at = NOW()
+        WHERE user_id = $1 AND workspace_id = $2 AND is_active = true
+        RETURNING id
+      `;
+
+      const result = await this.db.query(updateQuery, [targetUserId, workspaceId]);
+
+      if (result.rows.length === 0) {
+        res.status(404).json({
+          success: false,
+          message: 'Workspace member not found',
+          error: 'MEMBER_NOT_FOUND'
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'User removed from workspace successfully',
+        data: {
+          assignment_id: result.rows[0].id,
+          user_id: targetUserId,
+          workspace_id: workspaceId,
+          removed: true
+        }
+      });
+
+    } catch (error: any) {
+      console.error('❌ Admin WorkspaceController: Remove workspace member error:', error);
+      logger.error('Admin remove workspace member controller error:', {
+        error: error.message,
+        workspaceId: req.params.workspaceId,
+        targetUserId: req.params.userId,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to remove user from workspace',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  };
+
+  /**
+   * Get workspace statistics (Admin-level)
+   * GET /api/admin/workspaces/:workspaceId/stats
+   */
+  public getWorkspaceStatsAdmin = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const workspaceId = req.params.workspaceId;
+
+      console.log('🏢 Admin WorkspaceController: Getting workspace stats:', workspaceId);
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          error: 'AUTHENTICATION_REQUIRED'
+        });
+        return;
+      }
+
+      // Get comprehensive workspace statistics
+      const query = `
+        SELECT 
+          w.name,
+          w.slug,
+          w.created_at,
+          COUNT(DISTINCT ura.user_id) FILTER (WHERE ura.is_active = true) as active_members,
+          COUNT(DISTINCT d.id) FILTER (WHERE d.is_active = true) as active_dashboards,
+          COUNT(DISTINCT dt.id) FILTER (WHERE dt.is_active = true) as active_datasets,
+          COUNT(DISTINCT c.id) FILTER (WHERE c.is_active = true) as active_charts,
+          COUNT(DISTINCT ds.id) FILTER (WHERE ds.is_active = true) as active_datasources
+        FROM workspaces w
+        LEFT JOIN user_role_assignments ura ON w.id = ura.workspace_id
+        LEFT JOIN dashboards d ON w.id = d.workspace_id
+        LEFT JOIN datasets dt ON w.id = dt.workspace_id
+        LEFT JOIN charts c ON w.id = c.workspace_id
+        LEFT JOIN datasources ds ON w.id = ds.workspace_id
+        WHERE w.id = $1 OR w.slug = $1
+        GROUP BY w.id, w.name, w.slug, w.created_at
+      `;
+
+      const result = await this.db.query(query, [workspaceId]);
+
+      if (result.rows.length === 0) {
+        res.status(404).json({
+          success: false,
+          message: 'Workspace not found',
+          error: 'WORKSPACE_NOT_FOUND'
+        });
+        return;
+      }
+
+      const row = result.rows[0];
+      const stats = {
+        workspace_name: row.name,
+        workspace_slug: row.slug,
+        created_at: row.created_at,
+        active_members: parseInt(row.active_members) || 0,
+        active_dashboards: parseInt(row.active_dashboards) || 0,
+        active_datasets: parseInt(row.active_datasets) || 0,
+        active_charts: parseInt(row.active_charts) || 0,
+        active_datasources: parseInt(row.active_datasources) || 0
+      };
+
+      res.status(200).json({
+        success: true,
+        message: 'Workspace statistics retrieved successfully',
+        data: stats
+      });
+
+    } catch (error: any) {
+      console.error('❌ Admin WorkspaceController: Get workspace stats error:', error);
+      logger.error('Admin get workspace stats controller error:', {
+        error: error.message,
+        workspaceId: req.params.workspaceId,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve workspace statistics',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  };
+
+  /**
+   * Update workspace status (Admin-level)
+   * PATCH /api/admin/workspaces/:workspaceId/status
+   */
+  public updateWorkspaceStatusAdmin = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const workspaceId = req.params.workspaceId;
+      const { is_active } = req.body;
+
+      console.log('🏢 Admin WorkspaceController: Updating workspace status:', { workspaceId, is_active });
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          error: 'AUTHENTICATION_REQUIRED'
+        });
+        return;
+      }
+
+      if (typeof is_active !== 'boolean') {
+        res.status(400).json({
+          success: false,
+          message: 'is_active must be a boolean value',
+          error: 'INVALID_STATUS_VALUE'
+        });
+        return;
+      }
+
+      const updateQuery = `
+        UPDATE workspaces 
+        SET is_active = $1, updated_at = NOW()
+        WHERE id = $2 OR slug = $2
+        RETURNING id, name, slug, is_active
+      `;
+
+      const result = await this.db.query(updateQuery, [is_active, workspaceId]);
+
+      if (result.rows.length === 0) {
+        res.status(404).json({
+          success: false,
+          message: 'Workspace not found',
+          error: 'WORKSPACE_NOT_FOUND'
+        });
+        return;
+      }
+
+      const workspace = result.rows[0];
+
+      res.status(200).json({
+        success: true,
+        message: `Workspace ${is_active ? 'activated' : 'suspended'} successfully`,
+        data: {
+          id: workspace.id,
+          name: workspace.name,
+          slug: workspace.slug,
+          is_active: workspace.is_active,
+          status: workspace.is_active ? 'active' : 'suspended'
+        }
+      });
+
+    } catch (error: any) {
+      console.error('❌ Admin WorkspaceController: Update workspace status error:', error);
+      logger.error('Admin update workspace status controller error:', {
+        error: error.message,
+        workspaceId: req.params.workspaceId,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update workspace status',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  }
+
   /**
    * Get workspace by ID
    * GET /api/workspaces/:workspaceId
@@ -506,5 +1396,5 @@ export class WorkspaceController {
       });
     }
   };
-  
+
 }
