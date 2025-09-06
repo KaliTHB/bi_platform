@@ -57,8 +57,16 @@ const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
   };
 
   const handleHome = () => {
+    const { workspaceSlug } = router.query;
+    
     if (workspace) {
-      router.push(`/workspace/${workspace.slug}/overview`);
+      // If we're on a workspace-specific page, go to workspace-specific overview
+      if (workspaceSlug && typeof workspaceSlug === 'string') {
+        router.push(`/workspace/${workspaceSlug}/overview`);
+      } else {
+        // Go to general overview
+        router.push('/workspace/overview');
+      }
     } else {
       // Redirect to login to get default workspace
       signOut();

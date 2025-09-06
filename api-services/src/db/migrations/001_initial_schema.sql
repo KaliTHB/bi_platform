@@ -88,17 +88,6 @@ CREATE TABLE IF NOT EXISTS permissions (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-
--- User workspace roles
-CREATE TABLE user_workspace_roles (
-  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-  workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
-  role_id UUID REFERENCES roles(id) ON DELETE CASCADE,
-  assigned_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  assigned_by UUID REFERENCES users(id),
-  PRIMARY KEY (user_id, workspace_id, role_id)
-);
-
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_workspaces_owner_id ON workspaces(owner_id);
 CREATE INDEX IF NOT EXISTS idx_workspaces_slug ON workspaces(slug);

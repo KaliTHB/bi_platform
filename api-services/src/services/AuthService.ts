@@ -1,7 +1,9 @@
-// api-services/src/services/AuthService.ts - Fixed database usage
-import { Pool } from 'pg';
+// api-services/src/services/AuthService.ts - IMPROVED ERROR HANDLING
+import { Pool, QueryResult } from 'pg';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
+import { db } from '../utils/database';
 
 export interface AuthenticatedUser {
   id: string;
@@ -24,19 +26,13 @@ export interface WorkspaceInfo {
   is_active: boolean;
   created_at: Date;
   updated_at: Date;
-  role?: string;
-  role_level?: number;
-  member_count?: number;
-  dashboard_count?: number;
-  dataset_count?: number;
-  joined_at?: Date;
-}
-
-export interface UserPermissions {
-  permissions: string[];
-  roles: string[];
-  is_admin: boolean;
+  role: string;
   role_level: number;
+  role_id: string;
+  member_count: number;
+  dashboard_count: number;
+  dataset_count: number;
+  joined_at: Date;
 }
 
 export interface LoginResult {
@@ -46,594 +42,446 @@ export interface LoginResult {
   token?: string;
   permissions?: string[];
   error?: string;
+  errorCode?: string;
 }
 
-export interface WorkspaceSwitchResult {
-  success: boolean;
-  workspace?: WorkspaceInfo;
-  token?: string;
-  permissions?: string[];
-  error?: string;
+// Custom error types for better error handling
+export class DatabaseConnectionError extends Error {
+  constructor(message: string, public originalError: any) {
+    super(message);
+    this.name = 'DatabaseConnectionError';
+  }
+}
+
+export class AuthenticationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuthenticationError';
+  }
 }
 
 export class AuthService {
-  private db: Pool;
+  private database: Pool;
 
-  constructor(database: Pool) {
-    if (!database) {
-      throw new Error('Database pool is required for AuthService');
+  constructor(database?: Pool) {
+    this.database = database || db;
+    
+    if (!this.database) {
+      throw new Error('Database connection is required for AuthService');
     }
-    this.db = database;
+    
+    if (typeof this.database.query !== 'function') {
+      throw new Error('Invalid database connection - missing query method');
+    }
+    
+    logger.info('AuthService initialized with database connection', {
+      service: 'bi-platform-api',
+      hasDatabase: !!this.database,
+      hasQuery: typeof this.database.query === 'function'
+    });
   }
 
   /**
- * Complete login method for AuthService
- * Add this method to your existing AuthService class
- */
-/**
- * Complete login method - Add this to your AuthService class
- */
-async login(emailOrUsername: string, password: string, workspaceSlug?: string): Promise<LoginResult> {
-  try {
-    logger.info('Starting login process', { 
-      emailOrUsername, 
-      workspaceSlug,
-      service: 'bi-platform-api' 
-    });
-
-    // Step 1: Authenticate the user
-    const user = await this.authenticateUser(emailOrUsername, password);
-    if (!user) {
-      return {
-        success: false,
-        error: 'Invalid credentials'
-      };
-    }
-
-    // Step 2: Handle workspace selection/assignment
-    let workspace: WorkspaceInfo | undefined;
-    
-    if (workspaceSlug) {
-      // User specified a workspace
-      workspace = await this.getWorkspaceBySlug(workspaceSlug, user.id);
-      if (!workspace) {
-        return {
-          success: false,
-          error: 'Workspace not found or access denied'
-        };
-      }
-    } else {
-      // Get user's default workspace
-      workspace = await this.getUserDefaultWorkspace(user.id);
-    }
-
-    // Step 3: Generate JWT token
-    const token = await this.generateAuthToken(user, workspace);
-
-    // Step 4: Get user permissions for the workspace
-    const permissions = workspace 
-      ? await this.getUserWorkspacePermissions(user.id, workspace.id)
-      : [];
-
-    // Step 5: Update last login timestamp
-    await this.updateLastLogin(user.id);
-
-    logger.info('Login successful', {
-      userId: user.id,
-      email: user.email,
-      workspaceId: workspace?.id,
-      permissionCount: permissions.length,
-      service: 'bi-platform-api'
-    });
-
-    return {
-      success: true,
-      user,
-      workspace,
-      token,
-      permissions
-    };
-
-  } catch (error: any) {
-    logger.error('Login process error:', {
-      emailOrUsername,
-      workspaceSlug,
-      error: error.message,
-      stack: error.stack,
-      service: 'bi-platform-api'
-    });
-
-    return {
-      success: false,
-      error: 'Authentication service error'
-    };
-  }
-}
-
-/**
- * Helper method: Get user's default workspace
- */
-async getUserDefaultWorkspace(userId: string): Promise<WorkspaceInfo | undefined> {
-  try {
-    const query = `
-      SELECT w.id, w.name, w.slug, w.description, w.is_active, 
-             w.created_at, w.updated_at,
-             wr.role, wr.role_level,
-             (SELECT COUNT(*) FROM user_role_assignments wm2 WHERE wm2.workspace_id = w.id) as member_count,
-             (SELECT COUNT(*) FROM dashboards d WHERE d.workspace_id = w.id) as dashboard_count,
-             (SELECT COUNT(*) FROM datasets ds WHERE ds.workspace_id = w.id) as dataset_count,
-             wm.joined_at
-      FROM workspaces w
-      INNER JOIN user_role_assignments wm ON w.id = wm.workspace_id
-      LEFT JOIN workspace_roles wr ON wm.role_id = wr.id
-      WHERE wm.user_id = $1 AND wm.is_active = true AND w.is_active = true
-      ORDER BY wm.joined_at ASC
-      LIMIT 1
-    `;
-    
-    const result = await this.db.query(query, [userId]);
-    return result.rows[0] || undefined;
-    
-  } catch (error: any) {
-    logger.error('Get default workspace error:', {
-      userId,
-      error: error.message,
-      service: 'bi-platform-api'
-    });
-    return undefined;
-  }
-}
-/**
- * Get user permissions for a specific workspace
- */
-async getUserWorkspacePermissions(userId: string, workspaceId: string): Promise<string[]> {
-  try {
-    const query = `
-      SELECT DISTINCT p.permission_name
-      FROM permissions p
-      INNER JOIN role_permissions rp ON p.id = rp.permission_id
-      INNER JOIN workspace_roles wr ON rp.role_id = wr.id
-      INNER JOIN user_role_assignments wm ON wr.id = wm.role_id
-      WHERE wm.user_id = $1 AND wm.workspace_id = $2 AND wm.is_active = true
-    `;
-    
-    const result = await this.db.query(query, [userId, workspaceId]);
-    return result.rows.map(row => row.permission_name);
-    
-  } catch (error: any) {
-    logger.error('Get user permissions error:', {
-      userId,
-      workspaceId,
-      error: error.message,
-      service: 'bi-platform-api'
-    });
-    return [];
-  }
-}
-
-
-/**
- * Logout user (optional: invalidate token if using token blacklist)
- */
-async logout(userId: string, token?: string): Promise<{
-  success: boolean;
-  message?: string;
-  error?: string;
-}> {
-  try {
-    logger.info('User logout', { 
-      userId,
-      service: 'bi-platform-api' 
-    });
-
-    // Optional: Add token to blacklist if you're maintaining one
-    // await this.addTokenToBlacklist(token);
-
-    // Optional: Update user's logout timestamp
+   * Test database connection health
+   */
+  async testDatabaseConnection(): Promise<boolean> {
     try {
-      await this.db.query(
-        'UPDATE users SET updated_at = NOW() WHERE id = $1',
-        [userId]
-      );
-    } catch (dbError: any) {
-      logger.warn('Could not update user logout timestamp', {
-        userId,
-        error: dbError.message,
-        service: 'bi-platform-api'
-      });
+      await this.database.query('SELECT 1 as health_check');
+      return true;
+    } catch (error) {
+      logger.error('Database health check failed:', error);
+      return false;
     }
-
-    logger.info('User logout successful', { 
-      userId,
-      service: 'bi-platform-api' 
-    });
-
-    return {
-      success: true,
-      message: 'Logout successful'
-    };
-
-  } catch (error: any) {
-    logger.error('Logout error:', {
-      userId,
-      error: error.message,
-      service: 'bi-platform-api'
-    });
-
-    return {
-      success: false,
-      error: 'Logout failed'
-    };
   }
-}
-
-/**
- * Refresh authentication token
- */
-async refreshToken(userId: string, currentToken: string): Promise<{
-  success: boolean;
-  token?: string;
-  user?: AuthenticatedUser;
-  workspace?: WorkspaceInfo;
-  permissions?: string[];
-  error?: string;
-}> {
-  try {
-    // Verify current token is valid (you might want to add token validation logic)
-    const user = await this.getUserById(userId);
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found'
-      };
-    }
-
-    // Get current workspace from token payload (you'll need to decode the JWT)
-    const jwt = require('jsonwebtoken');
-    let workspaceId: string | undefined;
-    
-    try {
-      const decoded: any = jwt.decode(currentToken);
-      workspaceId = decoded?.workspace_id;
-    } catch (decodeError) {
-      // Continue without workspace if token decode fails
-    }
-
-    let workspace: WorkspaceInfo | undefined;
-    let permissions: string[] = [];
-
-    if (workspaceId) {
-      const workspaceResult = await this.db.query(
-        'SELECT * FROM workspaces WHERE id = $1 AND is_active = true',
-        [workspaceId]
-      );
-      workspace = workspaceResult.rows[0];
-      
-      if (workspace) {
-        permissions = await this.getUserWorkspacePermissions(userId, workspaceId);
-      }
-    }
-
-    // Generate new token
-    const newToken = await this.generateAuthToken(user, workspace);
-
-    return {
-      success: true,
-      token: newToken,
-      user,
-      workspace,
-      permissions
-    };
-
-  } catch (error: any) {
-    logger.error('Token refresh error:', {
-      userId,
-      error: error.message,
-      service: 'bi-platform-api'
-    });
-
-    return {
-      success: false,
-      error: 'Token refresh failed'
-    };
-  }
-}
-
-/**
- * Add this switchWorkspace method to your AuthService class
- */
-async switchWorkspace(userId: string, workspaceSlug: string): Promise<WorkspaceSwitchResult> {
-  try {
-    logger.info('Switching workspace', { 
-      userId, 
-      workspaceSlug,
-      service: 'bi-platform-api' 
-    });
-
-    // Get the target workspace and verify user access
-    const workspace = await this.getWorkspaceBySlug(workspaceSlug, userId);
-    if (!workspace) {
-      return {
-        success: false,
-        error: 'Workspace not found or access denied'
-      };
-    }
-
-    // Get user data
-    const user = await this.getUserById(userId);
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found'
-      };
-    }
-
-    // Generate new token with new workspace
-    const token = await this.generateAuthToken(user, workspace);
-
-    // Get permissions for the new workspace
-    const permissions = await this.getUserWorkspacePermissions(userId, workspace.id);
-
-    logger.info('Workspace switch successful', {
-      userId,
-      newWorkspaceId: workspace.id,
-      newWorkspaceName: workspace.name,
-      service: 'bi-platform-api'
-    });
-
-    return {
-      success: true,
-      workspace,
-      token,
-      permissions
-    };
-
-  } catch (error: any) {
-    logger.error('Workspace switch error:', {
-      userId,
-      workspaceSlug,
-      error: error.message,
-      stack: error.stack,
-      service: 'bi-platform-api'
-    });
-
-    return {
-      success: false,
-      error: 'Workspace switch failed'
-    };
-  }
-}
-
-/**
- * Generate JWT authentication token
- */
-async generateAuthToken(user: AuthenticatedUser, workspace?: WorkspaceInfo): Promise<string> {
-  // You'll need to install and import jsonwebtoken: npm install jsonwebtoken @types/jsonwebtoken
-  const jwt = require('jsonwebtoken');
-  
-  const payload = {
-    user_id: user.id,
-    email: user.email,
-    workspace_id: workspace?.id,
-    workspace_slug: workspace?.slug,
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
-  };
-
-  const secret = process.env.JWT_SECRET || 'your-secret-key';
-  return jwt.sign(payload, secret);
-}
 
   /**
- * Authenticate user with email/username and password
- * Updated return type: Promise<AuthenticatedUser | undefined>
- */
-async authenticateUser(emailOrUsername: string, password: string): Promise<AuthenticatedUser | undefined> {
-  try {
-    logger.info('Authenticating user', { 
-      emailOrUsername,
-      service: 'bi-platform-api' 
+   * Handle database errors with proper classification
+   */
+  private handleDatabaseError(error: any, operation: string): never {
+    logger.error(`Database error during ${operation}:`, {
+      service: 'bi-platform-api',
+      operation,
+      error: error.message,
+      code: error.code,
+      stack: error.stack
     });
 
-    // Query user by email or username - Use this.db consistently
-    const result = await this.db.query(
-      `SELECT id, username, email, password_hash, first_name, last_name,
-              avatar_url, is_active, last_login, created_at, updated_at
-      FROM users
-      WHERE (email = $1 OR username = $1) AND is_active = true`,
-      [emailOrUsername]
+    // Check for specific PostgreSQL error codes
+    if (error.code === 'ECONNREFUSED') {
+      throw new DatabaseConnectionError(
+        'Database service is not available. Please ensure PostgreSQL is running.',
+        error
+      );
+    }
+    
+    if (error.code === '28P01') {
+      throw new DatabaseConnectionError(
+        'Database authentication failed. Please check database credentials.',
+        error
+      );
+    }
+    
+    if (error.code === '3D000') {
+      throw new DatabaseConnectionError(
+        'Database does not exist. Please create the database first.',
+        error
+      );
+    }
+    
+    if (error.code === 'ENOTFOUND') {
+      throw new DatabaseConnectionError(
+        'Database host not found. Please check the database host configuration.',
+        error
+      );
+    }
+
+    // Handle AggregateError from connection pool
+    if (error.name === 'AggregateError' || error.errors) {
+      const firstError = error.errors?.[0] || error;
+      throw new DatabaseConnectionError(
+        `Database connection pool failed: ${firstError.message}`,
+        error
+      );
+    }
+
+    // Generic database error
+    throw new DatabaseConnectionError(
+      `Database operation failed: ${error.message}`,
+      error
     );
-    
-    const user = result.rows[0];
-    console.log(user);
-    
-    if (!user) {
-      logger.warn('Authentication failed: User not found', { emailOrUsername });
-      return undefined; // Changed from null to undefined
-    }
-
-    // Verify password
-    const isValidPassword = await bcrypt.compare(password, user.password_hash);
-    if (!isValidPassword) {
-      logger.warn('Authentication failed: Invalid password', { 
-        emailOrUsername, 
-        userId: user.id 
-      });
-      return undefined; // Changed from null to undefined
-    }
-
-    // Remove password_hash from returned user object
-    const { password_hash, ...authenticatedUser } = user;
-    
-    logger.info('User authenticated successfully', { 
-      userId: authenticatedUser.id, 
-      email: authenticatedUser.email 
-    });
-    
-    return authenticatedUser;
-    
-  } catch (error: any) {
-    logger.error('Authentication service error:', {
-      emailOrUsername,
-      error: error.message,
-      stack: error.stack,
-      service: 'bi-platform-api'
-    });
-    return undefined; // Changed from null to undefined
-  }
-}
-  /**
- * Get user by ID
- * Updated return type: Promise<AuthenticatedUser | undefined>
- */
-async getUserById(userId: string): Promise<AuthenticatedUser | undefined> {
-  try {
-    const query = `
-      SELECT id, username, email, first_name, last_name, 
-             avatar_url, is_active, last_login, created_at, updated_at
-      FROM users 
-      WHERE id = $1 AND is_active = true
-    `;
-    
-    const result = await this.db.query(query, [userId]);
-    return result.rows[0] || undefined; // Changed from null to undefined
-    
-  } catch (error: any) {
-    logger.error('Get user by ID error:', {
-      userId,
-      error: error.message,
-      service: 'bi-platform-api'
-    });
-    return undefined; // Changed from null to undefined
   }
 
-}
-
   /**
-   * Get workspace by slug and verify user access
+   * Authenticate user with improved error handling
    */
-  async getWorkspaceBySlug(workspaceSlug: string, userId?: string): Promise<WorkspaceInfo | null> {
+  async authenticateUser(emailOrUsername: string, password: string): Promise<AuthenticatedUser | null> {
     try {
-      let query = `
-        SELECT w.id, w.name, w.slug, w.description, w.is_active, 
-               w.created_at, w.updated_at
-        FROM workspaces w
-        WHERE w.slug = $1 AND w.is_active = true
-      `;
-      
-      const params = [workspaceSlug];
-      
-      if (userId) {
-        query = `
-          SELECT w.id, w.name, w.slug, w.description, w.is_active, 
-          w.created_at, w.updated_at,
-          r.name as role,
-          ura.assigned_at as joined_at
-          FROM workspaces w
-          LEFT JOIN user_role_assignments ura ON w.id = ura.workspace_id AND ura.user_id = $2 AND ura.is_active = true
-          LEFT JOIN roles r ON ura.role_id = r.id
-          WHERE w.slug = $1 AND w.is_active = true
-        `;
-        params.push(userId);
+      logger.info('Attempting to authenticate user', { 
+        service: 'bi-platform-api',
+        emailOrUsername: emailOrUsername.substring(0, 3) + '***'
+      });
+
+      // Test database connection first
+      const isHealthy = await this.testDatabaseConnection();
+      if (!isHealthy) {
+        throw new DatabaseConnectionError(
+          'Database connection is not healthy',
+          new Error('Health check failed')
+        );
       }
-      
-      const result = await this.db.query(query, params);
-      return result.rows[0] || null;
-      
-    } catch (error: any) {
-      logger.error('Get workspace by slug error:', {
-        workspaceSlug,
-        userId,
-        error: error.message,
-        service: 'bi-platform-api'
-      });
-      return null;
-    }
-  }
 
-  /**
-   * Get user permissions for a workspace
-   */
-  async getUserPermissions(userId: string, workspaceId: string): Promise<UserPermissions> {
-    try {
       const query = `
-        SELECT r.role_name, r.role_level, r.permissions
-        FROM user_role_assignments ura
-        LEFT JOIN roles r ON ura.role_name = r.name AND ura.workspace_id = r.workspace_id
-        WHERE ura.user_id = $1 AND ura.workspace_id = $2 AND ura.is_active = true
-
+        SELECT id, username, email, first_name, last_name, password_hash, 
+               avatar_url, is_active, last_login_at, created_at, updated_at
+        FROM users 
+        WHERE (email = $1 OR username = $1) AND is_active = true
       `;
-      
-      const result = await this.db.query(query, [userId, workspaceId]);
+
+      logger.debug('Executing user authentication query');
+      const result: QueryResult = await this.database.query(query, [emailOrUsername]);
       
       if (result.rows.length === 0) {
-        return {
-          permissions: [],
-          roles: [],
-          is_admin: false,
-          role_level: 0
-        };
+        logger.warn('User not found or inactive', { 
+          service: 'bi-platform-api',
+          emailOrUsername: emailOrUsername.substring(0, 3) + '***'
+        });
+        return null;
+      }
+
+      const user = result.rows[0];
+      
+      // Verify password
+      logger.debug('Verifying password');
+      const isValidPassword = await bcrypt.compare(password, user.password_hash);
+      if (!isValidPassword) {
+        logger.warn('Invalid password', { 
+          service: 'bi-platform-api',
+          userId: user.id
+        });
+        return null;
+      }
+
+      // Update last login
+      try {
+        await this.database.query(
+          'UPDATE users SET last_login_at = NOW() WHERE id = $1',
+          [user.id]
+        );
+      } catch (updateError) {
+        // Log but don't fail authentication for this
+        logger.warn('Failed to update last login time:', updateError);
+      }
+
+      logger.info('User authenticated successfully', { 
+        service: 'bi-platform-api',
+        userId: user.id,
+        username: user.username
+      });
+
+      return {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        avatar_url: user.avatar_url,
+        is_active: user.is_active,
+        last_login: new Date(),
+        created_at: user.created_at,
+        updated_at: user.updated_at
+      };
+
+    } catch (error: any) {
+      // Distinguish between database errors and authentication errors
+      if (error instanceof DatabaseConnectionError) {
+        throw error; // Re-throw database connection errors
       }
       
-      const userRoles = result.rows;
-      const permissions = new Set<string>();
-      const roles: string[] = [];
-      let maxRoleLevel = 0;
+      // Handle other database errors
+      if (error.code || error.name === 'AggregateError') {
+        this.handleDatabaseError(error, 'user authentication');
+      }
       
-      userRoles.forEach(role => {
-        if (role.role_name) {
-          roles.push(role.role_name);
-          maxRoleLevel = Math.max(maxRoleLevel, role.role_level || 0);
-          
-          if (role.permissions) {
-            role.permissions.forEach((perm: string) => permissions.add(perm));
-          }
-        }
-      });
-      
-      return {
-        permissions: Array.from(permissions),
-        roles,
-        is_admin: maxRoleLevel >= 100, // Admin level threshold
-        role_level: maxRoleLevel
-      };
-      
-    } catch (error: any) {
-      logger.error('Get user permissions error:', {
+      // Log and re-throw unexpected errors
+      logger.error('Unexpected error during authentication:', error);
+      throw new Error(`Authentication service error: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get user's default workspace with improved error handling
+   */
+  async getUserDefaultWorkspace(userId: string): Promise<WorkspaceInfo | undefined> {
+    try {
+      logger.info('Getting user default workspace', { 
         userId,
-        workspaceId,
-        error: error.message,
         service: 'bi-platform-api'
       });
+
+      const query = `
+        SELECT 
+          w.id, w.name, w.slug, w.description, w.is_active, 
+          w.created_at, w.updated_at,
+          r.name as role, r.level as role_level, r.id as role_id,
+          (SELECT COUNT(*) FROM user_role_assignments ura2 
+           WHERE ura2.workspace_id = w.id AND ura2.is_active = true) as member_count,
+          (SELECT COUNT(*) FROM dashboards d WHERE d.workspace_id = w.id) as dashboard_count,
+          (SELECT COUNT(*) FROM datasets ds WHERE ds.workspace_id = w.id) as dataset_count,
+          ura.created_at as joined_at
+        FROM workspaces w
+        INNER JOIN user_role_assignments ura ON w.id = ura.workspace_id
+        INNER JOIN roles r ON ura.role_id = r.id
+        WHERE ura.user_id = $1 AND ura.is_active = true AND w.is_active = true
+        ORDER BY ura.created_at ASC
+        LIMIT 1
+      `;
+
+      const result: QueryResult = await this.database.query(query, [userId]);
+      
+      if (result.rows.length === 0) {
+        logger.info('No default workspace found for user', { userId });
+        return undefined;
+      }
+
+      const row = result.rows[0];
+      
+      const workspaceInfo: WorkspaceInfo = {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        description: row.description,
+        is_active: row.is_active,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        role: row.role,
+        role_level: parseInt(row.role_level) || 0,
+        role_id: row.role_id,
+        member_count: parseInt(row.member_count) || 0,
+        dashboard_count: parseInt(row.dashboard_count) || 0,
+        dataset_count: parseInt(row.dataset_count) || 0,
+        joined_at: row.joined_at
+      };
+
+      logger.info('Default workspace retrieved successfully', { 
+        userId, 
+        workspaceId: workspaceInfo.id,
+        workspaceName: workspaceInfo.name
+      });
+
+      return workspaceInfo;
+
+    } catch (error: any) {
+      if (error.code || error.name === 'AggregateError') {
+        this.handleDatabaseError(error, 'get user default workspace');
+      }
+      
+      logger.error('Error getting user default workspace:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Main login method with comprehensive error handling
+   */
+  async login(emailOrUsername: string, password: string, workspaceSlug?: string): Promise<LoginResult> {
+    try {
+      logger.info('Starting login process', { 
+        emailOrUsername: emailOrUsername.substring(0, 3) + '***',
+        workspaceSlug,
+        service: 'bi-platform-api' 
+      });
+
+      // Step 1: Authenticate the user
+      const user = await this.authenticateUser(emailOrUsername, password);
+      if (!user) {
+        return {
+          success: false,
+          error: 'Invalid email/username or password',
+          errorCode: 'INVALID_CREDENTIALS'
+        };
+      }
+
+      // Step 2: Handle workspace selection
+      let workspace: WorkspaceInfo | undefined;
+      
+      if (workspaceSlug) {
+        workspace = await this.getWorkspaceBySlug(workspaceSlug, user.id);
+        if (!workspace) {
+          return {
+            success: false,
+            error: 'Workspace not found or access denied',
+            errorCode: 'WORKSPACE_ACCESS_DENIED'
+          };
+        }
+      } else {
+        workspace = await this.getUserDefaultWorkspace(user.id);
+      }
+
+      // Step 3: Generate JWT token
+      const token = await this.generateAuthToken(user, workspace);
+
+      logger.info('Login successful', { 
+        userId: user.id,
+        workspaceId: workspace?.id,
+        service: 'bi-platform-api'
+      });
+
       return {
-        permissions: [],
-        roles: [],
-        is_admin: false,
-        role_level: 0
+        success: true,
+        user,
+        workspace,
+        token,
+        permissions: [] // Add permission logic here
+      };
+
+    } catch (error: any) {
+      logger.error('Authentication service error:', {
+        service: 'bi-platform-api',
+        emailOrUsername: emailOrUsername.substring(0, 3) + '***',
+        error: error.message,
+        stack: error.stack
+      });
+
+      // Return specific error types
+      if (error instanceof DatabaseConnectionError) {
+        return {
+          success: false,
+          error: 'Database service is temporarily unavailable. Please try again later.',
+          errorCode: 'DATABASE_UNAVAILABLE'
+        };
+      }
+
+      if (error instanceof AuthenticationError) {
+        return {
+          success: false,
+          error: error.message,
+          errorCode: 'AUTHENTICATION_ERROR'
+        };
+      }
+
+      // Generic error response
+      return {
+        success: false,
+        error: 'Login failed due to internal error. Please try again later.',
+        errorCode: 'INTERNAL_ERROR'
       };
     }
   }
 
   /**
- * Update user's last login timestamp
- */
-async updateLastLogin(userId: string): Promise<void> {
-  try {
-    const query = `
-      UPDATE users 
-      SET last_login = NOW(), updated_at = NOW() 
-      WHERE id = $1
-    `;
-    
-    await this.db.query(query, [userId]);
-    
-  } catch (error: any) {
-    logger.error('Update last login error:', {
-      userId,
-      error: error.message,
-      service: 'bi-platform-api'
-    });
-    // Don't throw error for this operation
+   * Get workspace by slug (implementation needed)
+   */
+  async getWorkspaceBySlug(slug: string, userId: string): Promise<WorkspaceInfo | undefined> {
+    try {
+      const query = `
+        SELECT 
+          w.id, w.name, w.slug, w.description, w.is_active, 
+          w.created_at, w.updated_at,
+          r.name as role, r.level as role_level, r.id as role_id,
+          (SELECT COUNT(*) FROM user_role_assignments ura2 
+           WHERE ura2.workspace_id = w.id AND ura2.is_active = true) as member_count,
+          (SELECT COUNT(*) FROM dashboards d WHERE d.workspace_id = w.id) as dashboard_count,
+          (SELECT COUNT(*) FROM datasets ds WHERE ds.workspace_id = w.id) as dataset_count,
+          ura.created_at as joined_at
+        FROM workspaces w
+        INNER JOIN user_role_assignments ura ON w.id = ura.workspace_id
+        INNER JOIN roles r ON ura.role_id = r.id
+        WHERE w.slug = $1 AND ura.user_id = $2 
+          AND ura.is_active = true AND w.is_active = true
+      `;
+
+      const result = await this.database.query(query, [slug, userId]);
+      
+      if (result.rows.length === 0) {
+        return undefined;
+      }
+
+      const row = result.rows[0];
+      
+      return {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        description: row.description,
+        is_active: row.is_active,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        role: row.role,
+        role_level: parseInt(row.role_level) || 0,
+        role_id: row.role_id,
+        member_count: parseInt(row.member_count) || 0,
+        dashboard_count: parseInt(row.dashboard_count) || 0,
+        dataset_count: parseInt(row.dataset_count) || 0,
+        joined_at: row.joined_at
+      };
+
+    } catch (error: any) {
+      if (error.code || error.name === 'AggregateError') {
+        this.handleDatabaseError(error, 'get workspace by slug');
+      }
+      
+      logger.error('Error getting workspace by slug:', error);
+      throw error;
+    }
   }
-}
+
+  /**
+   * Generate JWT token
+   */
+  async generateAuthToken(user: AuthenticatedUser, workspace?: WorkspaceInfo): Promise<string> {
+    const payload = {
+      user_id: user.id,
+      email: user.email,
+      username: user.username,
+      workspace_id: workspace?.id,
+      workspace_slug: workspace?.slug,
+      workspace_role: workspace?.role,
+      role_level: workspace?.role_level || 0
+    };
+
+    const secret = process.env.JWT_SECRET || 'your-secret-key';
+    const expiresIn = process.env.JWT_EXPIRES_IN || '15m';
+
+    return jwt.sign(payload, secret, { expiresIn });
+  }
 }
