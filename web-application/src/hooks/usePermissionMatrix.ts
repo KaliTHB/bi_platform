@@ -53,7 +53,7 @@ export const usePermissionMatrix = (workspaceId: string) => {
       // Fetch users in the workspace
       const usersResponse = await fetch(`/api/workspaces/${workspaceId}/users`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         }
       });
@@ -67,7 +67,7 @@ export const usePermissionMatrix = (workspaceId: string) => {
       // Fetch available permissions
       const permissionsResponse = await fetch(`/api/workspaces/${workspaceId}/permissions`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         }
       });
@@ -81,7 +81,7 @@ export const usePermissionMatrix = (workspaceId: string) => {
       // Fetch current user permissions
       const userPermissionsResponse = await fetch(`/api/workspaces/${workspaceId}/user-permissions`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         }
       });
@@ -154,7 +154,7 @@ export const usePermissionMatrix = (workspaceId: string) => {
       const response = await fetch(`/api/workspaces/${workspaceId}/user-permissions/bulk`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({

@@ -104,7 +104,7 @@ const DashboardTemplate: React.FC<DashboardTemplateProps> = ({
         
         const response = await fetch(`/api/dashboards/${dashboardId}`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
           }
         });
         

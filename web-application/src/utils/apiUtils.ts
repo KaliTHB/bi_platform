@@ -44,7 +44,7 @@ apiClient.interceptors.request.use(
   (config: AxiosRequestConfig) => {
     // Get token from localStorage (with SSR safety)
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('token');
       if (token) {
         config.headers = config.headers || {};
         config.headers.Authorization = `Bearer ${token}`;
@@ -132,7 +132,7 @@ export const apiUtils = {
   // Get auth token
   getAuthToken: (): string | null => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('auth_token');
+      return localStorage.getItem('token');
     }
     return null;
   },
@@ -158,7 +158,7 @@ export const apiUtils = {
   // Check if user is authenticated
   isAuthenticated: (): boolean => {
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('token');
       return !!token;
     }
     return false;

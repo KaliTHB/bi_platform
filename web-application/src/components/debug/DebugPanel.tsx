@@ -90,7 +90,7 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ onClose }) => {
 
     // Test direct API call
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('token');
       const response = await fetch(`${results.apiUrl}/api/workspaces`, {
         headers: {
           'Authorization': `Bearer ${token}`,

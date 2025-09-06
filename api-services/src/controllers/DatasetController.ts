@@ -1,8 +1,8 @@
-// api-services/src/controllers/DatasetController.ts - COMPLETE WITH ALL MISSING METHODS
+// api-services/src/controllers/DataSourceController.ts - FIXED VERSION
 import { Request, Response } from 'express';
-import { DatasetService } from '../services/DatasetService';
-import { PermissionService } from '../services/PermissionService';
+import { DataSourceService } from '../services/DataSourceService';
 import { logger } from '../utils/logger';
+import { db } from '../utils/database'; // ✅ Import the database instance
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -10,1325 +10,385 @@ interface AuthenticatedRequest extends Request {
     email: string;
     workspace_id: string;
   };
+  workspace?: {
+    id: string;
+    slug: string;
+    name: string;
+  };
 }
 
-interface DatasetCreateRequest {
-  name: string;
-  display_name?: string;
-  description?: string;
-  type: 'sql' | 'file' | 'transformation' | 'api';
-  datasource_id?: string;
-  connection_config?: any;
-  query?: string;
-  file_path?: string;
-  transformation_config?: any;
-  parent_dataset_ids?: string[];
-  is_public?: boolean;
-  cache_ttl_minutes?: number;
-  tags?: string[];
-}
-
-interface DatasetUpdateRequest {
-  name?: string;
-  display_name?: string;
-  description?: string;
-  query?: string;
-  transformation_config?: any;
-  is_public?: boolean;
-  cache_ttl_minutes?: number;
-  tags?: string[];
-}
-
-export class DatasetController {
-  private datasetService: DatasetService;
-  private permissionService: PermissionService;
+export class DataSourceController {
+  private dataSourceService: DataSourceService;
 
   constructor() {
-    this.datasetService = new DatasetService();
-    this.permissionService = new PermissionService();
+    try {
+      console.log('🔧 DataSourceController: Initializing...');
+      
+      // ✅ Pass the database instance to the service
+      this.dataSourceService = new DataSourceService(db);
+      
+      console.log('✅ DataSourceController: Initialized successfully');
+      logger.info('DataSourceController initialized successfully');
+    } catch (error: any) {
+      console.error('❌ DataSourceController: Initialization failed:', error);
+      logger.error('DataSourceController initialization failed:', {
+        error: error.message,
+        stack: error.stack,
+        service: 'bi-platform-api'
+      });
+      throw error;
+    }
   }
 
-  // ✅ EXISTING METHODS (Already Implemented)
-
-  getDatasets = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  // Test custom connection without saving
+  testCustomConnection = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const { type, connection_config } = req.body;
       const userId = req.user?.user_id;
-      const { 
-        page = 1, 
-        limit = 20, 
-        search, 
-        type, 
-        datasource_id,
-        created_by,
-        include_schema 
-      } = req.query;
 
-      if (!workspaceId) {
+      if (!type || !connection_config) {
         res.status(400).json({
           success: false,
-          message: 'Workspace ID is required',
-          errors: [{ code: 'MISSING_WORKSPACE_ID', message: 'Workspace ID header is required' }]
+          message: 'Type and connection_config are required',
+          error: 'VALIDATION_ERROR'
         });
         return;
       }
 
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.read'
-      );
+      logger.info('Testing custom connection', { type, user_id: userId });
 
-      if (!hasPermission) {
-        res.status(403).json({
+      // Test the connection using the service
+      const testResult = await this.dataSourceService.testConnection(type, connection_config);
+
+      res.status(200).json({
+        success: true,
+        test_result: testResult,
+        message: 'Connection test completed successfully'
+      });
+    } catch (error: any) {
+      logger.error('Error testing custom connection:', {
+        error: error.message,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Connection test failed',
+        error: 'CONNECTION_TEST_ERROR',
+        details: error.message
+      });
+    }
+  };
+
+  // Get all datasources for workspace
+  getDataSources = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const workspaceId = req.workspace?.id;
+      const { type, status, search, page = 1, limit = 20 } = req.query;
+
+      if (!workspaceId) {
+        res.status(400).json({
           success: false,
-          message: 'Insufficient permissions',
-          errors: [{ code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to view datasets' }]
+          message: 'Workspace context required',
+          error: 'WORKSPACE_REQUIRED'
         });
         return;
       }
 
       const filters = {
+        workspace_id: workspaceId,
         type: type as string,
-        datasource_id: datasource_id as string,
-        created_by: created_by as string,
+        status: status as string,
         search: search as string
       };
 
-      const result = await this.datasetService.getDatasets(workspaceId, {
-        page: Number(page),
-        limit: Number(limit),
-        filters,
-        include_schema: include_schema === 'true'
-      });
+      const pagination = {
+        page: parseInt(page as string, 10),
+        limit: parseInt(limit as string, 10)
+      };
+
+      const result = await this.dataSourceService.getDataSources(filters, pagination);
 
       res.status(200).json({
         success: true,
-        datasets: result.datasets,
-        pagination: {
-          page: result.page,
-          limit: result.limit,
-          total: result.total,
-          pages: result.pages
-        }
+        data: result.data,
+        pagination: result.pagination,
+        message: 'DataSources retrieved successfully'
       });
     } catch (error: any) {
-      logger.error('Get datasets error:', error);
+      logger.error('Error getting datasources:', {
+        error: error.message,
+        workspace_id: req.workspace?.id,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
       res.status(500).json({
         success: false,
-        message: 'Failed to retrieve datasets',
-        errors: [{ code: 'GET_DATASETS_FAILED', message: error.message }]
+        message: 'Failed to retrieve datasources',
+        error: 'GET_DATASOURCES_ERROR',
+        details: error.message
       });
     }
   };
 
-  createDataset = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  // Create new datasource
+  createDataSource = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.workspace?.id;
       const userId = req.user?.user_id;
-      const datasetData = req.body as DatasetCreateRequest;
+      const { name, type, connection_config, description } = req.body;
 
-      if (!workspaceId) {
+      if (!workspaceId || !userId) {
         res.status(400).json({
           success: false,
-          message: 'Workspace ID is required',
-          errors: [{ code: 'MISSING_WORKSPACE_ID', message: 'Workspace ID header is required' }]
+          message: 'Workspace context and user authentication required',
+          error: 'CONTEXT_REQUIRED'
         });
         return;
       }
 
-      if (!datasetData.name || !datasetData.type) {
+      if (!name || !type || !connection_config) {
         res.status(400).json({
           success: false,
-          message: 'Missing required fields',
-          errors: [{ code: 'VALIDATION_ERROR', message: 'Name and type are required' }]
+          message: 'Name, type, and connection_config are required',
+          error: 'VALIDATION_ERROR'
         });
         return;
       }
 
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.create'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions',
-          errors: [{ code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to create datasets' }]
-        });
-        return;
-      }
-
-      const dataset = await this.datasetService.createDataset(workspaceId, {
-        ...datasetData,
+      const createData = {
+        name,
+        type,
         workspace_id: workspaceId,
-        created_by: userId!
-      });
+        connection_config,
+        created_by: userId
+      };
+
+      const datasource = await this.dataSourceService.createDataSource(createData);
 
       res.status(201).json({
         success: true,
-        dataset,
-        message: 'Dataset created successfully'
+        data: datasource,
+        message: 'DataSource created successfully'
       });
     } catch (error: any) {
-      logger.error('Create dataset error:', error);
-      res.status(400).json({
+      logger.error('Error creating datasource:', {
+        error: error.message,
+        workspace_id: req.workspace?.id,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
         success: false,
-        message: 'Failed to create dataset',
-        errors: [{ code: 'DATASET_CREATE_FAILED', message: error.message }]
+        message: 'Failed to create datasource',
+        error: 'CREATE_DATASOURCE_ERROR',
+        details: error.message
       });
     }
   };
 
-  getDataset = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  // Get specific datasource
+  getDataSource = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
+      const workspaceId = req.workspace?.id;
       const { id } = req.params;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-      const userId = req.user?.user_id;
-      const { include_schema = 'false' } = req.query;
 
       if (!workspaceId) {
         res.status(400).json({
           success: false,
-          message: 'Workspace ID is required',
-          errors: [{ code: 'MISSING_WORKSPACE_ID', message: 'Workspace ID header is required' }]
+          message: 'Workspace context required',
+          error: 'WORKSPACE_REQUIRED'
         });
         return;
       }
 
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.read'
-      );
+      const datasource = await this.dataSourceService.getDataSource(id, workspaceId);
 
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions',
-          errors: [{ code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to view this dataset' }]
-        });
-        return;
-      }
-
-      const dataset = await this.datasetService.getDatasetById(id, include_schema === 'true');
-
-      if (!dataset) {
+      if (!datasource) {
         res.status(404).json({
           success: false,
-          message: 'Dataset not found',
-          errors: [{ code: 'DATASET_NOT_FOUND', message: `Dataset with ID ${id} not found` }]
-        });
-        return;
-      }
-
-      if (dataset.workspace_id !== workspaceId) {
-        res.status(404).json({
-          success: false,
-          message: 'Dataset not found',
-          errors: [{ code: 'DATASET_NOT_FOUND', message: `Dataset with ID ${id} not found in this workspace` }]
+          message: 'DataSource not found',
+          error: 'DATASOURCE_NOT_FOUND'
         });
         return;
       }
 
       res.status(200).json({
         success: true,
-        dataset
+        data: datasource,
+        message: 'DataSource retrieved successfully'
       });
     } catch (error: any) {
-      logger.error('Get dataset error:', error);
+      logger.error('Error getting datasource:', {
+        error: error.message,
+        datasource_id: req.params.id,
+        workspace_id: req.workspace?.id,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
       res.status(500).json({
         success: false,
-        message: 'Failed to retrieve dataset',
-        errors: [{ code: 'GET_DATASET_FAILED', message: error.message }]
+        message: 'Failed to retrieve datasource',
+        error: 'GET_DATASOURCE_ERROR',
+        details: error.message
       });
     }
   };
 
-  updateDataset = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  // Update datasource
+  updateDataSource = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
+      const workspaceId = req.workspace?.id;
       const { id } = req.params;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-      const userId = req.user?.user_id;
-      const updateData = req.body as DatasetUpdateRequest;
-
-      if (!workspaceId) {
-        res.status(400).json({
-          success: false,
-          message: 'Workspace ID is required',
-          errors: [{ code: 'MISSING_WORKSPACE_ID', message: 'Workspace ID header is required' }]
-        });
-        return;
-      }
-
-      const existingDataset = await this.datasetService.getDatasetById(id);
-      if (!existingDataset || existingDataset.workspace_id !== workspaceId) {
-        res.status(404).json({
-          success: false,
-          message: 'Dataset not found',
-          errors: [{ code: 'DATASET_NOT_FOUND', message: `Dataset with ID ${id} not found` }]
-        });
-        return;
-      }
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.update'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions',
-          errors: [{ code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to update this dataset' }]
-        });
-        return;
-      }
-
-      const updatedDataset = await this.datasetService.updateDataset(id, updateData);
-
-      res.status(200).json({
-        success: true,
-        dataset: updatedDataset,
-        message: 'Dataset updated successfully'
-      });
-    } catch (error: any) {
-      logger.error('Update dataset error:', error);
-      res.status(400).json({
-        success: false,
-        message: 'Failed to update dataset',
-        errors: [{ code: 'DATASET_UPDATE_FAILED', message: error.message }]
-      });
-    }
-  };
-
-  deleteDataset = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-      const userId = req.user?.user_id;
-
-      if (!workspaceId) {
-        res.status(400).json({
-          success: false,
-          message: 'Workspace ID is required',
-          errors: [{ code: 'MISSING_WORKSPACE_ID', message: 'Workspace ID header is required' }]
-        });
-        return;
-      }
-
-      const existingDataset = await this.datasetService.getDatasetById(id);
-      if (!existingDataset || existingDataset.workspace_id !== workspaceId) {
-        res.status(404).json({
-          success: false,
-          message: 'Dataset not found',
-          errors: [{ code: 'DATASET_NOT_FOUND', message: `Dataset with ID ${id} not found` }]
-        });
-        return;
-      }
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.delete'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions',
-          errors: [{ code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to delete this dataset' }]
-        });
-        return;
-      }
-
-      await this.datasetService.deleteDataset(id);
-
-      res.status(200).json({
-        success: true,
-        message: 'Dataset deleted successfully'
-      });
-    } catch (error: any) {
-      logger.error('Delete dataset error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to delete dataset',
-        errors: [{ code: 'DATASET_DELETE_FAILED', message: error.message }]
-      });
-    }
-  };
-
-  getDatasetSchema = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-      const userId = req.user?.user_id;
-
-      if (!workspaceId) {
-        res.status(400).json({
-          success: false,
-          message: 'Workspace ID is required',
-          errors: [{ code: 'MISSING_WORKSPACE_ID', message: 'Workspace ID header is required' }]
-        });
-        return;
-      }
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.read'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions',
-          errors: [{ code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to view dataset schema' }]
-        });
-        return;
-      }
-
-      const schema = await this.datasetService.getDatasetSchema(id);
-
-      if (!schema) {
-        res.status(404).json({
-          success: false,
-          message: 'Dataset schema not found',
-          errors: [{ code: 'SCHEMA_NOT_FOUND', message: `Schema for dataset ${id} not found` }]
-        });
-        return;
-      }
-
-      res.status(200).json({
-        success: true,
-        schema
-      });
-    } catch (error: any) {
-      logger.error('Get dataset schema error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to retrieve dataset schema',
-        errors: [{ code: 'GET_SCHEMA_FAILED', message: error.message }]
-      });
-    }
-  };
-
-  updateDatasetSchema = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-      const userId = req.user?.user_id;
-      const { schema } = req.body;
-
-      if (!workspaceId) {
-        res.status(400).json({
-          success: false,
-          message: 'Workspace ID is required',
-          errors: [{ code: 'MISSING_WORKSPACE_ID', message: 'Workspace ID header is required' }]
-        });
-        return;
-      }
-
-      if (!schema) {
-        res.status(400).json({
-          success: false,
-          message: 'Schema is required',
-          errors: [{ code: 'VALIDATION_ERROR', message: 'Schema data is required' }]
-        });
-        return;
-      }
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.update'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions',
-          errors: [{ code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to update dataset schema' }]
-        });
-        return;
-      }
-
-      const updatedSchema = await this.datasetService.updateDatasetSchema(id, schema);
-
-      res.status(200).json({
-        success: true,
-        schema: updatedSchema,
-        message: 'Dataset schema updated successfully'
-      });
-    } catch (error: any) {
-      logger.error('Update dataset schema error:', error);
-      res.status(400).json({
-        success: false,
-        message: 'Failed to update dataset schema',
-        errors: [{ code: 'UPDATE_SCHEMA_FAILED', message: error.message }]
-      });
-    }
-  };
-
-  getDatasetPreview = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-      const userId = req.user?.user_id;
-      const { limit = 100 } = req.query;
-
-      if (!workspaceId) {
-        res.status(400).json({
-          success: false,
-          message: 'Workspace ID is required',
-          errors: [{ code: 'MISSING_WORKSPACE_ID', message: 'Workspace ID header is required' }]
-        });
-        return;
-      }
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.read'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions',
-          errors: [{ code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to preview this dataset' }]
-        });
-        return;
-      }
-
-      const preview = await this.datasetService.getDatasetPreview(id, Number(limit));
-
-      res.status(200).json({
-        success: true,
-        preview
-      });
-    } catch (error: any) {
-      logger.error('Get dataset preview error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to retrieve dataset preview',
-        errors: [{ code: 'GET_PREVIEW_FAILED', message: error.message }]
-      });
-    }
-  };
-
-  refreshDataset = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-      const userId = req.user?.user_id;
-
-      if (!workspaceId) {
-        res.status(400).json({
-          success: false,
-          message: 'Workspace ID is required',
-          errors: [{ code: 'MISSING_WORKSPACE_ID', message: 'Workspace ID header is required' }]
-        });
-        return;
-      }
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.update'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions',
-          errors: [{ code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have permission to refresh this dataset' }]
-        });
-        return;
-      }
-
-      const result = await this.datasetService.refreshDataset(id);
-
-      res.status(200).json({
-        success: true,
-        message: 'Dataset refresh initiated successfully',
-        refresh_id: result.refresh_id,
-        status: result.status,
-        started_at: result.started_at,
-        estimated_completion_time: result.estimated_completion_time
-      });
-    } catch (error: any) {
-      logger.error('Refresh dataset error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to refresh dataset',
-        errors: [{ code: 'DATASET_REFRESH_FAILED', message: error.message }]
-      });
-    }
-  };
-
-  // 🚀 NEW METHODS - MISSING CRITICAL CACHE & FILTER OPERATIONS
-
-  getDatasetData = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const { refresh, filters, limit, offset, columns, sortBy, sortDirection } = req.query;
-      const userId = req.user?.user_id;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-
-      if (!workspaceId) {
-        res.status(400).json({
-          success: false,
-          message: 'Workspace ID is required'
-        });
-        return;
-      }
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.read'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions'
-        });
-        return;
-      }
-
-      const params = {
-        refresh: refresh === 'true',
-        filters: filters ? JSON.parse(filters as string) : undefined,
-        limit: limit ? parseInt(limit as string) : undefined,
-        offset: offset ? parseInt(offset as string) : undefined,
-        columns: columns ? (columns as string).split(',') : undefined,
-        sortBy: sortBy as string,
-        sortDirection: sortDirection as 'asc' | 'desc'
-      };
-
-      const data = await this.datasetService.getDatasetData(id, params);
-
-      res.json({
-        success: true,
-        data: data.data,
-        columns: data.columns,
-        metadata: data.metadata,
-        cached: data.cached,
-        message: 'Dataset data retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get dataset data error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to get dataset data'
-      });
-    }
-  };
-
-  queryDataset = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const queryOptions = req.body;
-      const userId = req.user?.user_id;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.read'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions'
-        });
-        return;
-      }
-
-      const result = await this.datasetService.queryDataset(id, queryOptions);
-
-      res.json({
-        success: true,
-        data: result.data,
-        columns: result.columns,
-        total_rows: result.total_rows,
-        execution_time: result.execution_time,
-        cached: result.cached,
-        message: 'Dataset queried successfully'
-      });
-    } catch (error: any) {
-      logger.error('Query dataset error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to query dataset'
-      });
-    }
-  };
-
-  validateDatasetQuery = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const { query } = req.body;
-      const userId = req.user?.user_id;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.read'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions'
-        });
-        return;
-      }
-
-      const validation = await this.datasetService.validateDatasetQuery(id, query);
-
-      res.json({
-        success: true,
-        is_valid: validation.is_valid,
-        errors: validation.errors,
-        warnings: validation.warnings,
-        estimated_execution_time: validation.estimated_execution_time,
-        estimated_row_count: validation.estimated_row_count,
-        message: 'Query validation completed'
-      });
-    } catch (error: any) {
-      logger.error('Validate dataset query error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to validate query'
-      });
-    }
-  };
-
-  testDataset = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const userId = req.user?.user_id;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.read'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions'
-        });
-        return;
-      }
-
-      const testResult = await this.datasetService.testDataset(id);
-
-      res.json({
-        success: true,
-        is_valid: testResult.is_valid,
-        preview: testResult.preview,
-        columns: testResult.columns,
-        execution_time: testResult.execution_time,
-        error: testResult.error,
-        message: 'Dataset test completed'
-      });
-    } catch (error: any) {
-      logger.error('Test dataset error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to test dataset'
-      });
-    }
-  };
-
-  getDatasetStats = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const userId = req.user?.user_id;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.read'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions'
-        });
-        return;
-      }
-
-      const stats = await this.datasetService.getDatasetStats(id);
-
-      res.json({
-        success: true,
-        stats,
-        message: 'Dataset statistics retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get dataset stats error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to get dataset statistics'
-      });
-    }
-  };
-
-  clearDatasetCache = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const userId = req.user?.user_id;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.update'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions'
-        });
-        return;
-      }
-
-      const result = await this.datasetService.clearDatasetCache(id);
-
-      res.json({
-        success: true,
-        cache_cleared: result.cache_cleared,
-        cache_size_cleared_bytes: result.cache_size_cleared_bytes,
-        affected_queries: result.affected_queries,
-        message: 'Dataset cache cleared successfully'
-      });
-    } catch (error: any) {
-      logger.error('Clear dataset cache error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to clear dataset cache'
-      });
-    }
-  };
-
-  getDatasetCacheStatus = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const userId = req.user?.user_id;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.read'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions'
-        });
-        return;
-      }
-
-      const status = await this.datasetService.getDatasetCacheStatus(id);
-
-      res.json({
-        success: true,
-        cache_status: status,
-        message: 'Dataset cache status retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get dataset cache status error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to get cache status'
-      });
-    }
-  };
-
-  // 🔧 ADDITIONAL UTILITY METHODS
-
-  getDatasetUsage = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const userId = req.user?.user_id;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.read'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions'
-        });
-        return;
-      }
-
-      const usage = await this.datasetService.getDatasetUsage(id);
-
-      res.json({
-        success: true,
-        usage,
-        message: 'Dataset usage information retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get dataset usage error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to get dataset usage'
-      });
-    }
-  };
-
-  exportDataset = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const exportOptions = req.body;
-      const userId = req.user?.user_id;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.read'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions'
-        });
-        return;
-      }
-
-      const exportResult = await this.datasetService.exportDataset(id, exportOptions);
-
-      res.json({
-        success: true,
-        export: exportResult,
-        message: 'Dataset export initiated successfully'
-      });
-    } catch (error: any) {
-      logger.error('Export dataset error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to export dataset'
-      });
-    }
-  };
-
-  getDatasetHistory = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const { limit, offset, action_type } = req.query;
-      const userId = req.user?.user_id;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.read'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions'
-        });
-        return;
-      }
-
-      const params = {
-        limit: limit ? parseInt(limit as string) : undefined,
-        offset: offset ? parseInt(offset as string) : undefined,
-        action_type: action_type as string
-      };
-
-      const history = await this.datasetService.getDatasetHistory(id, params);
-
-      res.json({
-        success: true,
-        history: history.history,
-        total: history.total,
-        message: 'Dataset history retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get dataset history error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to get dataset history'
-      });
-    }
-  };
-
-  getDatasetPerformanceMetrics = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const { start_date, end_date, granularity } = req.query;
-      const userId = req.user?.user_id;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.read'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions'
-        });
-        return;
-      }
-
-      const params = {
-        start_date: start_date as string,
-        end_date: end_date as string,
-        granularity: granularity as 'hour' | 'day' | 'week'
-      };
-
-      const metrics = await this.datasetService.getDatasetPerformanceMetrics(id, params);
-
-      res.json({
-        success: true,
-        metrics,
-        message: 'Dataset performance metrics retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get dataset performance metrics error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to get performance metrics'
-      });
-    }
-  };
-
-  // 📊 ADVANCED OPERATIONS (Placeholder methods for advanced features)
-
-  executeQuery = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const { query, parameters } = req.body;
-      const userId = req.user?.user_id;
-      const workspaceId = req.headers['x-workspace-id'] as string;
-
-      const hasPermission = await this.permissionService.hasPermission(
-        userId!,
-        workspaceId,
-        'dataset.execute'
-      );
-
-      if (!hasPermission) {
-        res.status(403).json({
-          success: false,
-          message: 'Insufficient permissions'
-        });
-        return;
-      }
-
-      const result = await this.datasetService.executeCustomQuery(id, query, parameters);
-
-      res.json({
-        success: true,
-        data: result.data,
-        columns: result.columns,
-        execution_time: result.execution_time,
-        message: 'Query executed successfully'
-      });
-    } catch (error: any) {
-      logger.error('Execute query error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to execute query'
-      });
-    }
-  };
-
-  createSnapshot = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const { name, description } = req.body;
-      const userId = req.user?.user_id;
-
-      const snapshot = await this.datasetService.createSnapshot(id, { name, description, userId: userId! });
-
-      res.json({
-        success: true,
-        snapshot,
-        message: 'Dataset snapshot created successfully'
-      });
-    } catch (error: any) {
-      logger.error('Create snapshot error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to create snapshot'
-      });
-    }
-  };
-
-  getSnapshots = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-
-      const snapshots = await this.datasetService.getSnapshots(id);
-
-      res.json({
-        success: true,
-        snapshots,
-        message: 'Dataset snapshots retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get snapshots error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to get snapshots'
-      });
-    }
-  };
-
-  restoreFromSnapshot = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id, snapshotId } = req.params;
-      const userId = req.user?.user_id;
-
-      await this.datasetService.restoreFromSnapshot(id, snapshotId, userId!);
-
-      res.json({
-        success: true,
-        message: 'Dataset restored from snapshot successfully'
-      });
-    } catch (error: any) {
-      logger.error('Restore from snapshot error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to restore from snapshot'
-      });
-    }
-  };
-
-  applyTransformation = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const transformation = req.body;
-      const userId = req.user?.user_id;
-
-      const result = await this.datasetService.applyTransformation(id, transformation, userId!);
-
-      res.json({
-        success: true,
-        transformation: result,
-        message: 'Transformation applied successfully'
-      });
-    } catch (error: any) {
-      logger.error('Apply transformation error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to apply transformation'
-      });
-    }
-  };
-
-  getTransformationHistory = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-
-      const history = await this.datasetService.getTransformationHistory(id);
-
-      res.json({
-        success: true,
-        transformations: history,
-        message: 'Transformation history retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get transformation history error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to get transformation history'
-      });
-    }
-  };
-
-  revertTransformation = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id, transformationId } = req.params;
-      const userId = req.user?.user_id;
-
-      await this.datasetService.revertTransformation(id, transformationId, userId!);
-
-      res.json({
-        success: true,
-        message: 'Transformation reverted successfully'
-      });
-    } catch (error: any) {
-      logger.error('Revert transformation error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to revert transformation'
-      });
-    }
-  };
-
-  getDataProfile = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-
-      const profile = await this.datasetService.getDataProfile(id);
-
-      res.json({
-        success: true,
-        profile,
-        message: 'Data profile retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get data profile error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to get data profile'
-      });
-    }
-  };
-
-  getColumnAnalysis = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id, columnName } = req.params;
-
-      const analysis = await this.datasetService.getColumnAnalysis(id, columnName);
-
-      res.json({
-        success: true,
-        analysis,
-        message: 'Column analysis retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get column analysis error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to get column analysis'
-      });
-    }
-  };
-
-  getDataQualityReport = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-
-      const report = await this.datasetService.getDataQualityReport(id);
-
-      res.json({
-        success: true,
-        quality_report: report,
-        message: 'Data quality report retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get data quality report error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to get data quality report'
-      });
-    }
-  };
-
-  // 🚨 ALERT MANAGEMENT METHODS (Placeholder implementations)
-
-  getDatasetAlerts = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-
-      const alerts = await this.datasetService.getDatasetAlerts(id);
-
-      res.json({
-        success: true,
-        alerts,
-        message: 'Dataset alerts retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Get dataset alerts error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to get dataset alerts'
-      });
-    }
-  };
-
-  createDatasetAlert = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id } = req.params;
-      const alertData = req.body;
-      const userId = req.user?.user_id;
-
-      const alert = await this.datasetService.createDatasetAlert(id, alertData, userId!);
-
-      res.json({
-        success: true,
-        alert,
-        message: 'Dataset alert created successfully'
-      });
-    } catch (error: any) {
-      logger.error('Create dataset alert error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to create dataset alert'
-      });
-    }
-  };
-
-  updateDatasetAlert = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const { id, alertId } = req.params;
       const updateData = req.body;
 
-      const alert = await this.datasetService.updateDatasetAlert(id, alertId, updateData);
+      if (!workspaceId) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace context required',
+          error: 'WORKSPACE_REQUIRED'
+        });
+        return;
+      }
 
-      res.json({
+      const datasource = await this.dataSourceService.updateDataSource(id, workspaceId, updateData);
+
+      if (!datasource) {
+        res.status(404).json({
+          success: false,
+          message: 'DataSource not found',
+          error: 'DATASOURCE_NOT_FOUND'
+        });
+        return;
+      }
+
+      res.status(200).json({
         success: true,
-        alert,
-        message: 'Dataset alert updated successfully'
+        data: datasource,
+        message: 'DataSource updated successfully'
       });
     } catch (error: any) {
-      logger.error('Update dataset alert error:', error);
+      logger.error('Error updating datasource:', {
+        error: error.message,
+        datasource_id: req.params.id,
+        workspace_id: req.workspace?.id,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
       res.status(500).json({
         success: false,
-        message: error.message || 'Failed to update dataset alert'
+        message: 'Failed to update datasource',
+        error: 'UPDATE_DATASOURCE_ERROR',
+        details: error.message
       });
     }
   };
 
-  deleteDatasetAlert = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  // Delete datasource
+  deleteDataSource = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const { id, alertId } = req.params;
+      const workspaceId = req.workspace?.id;
+      const { id } = req.params;
 
-      await this.datasetService.deleteDatasetAlert(id, alertId);
+      if (!workspaceId) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace context required',
+          error: 'WORKSPACE_REQUIRED'
+        });
+        return;
+      }
 
-      res.json({
+      const success = await this.dataSourceService.deleteDataSource(id, workspaceId);
+
+      if (!success) {
+        res.status(404).json({
+          success: false,
+          message: 'DataSource not found',
+          error: 'DATASOURCE_NOT_FOUND'
+        });
+        return;
+      }
+
+      res.status(200).json({
         success: true,
-        message: 'Dataset alert deleted successfully'
+        message: 'DataSource deleted successfully'
       });
     } catch (error: any) {
-      logger.error('Delete dataset alert error:', error);
+      logger.error('Error deleting datasource:', {
+        error: error.message,
+        datasource_id: req.params.id,
+        workspace_id: req.workspace?.id,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
       res.status(500).json({
         success: false,
-        message: error.message || 'Failed to delete dataset alert'
+        message: 'Failed to delete datasource',
+        error: 'DELETE_DATASOURCE_ERROR',
+        details: error.message
+      });
+    }
+  };
+
+  // Test existing datasource connection
+  testConnection = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const workspaceId = req.workspace?.id;
+      const { id } = req.params;
+
+      if (!workspaceId) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace context required',
+          error: 'WORKSPACE_REQUIRED'
+        });
+        return;
+      }
+
+      // Get the datasource first
+      const datasource = await this.dataSourceService.getDataSource(id, workspaceId);
+
+      if (!datasource) {
+        res.status(404).json({
+          success: false,
+          message: 'DataSource not found',
+          error: 'DATASOURCE_NOT_FOUND'
+        });
+        return;
+      }
+
+      // Test the connection
+      const testResult = await this.dataSourceService.testConnection(
+        datasource.type, 
+        datasource.connection_config
+      );
+
+      res.status(200).json({
+        success: true,
+        test_result: testResult,
+        message: 'Connection test completed successfully'
+      });
+    } catch (error: any) {
+      logger.error('Error testing datasource connection:', {
+        error: error.message,
+        datasource_id: req.params.id,
+        workspace_id: req.workspace?.id,
+        user_id: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Connection test failed',
+        error: 'CONNECTION_TEST_ERROR',
+        details: error.message
       });
     }
   };

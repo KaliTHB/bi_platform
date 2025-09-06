@@ -151,7 +151,7 @@ const WorkspacesAdminPage: NextPage = () => {
 
       const response = await fetch('/api/admin/workspaces', {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
 
@@ -430,7 +430,7 @@ const WorkspacesAdminPage: NextPage = () => {
         method,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify(formData)
       });
@@ -453,7 +453,7 @@ const WorkspacesAdminPage: NextPage = () => {
       const response = await fetch(`/api/admin/workspaces/${deletingWorkspace.id}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
 

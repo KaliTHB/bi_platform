@@ -95,7 +95,7 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
         // Replace with actual API calls
         const response = await fetch(`/api/workspaces/${workspace.id}/stats`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
           }
         });
         

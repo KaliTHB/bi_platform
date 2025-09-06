@@ -1,7 +1,12 @@
 // api-services/src/middleware/authentication.ts - Fixed with proper exports
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { logger } from '../utils/logger';
+import { logger } from '@/utils/logger';
+import { AuthService } from '@/services/AuthService';
+import { db } from '@/utils/database';
+
+// Create AuthService instance for admin checks
+const authService = new AuthService(db);
 
 // JWT Payload interface
 export interface JWTPayload {
@@ -241,6 +246,9 @@ export const isAdmin = (req: AuthenticatedRequest): boolean => {
 /**
  * Require admin access middleware
  */
+/**
+ * Require admin access middleware - UPDATED to use AuthService
+ */
 export const requireAdmin = (
   req: AuthenticatedRequest,
   res: Response,
@@ -255,16 +263,92 @@ export const requireAdmin = (
     return;
   }
   
-  if (!isAdmin(req)) {
+  // Use AuthService to check if user is admin in any workspace they have access to
+  checkAdminStatus(req, res, next);
+};
+
+/**
+ * Check admin status using AuthService
+ */
+const checkAdminStatus = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const userId = req.user?.user_id;
+    
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: 'User ID required',
+        error: 'AUTHENTICATION_REQUIRED'
+      });
+      return;
+    }
+
+    console.log('🔍 requireAdmin: Checking admin status for user:', userId);
+
+    // Get user's workspaces and check if they're admin in any
+    const workspacesQuery = `
+      SELECT DISTINCT w.id as workspace_id, r.name as role_name
+      FROM user_role_assignments ura
+      JOIN workspaces w ON ura.workspace_id = w.id
+      JOIN roles r ON ura.role_id = r.id
+      WHERE ura.user_id = $1 
+        AND ura.is_active = true 
+        AND w.is_active = true
+        AND (r.name ILIKE '%admin%' OR r.name ILIKE '%owner%')
+    `;
+
+    const result = await authService['database'].query(workspacesQuery, [userId]);
+
+    if (result.rows.length > 0) {
+      console.log('✅ requireAdmin: User is admin in', result.rows.length, 'workspace(s)');
+      next();
+      return;
+    }
+
+    // Alternative check: use AuthService to check admin status in a specific workspace
+    // Try to find any workspace where user has admin permissions
+    const allWorkspacesQuery = `
+      SELECT DISTINCT ura.workspace_id
+      FROM user_role_assignments ura
+      JOIN workspaces w ON ura.workspace_id = w.id
+      WHERE ura.user_id = $1 AND ura.is_active = true AND w.is_active = true
+      LIMIT 3
+    `;
+
+    const workspacesResult = await authService['database'].query(allWorkspacesQuery, [userId]);
+    
+    for (const workspace of workspacesResult.rows) {
+      try {
+        const permissions = await authService.getUserPermissions(userId, workspace.workspace_id);
+        if (permissions.is_admin) {
+          console.log('✅ requireAdmin: User is admin in workspace:', workspace.workspace_id);
+          next();
+          return;
+        }
+      } catch (error) {
+        console.warn('Error checking permissions for workspace:', workspace.workspace_id, error.message);
+      }
+    }
+
+    console.log('❌ requireAdmin: User is not admin in any workspace');
     res.status(403).json({
       success: false,
       message: 'Admin access required',
       error: 'ADMIN_ACCESS_REQUIRED'
     });
-    return;
+
+  } catch (error: any) {
+    console.error('❌ requireAdmin: Error checking admin status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error validating admin access',
+      error: 'ADMIN_VALIDATION_ERROR'
+    });
   }
-  
-  next();
 };
 
 /**

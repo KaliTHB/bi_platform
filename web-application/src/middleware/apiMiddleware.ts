@@ -165,7 +165,7 @@ class ApiMiddleware {
     
     // Fallback to localStorage
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('auth_token');
+      return localStorage.getItem('token');
     }
     
     return null;

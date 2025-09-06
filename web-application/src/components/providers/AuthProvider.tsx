@@ -29,7 +29,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   useEffect(() => {
     // Check if user is authenticated on app load
-    const token = localStorage.getItem('auth_token');
+    const token = localStorage.getItem('token');
     if (token && !auth.isAuthenticated && !auth.isLoading) {
       // Validate token - now properly typed with void parameter
       dispatch(validateToken());

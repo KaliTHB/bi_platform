@@ -84,7 +84,7 @@ const WebviewTemplate: React.FC<WebviewTemplateProps> = ({
         
         const response = await fetch(`/api/webviews/${webviewConfig.id}/stats`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
           }
         });
         

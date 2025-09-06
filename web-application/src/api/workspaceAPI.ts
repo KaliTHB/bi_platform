@@ -34,7 +34,7 @@ class WorkspaceService {
   // Get all workspaces for current user
   async getUserWorkspaces(): Promise<Workspace[]> {
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
       }
@@ -102,7 +102,7 @@ class WorkspaceService {
   // Get specific workspace by ID
   async getWorkspace(workspaceId: string): Promise<Workspace> {
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
       }
@@ -132,7 +132,7 @@ class WorkspaceService {
   // Get current workspace details
   async getCurrentWorkspace(): Promise<Workspace> {
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('token');
       const workspaceId = localStorage.getItem('selected_workspace_id');
       
       if (!token) {
@@ -153,7 +153,7 @@ class WorkspaceService {
   // Create new workspace
   async createWorkspace(data: CreateWorkspaceRequest): Promise<Workspace> {
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
       }
@@ -184,7 +184,7 @@ class WorkspaceService {
   // Update workspace
   async updateWorkspace(workspaceId: string, data: UpdateWorkspaceRequest): Promise<Workspace> {
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
       }
@@ -215,7 +215,7 @@ class WorkspaceService {
   // Delete workspace
   async deleteWorkspace(workspaceId: string): Promise<void> {
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
       }
@@ -242,7 +242,7 @@ class WorkspaceService {
   // Switch to different workspace
   async switchWorkspace(workspaceSlug: string): Promise<any> {
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
       }
@@ -275,7 +275,7 @@ class WorkspaceService {
   // Get workspace members
   async getWorkspaceMembers(workspaceId?: string): Promise<any[]> {
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
       }
@@ -310,7 +310,7 @@ class WorkspaceService {
   // Invite user to workspace
   async inviteUser(email: string, roleId: string, workspaceId?: string): Promise<any> {
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
       }
@@ -349,7 +349,7 @@ class WorkspaceService {
   // Remove user from workspace
   async removeUser(userId: string, workspaceId?: string): Promise<void> {
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
       }
@@ -381,7 +381,7 @@ class WorkspaceService {
   // Get workspace settings
   async getWorkspaceSettings(workspaceId?: string): Promise<any> {
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
       }
@@ -416,7 +416,7 @@ class WorkspaceService {
   // Update workspace settings
   async updateWorkspaceSettings(settings: Partial<any>, workspaceId?: string): Promise<any> {
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
       }

@@ -112,7 +112,7 @@ const AdminTemplate: React.FC<AdminTemplateProps> = ({
       try {
         const response = await fetch(`/api/workspaces/${workspace.id}/admin/stats`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
           }
         });
 

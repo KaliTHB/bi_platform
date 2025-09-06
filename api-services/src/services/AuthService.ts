@@ -484,4 +484,197 @@ export class AuthService {
 
     return jwt.sign(payload, secret, { expiresIn });
   }
+
+  /**
+ * Get user permissions and roles for workspace
+ * This method is called by UserController
+ */
+/**
+ * Get user permissions and roles for workspace
+ * Compatible with actual database schema (no is_admin column)
+ */
+async getUserPermissions(userId: string, workspaceId: string): Promise<{
+  permissions: string[];
+  roles: string[];
+  is_admin: boolean;
+  role_level: number;
+}> {
+  try {
+    console.log('🔍 AuthService: Getting user permissions:', { userId, workspaceId });
+
+    // Get user roles and permissions for workspace using the actual schema
+    const query = `
+      SELECT 
+        r.id as role_id,
+        r.name as role_name,
+        r.permissions,
+        ura.is_active as assignment_active,
+        COALESCE(
+          ARRAY(
+            SELECT p.name 
+            FROM role_permissions rp 
+            JOIN permissions p ON rp.permission_id = p.id 
+            WHERE rp.role_id = r.id
+          ), 
+          ARRAY[]::text[]
+        ) as individual_permissions
+      FROM user_role_assignments ura
+      JOIN roles r ON ura.role_id = r.id
+      WHERE ura.user_id = $1 
+        AND ura.workspace_id = $2 
+        AND ura.is_active = true
+        AND r.is_active = true
+    `;
+
+    const result = await this.database.query(query, [userId, workspaceId]);
+
+    // Collect all permissions and roles
+    const allPermissions = new Set<string>();
+    const roles: string[] = [];
+    let isAdmin = false;
+    let maxRoleLevel = 0;
+
+    result.rows.forEach(row => {
+      roles.push(row.role_name);
+      
+      // Check if this is an admin role
+      if (row.role_name.toLowerCase().includes('admin') || 
+          row.role_name.toLowerCase().includes('owner')) {
+        isAdmin = true;
+        maxRoleLevel = Math.max(maxRoleLevel, 90); // Admin level
+      }
+
+      // Add permissions from role.permissions JSONB field
+      if (row.permissions && Array.isArray(row.permissions)) {
+        row.permissions.forEach((perm: string) => allPermissions.add(perm));
+      }
+
+      // Add permissions from role_permissions junction table
+      if (row.individual_permissions && Array.isArray(row.individual_permissions)) {
+        row.individual_permissions.forEach((perm: string) => allPermissions.add(perm));
+      }
+
+      // Assign role levels based on role names
+      if (row.role_name.toLowerCase().includes('owner')) {
+        maxRoleLevel = Math.max(maxRoleLevel, 100);
+      } else if (row.role_name.toLowerCase().includes('admin')) {
+        maxRoleLevel = Math.max(maxRoleLevel, 90);
+      } else if (row.role_name.toLowerCase().includes('editor')) {
+        maxRoleLevel = Math.max(maxRoleLevel, 60);
+      } else if (row.role_name.toLowerCase().includes('analyst')) {
+        maxRoleLevel = Math.max(maxRoleLevel, 40);
+      } else if (row.role_name.toLowerCase().includes('viewer')) {
+        maxRoleLevel = Math.max(maxRoleLevel, 20);
+      }
+    });
+
+    const permissions = Array.from(allPermissions);
+
+    // If user has admin/owner role, give them all basic permissions
+    if (isAdmin) {
+      const adminPermissions = [
+        'workspace.read', 'workspace.write', 'workspace.admin',
+        'dashboard.read', 'dashboard.write', 'dashboard.create', 'dashboard.delete',
+        'chart.read', 'chart.write', 'chart.create', 'chart.delete',
+        'dataset.read', 'dataset.write', 'dataset.create', 'dataset.delete',
+        'user.read', 'user.write', 'user.create', 'user.delete',
+        'role.read', 'role.write', 'role.create', 'role.delete'
+      ];
+      adminPermissions.forEach(perm => allPermissions.add(perm));
+    }
+
+    const permission_json= {
+      userId,
+      workspaceId,
+      permissionCount: permissions.length,
+      roleCount: roles.length,
+      isAdmin,
+      roleLevel: maxRoleLevel
+    }
+    console.log('✅ AuthService: User permissions retrieved:', permission_json);
+
+    return {
+      permissions: Array.from(allPermissions),
+      roles,
+      is_admin: isAdmin,
+      role_level: maxRoleLevel
+    };
+
+  } catch (error: any) {
+    console.error('❌ AuthService: Get user permissions error:', error);
+    logger.error('AuthService getUserPermissions error:', {
+      error: error.message,
+      userId,
+      workspaceId,
+      service: 'bi-platform-api'
+    });
+
+    // Return empty permissions on error
+    return {
+      permissions: [],
+      roles: [],
+      is_admin: false,
+      role_level: 0
+    };
+  }
+}
+
+/**
+ * Check if user has specific permission in workspace
+ */
+async hasPermission(userId: string, workspaceId: string, permission: string): Promise<boolean> {
+  try {
+    const userPermissions = await this.getUserPermissions(userId, workspaceId);
+    
+    // Admin has all permissions
+    if (userPermissions.is_admin) {
+      return true;
+    }
+
+    // Check if user has specific permission
+    return userPermissions.permissions.includes(permission) || 
+           userPermissions.permissions.includes('*');
+           
+  } catch (error: any) {
+    logger.error('AuthService hasPermission error:', {
+      error: error.message,
+      userId,
+      workspaceId,
+      permission,
+      service: 'bi-platform-api'
+    });
+    return false;
+  }
+}
+
+/**
+ * Check if user has any of the specified permissions
+ */
+async hasAnyPermission(userId: string, workspaceId: string, permissions: string[]): Promise<boolean> {
+  try {
+    const userPermissions = await this.getUserPermissions(userId, workspaceId);
+    
+    // Admin has all permissions
+    if (userPermissions.is_admin) {
+      return true;
+    }
+
+    // Check if user has any of the permissions
+    return permissions.some(perm => 
+      userPermissions.permissions.includes(perm) || 
+      userPermissions.permissions.includes('*')
+    );
+    
+  } catch (error: any) {
+    logger.error('AuthService hasAnyPermission error:', {
+      error: error.message,
+      userId,
+      workspaceId,
+      permissions,
+      service: 'bi-platform-api'
+    });
+    return false;
+  }
+}
+
 }
