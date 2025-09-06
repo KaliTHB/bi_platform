@@ -86,23 +86,56 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     localStorage.removeItem('workspace');
   };
 
-  const switchWorkspace = async (slug: string) => {
-    // Mock workspace switch - replace with actual API call
-    const mockWorkspace = {
-      id: '1',
-      name: 'Default Workspace',
-      slug: slug,
-      display_name: 'THB Workspace',
-      is_active: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    dispatch(setCurrentWorkspace(mockWorkspace));
-    localStorage.setItem('workspace', JSON.stringify(mockWorkspace));
+  // Remove the mock workspace creation and replace with real API call
+const switchWorkspace = async (workspaceSlug: string) => {
+  try {
+    setAuthState(prev => ({ ...prev, isLoading: true }));
     
-    return { success: true };
-  };
+    // ✅ Get real workspace data from API
+    const response = await fetch('/api/user/default-workspace', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${authState.token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success && data.workspace) {
+        // ✅ Use real workspace data with actual database ID
+        const realWorkspace = {
+          id: data.workspace.id,              // Real UUID from database
+          name: data.workspace.name,
+          slug: data.workspace.slug,
+          display_name: data.workspace.display_name || data.workspace.name,
+          description: data.workspace.description,
+          is_active: data.workspace.is_active,
+          created_at: data.workspace.created_at,
+          updated_at: data.workspace.updated_at,
+        };
+
+        dispatch(setCurrentWorkspace(realWorkspace));
+        localStorage.setItem('workspace', JSON.stringify(realWorkspace));
+        
+        setAuthState(prev => ({ 
+          ...prev, 
+          workspace: realWorkspace,
+          isLoading: false 
+        }));
+        
+        return { success: true };
+      }
+    }
+    
+    throw new Error('Failed to get workspace data');
+    
+  } catch (error) {
+    console.error('Error switching workspace:', error);
+    setAuthState(prev => ({ ...prev, isLoading: false }));
+    return { success: false, error: (error as any).message };
+  }
+};
 
   const getAvailableWorkspaces = async () => {
     // Mock workspaces - replace with actual API call

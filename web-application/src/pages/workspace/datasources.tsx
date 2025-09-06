@@ -1,4 +1,4 @@
-// pages/workspace/datasources.tsx
+// web-application/src/pages/workspace/datasources.tsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { NextPage } from 'next';
 import { useRouter } from 'next/router';
@@ -23,32 +23,31 @@ import {
   Grid,
   Card,
   CardContent,
-  Switch,
   FormControlLabel,
-  InputAdornment
+  Switch,
+  CircularProgress,
+  LinearProgress
 } from '@mui/material';
 import {
+  Dns as DatabaseIcon,
   Storage as StorageIcon,
-  Cable as CableIcon,
+  Cloud as CloudIcon,
+  Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   PlayArrow as TestIcon,
   Refresh as RefreshIcon,
-  Add as AddIcon,
+  Settings as SettingsIcon,
+  Analytics as AnalyticsIcon,
+  Schema as SchemaIcon,
   CheckCircle as CheckIcon,
   Error as ErrorIcon,
   Warning as WarningIcon,
-  Schema as SchemaIcon,
-  QueryStats as QueryIcon,
-  Timeline as UsageIcon,
-  CloudQueue as CloudIcon,
-  Dns as DatabaseIcon,
-  InsertDriveFile as FileIcon,
-  Api as ApiIcon,
-  Dns as ServerIcon,
-  Visibility as VisibilityIcon,
-  VisibilityOff as VisibilityOffIcon,
-  Analytics as AnalyticsIcon
+  Schedule as ScheduleIcon,
+  Security as SecurityIcon,
+  Update as UpdateIcon,
+  Backup as BackupIcon,
+  Cached as CacheIcon
 } from '@mui/icons-material';
 
 // Import common components
@@ -64,225 +63,482 @@ import { PermissionGate } from '../../components/shared/PermissionGate';
 import { useAuth } from '../../hooks/useAuth';
 import { usePermissions } from '../../hooks/usePermissions';
 
-// Types and Interfaces
+// Types
 interface DataSourceData {
   id: string;
   name: string;
   display_name: string;
   description?: string;
   plugin_name: string;
-  plugin_category: 'relational' | 'cloud_databases' | 'storage_services' | 'data_lakes' | 'nosql' | 'files' | 'apis';
-  connection_config: Record<string, any>;
-  status: 'connected' | 'disconnected' | 'error' | 'testing';
-  test_status: 'pending' | 'success' | 'failed';
+  type: 'postgresql' | 'mysql' | 'mongodb' | 'sqlite' | 'bigquery' | 'snowflake' | 'redshift' | 'oracle' | 'mssql';
+  status: 'connected' | 'disconnected' | 'error' | 'testing' | 'configuring';
+  host?: string;
+  port?: number;
+  database_name?: string;
+  schema_name?: string;
+  connection_pool_size?: number;
+  ssl_enabled: boolean;
+  is_read_only: boolean;
+  auto_refresh_enabled: boolean;
+  refresh_schedule?: string;
+  last_connection_test?: string;
+  test_result?: 'success' | 'failed' | 'timeout';
   test_error_message?: string;
-  last_tested?: string;
-  is_active: boolean;
-  created_by: string;
+  error_message?: string;
+  tables_count?: number;
+  total_size_bytes?: number;
+  version?: string;
   created_at: string;
   updated_at: string;
-  usage_stats?: {
-    dataset_count: number;
-    chart_count: number;
-    dashboard_count: number;
-    total_queries: number;
-    avg_response_time: number;
-    last_used?: string;
-  };
+  last_tested?: string;
+  owner_id: string;
   owner?: {
     id: string;
     name: string;
     email: string;
   };
-}
-
-interface PluginOption {
-  name: string;
-  displayName: string;
-  category: 'relational' | 'cloud_databases' | 'storage_services' | 'data_lakes' | 'nosql' | 'files' | 'apis';
-  configSchema: PluginConfigSchema;
-}
-
-interface PluginConfigSchema {
-  type: 'object';
-  properties: Record<string, SchemaProperty>;
-  required?: string[];
-}
-
-interface SchemaProperty {
-  type: 'string' | 'number' | 'boolean' | 'password' | 'select';
-  title?: string;
-  description?: string;
-  default?: any;
-  required?: boolean;
-  options?: Array<{ label: string; value: any }>;
-  validation?: {
-    pattern?: string;
-    min?: number;
-    max?: number;
-    minLength?: number;
-    maxLength?: number;
+  connection_config?: {
+    timeout?: number;
+    retry_attempts?: number;
+    pool_settings?: Record<string, any>;
+  };
+  usage_stats?: {
+    chart_count: number;
+    dashboard_count: number;
+    dataset_count: number;
+    query_count: number;
+    last_used?: string;
+    daily_queries?: number;
+    weekly_queries?: number;
+  };
+  security_config?: {
+    encryption_enabled?: boolean;
+    audit_logging?: boolean;
+    ip_whitelist?: string[];
+  };
+  backup_config?: {
+    enabled: boolean;
+    frequency?: string;
+    retention_days?: number;
+    last_backup?: string;
   };
 }
 
-interface DataSourceFormData {
-  name: string;
-  display_name: string;
-  description: string;
-  plugin_name: string;
-  connection_config: Record<string, any>;
-  is_active: boolean;
-}
-
+// Main Page Component
 const DataSourcesPage: NextPage = () => {
   const router = useRouter();
-  const { user, workspace } = useAuth();
+  const { workspace, user } = useAuth();
   const { hasPermission } = usePermissions();
 
   // State management
-  const [datasources, setDatasources] = useState<DataSourceData[]>([]);
-  const [availablePlugins, setAvailablePlugins] = useState<PluginOption[]>([]);
+  const [dataSources, setDataSources] = useState<DataSourceData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedDatasources, setSelectedDatasources] = useState<string[]>([]);
-  
-  // Dialog states
-  const [addDatasourceDialogOpen, setAddDatasourceDialogOpen] = useState(false);
-  const [editDatasourceDialogOpen, setEditDatasourceDialogOpen] = useState(false);
-  const [deleteDatasourceDialogOpen, setDeleteDatasourceDialogOpen] = useState(false);
-  const [testConnectionDialogOpen, setTestConnectionDialogOpen] = useState(false);
-  const [editingDatasource, setEditingDatasource] = useState<DataSourceData | null>(null);
-  const [deletingDatasource, setDeletingDatasource] = useState<DataSourceData | null>(null);
-  const [testingDatasource, setTestingDatasource] = useState<DataSourceData | null>(null);
+  const [testingConnections, setTestingConnections] = useState<Set<string>>(new Set());
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [selectedDataSource, setSelectedDataSource] = useState<DataSourceData | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  // Form state
-  const [formData, setFormData] = useState<DataSourceFormData>({
+  // Form state for editing
+  const [formData, setFormData] = useState({
     name: '',
     display_name: '',
     description: '',
-    plugin_name: '',
-    connection_config: {},
-    is_active: true
+    host: '',
+    port: 5432,
+    database_name: '',
+    ssl_enabled: true,
+    is_read_only: false,
+    auto_refresh_enabled: false
   });
 
-  // Connection test state
-  const [testResult, setTestResult] = useState<{
-    success: boolean;
-    message: string;
-    response_time?: number;
-    error_code?: string;
-  } | null>(null);
-
-  const [showPassword, setShowPassword] = useState<Record<string, boolean>>({});
-
-  // Load data on mount
+  // Mock data (replace with actual API calls)
   useEffect(() => {
-    loadDatasources();
-    loadAvailablePlugins();
-  }, [workspace]);
+    loadDataSources();
+  }, [workspace?.id]);
 
-  const loadDatasources = async () => {
-    if (!workspace?.id) return;
-
+  const loadDataSources = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const response = await fetch('/api/workspaces/datasources', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'workspace-id': workspace.id
+      // Mock data - replace with actual API call
+      const mockDataSources: DataSourceData[] = [
+        {
+          id: '1',
+          name: 'production-postgres',
+          display_name: 'Production PostgreSQL',
+          description: 'Main production database containing customer and transaction data',
+          plugin_name: 'PostgreSQL',
+          type: 'postgresql',
+          status: 'connected',
+          host: 'prod-db.company.com',
+          port: 5432,
+          database_name: 'analytics',
+          schema_name: 'public',
+          ssl_enabled: true,
+          is_read_only: false,
+          auto_refresh_enabled: true,
+          refresh_schedule: '0 2 * * *',
+          last_connection_test: '2024-01-15T10:30:00Z',
+          test_result: 'success',
+          tables_count: 24,
+          total_size_bytes: 2147483648, // 2GB
+          version: '14.5',
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-15T10:30:00Z',
+          last_tested: '2024-01-15T10:30:00Z',
+          owner_id: 'user1',
+          owner: {
+            id: 'user1',
+            name: 'John Doe',
+            email: 'john.doe@company.com'
+          },
+          usage_stats: {
+            chart_count: 45,
+            dashboard_count: 12,
+            dataset_count: 8,
+            query_count: 1250,
+            last_used: '2024-01-15T09:15:00Z',
+            daily_queries: 85,
+            weekly_queries: 520
+          },
+          security_config: {
+            encryption_enabled: true,
+            audit_logging: true,
+            ip_whitelist: ['10.0.0.0/8', '192.168.0.0/16']
+          }
+        },
+        {
+          id: '2',
+          name: 'staging-mysql',
+          display_name: 'Staging MySQL',
+          description: 'Staging environment database for development and testing',
+          plugin_name: 'MySQL',
+          type: 'mysql',
+          status: 'disconnected',
+          host: 'staging-db.company.com',
+          port: 3306,
+          database_name: 'staging_analytics',
+          ssl_enabled: true,
+          is_read_only: true,
+          auto_refresh_enabled: false,
+          last_connection_test: '2024-01-14T14:20:00Z',
+          test_result: 'failed',
+          test_error_message: 'Connection timeout - host unreachable',
+          error_message: 'Connection timeout - host unreachable',
+          tables_count: 18,
+          version: '8.0.32',
+          created_at: '2024-01-05T00:00:00Z',
+          updated_at: '2024-01-14T14:20:00Z',
+          last_tested: '2024-01-14T14:20:00Z',
+          owner_id: 'user2',
+          owner: {
+            id: 'user2',
+            name: 'Jane Smith',
+            email: 'jane.smith@company.com'
+          },
+          usage_stats: {
+            chart_count: 12,
+            dashboard_count: 3,
+            dataset_count: 4,
+            query_count: 340,
+            last_used: '2024-01-14T16:45:00Z',
+            daily_queries: 15,
+            weekly_queries: 105
+          },
+          security_config: {
+            encryption_enabled: false,
+            audit_logging: false
+          }
+        },
+        {
+          id: '3',
+          name: 'bigquery-analytics',
+          display_name: 'BigQuery Analytics',
+          description: 'Google BigQuery data warehouse for large-scale analytics',
+          plugin_name: 'BigQuery',
+          type: 'bigquery',
+          status: 'connected',
+          database_name: 'analytics-project',
+          schema_name: 'public',
+          ssl_enabled: true,
+          is_read_only: false,
+          auto_refresh_enabled: true,
+          refresh_schedule: '0 */6 * * *',
+          last_connection_test: '2024-01-15T08:45:00Z',
+          test_result: 'success',
+          tables_count: 156,
+          total_size_bytes: 107374182400, // 100GB
+          created_at: '2024-01-03T00:00:00Z',
+          updated_at: '2024-01-15T08:45:00Z',
+          last_tested: '2024-01-15T08:45:00Z',
+          owner_id: 'user1',
+          owner: {
+            id: 'user1',
+            name: 'John Doe',
+            email: 'john.doe@company.com'
+          },
+          usage_stats: {
+            chart_count: 89,
+            dashboard_count: 28,
+            dataset_count: 15,
+            query_count: 2890,
+            last_used: '2024-01-15T11:30:00Z',
+            daily_queries: 156,
+            weekly_queries: 980
+          },
+          security_config: {
+            encryption_enabled: true,
+            audit_logging: true
+          },
+          backup_config: {
+            enabled: true,
+            frequency: 'daily',
+            retention_days: 30,
+            last_backup: '2024-01-15T02:00:00Z'
+          }
         }
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to load datasources: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      setDatasources(data.datasources || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load datasources');
-      console.error('Error loading datasources:', err);
+      ];
+      
+      setDataSources(mockDataSources);
+    } catch (error) {
+      console.error('Failed to load data sources:', error);
+      setError('Failed to load data sources. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadAvailablePlugins = async () => {
-    if (!workspace?.id) return;
+  // Helper functions
+  const getTypeIcon = (type: string) => {
+    const iconMap: { [key: string]: React.ReactNode } = {
+      postgresql: <DatabaseIcon fontSize="small" />,
+      mysql: <DatabaseIcon fontSize="small" />,
+      mongodb: <StorageIcon fontSize="small" />,
+      sqlite: <DatabaseIcon fontSize="small" />,
+      bigquery: <CloudIcon fontSize="small" />,
+      snowflake: <CloudIcon fontSize="small" />,
+      redshift: <CloudIcon fontSize="small" />,
+      oracle: <DatabaseIcon fontSize="small" />,
+      mssql: <DatabaseIcon fontSize="small" />
+    };
+    return iconMap[type] || <DatabaseIcon fontSize="small" />;
+  };
+
+  const getStatusColor = (status: string) => {
+    const colorMap: { [key: string]: 'success' | 'warning' | 'error' | 'default' } = {
+      connected: 'success',
+      disconnected: 'warning', 
+      error: 'error',
+      testing: 'default',
+      configuring: 'default'
+    };
+    return colorMap[status] || 'default';
+  };
+
+  const formatBytes = (bytes?: number) => {
+    if (!bytes) return 'Unknown';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // Event handlers
+  const handleCreateDataSource = () => {
+    router.push(`/workspace/${workspace?.slug}/datasource-builder`);
+  };
+
+  const handleEditDataSource = (dataSource: DataSourceData) => {
+    setSelectedDataSource(dataSource);
+    setFormData({
+      name: dataSource.name,
+      display_name: dataSource.display_name,
+      description: dataSource.description || '',
+      host: dataSource.host || '',
+      port: dataSource.port || 5432,
+      database_name: dataSource.database_name || '',
+      ssl_enabled: dataSource.ssl_enabled,
+      is_read_only: dataSource.is_read_only,
+      auto_refresh_enabled: dataSource.auto_refresh_enabled
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleDeleteDataSource = (dataSource: DataSourceData) => {
+    setSelectedDataSource(dataSource);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleTestConnection = async (dataSource: DataSourceData) => {
+    setTestingConnections(prev => new Set([...prev, dataSource.id]));
+    
+    try {
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Update the datasource status
+      setDataSources(prev => prev.map(ds => 
+        ds.id === dataSource.id 
+          ? { 
+              ...ds, 
+              status: 'connected',
+              last_connection_test: new Date().toISOString(),
+              test_result: 'success',
+              error_message: undefined,
+              test_error_message: undefined
+            }
+          : ds
+      ));
+    } catch (error) {
+      setDataSources(prev => prev.map(ds => 
+        ds.id === dataSource.id 
+          ? { 
+              ...ds, 
+              status: 'error',
+              last_connection_test: new Date().toISOString(),
+              test_result: 'failed',
+              test_error_message: 'Connection test failed'
+            }
+          : ds
+      ));
+    } finally {
+      setTestingConnections(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(dataSource.id);
+        return newSet;
+      });
+    }
+  };
+
+  const handleDuplicateDataSource = (dataSource: DataSourceData) => {
+    router.push(`/workspace/${workspace?.slug}/datasource-builder?duplicate=${dataSource.id}`);
+  };
+
+  const handleShareDataSource = (dataSource: DataSourceData) => {
+    // Handle share functionality
+    navigator.clipboard.writeText(
+      `${window.location.origin}/workspace/${workspace?.slug}/datasources/${dataSource.id}`
+    );
+    // Show success message (you might want to add a snackbar here)
+  };
+
+  const handleToggleStatus = async (dataSource: DataSourceData) => {
+    try {
+      setSubmitting(true);
+      
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      setDataSources(prev => prev.map(ds =>
+        ds.id === dataSource.id
+          ? { ...ds, status: ds.status === 'connected' ? 'disconnected' : 'connected' }
+          : ds
+      ));
+    } catch (error) {
+      setError('Failed to update data source status');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!selectedDataSource) return;
 
     try {
-      const response = await fetch('/api/workspaces/plugins/datasources', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
-          'workspace-id': workspace.id
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to load available plugins');
-      }
-
-      const data = await response.json();
-      setAvailablePlugins(data.plugins || []);
-    } catch (err) {
-      console.error('Error loading available plugins:', err);
+      setSubmitting(true);
+      
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      setDataSources(prev => prev.filter(ds => ds.id !== selectedDataSource.id));
+      setDeleteDialogOpen(false);
+      setSelectedDataSource(null);
+    } catch (error) {
+      setError('Failed to delete data source');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  // Get plugin category icon
-  const getPluginCategoryIcon = (category: string) => {
-    switch (category) {
-      case 'relational': return <DatabaseIcon />;
-      case 'cloud_databases': return <CloudIcon />;
-      case 'storage_services': return <StorageIcon />;
-      case 'data_lakes': return <ServerIcon />;
-      case 'nosql': return <CableIcon />;
-      case 'files': return <FileIcon />;
-      case 'apis': return <ApiIcon />;
-      default: return <StorageIcon />;
+  const handleUpdateDataSource = async () => {
+    if (!selectedDataSource) return;
+
+    try {
+      setSubmitting(true);
+      
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      setDataSources(prev => prev.map(ds =>
+        ds.id === selectedDataSource.id
+          ? { 
+              ...ds, 
+              ...formData,
+              updated_at: new Date().toISOString()
+            }
+          : ds
+      ));
+      setEditDialogOpen(false);
+      setSelectedDataSource(null);
+    } catch (error) {
+      setError('Failed to update data source');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  // Get status color
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'connected': return 'success';
-      case 'testing': return 'warning';
-      case 'error': 
-      case 'disconnected': return 'error';
-      default: return 'default';
-    }
+  const handleRefresh = () => {
+    loadDataSources();
+  };
+
+  // Visibility icon mapping
+  const getVisibilityIcon = (visibility: string) => {
+    const iconMap: { [key: string]: React.ReactNode } = {
+      public: <DatabaseIcon fontSize="small" />,
+      private: <SecurityIcon fontSize="small" />,
+      workspace: <DatabaseIcon fontSize="small" />
+    };
+    return iconMap[visibility] || <DatabaseIcon fontSize="small" />;
   };
 
   // Table columns configuration
   const columns: TableColumn<DataSourceData>[] = useMemo(() => [
     {
-      key: 'datasource',
+      key: 'name',
       label: 'Data Source',
       sortable: true,
-      render: (datasource) => (
+      render: (dataSource: DataSourceData) => (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Avatar 
-            sx={{ 
-              width: 40, 
-              height: 40, 
-              bgcolor: datasource.is_active ? 'primary.main' : 'grey.400'
-            }}
-          >
-            {getPluginCategoryIcon(datasource.plugin_category)}
-          </Avatar>
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            width: 40, 
+            height: 40, 
+            borderRadius: 1, 
+            bgcolor: dataSource.status === 'connected' ? 'success.light' : 'warning.light', 
+            color: dataSource.status === 'connected' ? 'success.main' : 'warning.main' 
+          }}>
+            {getTypeIcon(dataSource.type)}
+          </Box>
           <Box>
-            <Typography variant="body2" fontWeight="medium">
-              {datasource.display_name || datasource.name}
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="body2" fontWeight={500}>
+                {dataSource.display_name}
+              </Typography>
+              {dataSource.is_read_only && (
+                <Chip label="Read Only" size="small" color="default" variant="outlined" />
+              )}
+            </Box>
             <Typography variant="caption" color="text.secondary">
-              {datasource.plugin_name} • {datasource.plugin_category.replace('_', ' ')}
+              {dataSource.name}
             </Typography>
-            {datasource.description && (
-              <Typography variant="caption" color="text.secondary" display="block">
-                {datasource.description.substring(0, 80)}...
+            {dataSource.description && (
+              <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>
+                {dataSource.description}
               </Typography>
             )}
           </Box>
@@ -290,144 +546,194 @@ const DataSourcesPage: NextPage = () => {
       )
     },
     {
+      key: 'type',
+      label: 'Type & Connection',
+      sortable: true,
+      render: (dataSource: DataSourceData) => (
+        <Box>
+          <Chip
+            label={dataSource.plugin_name}
+            size="small"
+            variant="outlined"
+            icon={getTypeIcon(dataSource.type)}
+            sx={{ mb: 0.5 }}
+          />
+          {dataSource.host && (
+            <Typography variant="caption" display="block" color="text.secondary">
+              {dataSource.host}:{dataSource.port}
+            </Typography>
+          )}
+          {dataSource.database_name && (
+            <Typography variant="caption" display="block" color="text.secondary">
+              DB: {dataSource.database_name}
+            </Typography>
+          )}
+        </Box>
+      )
+    },
+    {
       key: 'status',
       label: 'Status',
       sortable: true,
-      align: 'center',
-      render: (datasource) => (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+      render: (dataSource: DataSourceData) => (
+        <Box>
           <Chip
+            label={dataSource.status.toUpperCase()}
             size="small"
-            icon={datasource.status === 'connected' ? <CheckIcon /> : 
-                  datasource.status === 'testing' ? <WarningIcon /> : <ErrorIcon />}
-            label={datasource.status.charAt(0).toUpperCase() + datasource.status.slice(1)}
-            color={getStatusColor(datasource.status) as any}
-            variant={datasource.is_active ? 'filled' : 'outlined'}
+            color={getStatusColor(dataSource.status)}
+            variant="filled"
+            icon={testingConnections.has(dataSource.id) ? <CircularProgress size={12} /> : undefined}
+            sx={{ mb: 0.5 }}
           />
-          {!datasource.is_active && (
-            <Chip size="small" label="Inactive" color="default" variant="outlined" />
+          {dataSource.test_error_message && (
+            <Typography variant="caption" display="block" color="error.main">
+              {dataSource.test_error_message}
+            </Typography>
+          )}
+          {dataSource.last_tested && (
+            <Typography variant="caption" display="block" color="text.secondary">
+              Tested: {new Date(dataSource.last_tested).toLocaleDateString()}
+            </Typography>
+          )}
+        </Box>
+      )
+    },
+    {
+      key: 'tables_info',
+      label: 'Database Info',
+      sortable: true,
+      render: (dataSource: DataSourceData) => (
+        <Box>
+          <Typography variant="body2" fontWeight={500}>
+            {dataSource.tables_count || 0} tables
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {formatBytes(dataSource.total_size_bytes)}
+          </Typography>
+          {dataSource.version && (
+            <Typography variant="caption" display="block" color="text.secondary">
+              v{dataSource.version}
+            </Typography>
           )}
         </Box>
       )
     },
     {
       key: 'usage',
-      label: 'Usage',
-      render: (datasource) => (
+      label: 'Usage Stats',
+      sortable: true,
+      render: (dataSource: DataSourceData) => (
         <Box>
-          {datasource.usage_stats ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-              <Typography variant="caption">
-                📊 {datasource.usage_stats.dataset_count} datasets
-              </Typography>
-              <Typography variant="caption">
-                🔍 {datasource.usage_stats.total_queries} queries
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                ⚡ {datasource.usage_stats.avg_response_time}ms avg
-              </Typography>
-            </Box>
-          ) : (
-            <Typography variant="caption" color="text.secondary">
-              No usage data
+          <Typography variant="body2">
+            {dataSource.usage_stats?.chart_count || 0} charts
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {dataSource.usage_stats?.dashboard_count || 0} dashboards
+          </Typography>
+          <Typography variant="caption" display="block" color="text.secondary">
+            {dataSource.usage_stats?.query_count || 0} queries
+          </Typography>
+          {dataSource.usage_stats?.last_used && (
+            <Typography variant="caption" display="block" color="text.secondary">
+              Used: {new Date(dataSource.usage_stats.last_used).toLocaleDateString()}
             </Typography>
           )}
         </Box>
       )
     },
     {
-      key: 'last_tested',
-      label: 'Last Tested',
+      key: 'owner',
+      label: 'Owner',
       sortable: true,
-      render: (datasource) => (
-        datasource.last_tested ? (
-          <Box>
-            <Typography variant="body2">
-              {new Date(datasource.last_tested).toLocaleDateString()}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {new Date(datasource.last_tested).toLocaleTimeString()}
-            </Typography>
-          </Box>
-        ) : (
-          <Typography variant="body2" color="text.secondary">
-            Never tested
-          </Typography>
-        )
-      )
-    },
-    {
-      key: 'created_at',
-      label: 'Created',
-      sortable: true,
-      render: (datasource) => (
-        <Box>
+      render: (dataSource: DataSourceData) => (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Avatar src={dataSource.owner?.email} sx={{ width: 24, height: 24 }}>
+            {dataSource.owner?.name?.charAt(0).toUpperCase()}
+          </Avatar>
           <Typography variant="body2">
-            {new Date(datasource.created_at).toLocaleDateString()}
+            {dataSource.owner?.name || 'Unknown'}
           </Typography>
-          {datasource.owner && (
-            <Typography variant="caption" color="text.secondary">
-              by {datasource.owner.name}
-            </Typography>
-          )}
         </Box>
       )
     }
-  ], []);
+  ], [testingConnections]);
 
-  // Table actions
+  // Table actions configuration
   const actions: TableAction<DataSourceData>[] = useMemo(() => [
     {
       label: 'Test Connection',
       icon: <TestIcon fontSize="small" />,
-      onClick: (datasource) => handleTestConnection(datasource),
-      color: 'primary',
-      show: () => hasPermission('datasource.test')
+      onClick: (dataSource) => handleTestConnection(dataSource),
+      show: (dataSource) => hasPermission('datasource.test') && dataSource.status !== 'testing',
+      color: 'info',
+      disabled: (dataSource) => testingConnections.has(dataSource.id)
     },
     {
       label: 'View Schema',
       icon: <SchemaIcon fontSize="small" />,
-      onClick: (datasource) => router.push(`/workspace/${workspace?.slug}/datasources/${datasource.id}/schema`),
-      color: 'default',
-      show: () => hasPermission('datasource.read'),
-      disabled: (datasource) => datasource.status !== 'connected'
+      onClick: (dataSource) => {
+        router.push(`/workspace/${workspace?.slug}/datasources/${dataSource.id}/schema`);
+      },
+      show: (dataSource) => hasPermission('datasource.read') && dataSource.status === 'connected',
+      color: 'default'
     },
     {
       label: 'Edit Configuration',
       icon: <EditIcon fontSize="small" />,
-      onClick: (datasource) => handleEditDatasource(datasource),
-      color: 'primary',
-      show: () => hasPermission('datasource.update')
+      onClick: (dataSource) => handleEditDataSource(dataSource),
+      show: (dataSource) => hasPermission('datasource.update') && 
+        (dataSource.owner_id === user?.id || hasPermission('datasource.admin')),
+      color: 'default'
     },
     {
       label: 'View Analytics',
       icon: <AnalyticsIcon fontSize="small" />,
-      onClick: (datasource) => router.push(`/workspace/${workspace?.slug}/datasources/${datasource.id}/analytics`),
-      color: 'default',
-      show: () => hasPermission('datasource.read')
+      onClick: (dataSource) => {
+        router.push(`/workspace/${workspace?.slug}/datasources/${dataSource.id}/analytics`);
+      },
+      show: (dataSource) => hasPermission('datasource.read') && dataSource.usage_stats,
+      color: 'info'
     },
     {
-      label: datasource => datasource.is_active ? 'Deactivate' : 'Activate',
-      icon: (datasource) => datasource.is_active ? <ErrorIcon fontSize="small" /> : <CheckIcon fontSize="small" />,
-      onClick: (datasource) => handleToggleDatasourceStatus(datasource),
-      color: (datasource) => datasource.is_active ? 'warning' : 'success',
-      show: () => hasPermission('datasource.update')
+      label: 'Duplicate Data Source',
+      icon: <BackupIcon fontSize="small" />,
+      onClick: (dataSource) => handleDuplicateDataSource(dataSource),
+      show: () => hasPermission('datasource.create'),
+      color: 'secondary'
     },
     {
-      label: 'Delete',
+      label: 'Refresh Schema',
+      icon: <RefreshIcon fontSize="small" />,
+      onClick: (dataSource) => {
+        // Handle schema refresh
+        console.log('Refreshing schema for:', dataSource.id);
+      },
+      show: (dataSource) => hasPermission('datasource.update') && dataSource.status === 'connected',
+      color: 'primary'
+    },
+    {
+      label: dataSource => dataSource.status === 'connected' ? 'Disconnect' : 'Connect',
+      icon: (dataSource) => dataSource.status === 'connected' ? <ErrorIcon fontSize="small" /> : <CheckIcon fontSize="small" />,
+      onClick: (dataSource) => handleToggleStatus(dataSource),
+      show: () => hasPermission('datasource.update'),
+      color: (dataSource) => dataSource.status === 'connected' ? 'warning' : 'success'
+    },
+    {
+      label: 'Delete Data Source',
       icon: <DeleteIcon fontSize="small" />,
-      onClick: (datasource) => handleDeleteDatasource(datasource),
+      onClick: (dataSource) => handleDeleteDataSource(dataSource),
+      show: (dataSource) => hasPermission('datasource.delete') && 
+        (dataSource.owner_id === user?.id || hasPermission('datasource.admin')),
       color: 'error',
-      show: () => hasPermission('datasource.delete'),
-      disabled: (datasource) => datasource.usage_stats ? datasource.usage_stats.dataset_count > 0 : false
+      disabled: (dataSource) => (dataSource.usage_stats?.chart_count || 0) > 0
     }
-  ], [hasPermission, workspace, router]);
+  ], [hasPermission, router, workspace?.slug, user?.id, testingConnections]);
 
   // Filter options
   const filters: FilterOption[] = [
     {
       key: 'status',
-      label: 'Connection Status',
+      label: 'Status',
       options: [
         { value: 'connected', label: 'Connected' },
         { value: 'disconnected', label: 'Disconnected' },
@@ -436,595 +742,223 @@ const DataSourcesPage: NextPage = () => {
       ]
     },
     {
-      key: 'plugin_category',
-      label: 'Category',
+      key: 'type',
+      label: 'Database Type',
       options: [
-        { value: 'relational', label: 'Relational Databases' },
-        { value: 'cloud_databases', label: 'Cloud Databases' },
-        { value: 'storage_services', label: 'Storage Services' },
-        { value: 'data_lakes', label: 'Data Lakes' },
-        { value: 'nosql', label: 'NoSQL Databases' },
-        { value: 'files', label: 'File Sources' },
-        { value: 'apis', label: 'APIs' }
+        { value: 'postgresql', label: 'PostgreSQL' },
+        { value: 'mysql', label: 'MySQL' },
+        { value: 'mongodb', label: 'MongoDB' },
+        { value: 'bigquery', label: 'BigQuery' },
+        { value: 'snowflake', label: 'Snowflake' },
+        { value: 'redshift', label: 'Redshift' },
+        { value: 'oracle', label: 'Oracle' },
+        { value: 'mssql', label: 'SQL Server' }
       ]
     },
     {
-      key: 'plugin_name',
-      label: 'Plugin Type',
-      options: availablePlugins.map(plugin => ({ value: plugin.name, label: plugin.displayName }))
-    },
-    {
-      key: 'is_active',
-      label: 'Active Status',
+      key: 'is_read_only',
+      label: 'Access Mode',
       options: [
-        { value: 'true', label: 'Active' },
-        { value: 'false', label: 'Inactive' }
+        { value: true, label: 'Read Only' },
+        { value: false, label: 'Read/Write' }
       ]
-    }
-  ];
-
-  // Event handlers
-  const handleAddDatasource = () => {
-    setFormData({
-      name: '',
-      display_name: '',
-      description: '',
-      plugin_name: '',
-      connection_config: {},
-      is_active: true
-    });
-    setAddDatasourceDialogOpen(true);
-  };
-
-  const handleEditDatasource = (datasource: DataSourceData) => {
-    setEditingDatasource(datasource);
-    setFormData({
-      name: datasource.name,
-      display_name: datasource.display_name,
-      description: datasource.description || '',
-      plugin_name: datasource.plugin_name,
-      connection_config: datasource.connection_config,
-      is_active: datasource.is_active
-    });
-    setEditDatasourceDialogOpen(true);
-  };
-
-  const handleDeleteDatasource = (datasource: DataSourceData) => {
-    setDeletingDatasource(datasource);
-    setDeleteDatasourceDialogOpen(true);
-  };
-
-  const handleTestConnection = async (datasource: DataSourceData) => {
-    setTestingDatasource(datasource);
-    setTestResult(null);
-    setTestConnectionDialogOpen(true);
-
-    try {
-      const response = await fetch(`/api/workspaces/datasources/${datasource.id}/test`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
-          'workspace-id': workspace?.id || ''
-        }
-      });
-
-      const result = await response.json();
-      setTestResult(result);
-      
-      // Refresh the datasource list to update test status
-      await loadDatasources();
-    } catch (err) {
-      setTestResult({
-        success: false,
-        message: err instanceof Error ? err.message : 'Connection test failed',
-        error_code: 'TEST_FAILED'
-      });
-    }
-  };
-
-  const handleToggleDatasourceStatus = async (datasource: DataSourceData) => {
-    try {
-      const response = await fetch(`/api/workspaces/datasources/${datasource.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
-          'workspace-id': workspace?.id || ''
-        },
-        body: JSON.stringify({
-          is_active: !datasource.is_active
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update datasource status');
-      }
-
-      await loadDatasources();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update datasource');
-    }
-  };
-
-  const handleSubmitDatasource = async () => {
-    try {
-      const isEdit = !!editingDatasource;
-      const url = isEdit 
-        ? `/api/workspaces/datasources/${editingDatasource.id}`
-        : '/api/workspaces/datasources';
-      
-      const method = isEdit ? 'PUT' : 'POST';
-
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
-          'workspace-id': workspace?.id || ''
-        },
-        body: JSON.stringify(formData)
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to ${isEdit ? 'update' : 'create'} datasource`);
-      }
-
-      await loadDatasources();
-      setAddDatasourceDialogOpen(false);
-      setEditDatasourceDialogOpen(false);
-      setEditingDatasource(null);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to ${editingDatasource ? 'update' : 'create'} datasource`);
-    }
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!deletingDatasource) return;
-
-    try {
-      const response = await fetch(`/api/workspaces/datasources/${deletingDatasource.id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
-          'workspace-id': workspace?.id || ''
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete datasource');
-      }
-
-      await loadDatasources();
-      setDeleteDatasourceDialogOpen(false);
-      setDeletingDatasource(null);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete datasource');
-    }
-  };
-
-  const handleBulkTestConnections = async () => {
-    if (selectedDatasources.length === 0) return;
-
-    try {
-      const promises = selectedDatasources.map(id => 
-        fetch(`/api/workspaces/datasources/${id}/test`, {
-          method: 'POST',
-          headers: { 
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
-            'workspace-id': workspace?.id || ''
-          }
-        })
-      );
-
-      await Promise.all(promises);
-      await loadDatasources();
-    } catch (err) {
-      setError('Failed to test some connections');
-    }
-  };
-
-  // Render configuration form based on plugin schema
-  const renderConfigurationForm = (plugin: PluginOption) => {
-    if (!plugin.configSchema.properties) return null;
-
-    return Object.entries(plugin.configSchema.properties).map(([key, property]) => {
-      const value = formData.connection_config[key] || property.default || '';
-      
-      if (property.type === 'password') {
-        return (
-          <TextField
-            key={key}
-            label={property.title || key}
-            type={showPassword[key] ? 'text' : 'password'}
-            value={value}
-            onChange={(e) => setFormData({
-              ...formData,
-              connection_config: {
-                ...formData.connection_config,
-                [key]: e.target.value
-              }
-            })}
-            required={property.required}
-            fullWidth
-            helperText={property.description}
-            InputProps={{
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton
-                    onClick={() => setShowPassword({
-                      ...showPassword,
-                      [key]: !showPassword[key]
-                    })}
-                    edge="end"
-                  >
-                    {showPassword[key] ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                  </IconButton>
-                </InputAdornment>
-              )
-            }}
-          />
-        );
-      }
-
-      if (property.type === 'select') {
-        return (
-          <FormControl key={key} fullWidth required={property.required}>
-            <InputLabel>{property.title || key}</InputLabel>
-            <Select
-              value={value}
-              onChange={(e) => setFormData({
-                ...formData,
-                connection_config: {
-                  ...formData.connection_config,
-                  [key]: e.target.value
-                }
-              })}
-            >
-              {property.options?.map((option) => (
-                <MenuItem key={option.value} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        );
-      }
-
-      if (property.type === 'number') {
-        return (
-          <TextField
-            key={key}
-            label={property.title || key}
-            type="number"
-            value={value}
-            onChange={(e) => setFormData({
-              ...formData,
-              connection_config: {
-                ...formData.connection_config,
-                [key]: parseInt(e.target.value) || property.default || 0
-              }
-            })}
-            required={property.required}
-            fullWidth
-            helperText={property.description}
-            inputProps={{
-              min: property.validation?.min,
-              max: property.validation?.max
-            }}
-          />
-        );
-      }
-
-      if (property.type === 'boolean') {
-        return (
-          <FormControlLabel
-            key={key}
-            control={
-              <Switch
-                checked={!!value}
-                onChange={(e) => setFormData({
-                  ...formData,
-                  connection_config: {
-                    ...formData.connection_config,
-                    [key]: e.target.checked
-                  }
-                })}
-              />
-            }
-            label={property.title || key}
-          />
-        );
-      }
-
-      return (
-        <TextField
-          key={key}
-          label={property.title || key}
-          value={value}
-          onChange={(e) => setFormData({
-            ...formData,
-            connection_config: {
-              ...formData.connection_config,
-              [key]: e.target.value
-            }
-          })}
-          required={property.required}
-          fullWidth
-          helperText={property.description}
-          inputProps={{
-            minLength: property.validation?.minLength,
-            maxLength: property.validation?.maxLength,
-            pattern: property.validation?.pattern
-          }}
-        />
-      );
-    });
-  };
-
-  // Render datasource form dialog
-  const renderDatasourceDialog = (open: boolean, onClose: () => void, title: string) => {
-    const selectedPlugin = availablePlugins.find(p => p.name === formData.plugin_name);
-
-    return (
-      <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-        <DialogTitle>{title}</DialogTitle>
-        <DialogContent>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-            {error && (
-              <Alert severity="error" onClose={() => setError(null)}>
-                {error}
-              </Alert>
-            )}
-            
-            <TextField
-              label="Name"
-              value={formData.name}
-              onChange={(e) => setFormData({...formData, name: e.target.value})}
-              required
-              fullWidth
-              helperText="Internal identifier for this datasource"
-            />
-            
-            <TextField
-              label="Display Name"
-              value={formData.display_name}
-              onChange={(e) => setFormData({...formData, display_name: e.target.value})}
-              required
-              fullWidth
-              helperText="Human-friendly name displayed in the UI"
-            />
-            
-            <TextField
-              label="Description"
-              value={formData.description}
-              onChange={(e) => setFormData({...formData, description: e.target.value})}
-              multiline
-              rows={2}
-              fullWidth
-              helperText="Optional description of this datasource"
-            />
-
-            <FormControl fullWidth required>
-              <InputLabel>Plugin Type</InputLabel>
-              <Select
-                value={formData.plugin_name}
-                onChange={(e) => {
-                  setFormData({
-                    ...formData, 
-                    plugin_name: e.target.value,
-                    connection_config: {}
-                  });
-                }}
-                disabled={!!editingDatasource} // Can't change plugin type when editing
-              >
-                {availablePlugins.map((plugin) => (
-                  <MenuItem key={plugin.name} value={plugin.name}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {getPluginCategoryIcon(plugin.category)}
-                      <Box>
-                        <Typography variant="body2">{plugin.displayName}</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {plugin.category.replace('_', ' ')}
-                        </Typography>
-                      </Box>
-                    </Box>
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            {selectedPlugin && (
-              <Box>
-                <Typography variant="h6" gutterBottom>
-                  Connection Configuration
-                </Typography>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  {renderConfigurationForm(selectedPlugin)}
-                </Box>
-              </Box>
-            )}
-            
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={formData.is_active}
-                  onChange={(e) => setFormData({...formData, is_active: e.target.checked})}
-                />
-              }
-              label="Active datasource"
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button 
-            onClick={handleSubmitDatasource} 
-            variant="contained"
-            disabled={!formData.name || !formData.display_name || !formData.plugin_name}
-          >
-            {editingDatasource ? 'Update' : 'Create'} Datasource
-          </Button>
-        </DialogActions>
-      </Dialog>
-    );
-  };
-
-  // Bulk actions
-  const bulkActions = [
-    {
-      label: 'Test Selected Connections',
-      icon: <TestIcon />,
-      onClick: handleBulkTestConnections,
-      permission: 'datasource.test'
-    },
-    {
-      label: 'Activate Selected',
-      icon: <CheckIcon />,
-      onClick: () => {/* Handle bulk activate */},
-      permission: 'datasource.update'
-    },
-    {
-      label: 'Deactivate Selected',
-      icon: <ErrorIcon />,
-      onClick: () => {/* Handle bulk deactivate */},
-      permission: 'datasource.update'
     }
   ];
 
   return (
-    <PermissionGate permissions={['datasource.read']}>
-      <WorkspaceLayout>
-        <Box sx={{ p: 3 }}>
-          <CommonTableLayout
-            title="Data Source Management"
-            subtitle="Manage database connections and data source configurations"
-            data={datasources}
-            columns={columns}
-            actions={actions}
-            filters={filters}
-            loading={loading}
-            error={error as any}
-            searchable={true}
-            searchPlaceholder="Search data sources by name, plugin type, or description..."
-            selectable={true}
-            selectedItems={selectedDatasources}
-            onSelectionChange={setSelectedDatasources}
-            pagination={true}
-            itemsPerPage={25}
-            showCreateButton={hasPermission('datasource.create')}
-            createButtonLabel="Add Data Source"
-            onCreateClick={handleAddDatasource}
-            onRefresh={loadDatasources}
-            bulkActions={bulkActions}
-            emptyState={
-              <Box sx={{ textAlign: 'center', py: 8 }}>
-                <StorageIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-                <Typography variant="h6" color="text.secondary" gutterBottom>
-                  No data sources configured
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Connect your first data source to start building datasets and dashboards
-                </Typography>
-                {hasPermission('datasource.create') && (
-                  <Button 
-                    variant="contained" 
-                    startIcon={<AddIcon />}
-                    onClick={handleAddDatasource}
-                  >
-                    Add Data Source
-                  </Button>
-                )}
-              </Box>
-            }
-          />
-
-          {/* Dialogs */}
-          {renderDatasourceDialog(
-            addDatasourceDialogOpen,
-            () => setAddDatasourceDialogOpen(false),
-            'Add New Data Source'
-          )}
-
-          {renderDatasourceDialog(
-            editDatasourceDialogOpen,
-            () => setEditDatasourceDialogOpen(false),
-            'Edit Data Source'
-          )}
-
-          <Dialog
-            open={deleteDatasourceDialogOpen}
-            onClose={() => setDeleteDatasourceDialogOpen(false)}
-          >
-            <DialogTitle>Delete Data Source</DialogTitle>
-            <DialogContent>
-              <Typography>
-                Are you sure you want to delete "{deletingDatasource?.display_name}"?
-              </Typography>
-              {deletingDatasource?.usage_stats && deletingDatasource.usage_stats.dataset_count > 0 && (
-                <Alert severity="warning" sx={{ mt: 2 }}>
-                  This data source is used by {deletingDatasource.usage_stats.dataset_count} dataset(s). 
-                  Deleting it will affect existing charts and dashboards.
-                </Alert>
-              )}
-              <Typography color="error" sx={{ mt: 2 }}>
-                This action cannot be undone.
-              </Typography>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setDeleteDatasourceDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleConfirmDelete} color="error" variant="contained">
-                Delete Data Source
-              </Button>
-            </DialogActions>
-          </Dialog>
-
-          <Dialog
-            open={testConnectionDialogOpen}
-            onClose={() => setTestConnectionDialogOpen(false)}
-            maxWidth="sm"
-            fullWidth
-          >
-            <DialogTitle>Connection Test - {testingDatasource?.display_name}</DialogTitle>
-            <DialogContent>
-              {testResult ? (
-                <Box>
-                  <Alert severity={testResult.success ? 'success' : 'error'}>
-                    {testResult.message}
-                  </Alert>
-                  {testResult.response_time && (
-                    <Typography variant="body2" sx={{ mt: 2 }}>
-                      Response time: {testResult.response_time}ms
-                    </Typography>
-                  )}
-                  {testResult.error_code && (
-                    <Typography variant="body2" color="error">
-                      Error code: {testResult.error_code}
-                    </Typography>
-                  )}
-                </Box>
-              ) : (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 2 }}>
-                  <Typography>Testing connection...</Typography>
-                </Box>
-              )}
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setTestConnectionDialogOpen(false)}>Close</Button>
-              <Button 
-                onClick={() => testingDatasource && handleTestConnection(testingDatasource)}
-                startIcon={<TestIcon />}
-              >
-                Test Again
-              </Button>
-            </DialogActions>
-          </Dialog>
+    <WorkspaceLayout>
+      <Box sx={{ p: 3 }}>
+        {/* Header */}
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h4" gutterBottom>
+            Data Sources
+          </Typography>
+          <Typography variant="body1" color="text.secondary">
+            Manage your database connections and monitor data source health
+          </Typography>
         </Box>
-      </WorkspaceLayout>
-    </PermissionGate>
+
+        {/* Error Alert */}
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+            {error}
+          </Alert>
+        )}
+
+        {/* Data Sources Table */}
+        <CommonTableLayout
+          data={dataSources}
+          loading={loading}
+          error={error}
+          columns={columns}
+          actions={actions}
+          title="All Data Sources"
+          subtitle={`${dataSources.length} data sources found`}
+          searchable={true}
+          searchPlaceholder="Search data sources by name, type, or description..."
+          filters={filters}
+          showCreateButton={true}
+          createButtonLabel="Add Data Source"
+          onCreateClick={handleCreateDataSource}
+          onRefresh={handleRefresh}
+          pagination={true}
+          itemsPerPage={25}
+        />
+
+        {/* Edit Data Source Dialog */}
+        <Dialog 
+          open={editDialogOpen} 
+          onClose={() => setEditDialogOpen(false)}
+          maxWidth="md"
+          fullWidth
+        >
+          <DialogTitle>
+            Edit Data Source: {selectedDataSource?.display_name}
+          </DialogTitle>
+          <DialogContent>
+            <Grid container spacing={2} sx={{ mt: 1 }}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Data Source Name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Display Name"
+                  value={formData.display_name}
+                  onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={3}
+                  label="Description"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} md={8}>
+                <TextField
+                  fullWidth
+                  label="Host"
+                  value={formData.host}
+                  onChange={(e) => setFormData({ ...formData, host: e.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Port"
+                  value={formData.port}
+                  onChange={(e) => setFormData({ ...formData, port: parseInt(e.target.value) || 5432 })}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Database Name"
+                  value={formData.database_name}
+                  onChange={(e) => setFormData({ ...formData, database_name: e.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formData.ssl_enabled}
+                      onChange={(e) => setFormData({ ...formData, ssl_enabled: e.target.checked })}
+                    />
+                  }
+                  label="SSL Enabled"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formData.is_read_only}
+                      onChange={(e) => setFormData({ ...formData, is_read_only: e.target.checked })}
+                    />
+                  }
+                  label="Read Only"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formData.auto_refresh_enabled}
+                      onChange={(e) => setFormData({ ...formData, auto_refresh_enabled: e.target.checked })}
+                    />
+                  }
+                  label="Auto Refresh"
+                />
+              </Grid>
+            </Grid>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setEditDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleUpdateDataSource}
+              variant="contained"
+              disabled={submitting}
+            >
+              {submitting ? 'Updating...' : 'Update Data Source'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Delete Data Source Dialog */}
+        <Dialog 
+          open={deleteDialogOpen} 
+          onClose={() => setDeleteDialogOpen(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>Delete Data Source</DialogTitle>
+          <DialogContent>
+            <Typography paragraph>
+              Are you sure you want to delete "{selectedDataSource?.display_name || selectedDataSource?.name}"?
+            </Typography>
+            {selectedDataSource?.usage_stats && (selectedDataSource.usage_stats.chart_count > 0 || selectedDataSource.usage_stats.dashboard_count > 0) && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                This data source is currently being used by{' '}
+                <strong>{selectedDataSource.usage_stats.chart_count}</strong> charts and{' '}
+                <strong>{selectedDataSource.usage_stats.dashboard_count}</strong> dashboards.
+                Deleting it will affect these resources.
+              </Alert>
+            )}
+            <Typography variant="body2" color="text.secondary">
+              This action cannot be undone and may affect existing charts and dashboards.
+              Consider archiving it instead of deleting.
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleDeleteConfirm}
+              color="error"
+              variant="contained"
+              disabled={submitting}
+            >
+              {submitting ? 'Deleting...' : 'Delete Data Source'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </Box>
+    </WorkspaceLayout>
   );
 };
 
-// Export as default - this is crucial for Next.js routing
 export default DataSourcesPage;
