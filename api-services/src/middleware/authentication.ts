@@ -76,7 +76,7 @@ export const authenticate = async (
       return;
     }
 
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+    const token = authHeader.substring(7);
     
     if (!token) {
       res.status(401).json({
@@ -94,6 +94,21 @@ export const authenticate = async (
         process.env.JWT_SECRET || 'your-jwt-secret'
       ) as JWTPayload;
       
+      // Check if token is about to expire (within 5 minutes)
+      const now = Math.floor(Date.now() / 1000);
+      const timeUntilExpiry = decoded.exp! - now;
+      
+      if (timeUntilExpiry < 300) { // Less than 5 minutes
+        logger.info('Token expiring soon', {
+          user_id: decoded.user_id,
+          expires_in: timeUntilExpiry,
+          service: 'bi-platform-api'
+        });
+        
+        // Add header to indicate token should be refreshed
+        res.set('X-Token-Refresh-Required', 'true');
+      }
+      
       // Extract user data from token
       const userData: AuthUserData = {
         user_id: decoded.user_id,
@@ -106,15 +121,13 @@ export const authenticate = async (
         role_level: decoded.role_level || 0
       };
       
-      // Attach user data to request
       req.user = userData;
       
       logger.debug('User authenticated successfully', {
         user_id: userData.user_id,
         email: userData.email,
         workspace_id: userData.workspace_id,
-        workspace_slug: userData.workspace_slug,
-        is_admin: userData.is_admin,
+        expires_in: timeUntilExpiry,
         service: 'bi-platform-api'
       });
       
@@ -130,21 +143,26 @@ export const authenticate = async (
         service: 'bi-platform-api'
       });
 
+      // Provide specific error codes for different JWT errors
       let errorCode = 'TOKEN_VERIFICATION_FAILED';
       let message = 'Invalid or expired token';
       
       if (jwtError.name === 'TokenExpiredError') {
         errorCode = 'TOKEN_EXPIRED';
-        message = 'Access token expired';
+        message = 'Access token has expired. Please refresh your token.';
       } else if (jwtError.name === 'JsonWebTokenError') {
         errorCode = 'INVALID_TOKEN';
-        message = 'Invalid access token';
+        message = 'Invalid access token format or signature.';
+      } else if (jwtError.name === 'NotBeforeError') {
+        errorCode = 'TOKEN_NOT_ACTIVE';
+        message = 'Token is not yet active.';
       }
 
       res.status(401).json({
         success: false,
         message,
-        error: errorCode
+        error: errorCode,
+        can_refresh: jwtError.name === 'TokenExpiredError' // Indicate if refresh is possible
       });
       return;
     }
@@ -241,6 +259,46 @@ export const extractToken = (req: Request): string | null => {
 export const isAdmin = (req: AuthenticatedRequest): boolean => {
   return req.user?.is_admin === true || 
          (req.user?.role_level || 0) >= 90;
+};
+
+
+/**
+ * Check if token needs refresh (within 10 minutes of expiry)
+ */
+export const shouldRefreshToken = (token: string): boolean => {
+  try {
+    const decoded = jwt.decode(token) as JWTPayload;
+    if (!decoded || !decoded.exp) return false;
+    
+    const now = Math.floor(Date.now() / 1000);
+    const timeUntilExpiry = decoded.exp - now;
+    
+    // Refresh if token expires within 10 minutes
+    return timeUntilExpiry < 600;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Middleware to check if token refresh is recommended
+ */
+export const checkTokenRefresh = (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): void => {
+  const authHeader = req.headers.authorization;
+  
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    
+    if (shouldRefreshToken(token)) {
+      res.set('X-Token-Refresh-Recommended', 'true');
+    }
+  }
+  
+  next();
 };
 
 /**

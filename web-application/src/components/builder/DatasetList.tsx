@@ -281,7 +281,7 @@ const DatasetList: React.FC<DatasetListProps> = ({
   ];
 
   const handleCreateDataset = () => {
-    router.push(`/workspace/${workspace?.slug}/dataset-builder`);
+    router.push(`/workspace/dataset-builder`);
   };
 
   return (

@@ -75,6 +75,24 @@ export function middleware(request: NextRequest) {
     console.log('API route, passing through');
     return NextResponse.next();
   }
+
+  // 🆕 HANDLE DIRECT DASHBOARD ROUTES
+  if (pathname.startsWith('/dashboard/')) {
+    console.log('Direct dashboard route detected');
+    
+    // Validate UUID format in the URL
+    const dashboardUuidMatch = pathname.match(/^\/dashboard\/([a-f0-9\-]{36})$/i);
+    if (!dashboardUuidMatch) {
+      console.log('Invalid dashboard UUID format, returning 404');
+      return NextResponse.redirect(new URL('/404', request.url));
+    }
+
+    // Allow access to dashboard routes (both public and private dashboards)
+    // Authentication will be handled at the component level
+    console.log('Allowing access to dashboard route');
+    return NextResponse.next();
+  }
+
   
   if (pathname.match(/^\/workspace\/[^\/]+\/overview$/)) {
     console.log('Redirecting workspace-specific overview to main overview');

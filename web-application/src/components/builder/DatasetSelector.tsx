@@ -30,7 +30,9 @@ import {
   TableChart as TableIcon,
   Warning as WarningIcon
 } from '@mui/icons-material';
-
+import { useAuth } from '@/hooks/useAuth';
+import { useWorkspace } from '@/hooks/useWorkspace';
+import { useDatasets } from '@/hooks/useDatasets';
 // =============================================================================
 // Types and Interfaces
 // =============================================================================
@@ -39,9 +41,9 @@ interface Dataset {
   id: string;
   name: string;
   type: 'virtual' | 'physical';
-  schema: string;
-  connection: string;
-  owner: {
+  schema?: string;
+  connection?: string;
+  owner?: {
     id: string;
     name: string;
     avatar?: string;
@@ -126,10 +128,17 @@ const DatasetSelector: React.FC<DatasetSelectorProps> = ({
   selectedDatasetId
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [datasets, setDatasets] = useState<Dataset[]>(mockDatasets);
+  const { user } = useAuth();
+  const { currentWorkspace } = useWorkspace();
+  const {
+    datasets,
+    loading,
+    error,
+    refreshDatasets,
+    getDatasetById
+  } = useDatasets();
   const [filteredDatasets, setFilteredDatasets] = useState<Dataset[]>(mockDatasets);
   const [currentPage, setCurrentPage] = useState(1);
-  const [loading, setLoading] = useState(false);
 
   const itemsPerPage = 10;
   const totalPages = Math.ceil(filteredDatasets.length / itemsPerPage);
@@ -138,13 +147,14 @@ const DatasetSelector: React.FC<DatasetSelectorProps> = ({
 
   useEffect(() => {
     const filtered = datasets.filter(dataset =>
-      dataset.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      dataset.schema.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      dataset.connection.toLowerCase().includes(searchTerm.toLowerCase())
+      dataset.name.toLowerCase().includes(searchTerm.toLowerCase()) 
+      //dataset.schema.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      //dataset.connection.toLowerCase().includes(searchTerm.toLowerCase())
     );
     setFilteredDatasets(filtered);
     setCurrentPage(1);
   }, [searchTerm, datasets]);
+  
 
   const handleDatasetSelect = (dataset: Dataset) => {
     onSelect(dataset);
