@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
+// NEW: Import ChartFactory system
+import { ChartFactory, ChartFactoryComponent, type ChartPluginInfo } from '@/plugins/charts';
+import BuilderLayout from '../layout/BuilderLayout';
 import { 
+  Box,
   BarChart3, 
   PieChart, 
   LineChart, 

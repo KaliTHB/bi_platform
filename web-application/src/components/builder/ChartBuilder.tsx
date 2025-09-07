@@ -50,9 +50,15 @@ import {
   Storage as DataIcon,
   Palette as StyleIcon,
   Tune as ConfigIcon,
-  Preview as PreviewIcon
+  Preview as PreviewIcon,
+  Search as SearchIcon,
+  Warning as WarningIcon,
+  CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 import BuilderLayout from '../layout/BuilderLayout';
+
+// ChartFactory integration
+import { ChartFactory, ChartFactoryComponent, type ChartPluginInfo } from '@/plugins/charts';
 
 // =============================================================================
 // Types and Interfaces
@@ -63,6 +69,9 @@ interface ChartConfig {
   name: string;
   description?: string;
   chartType: ChartType;
+  chartLibrary: string;           // NEW: ChartFactory library
+  pluginVersion?: string;         // NEW: Plugin version tracking
+  factoryConfig?: any;           // NEW: Plugin-specific configuration
   dataSource: DataSourceConfig;
   chartOptions: ChartOptions;
   styling: ChartStyling;
@@ -138,475 +147,202 @@ interface AxisConfig {
   titleRotation?: number;
   min?: number;
   max?: number;
-  format?: string;
-  gridLines: boolean;
   tickInterval?: number;
 }
 
 interface InteractivityConfig {
-  tooltip: {
-    enabled: boolean;
-    format: string;
-    showAllSeries: boolean;
-  };
-  zoom: {
-    enabled: boolean;
-    type: 'x' | 'y' | 'xy';
-  };
-  crossfilter: {
-    enabled: boolean;
-    linkedCharts: string[];
-  };
-  drill: {
-    enabled: boolean;
-    drillPath: string[];
-  };
-  export: {
-    enabled: boolean;
-    formats: ('png' | 'svg' | 'pdf' | 'csv')[];
-  };
+  enableTooltip: boolean;
+  enableZoom: boolean;
+  enableBrush: boolean;
+  clickAction: 'none' | 'filter' | 'navigate' | 'custom';
+  customActions?: any[];
 }
 
-const CHART_TYPES: Array<{
-  id: ChartType;
-  name: string;
-  icon: React.ReactNode;
-  category: 'basic' | 'advanced' | 'specialized';
-  description: string;
-  dataDimensions: { minX: number; maxX: number; minY: number; maxY: number; supportsSeries: boolean; };
-}> = [
-  {
-    id: 'bar',
-    name: 'Bar Chart',
-    icon: <BarChartIcon />,
-    category: 'basic',
-    description: 'Compare categories with horizontal bars',
-    dataDimensions: { minX: 1, maxX: 1, minY: 1, maxY: 5, supportsSeries: true }
-  },
-  {
-    id: 'column',
-    name: 'Column Chart',
-    icon: <StackedBarIcon />,
-    category: 'basic',
-    description: 'Compare categories with vertical columns',
-    dataDimensions: { minX: 1, maxX: 1, minY: 1, maxY: 5, supportsSeries: true }
-  },
-  {
-    id: 'line',
-    name: 'Line Chart',
-    icon: <LineChartIcon />,
-    category: 'basic',
-    description: 'Show trends and changes over time',
-    dataDimensions: { minX: 1, maxX: 1, minY: 1, maxY: 10, supportsSeries: true }
-  },
-  {
-    id: 'area',
-    name: 'Area Chart',
-    icon: <AreaIcon />,
-    category: 'basic',
-    description: 'Show cumulative values over time',
-    dataDimensions: { minX: 1, maxX: 1, minY: 1, maxY: 5, supportsSeries: true }
-  },
-  {
-    id: 'pie',
-    name: 'Pie Chart',
-    icon: <PieChartIcon />,
-    category: 'basic',
-    description: 'Display parts of a whole',
-    dataDimensions: { minX: 1, maxX: 1, minY: 1, maxY: 1, supportsSeries: false }
-  },
-  {
-    id: 'donut',
-    name: 'Donut Chart',
-    icon: <DonutIcon />,
-    category: 'basic',
-    description: 'Pie chart with center space',
-    dataDimensions: { minX: 1, maxX: 1, minY: 1, maxY: 1, supportsSeries: false }
-  },
-  {
-    id: 'scatter',
-    name: 'Scatter Plot',
-    icon: <ScatterIcon />,
-    category: 'advanced',
-    description: 'Show correlation between two variables',
-    dataDimensions: { minX: 1, maxX: 1, minY: 1, maxY: 1, supportsSeries: true }
-  },
-  {
-    id: 'bubble',
-    name: 'Bubble Chart',
-    icon: <BubbleIcon />,
-    category: 'advanced',
-    description: 'Three-dimensional scatter plot',
-    dataDimensions: { minX: 1, maxX: 1, minY: 1, maxY: 1, supportsSeries: true }
-  },
-  {
-    id: 'radar',
-    name: 'Radar Chart',
-    icon: <RadarIcon />,
-    category: 'specialized',
-    description: 'Compare multiple quantitative variables',
-    dataDimensions: { minX: 3, maxX: 10, minY: 1, maxY: 1, supportsSeries: true }
-  }
-];
-
-const COLOR_PALETTES = {
-  default: ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b'],
-  viridis: ['#440154', '#31688e', '#35b779', '#fde725'],
-  plasma: ['#0d0887', '#6a00a8', '#b12a90', '#e16462', '#fca636', '#f0f921'],
-  warm: ['#ff6b6b', '#ffa726', '#ffcc02', '#66bb6a', '#42a5f5'],
-  cool: ['#26c6da', '#66bb6a', '#42a5f5', '#7986cb', '#ab47bc']
-};
-
-// =============================================================================
-// Chart Builder Component
-// =============================================================================
-
-const ChartBuilder: React.FC<{
-  chartId?: string;
-  workspaceSlug?: string;
-  onSave?: (chart: ChartConfig) => void;
+// Component Props
+interface ChartBuilderProps {
+  initialConfig?: Partial<ChartConfig>;
+  data?: any[];
+  availableColumns?: string[];
+  onSave?: (config: ChartConfig) => void;
   onCancel?: () => void;
-}> = ({ 
-  chartId, 
-  workspaceSlug,
-  onSave, 
-  onCancel 
-}) => {
-  // State management
-  const [currentStep, setCurrentStep] = useState(0);
-  const [chartConfig, setChartConfig] = useState<ChartConfig>({
-    name: 'New Chart',
-    chartType: 'bar',
-    dataSource: {
-      type: 'dataset',
-      refreshInterval: 300
-    },
-    chartOptions: {
-      dimensions: { x: [], y: [] },
-      aggregation: { method: 'sum' },
-      sorting: { direction: 'desc' }
-    },
-    styling: {
-      theme: 'light',
-      colors: { palette: 'default' },
-      layout: {
-        showLegend: true,
-        legendPosition: 'right',
-        showGrid: true,
-        gridStyle: 'solid'
-      },
-      axes: {
-        xAxis: { show: true, title: '', gridLines: true },
-        yAxis: { show: true, title: '', gridLines: true }
-      },
-      labels: {
-        showDataLabels: false,
-        labelFormat: 'auto',
-        fontSize: 12
-      }
-    },
-    interactivity: {
-      tooltip: { enabled: true, format: 'auto', showAllSeries: false },
-      zoom: { enabled: false, type: 'x' },
-      crossfilter: { enabled: false, linkedCharts: [] },
-      drill: { enabled: false, drillPath: [] },
-      export: { enabled: true, formats: ['png', 'csv'] }
-    }
-  });
-
-  const [hasChanges, setHasChanges] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewData, setPreviewData] = useState<any[]>([]);
-  const [availableDatasets, setAvailableDatasets] = useState<any[]>([]);
-  const [selectedDatasetColumns, setSelectedDatasetColumns] = useState<string[]>([]);
-
-  const steps = [
-    { label: 'Chart Type', icon: <BarChartIcon /> },
-    { label: 'Data Source', icon: <DataIcon /> },
-    { label: 'Configuration', icon: <ConfigIcon /> },
-    { label: 'Styling', icon: <StyleIcon /> },
-    { label: 'Preview', icon: <PreviewIcon /> }
-  ];
-
-  // Update chart config
-  const updateChartConfig = useCallback((updates: Partial<ChartConfig>) => {
-    setChartConfig(prev => ({ ...prev, ...updates }));
-    setHasChanges(true);
-  }, []);
-
-  // Load available datasets
-  useEffect(() => {
-    const loadDatasets = async () => {
-      // TODO: Load actual datasets from API
-      setAvailableDatasets([
-        { id: 'dataset1', name: 'Sales Data', columns: ['date', 'amount', 'category', 'region'] },
-        { id: 'dataset2', name: 'User Analytics', columns: ['user_id', 'event', 'timestamp', 'value'] },
-        { id: 'dataset3', name: 'Product Performance', columns: ['product_id', 'sales', 'rating', 'category'] }
-      ]);
-    };
-    loadDatasets();
-  }, []);
-
-  // Load preview data
-  const loadPreviewData = useCallback(async () => {
-    if (!chartConfig.dataSource.sourceId && chartConfig.dataSource.type === 'dataset') return;
-    
-    setPreviewLoading(true);
-    try {
-      // TODO: Load actual preview data based on configuration
-      const mockData = generateMockData(chartConfig.chartType);
-      setPreviewData(mockData);
-    } catch (error) {
-      console.error('Failed to load preview data:', error);
-    } finally {
-      setPreviewLoading(false);
-    }
-  }, [chartConfig.dataSource, chartConfig.chartType]);
-
-  // Generate mock data for preview
-  const generateMockData = (chartType: ChartType) => {
-    const categories = ['Q1', 'Q2', 'Q3', 'Q4'];
-    const series = ['Sales', 'Marketing', 'Support'];
-    
-    switch (chartType) {
-      case 'pie':
-      case 'donut':
-        return categories.map(cat => ({
-          name: cat,
-          value: Math.floor(Math.random() * 100) + 10
-        }));
-      
-      case 'scatter':
-      case 'bubble':
-        return Array.from({ length: 50 }, (_, i) => ({
-          x: Math.random() * 100,
-          y: Math.random() * 100,
-          size: chartType === 'bubble' ? Math.random() * 30 + 5 : undefined
-        }));
-      
-      default:
-        return categories.flatMap(cat =>
-          series.map(ser => ({
-            category: cat,
-            series: ser,
-            value: Math.floor(Math.random() * 100) + 10
-          }))
-        );
-    }
-  };
-
-  // Handle save
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      if (onSave) {
-        await onSave(chartConfig);
-      }
-      setHasChanges(false);
-    } catch (error) {
-      console.error('Save failed:', error);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Handle preview
-  const handlePreview = () => {
-    loadPreviewData();
-  };
-
-  const handleNext = () => {
-    if (currentStep < steps.length - 1) {
-      setCurrentStep(currentStep + 1);
-    }
-  };
-
-  const handleBack = () => {
-    if (currentStep > 0) {
-      setCurrentStep(currentStep - 1);
-    }
-  };
-
-  return (
-    <BuilderLayout
-      builderType="chart"
-      entityName={chartConfig.name}
-      workspaceSlug={workspaceSlug}
-      onSave={handleSave}
-      onCancel={onCancel}
-      onPreview={handlePreview}
-      saving={saving}
-      hasChanges={hasChanges}
-      canSave={chartConfig.name.trim().length > 0 && chartConfig.chartType}
-    >
-      <Box sx={{ display: 'flex', height: '100%' }}>
-        {/* Configuration Panel */}
-        <Box sx={{ width: 400, borderRight: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
-          {/* Stepper */}
-          <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-            <Stepper activeStep={currentStep} orientation="vertical" sx={{ 
-              '& .MuiStepContent-root': { borderLeft: 'none', ml: 2, pl: 0 }
-            }}>
-              {steps.map((step, index) => (
-                <Step key={step.label}>
-                  <StepLabel 
-                    icon={step.icon}
-                    onClick={() => setCurrentStep(index)}
-                    sx={{ cursor: 'pointer' }}
-                  >
-                    {step.label}
-                  </StepLabel>
-                </Step>
-              ))}
-            </Stepper>
-          </Box>
-
-          {/* Step Content */}
-          <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
-            {currentStep === 0 && (
-              <ChartTypeSelector
-                selectedType={chartConfig.chartType}
-                onSelect={(type) => updateChartConfig({ chartType: type })}
-              />
-            )}
-
-            {currentStep === 1 && (
-              <DataSourceSelector
-                config={chartConfig.dataSource}
-                availableDatasets={availableDatasets}
-                selectedColumns={selectedDatasetColumns}
-                onConfigChange={(dataSource) => updateChartConfig({ dataSource })}
-                onColumnsChange={setSelectedDatasetColumns}
-              />
-            )}
-
-            {currentStep === 2 && (
-              <ChartConfiguration
-                chartType={chartConfig.chartType}
-                options={chartConfig.chartOptions}
-                availableColumns={selectedDatasetColumns}
-                onChange={(chartOptions) => updateChartConfig({ chartOptions })}
-              />
-            )}
-
-            {currentStep === 3 && (
-              <ChartStylingPanel
-                styling={chartConfig.styling}
-                chartType={chartConfig.chartType}
-                onChange={(styling) => updateChartConfig({ styling })}
-              />
-            )}
-
-            {currentStep === 4 && (
-              <ChartPreviewPanel
-                config={chartConfig}
-                data={previewData}
-                loading={previewLoading}
-                onRefresh={loadPreviewData}
-              />
-            )}
-          </Box>
-
-          {/* Navigation Buttons */}
-          <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between' }}>
-            <Button 
-              onClick={handleBack} 
-              disabled={currentStep === 0}
-            >
-              Back
-            </Button>
-            <Button 
-              variant="contained" 
-              onClick={handleNext}
-              disabled={currentStep === steps.length - 1}
-            >
-              Next
-            </Button>
-          </Box>
-        </Box>
-
-        {/* Chart Preview */}
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          {/* Preview Header */}
-          <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Box>
-              <Typography variant="h6">
-                {chartConfig.name}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {CHART_TYPES.find(t => t.id === chartConfig.chartType)?.name} Preview
-              </Typography>
-            </Box>
-            
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <IconButton onClick={loadPreviewData} disabled={previewLoading}>
-                <RefreshIcon />
-              </IconButton>
-              <IconButton onClick={loadPreviewData} disabled={previewLoading}>
-                <PlayIcon />
-              </IconButton>
-            </Box>
-          </Box>
-
-          {/* Chart Preview Area */}
-          <Box sx={{ flex: 1, p: 3, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'grey.50' }}>
-            {previewLoading ? (
-              <Box sx={{ textAlign: 'center' }}>
-                <CircularProgress sx={{ mb: 2 }} />
-                <Typography variant="body2" color="text.secondary">
-                  Loading preview...
-                </Typography>
-              </Box>
-            ) : previewData.length > 0 ? (
-              <Paper sx={{ p: 3, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Typography variant="h4" color="text.secondary">
-                  {CHART_TYPES.find(t => t.id === chartConfig.chartType)?.icon}
-                </Typography>
-                <Box sx={{ ml: 2 }}>
-                  <Typography variant="h6">
-                    {chartConfig.name}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Chart preview would render here with actual data
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                    Data points: {previewData.length}
-                  </Typography>
-                </Box>
-              </Paper>
-            ) : (
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h6" color="text.secondary" gutterBottom>
-                  No Preview Available
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Configure your data source and chart settings to see a preview
-                </Typography>
-              </Box>
-            )}
-          </Box>
-        </Box>
-      </Box>
-    </BuilderLayout>
-  );
-};
+  onPreview?: (config: ChartConfig) => void;
+  workspaceId?: string;
+  dashboardId?: string;
+}
 
 // =============================================================================
-// Chart Type Selector Component
+// Enhanced Chart Type Selector with ChartFactory Integration
 // =============================================================================
 
 const ChartTypeSelector: React.FC<{
-  selectedType: ChartType;
-  onSelect: (type: ChartType) => void;
-}> = ({ selectedType, onSelect }) => {
-  const [selectedCategory, setSelectedCategory] = useState<'basic' | 'advanced' | 'specialized'>('basic');
+  selectedType?: string;
+  selectedLibrary?: string;
+  onSelect: (type: string, library: string, pluginInfo: ChartPluginInfo) => void;
+}> = ({ selectedType, selectedLibrary, onSelect }) => {
+  const [availableCharts, setAvailableCharts] = useState<ChartPluginInfo[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filteredCharts, setFilteredCharts] = useState<ChartPluginInfo[]>([]);
 
-  const categories = {
-    basic: CHART_TYPES.filter(t => t.category === 'basic'),
-    advanced: CHART_TYPES.filter(t => t.category === 'advanced'),
-    specialized: CHART_TYPES.filter(t => t.category === 'specialized')
+  // Initialize ChartFactory and load available charts
+  useEffect(() => {
+    const loadCharts = async () => {
+      try {
+        setLoading(true);
+        
+        // Ensure ChartFactory is initialized
+        await ChartFactory.initialize();
+        
+        // Load all available charts dynamically
+        const charts = await ChartFactory.getAllCharts();
+        const chartCategories = await ChartFactory.getCategories();
+        
+        setAvailableCharts(charts);
+        setFilteredCharts(charts);
+        setCategories(chartCategories.length > 0 ? chartCategories : ['basic', 'advanced', 'statistical']);
+      } catch (error) {
+        console.error('Failed to load chart plugins:', error);
+        // Fallback to empty state
+        setAvailableCharts([]);
+        setCategories(['basic']);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCharts();
+  }, []);
+
+  // Handle search
+  useEffect(() => {
+    const performSearch = async () => {
+      if (!searchQuery.trim()) {
+        setFilteredCharts(availableCharts);
+        return;
+      }
+
+      try {
+        const searchResults = await ChartFactory.searchCharts(searchQuery);
+        setFilteredCharts(searchResults);
+      } catch (error) {
+        console.error('Search failed:', error);
+        // Fallback to client-side filtering
+        const filtered = availableCharts.filter(chart =>
+          chart.displayName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          chart.name?.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+        setFilteredCharts(filtered);
+      }
+    };
+
+    const debounce = setTimeout(performSearch, 300);
+    return () => clearTimeout(debounce);
+  }, [searchQuery, availableCharts]);
+
+  // Get chart icon based on type
+  const getChartIcon = (chartType: string, library: string) => {
+    const iconMap: Record<string, React.ReactElement> = {
+      'bar': <BarChartIcon />,
+      'column': <BarChartIcon />,
+      'line': <LineChartIcon />,
+      'area': <AreaIcon />,
+      'pie': <PieChartIcon />,
+      'donut': <DonutIcon />,
+      'scatter': <ScatterIcon />,
+      'bubble': <BubbleIcon />,
+      'radar': <RadarIcon />,
+      'waterfall': <StackedBarIcon />,
+      'gauge': <DonutIcon />
+    };
+    
+    return iconMap[chartType] || <BarChartIcon />;
   };
+
+  // Render charts by category
+  const renderChartsByCategory = (category: string) => {
+    const categoryCharts = filteredCharts.filter(chart => 
+      chart.category === category || (!chart.category && category === 'basic')
+    );
+    
+    if (categoryCharts.length === 0) return null;
+
+    return (
+      <Accordion key={category} defaultExpanded={category === 'basic'}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography variant="subtitle2">
+            {category.charAt(0).toUpperCase() + category.slice(1)} Charts
+          </Typography>
+          <Chip 
+            label={categoryCharts.length} 
+            size="small" 
+            sx={{ ml: 1 }} 
+          />
+        </AccordionSummary>
+        <AccordionDetails>
+          <Grid container spacing={2}>
+            {categoryCharts.map((chart) => {
+              const isSelected = selectedType === chart.name && selectedLibrary === chart.library;
+              
+              return (
+                <Grid item xs={6} key={`${chart.library}-${chart.name}`}>
+                  <Card
+                    sx={{
+                      cursor: 'pointer',
+                      border: isSelected ? '2px solid' : '1px solid',
+                      borderColor: isSelected ? 'primary.main' : 'divider',
+                      '&:hover': { 
+                        borderColor: 'primary.main',
+                        boxShadow: 2
+                      },
+                      transition: 'all 0.2s ease'
+                    }}
+                    onClick={() => onSelect(chart.name, chart.library, chart)}
+                  >
+                    <CardContent sx={{ p: 2, textAlign: 'center' }}>
+                      {/* Chart icon */}
+                      <Box sx={{ mb: 1, color: isSelected ? 'primary.main' : 'text.secondary' }}>
+                        {getChartIcon(chart.name, chart.library)}
+                      </Box>
+                      
+                      {/* Chart name */}
+                      <Typography variant="body2" sx={{ fontWeight: isSelected ? 600 : 400 }}>
+                        {chart.displayName || chart.name}
+                      </Typography>
+                      
+                      {/* Library badge */}
+                      <Chip 
+                        label={chart.library} 
+                        size="small" 
+                        variant={isSelected ? 'filled' : 'outlined'}
+                        color={isSelected ? 'primary' : 'default'}
+                        sx={{ 
+                          mt: 0.5, 
+                          fontSize: '10px',
+                          height: 20
+                        }}
+                      />
+                    </CardContent>
+                  </Card>
+                </Grid>
+              );
+            })}
+          </Grid>
+        </AccordionDetails>
+      </Accordion>
+    );
+  };
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 3 }}>
+        <CircularProgress size={20} />
+        <Typography variant="body2" sx={{ ml: 1 }}>
+          Loading chart plugins...
+        </Typography>
+      </Box>
+    );
+  }
 
   return (
     <Box>
@@ -614,44 +350,33 @@ const ChartTypeSelector: React.FC<{
         Select Chart Type
       </Typography>
 
-      <Tabs
-        value={selectedCategory}
-        onChange={(_, newValue) => setSelectedCategory(newValue)}
-        sx={{ mb: 2, borderBottom: '1px solid', borderColor: 'divider' }}
-      >
-        <Tab label="Basic" value="basic" />
-        <Tab label="Advanced" value="advanced" />
-        <Tab label="Specialized" value="specialized" />
-      </Tabs>
+      {/* Search box */}
+      <TextField
+        fullWidth
+        size="small"
+        placeholder="Search charts..."
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        InputProps={{
+          startAdornment: <SearchIcon sx={{ color: 'text.secondary', mr: 1 }} />
+        }}
+        sx={{ mb: 2 }}
+      />
 
-      <Grid container spacing={2}>
-        {categories[selectedCategory].map((chartType) => (
-          <Grid item xs={12} sm={6} key={chartType.id}>
-            <Card 
-              variant={selectedType === chartType.id ? "elevation" : "outlined"}
-              sx={{ 
-                cursor: 'pointer',
-                border: selectedType === chartType.id ? 2 : 1,
-                borderColor: selectedType === chartType.id ? 'primary.main' : 'divider'
-              }}
-            >
-              <CardActionArea onClick={() => onSelect(chartType.id)}>
-                <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                  <Box sx={{ fontSize: 40, color: 'primary.main', mb: 1 }}>
-                    {chartType.icon}
-                  </Box>
-                  <Typography variant="subtitle2" gutterBottom>
-                    {chartType.name}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {chartType.description}
-                  </Typography>
-                </CardContent>
-              </CardActionArea>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+      {/* Show total charts available */}
+      <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
+        {filteredCharts.length} chart{filteredCharts.length !== 1 ? 's' : ''} available
+      </Typography>
+
+      {/* Dynamic categories */}
+      {categories.map(category => renderChartsByCategory(category))}
+
+      {/* No results message */}
+      {filteredCharts.length === 0 && searchQuery && (
+        <Alert severity="info" sx={{ mt: 2 }}>
+          No charts found for "{searchQuery}". Try a different search term.
+        </Alert>
+      )}
     </Box>
   );
 };
@@ -661,32 +386,21 @@ const ChartTypeSelector: React.FC<{
 // =============================================================================
 
 const DataSourceSelector: React.FC<{
-  config: DataSourceConfig;
-  availableDatasets: any[];
-  selectedColumns: string[];
-  onConfigChange: (config: DataSourceConfig) => void;
-  onColumnsChange: (columns: string[]) => void;
-}> = ({ config, availableDatasets, selectedColumns, onConfigChange, onColumnsChange }) => {
-  const selectedDataset = availableDatasets.find(d => d.id === config.sourceId);
-
-  const handleDatasetChange = (datasetId: string) => {
-    const dataset = availableDatasets.find(d => d.id === datasetId);
-    onConfigChange({ ...config, sourceId: datasetId });
-    onColumnsChange(dataset?.columns || []);
-  };
-
+  dataSource: DataSourceConfig;
+  onChange: (dataSource: DataSourceConfig) => void;
+}> = ({ dataSource, onChange }) => {
   return (
     <Box>
       <Typography variant="h6" gutterBottom>
-        Select Data Source
+        Data Source
       </Typography>
 
-      <FormControl fullWidth sx={{ mb: 3 }}>
-        <InputLabel>Source Type</InputLabel>
+      <FormControl fullWidth sx={{ mb: 2 }}>
+        <InputLabel>Data Source Type</InputLabel>
         <Select
-          value={config.type}
-          onChange={(e) => onConfigChange({ ...config, type: e.target.value as any })}
-          label="Source Type"
+          value={dataSource.type}
+          onChange={(e) => onChange({ ...dataSource, type: e.target.value as any })}
+          label="Data Source Type"
         >
           <MenuItem value="dataset">Dataset</MenuItem>
           <MenuItem value="sql">SQL Query</MenuItem>
@@ -694,93 +408,168 @@ const DataSourceSelector: React.FC<{
         </Select>
       </FormControl>
 
-      {config.type === 'dataset' && (
-        <>
-          <FormControl fullWidth sx={{ mb: 3 }}>
-            <InputLabel>Dataset</InputLabel>
-            <Select
-              value={config.sourceId || ''}
-              onChange={(e) => handleDatasetChange(e.target.value)}
-              label="Dataset"
-            >
-              {availableDatasets.map((dataset) => (
-                <MenuItem key={dataset.id} value={dataset.id}>
-                  {dataset.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          {selectedDataset && (
-            <Box>
-              <Typography variant="subtitle2" gutterBottom>
-                Available Columns:
-              </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-                {selectedDataset.columns.map((column: string) => (
-                  <Chip
-                    key={column}
-                    label={column}
-                    size="small"
-                    variant="outlined"
-                  />
-                ))}
-              </Box>
-            </Box>
-          )}
-        </>
+      {dataSource.type === 'dataset' && (
+        <FormControl fullWidth sx={{ mb: 2 }}>
+          <InputLabel>Select Dataset</InputLabel>
+          <Select
+            value={dataSource.sourceId || ''}
+            onChange={(e) => onChange({ ...dataSource, sourceId: e.target.value })}
+            label="Select Dataset"
+          >
+            <MenuItem value="sales-data">Sales Data</MenuItem>
+            <MenuItem value="user-analytics">User Analytics</MenuItem>
+            <MenuItem value="financial-reports">Financial Reports</MenuItem>
+          </Select>
+        </FormControl>
       )}
 
-      {config.type === 'sql' && (
+      {dataSource.type === 'sql' && (
         <TextField
           fullWidth
           multiline
-          rows={6}
+          rows={4}
           label="SQL Query"
-          value={config.sqlQuery || ''}
-          onChange={(e) => onConfigChange({ ...config, sqlQuery: e.target.value })}
-          placeholder="SELECT * FROM table_name WHERE..."
-          sx={{ mb: 3 }}
+          value={dataSource.sqlQuery || ''}
+          onChange={(e) => onChange({ ...dataSource, sqlQuery: e.target.value })}
+          placeholder="SELECT * FROM your_table WHERE ..."
+          sx={{ mb: 2 }}
         />
       )}
 
-      {config.type === 'api' && (
+      {dataSource.type === 'api' && (
         <TextField
           fullWidth
           label="API Endpoint"
-          value={config.apiEndpoint || ''}
-          onChange={(e) => onConfigChange({ ...config, apiEndpoint: e.target.value })}
+          value={dataSource.apiEndpoint || ''}
+          onChange={(e) => onChange({ ...dataSource, apiEndpoint: e.target.value })}
           placeholder="https://api.example.com/data"
-          sx={{ mb: 3 }}
+          sx={{ mb: 2 }}
         />
       )}
-
-      <TextField
-        fullWidth
-        type="number"
-        label="Refresh Interval (seconds)"
-        value={config.refreshInterval || ''}
-        onChange={(e) => onConfigChange({ 
-          ...config, 
-          refreshInterval: e.target.value ? parseInt(e.target.value) : undefined 
-        })}
-        helperText="Leave empty to disable auto-refresh"
-      />
     </Box>
   );
 };
 
 // =============================================================================
-// Chart Configuration Component
+// Enhanced Chart Options Panel with Plugin Schema Support
 // =============================================================================
 
-const ChartConfiguration: React.FC<{
-  chartType: ChartType;
+const ChartOptionsPanel: React.FC<{
+  chartType: string;
+  chartLibrary: string;
   options: ChartOptions;
+  factoryConfig: any;
   availableColumns: string[];
-  onChange: (options: ChartOptions) => void;
-}> = ({ chartType, options, availableColumns, onChange }) => {
-  const chartTypeInfo = CHART_TYPES.find(t => t.id === chartType);
+  onChange: (options: ChartOptions, factoryConfig: any) => void;
+}> = ({ chartType, chartLibrary, options, factoryConfig, availableColumns, onChange }) => {
+  const [pluginSchema, setPluginSchema] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  // Load plugin-specific configuration schema
+  useEffect(() => {
+    const loadPluginSchema = async () => {
+      if (!chartType || !chartLibrary) return;
+      
+      try {
+        setLoading(true);
+        const pluginInfo = await ChartFactory.getChartInfo(chartType, chartLibrary);
+        if (pluginInfo?.configSchema) {
+          setPluginSchema(pluginInfo.configSchema);
+        }
+      } catch (error) {
+        console.error('Failed to load plugin schema:', error);
+        setPluginSchema(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPluginSchema();
+  }, [chartType, chartLibrary]);
+
+  // Handle basic options change
+  const handleOptionsChange = (newOptions: Partial<ChartOptions>) => {
+    onChange({ ...options, ...newOptions }, factoryConfig);
+  };
+
+  // Handle factory config change
+  const handleFactoryConfigChange = (key: string, value: any) => {
+    onChange(options, { ...factoryConfig, [key]: value });
+  };
+
+  // Generate form fields from plugin schema
+  const renderPluginConfigFields = () => {
+    if (!pluginSchema?.properties) return null;
+
+    return Object.entries(pluginSchema.properties).map(([key, fieldSchema]: [string, any]) => {
+      const value = factoryConfig?.[key] ?? fieldSchema.default ?? '';
+      
+      // Render different field types based on schema
+      switch (fieldSchema.type) {
+        case 'string':
+          if (fieldSchema.enum || fieldSchema.options) {
+            return (
+              <FormControl fullWidth sx={{ mb: 2 }} key={key}>
+                <InputLabel>{fieldSchema.title || key}</InputLabel>
+                <Select
+                  value={value}
+                  onChange={(e) => handleFactoryConfigChange(key, e.target.value)}
+                  label={fieldSchema.title || key}
+                >
+                  {(fieldSchema.enum || fieldSchema.options).map((option: string) => (
+                    <MenuItem key={option} value={option}>{option}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            );
+          }
+          
+          return (
+            <TextField
+              key={key}
+              fullWidth
+              label={fieldSchema.title || key}
+              value={value}
+              onChange={(e) => handleFactoryConfigChange(key, e.target.value)}
+              helperText={fieldSchema.description}
+              sx={{ mb: 2 }}
+            />
+          );
+
+        case 'number':
+          return (
+            <TextField
+              key={key}
+              fullWidth
+              type="number"
+              label={fieldSchema.title || key}
+              value={value}
+              onChange={(e) => handleFactoryConfigChange(key, Number(e.target.value))}
+              helperText={fieldSchema.description}
+              sx={{ mb: 2 }}
+            />
+          );
+
+        case 'boolean':
+          return (
+            <FormControlLabel
+              key={key}
+              control={
+                <Switch
+                  checked={Boolean(value)}
+                  onChange={(e) => handleFactoryConfigChange(key, e.target.checked)}
+                />
+              }
+              label={fieldSchema.title || key}
+              sx={{ mb: 2 }}
+            />
+          );
+
+        default:
+          return null;
+      }
+    });
+  };
 
   return (
     <Box>
@@ -788,65 +577,63 @@ const ChartConfiguration: React.FC<{
         Chart Configuration
       </Typography>
 
+      {/* Data Mapping - Standard fields */}
       <Accordion defaultExpanded>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           <Typography variant="subtitle2">Data Mapping</Typography>
         </AccordionSummary>
         <AccordionDetails>
           <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel>X-Axis</InputLabel>
+            <InputLabel>X-Axis Field</InputLabel>
             <Select
-              multiple
-              value={options.dimensions.x}
-              onChange={(e) => onChange({
-                ...options,
-                dimensions: { ...options.dimensions, x: e.target.value as string[] }
+              multiple={chartType === 'scatter' || chartType === 'bubble'}
+              value={options.dimensions?.x || []}
+              onChange={(e) => handleOptionsChange({
+                dimensions: {
+                  ...options.dimensions,
+                  x: Array.isArray(e.target.value) ? e.target.value : [e.target.value]
+                }
               })}
-              label="X-Axis"
             >
-              {availableColumns.map((column) => (
-                <MenuItem key={column} value={column}>
-                  {column}
-                </MenuItem>
+              {availableColumns.map(col => (
+                <MenuItem key={col} value={col}>{col}</MenuItem>
               ))}
             </Select>
           </FormControl>
 
           <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel>Y-Axis</InputLabel>
+            <InputLabel>Y-Axis Field</InputLabel>
             <Select
-              multiple
-              value={options.dimensions.y}
-              onChange={(e) => onChange({
-                ...options,
-                dimensions: { ...options.dimensions, y: e.target.value as string[] }
+              multiple={chartType !== 'pie' && chartType !== 'donut'}
+              value={options.dimensions?.y || []}
+              onChange={(e) => handleOptionsChange({
+                dimensions: {
+                  ...options.dimensions,
+                  y: Array.isArray(e.target.value) ? e.target.value : [e.target.value]
+                }
               })}
-              label="Y-Axis"
             >
-              {availableColumns.map((column) => (
-                <MenuItem key={column} value={column}>
-                  {column}
-                </MenuItem>
+              {availableColumns.map(col => (
+                <MenuItem key={col} value={col}>{col}</MenuItem>
               ))}
             </Select>
           </FormControl>
 
-          {chartTypeInfo?.dataDimensions.supportsSeries && (
+          {(chartType === 'scatter' || chartType === 'bubble') && (
             <FormControl fullWidth sx={{ mb: 2 }}>
-              <InputLabel>Series (Optional)</InputLabel>
+              <InputLabel>Size Field (Optional)</InputLabel>
               <Select
-                value={options.dimensions.series || ''}
-                onChange={(e) => onChange({
-                  ...options,
-                  dimensions: { ...options.dimensions, series: e.target.value || undefined }
+                value={options.dimensions?.size || ''}
+                onChange={(e) => handleOptionsChange({
+                  dimensions: {
+                    ...options.dimensions,
+                    size: e.target.value
+                  }
                 })}
-                label="Series (Optional)"
               >
                 <MenuItem value="">None</MenuItem>
-                {availableColumns.map((column) => (
-                  <MenuItem key={column} value={column}>
-                    {column}
-                  </MenuItem>
+                {availableColumns.map(col => (
+                  <MenuItem key={col} value={col}>{col}</MenuItem>
                 ))}
               </Select>
             </FormControl>
@@ -854,6 +641,7 @@ const ChartConfiguration: React.FC<{
         </AccordionDetails>
       </Accordion>
 
+      {/* Aggregation Settings */}
       <Accordion>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           <Typography variant="subtitle2">Aggregation</Typography>
@@ -862,12 +650,13 @@ const ChartConfiguration: React.FC<{
           <FormControl fullWidth sx={{ mb: 2 }}>
             <InputLabel>Aggregation Method</InputLabel>
             <Select
-              value={options.aggregation.method}
-              onChange={(e) => onChange({
-                ...options,
-                aggregation: { ...options.aggregation, method: e.target.value as any }
+              value={options.aggregation?.method || 'sum'}
+              onChange={(e) => handleOptionsChange({
+                aggregation: {
+                  ...options.aggregation,
+                  method: e.target.value as any
+                }
               })}
-              label="Aggregation Method"
             >
               <MenuItem value="sum">Sum</MenuItem>
               <MenuItem value="count">Count</MenuItem>
@@ -879,125 +668,58 @@ const ChartConfiguration: React.FC<{
         </AccordionDetails>
       </Accordion>
 
-      <Accordion>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="subtitle2">Sorting & Limiting</Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Grid container spacing={2}>
-            <Grid item xs={6}>
-              <FormControl fullWidth>
-                <InputLabel>Sort Column</InputLabel>
-                <Select
-                  value={options.sorting.column || ''}
-                  onChange={(e) => onChange({
-                    ...options,
-                    sorting: { ...options.sorting, column: e.target.value || undefined }
-                  })}
-                  label="Sort Column"
-                >
-                  <MenuItem value="">None</MenuItem>
-                  {availableColumns.map((column) => (
-                    <MenuItem key={column} value={column}>
-                      {column}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={6}>
-              <FormControl fullWidth>
-                <InputLabel>Direction</InputLabel>
-                <Select
-                  value={options.sorting.direction}
-                  onChange={(e) => onChange({
-                    ...options,
-                    sorting: { ...options.sorting, direction: e.target.value as any }
-                  })}
-                  label="Direction"
-                >
-                  <MenuItem value="asc">Ascending</MenuItem>
-                  <MenuItem value="desc">Descending</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-          </Grid>
-
-          <TextField
-            fullWidth
-            type="number"
-            label="Limit Results"
-            value={options.sorting.limit || ''}
-            onChange={(e) => onChange({
-              ...options,
-              sorting: { 
-                ...options.sorting, 
-                limit: e.target.value ? parseInt(e.target.value) : undefined 
-              }
-            })}
-            sx={{ mt: 2 }}
-            helperText="Leave empty for no limit"
-          />
-        </AccordionDetails>
-      </Accordion>
+      {/* Plugin-Specific Configuration */}
+      {(chartType && chartLibrary) && (
+        <Accordion>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="subtitle2">
+              {chartLibrary.charAt(0).toUpperCase() + chartLibrary.slice(1)} Options
+            </Typography>
+            {loading && <CircularProgress size={16} sx={{ ml: 1 }} />}
+          </AccordionSummary>
+          <AccordionDetails>
+            {loading ? (
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Typography variant="body2" color="text.secondary">
+                  Loading plugin configuration...
+                </Typography>
+              </Box>
+            ) : pluginSchema ? (
+              renderPluginConfigFields()
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                No additional configuration available for this chart type.
+              </Typography>
+            )}
+          </AccordionDetails>
+        </Accordion>
+      )}
     </Box>
   );
 };
 
 // =============================================================================
-// Chart Styling Panel Component
+// Chart Styling Panel Component (Unchanged)
 // =============================================================================
 
 const ChartStylingPanel: React.FC<{
   styling: ChartStyling;
-  chartType: ChartType;
+  chartType: string;
   onChange: (styling: ChartStyling) => void;
 }> = ({ styling, chartType, onChange }) => {
   return (
     <Box>
       <Typography variant="h6" gutterBottom>
-        Chart Styling
+        Styling & Appearance
       </Typography>
 
-      <Accordion defaultExpanded>
+      {/* Theme Selection */}
+      <Accordion>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="subtitle2">Colors & Theme</Typography>
+          <Typography variant="subtitle2">Theme & Colors</Typography>
         </AccordionSummary>
         <AccordionDetails>
           <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel>Color Palette</InputLabel>
-            <Select
-              value={styling.colors.palette}
-              onChange={(e) => onChange({
-                ...styling,
-                colors: { ...styling.colors, palette: e.target.value as any }
-              })}
-              label="Color Palette"
-            >
-              {Object.keys(COLOR_PALETTES).map((palette) => (
-                <MenuItem key={palette} value={palette}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
-                      {COLOR_PALETTES[palette as keyof typeof COLOR_PALETTES].slice(0, 4).map((color, i) => (
-                        <Box
-                          key={i}
-                          sx={{
-                            width: 12,
-                            height: 12,
-                            borderRadius: '50%',
-                            bgcolor: color
-                          }}
-                        />
-                      ))}
-                    </Box>
-                    {palette.charAt(0).toUpperCase() + palette.slice(1)}
-                  </Box>
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          <FormControl fullWidth>
             <InputLabel>Theme</InputLabel>
             <Select
               value={styling.theme}
@@ -1012,12 +734,31 @@ const ChartStylingPanel: React.FC<{
               <MenuItem value="custom">Custom</MenuItem>
             </Select>
           </FormControl>
+
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <InputLabel>Color Palette</InputLabel>
+            <Select
+              value={styling.colors.palette}
+              onChange={(e) => onChange({
+                ...styling,
+                colors: { ...styling.colors, palette: e.target.value as any }
+              })}
+              label="Color Palette"
+            >
+              <MenuItem value="default">Default</MenuItem>
+              <MenuItem value="viridis">Viridis</MenuItem>
+              <MenuItem value="plasma">Plasma</MenuItem>
+              <MenuItem value="warm">Warm</MenuItem>
+              <MenuItem value="cool">Cool</MenuItem>
+            </Select>
+          </FormControl>
         </AccordionDetails>
       </Accordion>
 
+      {/* Layout Options */}
       <Accordion>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="subtitle2">Legend & Grid</Typography>
+          <Typography variant="subtitle2">Layout</Typography>
         </AccordionSummary>
         <AccordionDetails>
           <FormControlLabel
@@ -1068,6 +809,7 @@ const ChartStylingPanel: React.FC<{
         </AccordionDetails>
       </Accordion>
 
+      {/* Labels & Formatting */}
       <Accordion>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           <Typography variant="subtitle2">Labels & Formatting</Typography>
@@ -1132,7 +874,7 @@ const ChartStylingPanel: React.FC<{
 };
 
 // =============================================================================
-// Chart Preview Panel Component
+// Enhanced Chart Preview Panel with ChartFactory Integration
 // =============================================================================
 
 const ChartPreviewPanel: React.FC<{
@@ -1141,6 +883,62 @@ const ChartPreviewPanel: React.FC<{
   loading: boolean;
   onRefresh: () => void;
 }> = ({ config, data, loading, onRefresh }) => {
+  const [chartError, setChartError] = useState<string | null>(null);
+  const [validationResult, setValidationResult] = useState<{valid: boolean; errors: string[]}>({
+    valid: true, 
+    errors: []
+  });
+  const [validationLoading, setValidationLoading] = useState(false);
+
+  // Validate configuration using ChartFactory
+  useEffect(() => {
+    const validateConfig = async () => {
+      if (!config.chartType || !config.chartLibrary) return;
+      
+      try {
+        setValidationLoading(true);
+        const result = await ChartFactory.validateConfig(
+          config.chartType, 
+          config.chartLibrary, 
+          config.factoryConfig || {}
+        );
+        setValidationResult(result);
+        
+        // Clear previous errors if validation passes
+        if (result.valid) {
+          setChartError(null);
+        }
+      } catch (error) {
+        console.error('Validation failed:', error);
+        setValidationResult({
+          valid: false, 
+          errors: ['Configuration validation failed']
+        });
+      } finally {
+        setValidationLoading(false);
+      }
+    };
+
+    validateConfig();
+  }, [config.chartType, config.chartLibrary, config.factoryConfig]);
+
+  // Get plugin info for display
+  const [pluginInfo, setPluginInfo] = useState<ChartPluginInfo | null>(null);
+  useEffect(() => {
+    const loadPluginInfo = async () => {
+      if (!config.chartType || !config.chartLibrary) return;
+      
+      try {
+        const info = await ChartFactory.getChartInfo(config.chartType, config.chartLibrary);
+        setPluginInfo(info);
+      } catch (error) {
+        console.error('Failed to load plugin info:', error);
+      }
+    };
+
+    loadPluginInfo();
+  }, [config.chartType, config.chartLibrary]);
+
   return (
     <Box>
       <Typography variant="h6" gutterBottom>
@@ -1151,20 +949,116 @@ const ChartPreviewPanel: React.FC<{
         Preview your chart configuration before saving. Make sure all settings look correct.
       </Alert>
 
+      {/* Validation warnings */}
+      {!validationResult.valid && !validationLoading && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          <Typography variant="subtitle2">Configuration Issues:</Typography>
+          <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>
+            {validationResult.errors.map((error, index) => (
+              <li key={index}>{error}</li>
+            ))}
+          </ul>
+        </Alert>
+      )}
+
+      {/* Chart info and controls */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="subtitle2">
-          Chart: {config.name}
-        </Typography>
-        <Button
-          startIcon={<RefreshIcon />}
-          onClick={onRefresh}
-          disabled={loading}
-          size="small"
-        >
-          Refresh
-        </Button>
+        <Box>
+          <Typography variant="subtitle2">
+            {config.name || 'Untitled Chart'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {pluginInfo?.displayName || config.chartType} • {config.chartLibrary}
+            {config.pluginVersion && ` v${config.pluginVersion}`}
+          </Typography>
+        </Box>
+        
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          {validationLoading && <CircularProgress size={16} />}
+          <IconButton
+            onClick={onRefresh}
+            disabled={loading}
+            size="small"
+            title="Refresh preview"
+          >
+            <RefreshIcon />
+          </IconButton>
+        </Box>
       </Box>
 
+      {/* Chart rendering area */}
+      <Paper 
+        sx={{ 
+          p: 2, 
+          mb: 2, 
+          minHeight: 400,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        {loading ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+            <CircularProgress size={40} />
+            <Typography color="text.secondary">Loading chart...</Typography>
+          </Box>
+        ) : chartError ? (
+          <Alert severity="error" sx={{ width: '100%' }}>
+            <Typography variant="subtitle2">Chart Rendering Error</Typography>
+            <Typography variant="body2">{chartError}</Typography>
+            <Button 
+              size="small" 
+              onClick={() => setChartError(null)}
+              sx={{ mt: 1 }}
+            >
+              Try Again
+            </Button>
+          </Alert>
+        ) : config.chartType && config.chartLibrary && data && data.length > 0 ? (
+          /* ChartFactory Component Integration */
+          <Box sx={{ width: '100%', height: '400px' }}>
+            <ChartFactoryComponent
+              chartType={config.chartType}
+              chartLibrary={config.chartLibrary}
+              data={data}
+              config={{
+                // Merge standard config with plugin-specific config
+                title: config.name,
+                ...config.factoryConfig,
+                // Map standard fields to plugin format
+                xField: config.chartOptions?.dimensions?.x?.[0],
+                yField: config.chartOptions?.dimensions?.y?.[0],
+                seriesField: config.chartOptions?.dimensions?.series,
+                // Apply styling
+                theme: config.styling?.theme || 'light',
+                showLegend: config.styling?.layout?.showLegend ?? true,
+                showGrid: config.styling?.layout?.showGrid ?? true
+              }}
+              dimensions={{ width: 600, height: 350 }}
+              onError={(error) => setChartError(error.message)}
+              onInteraction={(event) => console.log('Chart interaction:', event)}
+            />
+          </Box>
+        ) : !config.chartType || !config.chartLibrary ? (
+          <Box sx={{ textAlign: 'center' }}>
+            <Typography color="text.secondary" variant="h6">
+              Select a chart type to see preview
+            </Typography>
+            <Typography color="text.secondary" variant="body2">
+              Choose from available chart plugins in the sidebar
+            </Typography>
+          </Box>
+        ) : (!data || data.length === 0) ? (
+          <Alert severity="warning" sx={{ width: '100%' }}>
+            <Typography variant="subtitle2">No Data Available</Typography>
+            <Typography variant="body2">
+              Please select a data source to preview the chart.
+            </Typography>
+          </Alert>
+        ) : null}
+      </Paper>
+
+      {/* Configuration Summary */}
       <Paper sx={{ p: 2, mb: 2 }}>
         <Typography variant="body2" gutterBottom>
           Configuration Summary:
@@ -1173,28 +1067,37 @@ const ChartPreviewPanel: React.FC<{
           <ListItem>
             <ListItemText
               primary="Chart Type"
-              secondary={CHART_TYPES.find(t => t.id === config.chartType)?.name}
+              secondary={pluginInfo?.displayName || config.chartType}
+            />
+          </ListItem>
+          <ListItem>
+            <ListItemText
+              primary="Library"
+              secondary={config.chartLibrary}
             />
           </ListItem>
           <ListItem>
             <ListItemText
               primary="Data Source"
-              secondary={config.dataSource.type === 'dataset' ? `Dataset: ${config.dataSource.sourceId}` : config.dataSource.type}
+              secondary={config.dataSource.type === 'dataset' 
+                ? `Dataset: ${config.dataSource.sourceId}` 
+                : config.dataSource.type
+              }
             />
           </ListItem>
           <ListItem>
             <ListItemText
               primary="X-Axis Fields"
-              secondary={config.chartOptions.dimensions.x.join(', ') || 'Not configured'}
+              secondary={config.chartOptions?.dimensions?.x?.join(', ') || 'Not configured'}
             />
           </ListItem>
           <ListItem>
             <ListItemText
               primary="Y-Axis Fields"
-              secondary={config.chartOptions.dimensions.y.join(', ') || 'Not configured'}
+              secondary={config.chartOptions?.dimensions?.y?.join(', ') || 'Not configured'}
             />
           </ListItem>
-          {config.chartOptions.dimensions.series && (
+          {config.chartOptions?.dimensions?.series && (
             <ListItem>
               <ListItemText
                 primary="Series Field"
@@ -1205,15 +1108,14 @@ const ChartPreviewPanel: React.FC<{
         </List>
       </Paper>
 
+      {/* Chart metadata */}
       <TextField
         fullWidth
         label="Chart Name"
         value={config.name}
-        onChange={(e) => {
-          // This would need to be passed up to parent component
-          // For now, just display
-        }}
+        placeholder="Enter a descriptive name for your chart"
         sx={{ mb: 2 }}
+        disabled // This would need to be passed up to parent
       />
 
       <TextField
@@ -1223,8 +1125,280 @@ const ChartPreviewPanel: React.FC<{
         label="Description (Optional)"
         value={config.description || ''}
         placeholder="Describe what this chart shows..."
+        disabled // This would need to be passed up to parent
       />
     </Box>
+  );
+};
+
+// =============================================================================
+// Main ChartBuilder Component
+// =============================================================================
+
+const ChartBuilder: React.FC<ChartBuilderProps> = ({
+  initialConfig,
+  data = [],
+  availableColumns = [],
+  onSave,
+  onCancel,
+  onPreview,
+  workspaceId,
+  dashboardId
+}) => {
+  // State management
+  const [config, setConfig] = useState<ChartConfig>({
+    name: 'New Chart',
+    chartType: 'bar',
+    chartLibrary: 'echarts',  // Default to echarts
+    factoryConfig: {},
+    dataSource: { type: 'dataset' },
+    chartOptions: {
+      dimensions: { x: [], y: [] },
+      aggregation: { method: 'sum' },
+      sorting: { direction: 'asc' }
+    },
+    styling: {
+      theme: 'light',
+      colors: { palette: 'default' },
+      layout: {
+        showLegend: true,
+        legendPosition: 'bottom',
+        showGrid: true,
+        gridStyle: 'solid'
+      },
+      axes: {
+        xAxis: { show: true, title: '' },
+        yAxis: { show: true, title: '' }
+      },
+      labels: {
+        showDataLabels: false,
+        labelFormat: '',
+        fontSize: 12
+      }
+    },
+    interactivity: {
+      enableTooltip: true,
+      enableZoom: false,
+      enableBrush: false,
+      clickAction: 'none'
+    },
+    ...initialConfig
+  });
+
+  const [activeStep, setActiveStep] = useState(0);
+  const [isFactoryReady, setIsFactoryReady] = useState(false);
+  const [factoryError, setFactoryError] = useState<string | null>(null);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  // Initialize ChartFactory
+  useEffect(() => {
+    const initializeFactory = async () => {
+      try {
+        await ChartFactory.initialize();
+        setIsFactoryReady(true);
+        setFactoryError(null);
+      } catch (error) {
+        console.error('ChartFactory initialization failed:', error);
+        setFactoryError(error instanceof Error ? error.message : 'Unknown error');
+      }
+    };
+
+    initializeFactory();
+  }, []);
+
+  // Extract columns from data if not provided
+  const effectiveColumns = availableColumns.length > 0 ? availableColumns : 
+    (data && data.length > 0 ? Object.keys(data[0]) : []);
+
+  // Handle chart type selection
+  const handleChartSelection = useCallback((type: string, library: string, pluginInfo: ChartPluginInfo) => {
+    setConfig(prev => ({
+      ...prev,
+      chartType: type as ChartType,
+      chartLibrary: library,
+      pluginVersion: pluginInfo.version,
+      factoryConfig: {
+        // Set defaults from plugin schema if available
+        ...Object.fromEntries(
+          Object.entries(pluginInfo.configSchema?.properties || {}).map(([key, field]: [string, any]) => 
+            [key, field.default]
+          )
+        )
+      }
+    }));
+    setHasChanges(true);
+  }, []);
+
+  // Handle options change
+  const handleOptionsChange = useCallback((options: ChartOptions, factoryConfig: any) => {
+    setConfig(prev => ({
+      ...prev,
+      chartOptions: options,
+      factoryConfig
+    }));
+    setHasChanges(true);
+  }, []);
+
+  // Handle styling change
+  const handleStylingChange = useCallback((styling: ChartStyling) => {
+    setConfig(prev => ({
+      ...prev,
+      styling
+    }));
+    setHasChanges(true);
+  }, []);
+
+  // Handle save with validation
+  const handleSave = useCallback(async () => {
+    try {
+      // Validate configuration
+      if (!config.chartType || !config.chartLibrary) {
+        alert('Please select a chart type');
+        return;
+      }
+
+      // Validate using ChartFactory
+      const validation = await ChartFactory.validateConfig(
+        config.chartType, 
+        config.chartLibrary, 
+        config.factoryConfig || {}
+      );
+
+      if (!validation.valid) {
+        alert(`Configuration errors:\n${validation.errors.join('\n')}`);
+        return;
+      }
+
+      // Check required data mappings
+      if (!config.chartOptions.dimensions.x.length && !['pie', 'donut'].includes(config.chartType)) {
+        alert('Please configure X-axis field mapping');
+        return;
+      }
+
+      if (!config.chartOptions.dimensions.y.length) {
+        alert('Please configure Y-axis field mapping');
+        return;
+      }
+
+      await onSave?.(config);
+      setHasChanges(false);
+    } catch (error) {
+      console.error('Save failed:', error);
+      alert('Failed to save chart configuration');
+    }
+  }, [config, onSave]);
+
+  // Show loading state while factory initializes
+  if (!isFactoryReady) {
+    return (
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        flexDirection: 'column',
+        gap: 2
+      }}>
+        <CircularProgress size={40} />
+        <Typography variant="h6">Initializing Chart Factory...</Typography>
+        {factoryError && (
+          <Alert severity="error" sx={{ mt: 2, maxWidth: 400 }}>
+            <Typography variant="subtitle2">Initialization Error</Typography>
+            <Typography variant="body2">{factoryError}</Typography>
+          </Alert>
+        )}
+      </Box>
+    );
+  }
+
+  // Render main component
+  return (
+    <BuilderLayout
+      builderType="chart"
+      title="Chart Builder"
+      subtitle="Create and customize your chart with dynamic plugins"
+      onSave={handleSave}
+      onCancel={onCancel}
+      onPreview={() => onPreview?.(config)}
+      hasChanges={hasChanges}
+      canSave={Boolean(config.chartType && config.chartLibrary && effectiveColumns.length > 0)}
+      entityName={config.name}
+      workspaceSlug={workspaceId}
+    >
+      <Box sx={{ display: 'flex', height: '100%' }}>
+        
+        {/* LEFT SIDEBAR - Same structure, enhanced components */}
+        <Box
+          sx={{
+            width: 300,
+            flexShrink: 0,
+            borderRight: '1px solid',
+            borderColor: 'divider',
+            overflow: 'auto',
+            bgcolor: 'background.paper'
+          }}
+        >
+          <div className="sidebar-content">
+            
+            {/* Chart Type Selection */}
+            <div className="sidebar-section">
+              <ChartTypeSelector
+                selectedType={config.chartType}
+                selectedLibrary={config.chartLibrary}
+                onSelect={handleChartSelection}
+              />
+            </div>
+
+            {/* Data Source Configuration */}
+            <div className="sidebar-section">
+              <DataSourceSelector
+                dataSource={config.dataSource}
+                onChange={(dataSource) => {
+                  setConfig(prev => ({ ...prev, dataSource }));
+                  setHasChanges(true);
+                }}
+              />
+            </div>
+
+            {/* Chart Options */}
+            <div className="sidebar-section">
+              <ChartOptionsPanel
+                chartType={config.chartType}
+                chartLibrary={config.chartLibrary}
+                options={config.chartOptions}
+                factoryConfig={config.factoryConfig}
+                availableColumns={effectiveColumns}
+                onChange={handleOptionsChange}
+              />
+            </div>
+
+            {/* Styling Options */}
+            <div className="sidebar-section">
+              <ChartStylingPanel
+                styling={config.styling}
+                chartType={config.chartType}
+                onChange={handleStylingChange}
+              />
+            </div>
+          </div>
+        </Box>
+
+        {/* MAIN CONTENT AREA */}
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <Box sx={{ flex: 1, p: 2 }}>
+            <ChartPreviewPanel
+              config={config}
+              data={data}
+              loading={false}
+              onRefresh={() => {
+                // Trigger data refresh
+                console.log('Refreshing chart data...');
+              }}
+            />
+          </Box>
+        </Box>
+      </Box>
+    </BuilderLayout>
   );
 };
 
