@@ -48,7 +48,7 @@ const chartBuilderCSS = `
     height: 100vh;
     display: flex;
     flex-direction: column;
-    background-color: #f5f5f5;
+    background-color: #f8fafc;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     font-size: 14px;
     line-height: 1.5;
@@ -61,8 +61,8 @@ const chartBuilderCSS = `
   
   /* Header Styles - matching MUI theme */
   .chart-header {
-    background-color: #ffffff;
-    border-bottom: 1px solid #e0e0e0;
+    background-color: white;
+    border-bottom: 1px solid #e5e7eb;
     padding: 16px 24px;
     flex-shrink: 0;
     box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.12);
@@ -72,7 +72,7 @@ const chartBuilderCSS = `
     display: flex;
     align-items: center;
     font-size: 14px;
-    color: #666666;
+    color: #6b7280;
     margin-bottom: 4px;
     font-weight: 400;
   }
@@ -83,7 +83,7 @@ const chartBuilderCSS = `
   }
   
   .chart-nav-active {
-    color: #333333;
+    color: #111827;
     font-weight: 500;
   }
   
@@ -92,7 +92,7 @@ const chartBuilderCSS = `
   }
   
   .chart-subtitle {
-    color: #666666;
+    color: #6b7280;
     font-size: 14px;
     font-weight: 400;
     line-height: 1.6;
@@ -108,12 +108,12 @@ const chartBuilderCSS = `
   /* Sidebar Styles - matching MUI Paper */
   .chart-sidebar {
     width: 300px;
-    background-color: #ffffff;
-    border-right: 1px solid #e0e0e0;
+    background-color: white;
+    border-right: 1px solid #e5e7eb;
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
-    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   }
   
   .sidebar-content {
@@ -122,7 +122,7 @@ const chartBuilderCSS = `
   }
   
   .sidebar-section {
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid #e5e7eb;
     padding: 16px;
   }
   
@@ -135,7 +135,7 @@ const chartBuilderCSS = `
   
   .sidebar-section-title {
     font-weight: 600;
-    color: #333333;
+    color: #111827;
     font-size: 16px;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   }
@@ -145,7 +145,7 @@ const chartBuilderCSS = `
     align-items: center;
     gap: 8px;
     padding: 12px;
-    background-color: #f5f5f5;
+    background-color: #f8fafc;
     border-radius: 8px;
     font-size: 14px;
     font-weight: 400;
@@ -200,7 +200,7 @@ const chartBuilderCSS = `
   }
   
   .collapsible-header:hover {
-    background-color: #f5f5f5;
+    background-color: #f8fafc;
   }
   
   .collapsible-title {
@@ -211,7 +211,7 @@ const chartBuilderCSS = `
   
   .collapsible-content {
     padding: 0 16px 16px;
-    border-top: 1px solid #f5f5f5;
+    border-top: 1px solid #f8fafc;
   }
   
   .metric-item, .column-item {
@@ -240,41 +240,41 @@ const chartBuilderCSS = `
   .add-chart-button {
     margin: 16px;
     padding: 16px;
-    border: 2px dashed #e0e0e0;
+    border: 2px dashed #d1d5db;
     border-radius: 8px;
-    background: none;
+    background: white;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
     transition: all 0.2s;
-    color: #666666;
+    color: #6b7280;
     font-weight: 500;
     font-size: 14px;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   }
   
   .add-chart-button:hover {
-    border-color: #1976d2;
-    background-color: rgba(25, 118, 210, 0.08);
+    border-color: #3b82f6; /* Updated to match dashboard-builder primary color */
+    background: #f8fafc; /* Updated hover background */
     color: #1976d2;
   }
   
   /* Configuration Panel - matching MUI styles */
   .config-panel {
     width: 400px;
-    background-color: #ffffff;
-    border-right: 1px solid #e0e0e0;
+    background: white; /* Changed to match dashboard-builder */
+    border-right: 1px solid #e5e7eb; /* Updated border */
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
-    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); /* Updated shadow */
   }
   
   .config-tabs {
     display: flex;
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid #e5e7eb; /* Updated border */
   }
   
   .config-tab {
@@ -285,7 +285,7 @@ const chartBuilderCSS = `
     cursor: pointer;
     font-size: 12px;
     font-weight: 600;
-    color: #666666;
+    color: #6b7280; /* Updated color */
     text-transform: uppercase;
     letter-spacing: 0.08em;
     transition: all 0.2s;
@@ -293,8 +293,8 @@ const chartBuilderCSS = `
   }
   
   .config-tab.active {
-    color: #1976d2;
-    background-color: rgba(25, 118, 210, 0.08);
+    color: #3b82f6; /* Updated to match dashboard-builder primary */
+    background: #f8fafc; /* Updated active background */
     border-bottom: 2px solid #1976d2;
   }
   
@@ -311,7 +311,7 @@ const chartBuilderCSS = `
   .config-label {
     display: block;
     font-weight: 600;
-    color: #333333;
+    color: #111827; /* Updated to match dashboard-builder */
     margin-bottom: 6px;
     font-size: 14px;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -320,17 +320,17 @@ const chartBuilderCSS = `
   .config-input, .config-select, .config-textarea {
     width: 100%;
     padding: 10px 14px;
-    border: 1px solid #e0e0e0;
+    border: 1px solid #d1d5db;
     border-radius: 8px;
     font-size: 14px;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    background-color: #ffffff;
+    background: white; /* Changed to white */
     transition: border-color 0.2s;
   }
   
   .config-input:focus, .config-select:focus, .config-textarea:focus {
     outline: none;
-    border-color: #1976d2;
+    border-color: #3b82f6;
     box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.2);
   }
   
@@ -351,18 +351,18 @@ const chartBuilderCSS = `
   
   .color-option {
     padding: 12px;
-    border: 2px solid #e0e0e0;
+    border: 2px solid #e5e7eb; /* Updated border */
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.2s;
   }
   
   .color-option:hover {
-    background-color: #f5f5f5;
+    background: #f8fafc; /* Updated hover background */
   }
   
   .color-option.active {
-    border-color: #1976d2;
+    border-color: #3b82f6; /* Updated active color */
     background-color: rgba(25, 118, 210, 0.08);
   }
   
@@ -376,7 +376,7 @@ const chartBuilderCSS = `
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    border: 1px solid #e0e0e0;
+    border: 1px solid #e5e7eb; /* Updated border */
   }
   
   .checkbox-group {
@@ -389,20 +389,20 @@ const chartBuilderCSS = `
   .checkbox-group input[type="checkbox"] {
     width: 18px;
     height: 18px;
-    accent-color: #1976d2;
+    accent-color: #3b82f6;
   }
   
   .checkbox-group label {
     font-size: 14px;
     font-weight: 400;
-    color: #333333;
+    color: #111827; /* Updated text color */
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   }
   
   .update-button {
     margin: 16px;
     padding: 12px 16px;
-    background-color: #1976d2;
+    background: #3b82f6; /* Updated to match dashboard-builder primary */
     color: white;
     border: none;
     border-radius: 8px;
@@ -416,7 +416,7 @@ const chartBuilderCSS = `
   }
   
   .update-button:hover {
-    background-color: #1565c0;
+     background: #2563eb; /* Updated hover color */
     box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.15);
     transform: translateY(-1px);
   }
@@ -426,7 +426,7 @@ const chartBuilderCSS = `
     flex: 1;
     padding: 24px;
     overflow: auto;
-    background-color: #f5f5f5;
+    background: #f8fafc;
   }
   
   .empty-state {
@@ -435,10 +435,10 @@ const chartBuilderCSS = `
     align-items: center;
     justify-content: center;
     text-align: center;
-    background-color: #ffffff;
-    border-radius: 8px;
-    border: 1px solid #e0e0e0;
-    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+    background: white; /* Changed to white */
+    border-radius: 12px; /* Increased border radius to match dashboard-builder */
+    border: 1px solid #e5e7eb; /* Updated border */
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); /* Updated shadow */
   }
   
   .empty-content h3 {
@@ -450,11 +450,11 @@ const chartBuilderCSS = `
   }
   
   .empty-content p {
-    color: #666666;
+    color: #6b7280; /* Updated to match dashboard-builder */
     margin-bottom: 24px;
     max-width: 400px;
     line-height: 1.6;
-    font-size: 14px;
+    font-size: 16px; /* Increased font size */
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   }
   
@@ -462,8 +462,8 @@ const chartBuilderCSS = `
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 12px 20px;
-    background-color: #1976d2;
+    padding: 12px 24px; /* Increased padding */
+    background: #3b82f6; /* Updated to match dashboard-builder primary */
     color: white;
     border: none;
     border-radius: 8px;
@@ -477,7 +477,7 @@ const chartBuilderCSS = `
   }
   
   .primary-button:hover {
-    background-color: #1565c0;
+    background: #2563eb; /* Updated hover color */
     box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.15);
     transform: translateY(-1px);
   }
@@ -485,13 +485,13 @@ const chartBuilderCSS = `
   /* Chart Preview - matching MUI Card */
   .chart-preview {
     height: 100%;
-    background-color: #ffffff;
-    border-radius: 12px;
-    border: 1px solid #e0e0e0;
+    background: white; /* Changed to white */
+    border: 1px solid #e5e7eb; /* Updated border */
+    border-radius: 12px; /* Increased border radius */
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); /* Added shadow */
     transition: box-shadow 0.2s;
   }
   
@@ -600,13 +600,13 @@ const chartBuilderCSS = `
   
   /* Results Section - matching MUI Table */
   .results-section {
-    border-top: 1px solid #e0e0e0;
-    background-color: #ffffff;
+    border-top: 1px solid #e5e7eb; /* Updated border */
+    background: white; /* Changed to white */
   }
   
   .results-tabs {
     display: flex;
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid #e5e7eb; /* Updated border */
   }
   
   .results-tab {
@@ -616,7 +616,7 @@ const chartBuilderCSS = `
     cursor: pointer;
     font-size: 12px;
     font-weight: 600;
-    color: #666666;
+    color: #6b7280; /* Updated color */
     text-transform: uppercase;
     letter-spacing: 0.05em;
     transition: all 0.2s;
@@ -624,7 +624,7 @@ const chartBuilderCSS = `
   }
   
   .results-tab.active {
-    color: #1976d2;
+    color: #3b82f6; 
     border-bottom: 2px solid #1976d2;
   }
   
@@ -658,12 +658,12 @@ const chartBuilderCSS = `
   }
   
   .data-table th {
-    background-color: #f5f5f5;
+    background: #f8fafc; /* Updated background */
     padding: 12px;
     text-align: left;
     font-weight: 600;
-    color: #333333;
-    border-bottom: 1px solid #e0e0e0;
+    color: #111827; /* Updated text color */
+    border-bottom: 1px solid #e5e7eb; /* Updated border */
     text-transform: uppercase;
     font-size: 11px;
     letter-spacing: 0.05em;
@@ -671,13 +671,13 @@ const chartBuilderCSS = `
   
   .data-table td {
     padding: 10px 12px;
-    border-bottom: 1px solid #f5f5f5;
-    color: #333333;
+    border-bottom: 1px solid #f3f4f6; /* Updated border */
+    color: #111827; /* Updated text color */
     font-weight: 400;
   }
   
   .data-table tr:hover {
-    background-color: #f5f5f5;
+    background-color: #f8fafc; /* Updated hover background */
   }
   
   /* Modal Styles - matching MUI Dialog */
@@ -693,23 +693,25 @@ const chartBuilderCSS = `
     justify-content: center;
     z-index: 1300;
     padding: 20px;
+    backdrop-filter: blur(4px);
   }
   
   .modal-content {
-    background-color: #ffffff;
-    border-radius: 8px;
+    background-color: white; /* Changed to white */
+    border-radius: 12px; /* Increased border radius */
     width: 100%;
     max-width: 1200px;
     height: 90vh;
     overflow: hidden;
     display: flex;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
     flex-direction: column;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.12);
   }
   
   .modal-header {
+    background-color : #fafafa; /* Added background like dashboard-builder */
     padding: 20px 24px;
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid #e5e7eb;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -718,7 +720,7 @@ const chartBuilderCSS = `
   .modal-title {
     font-size: 20px;
     font-weight: 600;
-    color: #333333;
+     color: #111827;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   }
   
@@ -730,7 +732,7 @@ const chartBuilderCSS = `
   
   .chart-categories {
     width: 240px;
-    background-color: #f5f5f5;
+    background-color: #f8fafc;
     border-right: 1px solid #e0e0e0;
     padding: 16px 0;
   }
@@ -795,7 +797,7 @@ const chartBuilderCSS = `
   .chart-icon-container {
     width: 100%;
     height: 80px;
-    background-color: #f5f5f5;
+    background-color: #f8fafc;
     border-radius: 6px;
     display: flex;
     align-items: center;
@@ -827,7 +829,7 @@ const chartBuilderCSS = `
   
   .chart-tag {
     padding: 3px 10px;
-    background-color: #f5f5f5;
+    background-color: #f8fafc;
     color: #666666;
     border-radius: 14px;
     font-size: 11px;
@@ -857,7 +859,7 @@ const chartBuilderCSS = `
   }
   
   .secondary-button:hover {
-    background-color: #f5f5f5;
+    background-color: #f8fafc;
     border-color: #666666;
   }
   
