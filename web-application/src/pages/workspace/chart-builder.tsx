@@ -263,7 +263,7 @@ const chartBuilderCSS = `
   
   /* Configuration Panel - matching MUI styles */
   .config-panel {
-    width: 300px;
+    width: 400px;
     background-color: #ffffff;
     border-right: 1px solid #e0e0e0;
     display: flex;
@@ -1024,7 +1024,7 @@ const ChartBuilder = () => {
   const [selectedChart, setSelectedChart] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [showChartSelector, setShowChartSelector] = useState(false);
-  const [activeConfigTab, setActiveConfigTab] = useState('data');
+  const [activeConfigTab, setActiveConfigTab] = useState('dataset');
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedSections, setExpandedSections] = useState({
     metrics: true,
@@ -1286,14 +1286,38 @@ const ChartBuilder = () => {
         </div>
 
         <div className="chart-main">
-          <div className="chart-sidebar">
-            <div className="sidebar-content">
+
+          {selectedChart && (
+            <div className="config-panel">
+              <div className="config-tabs">
+                <button 
+                  className={`config-tab ${activeConfigTab === 'dataset' ? 'active' : ''}`}
+                  onClick={() => setActiveConfigTab('dataset')}
+                >
+                  DATASET
+                </button>
+                <button 
+                  className={`config-tab ${activeConfigTab === 'data' ? 'active' : ''}`}
+                  onClick={() => setActiveConfigTab('data')}
+                >
+                  DATA
+                </button>
+                <button 
+                  className={`config-tab ${activeConfigTab === 'customize' ? 'active' : ''}`}
+                  onClick={() => setActiveConfigTab('customize')}
+                >
+                  CUSTOMIZE
+                </button>
+              </div>
+
+              <div className="config-content">
+
+                {activeConfigTab === 'dataset' && (
+                  <div>
+            <div >
               <div className="sidebar-section">
                 <div className="sidebar-section-header">
                   <h3 className="sidebar-section-title">Dataset</h3>
-                  <button className="icon-button">
-                    <MoreHorizontal size={16} />
-                  </button>
                 </div>
                 <div className="dataset-item">
                   <Database size={16} />
@@ -1374,31 +1398,9 @@ const ChartBuilder = () => {
                 )}
               </div>
             </div>
-
-            <button className="add-chart-button" onClick={() => setShowChartSelector(true)}>
-              <Plus size={16} />
-              <span>Add Chart</span>
-            </button>
           </div>
+                )}
 
-          {selectedChart && (
-            <div className="config-panel">
-              <div className="config-tabs">
-                <button 
-                  className={`config-tab ${activeConfigTab === 'data' ? 'active' : ''}`}
-                  onClick={() => setActiveConfigTab('data')}
-                >
-                  DATA
-                </button>
-                <button 
-                  className={`config-tab ${activeConfigTab === 'customize' ? 'active' : ''}`}
-                  onClick={() => setActiveConfigTab('customize')}
-                >
-                  CUSTOMIZE
-                </button>
-              </div>
-
-              <div className="config-content">
                 {activeConfigTab === 'data' && (
                   <div>
                     <div className="config-form-group">
