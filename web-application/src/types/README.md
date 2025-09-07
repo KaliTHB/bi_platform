@@ -136,7 +136,7 @@ Common utility types provided:
 
 ```typescript
 // Make specific fields optional
-type PartialUser = Optional<User, 'avatar_url' | 'last_login_at'>;
+type PartialUser = Optional<User, 'avatar_url' | 'last_login'>;
 
 // Make specific fields required
 type RequiredConfig = RequiredFields<PluginConfig, 'name' | 'version'>;

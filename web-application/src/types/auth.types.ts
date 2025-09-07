@@ -10,7 +10,7 @@ export interface User {
   avatar_url?: string;
   roles?: string[];
   is_active: boolean;
-  last_login_at?: string;
+  last_login?: string;
   created_at: string;
   updated_at: string;
   

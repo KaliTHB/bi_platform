@@ -16,7 +16,7 @@ export interface LoginResponse {
     role?: string;
     avatar_url?: string;
     is_active: boolean;
-    last_login_at?: string;
+    last_login?: string;
     created_at: string;
     updated_at: string;
     workspace_ids: string[];
@@ -45,7 +45,7 @@ export interface User {
   role?: string;
   avatar_url?: string;
   is_active: boolean;
-  last_login_at?: string;
+  last_login?: string;
   created_at: string;
   updated_at: string;
 }

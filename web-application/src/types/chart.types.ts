@@ -8,34 +8,6 @@ import {ColumnDefinition, Dataset } from '@/types/dataset.types';
 // Core Chart Interfaces
 // =============================================================================
 
-export interface Chart {
-  id: string;
-  workspace_id?: string;
-  dashboard_id?: string;
-  name: string;
-  display_name?: string;
-  description?: string;
-  chart_type?: string;
-  chart_category?: string;
-  chart_library?: string;
-  dataset_ids?: string[];
-  config_json: ChartConfiguration;
-  position_json?: ChartPosition;
-  styling_config?: ChartStyling;
-  interaction_config?: InteractionConfiguration;
-  drilldown_config?: DrilldownConfig;
-  calculated_fields?: CalculatedField[];
-  conditional_formatting?: ConditionalFormat[];
-  export_config?: ExportConfig;
-  cache_config?: CacheConfig;
-  tab_id?: string;
-  is_active: boolean;
-  version: number;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface ChartPosition {
   x: number;
   y: number;
@@ -96,7 +68,6 @@ export interface ChartLegend {
 // =============================================================================
 // Chart Configuration - Core Interface
 // =============================================================================
-
 export interface ChartConfiguration {
   // Basic settings
   title?: ChartTitle;
@@ -127,10 +98,14 @@ export interface ChartConfiguration {
   interactions?: InteractionConfiguration;
   
   // Data processing
-  filters?: ChartFilter[];
   sorting?: SortConfiguration;
-  aggregation?: AggregationConfiguration;
-  
+  chartType: string;
+  library: string;
+  fieldAssignments: FieldAssignments;
+  aggregations: AggregationConfig;
+  filters?: FilterConfig;
+  customConfig: any;
+  dimensions?: { width: number; height: number };
   // Chart-specific options
   [key: string]: any;
 }
@@ -470,22 +445,10 @@ export interface BrushStyle {
 // Data Processing Configuration
 // =============================================================================
 
-export interface ChartFilter {
-  field: string;
-  operator: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'greater_equal' | 'less_equal' | 'in' | 'not_in' | 'contains' | 'not_contains' | 'starts_with' | 'ends_with' | 'between' | 'not_between' | 'is_null' | 'is_not_null';
-  value: any;
-  logicalOperator?: 'AND' | 'OR';
-}
-
 export interface SortConfiguration {
   field: string;
   direction: 'asc' | 'desc';
   priority?: number;
-}
-
-export interface AggregationConfiguration {
-  groupBy?: string[];
-  measures?: AggregationMeasure[];
 }
 
 export interface AggregationMeasure {
@@ -567,13 +530,6 @@ export interface ShadowStyle {
 // Chart Data Interfaces
 // =============================================================================
 
-export interface ChartData {
-  chartId: string;
-  data: any[];
-  columns: ColumnInfo[];
-  metadata: ChartMetadata;
-}
-
 export interface ChartMetadata {
   totalRows: number;
   executionTime: number;
@@ -585,16 +541,6 @@ export interface ChartMetadata {
   lastUpdated: string;
   error?: string;
   errorDetails?: string;
-}
-
-export interface ColumnInfo {
-  name: string;
-  type: 'string' | 'number' | 'date' | 'boolean';
-  displayName?: string;
-  format?: string;
-  nullable?: boolean;
-  unique?: boolean;
-  sampleValues?: any[];
 }
 
 
@@ -891,7 +837,7 @@ export interface ChartProps {
   config: ChartConfiguration;
   dimensions: ChartDimensions;
   theme?: ChartTheme;
-  filters?: ChartFilter[];
+  filters?: FilterConfig[];
   loading?: boolean;
   error?: ChartError;
 
@@ -929,7 +875,7 @@ export interface ChartPreviewProps {
 
 export interface DataRequest {
   chartId: string;
-  filters?: ChartFilter[];
+  filters?: FilterConfig[];
   refresh?: boolean;
   limit?: number;
   offset?: number;
@@ -958,7 +904,7 @@ export interface DrilldownLevel {
   displayName: string;
   chartType?: string;
   aggregation?: string;
-  filters?: ChartFilter[];
+  filters?: FilterConfig[];
 }
 
 export interface CalculatedField {
@@ -1311,4 +1257,189 @@ export interface ChartRendererProps extends Omit<ChartProps, 'config'> {
   onDataPointHover?: (data: any, series?: any) => void;
   onLegendClick?: (series?: any) => void;
   onZoom?: (domain?: any) => void;
+}
+
+
+export interface FieldInfo {
+  id: string;
+  name: string;
+  displayName?: string;
+  type: 'string' | 'number' | 'date' | 'boolean';
+  nullable?: boolean;
+  unique?: boolean;
+  sampleValue?: string;
+  sampleValues?: string[];
+  uniqueCount?: number;
+  nullCount?: number;
+  dataSourceId?: string;
+  tableName?: string;
+}
+
+export interface ChartTypeInfo {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  library: string;
+  icon?: string;
+  tags?: string[];
+  version?: string;
+  dataRequirements: ChartDataRequirements;
+  configSchema?: any;
+  interactionSupport?: ChartInteractionSupport;
+}
+
+export interface ChartDataRequirements {
+  requiredFields: string[];
+  optionalFields: string[];
+  axes: {
+    [axisType: string]: {
+      supportedTypes: string[];
+      required: boolean;
+      multipleFields?: boolean;
+    };
+  };
+}
+
+export interface ChartInteractionSupport {
+  zoom?: boolean;
+  pan?: boolean;
+  selection?: boolean;
+  brush?: boolean;
+  drilldown?: boolean;
+  tooltip?: boolean;
+  crossFilter?: boolean;
+}
+
+export interface FieldAssignments {
+  [axisType: string]: FieldInfo | FieldInfo[] | null;
+}
+
+export interface ChartCategoryStructure {
+  [categoryKey: string]: {
+    name: string;
+    displayName: string;
+    count: number;
+    charts: ChartTypeInfo[];
+  };
+}
+
+export interface AggregationConfig {
+  [fieldName: string]: {
+    aggregation: 'sum' | 'avg' | 'count' | 'min' | 'max' | 'distinct';
+    groupBy?: string[];
+  };
+}
+
+export interface FilterConfig {
+  rules?: FilterRule[];
+  operator?: 'AND' | 'OR';
+}
+
+export interface FilterRule {
+  id: string;
+  fieldId: string;
+  fieldName: string;
+  fieldType: string;
+  operator: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'greater_equal' | 'less_equal' | 'in' | 'not_in' | 'contains' | 'not_contains' | 'starts_with' | 'ends_with' | 'between' | 'not_between' | 'is_null' | 'is_not_null';
+  value: any;
+  enabled: boolean;
+}
+
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+
+
+export interface ValidationError {
+  field: string;
+  message: string;
+  severity: 'error' | 'warning';
+}
+
+export interface ValidationWarning {
+  field: string;
+  message: string;
+  severity: 'low' | 'medium' | 'high';
+}
+
+export interface ChartValidationResult {
+  valid: boolean;
+  errors: ValidationError[];
+  warnings?: ValidationWarning[];
+}
+
+// If you don't have these already, add them too:
+
+export interface QueryConfig {
+  dimensions: string[];
+  measures: string[];
+  aggregations: Record<string, 'sum' | 'count' | 'avg' | 'min' | 'max' | 'distinct_count'>;
+  sorts: Array<{ field: string; direction: 'asc' | 'desc' }>;
+  limit?: number;
+  custom_sql?: string;
+}
+
+export interface VisualizationConfig {
+  x_axis?: {
+    field: string;
+    label?: string;
+    format?: string;
+  };
+  y_axis?: {
+    field: string;
+    label?: string;
+    format?: string;
+  };
+  color?: {
+    field?: string;
+    palette?: string[];
+    single_color?: string;
+  };
+  size?: {
+    field?: string;
+    range?: [number, number];
+  };
+  legend?: {
+    show: boolean;
+    position: 'top' | 'bottom' | 'left' | 'right';
+  };
+  title?: {
+    text: string;
+    subtitle?: string;
+  };
+  theme?: string;
+  custom_options?: any;
+}
+
+export interface ChartFilter {
+  id: string;
+  field: string;
+  operator: 'equals' | 'not_equals' | 'in' | 'not_in' | 'greater_than' | 'less_than' | 'between' | 'contains';
+  value: any;
+  type: 'include' | 'exclude';
+  is_required: boolean;
+}
+
+export interface Chart {
+  id: string;
+  workspace_id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  type: 'bar' | 'line' | 'pie' | 'scatter' | 'area' | 'table' | 'metric' | 'funnel' | 'heatmap';
+  dataset_id: string;
+  query_config: QueryConfig;
+  visualization_config: VisualizationConfig;
+  filters: ChartFilter[];
+  tags: string[];
+  is_public: boolean;
+  created_by: string;
+  updated_by?: string;
+  created_at: Date;
+  updated_at: Date;
 }

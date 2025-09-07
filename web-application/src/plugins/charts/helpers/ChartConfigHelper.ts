@@ -11,7 +11,7 @@ import type {
   ChartConfigSchema,
   DataRequirements,
   ChartTheme,
-  ChartFilter,
+  FilterConfig,
   ChartInteractionEvent,
   ChartError,
   DataRequest

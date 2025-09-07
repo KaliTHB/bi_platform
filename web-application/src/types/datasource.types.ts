@@ -135,7 +135,7 @@ export interface QueryResult {
 
 export interface ColumnInfo {
   name: string;
-  type: string;
+  type: 'string' | 'number' | 'date' | 'boolean' | 'datetime' | 'timestamp';
   nullable: boolean;
   defaultValue?: any;
   maxLength?: number;
@@ -144,8 +144,10 @@ export interface ColumnInfo {
   isIndex?: boolean;
   precision?: number;
   scale?: number;
+  format?: string;
+  sampleValues?: any[];
+  unique?: boolean
 }
-
 export interface SchemaInfo {
   tables: TableInfo[];
   views: ViewInfo[];

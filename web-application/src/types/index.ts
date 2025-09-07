@@ -112,7 +112,6 @@ export type {
   DataSource,
   QueryFilter,
   QueryResult,
-  ColumnInfo,
   SqlQuery,
   QueryExecution,
   CreateDashboardRequest,
@@ -132,6 +131,10 @@ export type {
   CategoryStats,
 } from './category.types';
 
+export type {
+ColumnInfo
+} from './datasource.types'
+
 // =============================================================================
 // Plugin System Types
 // =============================================================================
@@ -146,8 +149,8 @@ export type {
   ConnectionTestResult,
   PluginRegistry,
   PluginManifest,
-  PluginType,
-  PluginStatus,
+ // PluginType,
+  // PluginStatus,
 } from './plugin.types';
 
 // =============================================================================

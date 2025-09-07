@@ -1,5 +1,5 @@
 // File: ./src/types/dashboard.types.ts
-
+import {ColumnInfo} from '@/types/datasource.types'
 export interface Dashboard {
   id: string;
   workspace_id: string;
@@ -380,12 +380,4 @@ export interface QueryResult {
   execution_time_ms: number;
   cached: boolean;
   query_id?: string;
-}
-
-export interface ColumnInfo {
-  name: string;
-  type: string;
-  nullable: boolean;
-  description?: string;
-  format?: string;
 }
