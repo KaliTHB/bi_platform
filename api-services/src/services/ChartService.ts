@@ -85,7 +85,7 @@ interface ChartCreateData {
   dataset_id: string;
   query_config: QueryConfig;
   visualization_config: VisualizationConfig;
-  filters?: ChartFilter[];
+  filters?: FilterConfig[];
   tags?: string[];
   is_public?: boolean;
   created_by: string;
@@ -98,7 +98,7 @@ interface ChartUpdateData {
   type?: 'bar' | 'line' | 'pie' | 'scatter' | 'area' | 'table' | 'metric' | 'funnel' | 'heatmap';
   query_config?: QueryConfig;
   visualization_config?: VisualizationConfig;
-  filters?: ChartFilter[];
+  filters?: FilterConfig[];
   tags?: string[];
   is_public?: boolean;
 }
@@ -696,7 +696,7 @@ export class ChartService {
   private generateCacheKey(
     chartId: string, 
     queryConfig: QueryConfig, 
-    filters: ChartFilter[], 
+    filters: FilterConfig[], 
     limit?: number
   ): string {
     const keyData = {

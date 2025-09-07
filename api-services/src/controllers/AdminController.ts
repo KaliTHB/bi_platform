@@ -59,11 +59,11 @@ export class AdminController {
           description,
           permissions,
           is_system,
-          level,
+          role_level,
           created_at
         FROM roles 
         WHERE workspace_id = $1 OR is_system = true
-        ORDER BY level DESC, name ASC
+        ORDER BY role_level DESC, name ASC
       `, [workspaceId]);
 
       res.json({

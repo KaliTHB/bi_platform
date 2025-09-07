@@ -172,7 +172,7 @@ export class AuthService {
 
       const query = `
         SELECT id, username, email, first_name, last_name, password_hash, 
-               avatar_url, is_active, last_login_at, created_at, updated_at
+               avatar_url, is_active, last_login, created_at, updated_at
         FROM users 
         WHERE (email = $1 OR username = $1) AND is_active = true
       `;
@@ -204,7 +204,7 @@ export class AuthService {
       // Update last login
       try {
         await this.database.query(
-          'UPDATE users SET last_login_at = NOW() WHERE id = $1',
+          'UPDATE users SET last_login = NOW() WHERE id = $1',
           [user.id]
         );
       } catch (updateError) {
@@ -262,7 +262,7 @@ export class AuthService {
         SELECT 
           w.id, w.name, w.slug, w.description, w.is_active, 
           w.created_at, w.updated_at,
-          r.name as role, r.level as role_level, r.id as role_id,
+          r.name as role, r.role_level , r.id as role_id,
           (SELECT COUNT(*) FROM user_role_assignments ura2 
            WHERE ura2.workspace_id = w.id AND ura2.is_active = true) as member_count,
           (SELECT COUNT(*) FROM dashboards d WHERE d.workspace_id = w.id) as dashboard_count,

@@ -8,7 +8,6 @@ export const mariadbPlugin: DataSourcePlugin = {
   category: 'relational',
   version: '1.0.0',
   description: 'Connect to MariaDB databases',
-  
   configSchema: {
     type: 'object',
     properties: {

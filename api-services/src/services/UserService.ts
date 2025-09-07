@@ -30,7 +30,7 @@ export interface UserResponse {
   first_name: string;
   last_name: string;
   avatar_url?: string;
-  last_login_at?: Date;
+  last_login?: Date;
   created_at: Date;
   roles: string[];
 }
@@ -54,13 +54,13 @@ export class UserService extends DatabaseService {
       }
 
       const query = `
-        SELECT DISTINCT u.id, u.email, u.first_name, u.last_name, u.avatar_url, u.last_login_at, u.created_at,
+        SELECT DISTINCT u.id, u.email, u.first_name, u.last_name, u.avatar_url, u.last_login, u.created_at,
                COALESCE(array_agg(DISTINCT cr.name) FILTER (WHERE cr.name IS NOT NULL), '{}') as roles
         FROM users u
         JOIN user_role_assignments ura ON u.id = ura.user_id AND ura.is_active = true
         LEFT JOIN roles cr ON ura.role_id = cr.id AND cr.is_active = true
         ${whereClause}
-        GROUP BY u.id, u.email, u.first_name, u.last_name, u.avatar_url, u.last_login_at, u.created_at
+        GROUP BY u.id, u.email, u.first_name, u.last_name, u.avatar_url, u.last_login, u.created_at
         ORDER BY u.created_at DESC
         LIMIT ${paramIndex} OFFSET ${paramIndex + 1}
       `;

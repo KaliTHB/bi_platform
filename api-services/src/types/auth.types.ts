@@ -13,7 +13,7 @@ export interface User {
   display_name?: string;
   avatar_url?: string;
   is_active: boolean;
-  last_login_at?: Date;
+  last_login?: Date;
   created_at: Date;
   updated_at: Date;
 }
