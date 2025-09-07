@@ -1,203 +1,329 @@
-// COMPLETE FIX for DatasetSelector.tsx - Replace the entire file content
-
-'use client';
-
-import React, { useState, useMemo } from 'react';
+// web-application/src/components/builder/DatasetSelector.tsx
+import React, { useState, useEffect } from 'react';
 import {
-  Box,
-  Typography,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
-  ListItemIcon,
-  TextField,
-  InputAdornment,
-  Chip,
-  IconButton,
-  Tooltip,
-  Paper,
-  Divider,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
   Button,
-  Badge
+  TextField,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Typography,
+  Chip,
+  Avatar,
+  IconButton,
+  Alert,
+  Pagination,
+  Box,
+  InputAdornment
 } from '@mui/material';
 import {
   Search as SearchIcon,
-  Dataset as DatasetIcon,
-  Refresh as RefreshIcon,
-  Info as InfoIcon,
-  CheckCircle as CheckCircleIcon,
-  Clear as ClearIcon
+  Close as CloseIcon,
+  Storage as StorageIcon,
+  TableChart as TableIcon,
+  Warning as WarningIcon
 } from '@mui/icons-material';
-import { Dataset } from '@/types/dashboard.types';
 
-interface DatasetSelectorProps {
-  datasets: Dataset[];
-  selectedDataset?: string;
-  onSelect: (dataset: Dataset) => void;
-  onRefresh: () => void;
-  loading?: boolean;
+// =============================================================================
+// Types and Interfaces
+// =============================================================================
+
+interface Dataset {
+  id: string;
+  name: string;
+  type: 'virtual' | 'physical';
+  schema: string;
+  connection: string;
+  owner: {
+    id: string;
+    name: string;
+    avatar?: string;
+  };
+  rowCount?: number;
+  lastModified?: string;
+  description?: string;
 }
 
-export const DatasetSelector: React.FC<DatasetSelectorProps> = ({
-  datasets,
-  selectedDataset,
+interface DatasetSelectorProps {
+  open: boolean;
+  onClose: () => void;
+  onSelect: (dataset: Dataset) => void;
+  selectedDatasetId?: string;
+}
+
+// =============================================================================
+// Mock Data (replace with API call)
+// =============================================================================
+
+const mockDatasets: Dataset[] = [
+  {
+    id: '1',
+    name: 'video_game_sales_modified',
+    type: 'virtual',
+    schema: 'public',
+    connection: 'examples',
+    owner: { id: '1', name: 'John Doe', avatar: 'JD' },
+    rowCount: 16598,
+    lastModified: '2024-12-15T10:30:00Z'
+  },
+  {
+    id: '2', 
+    name: 'high_selling_games',
+    type: 'virtual',
+    schema: 'public',
+    connection: 'examples',
+    owner: { id: '1', name: 'John Doe', avatar: 'JD' },
+    rowCount: 3421,
+    lastModified: '2024-12-14T15:45:00Z'
+  },
+  {
+    id: '3',
+    name: 'test_data',
+    type: 'virtual', 
+    schema: 'public',
+    connection: 'examples',
+    owner: { id: '2', name: 'Sarah Admin', avatar: 'SA' },
+    rowCount: 1000,
+    lastModified: '2024-12-13T09:15:00Z'
+  },
+  {
+    id: '4',
+    name: 'canton_map_switzerland',
+    type: 'physical',
+    schema: 'public',
+    connection: 'examples', 
+    owner: { id: '2', name: 'Sarah Admin', avatar: 'SA' },
+    rowCount: 26,
+    lastModified: '2024-12-12T14:20:00Z'
+  },
+  {
+    id: '5',
+    name: 'users',
+    type: 'physical',
+    schema: 'public',
+    connection: 'examples',
+    owner: { id: '1', name: 'John Doe', avatar: 'JD' },
+    rowCount: 5420,
+    lastModified: '2024-12-11T11:30:00Z'
+  }
+];
+
+// =============================================================================
+// Dataset Selector Component
+// =============================================================================
+
+const DatasetSelector: React.FC<DatasetSelectorProps> = ({
+  open,
+  onClose,
   onSelect,
-  onRefresh,
-  loading = false
+  selectedDatasetId
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [datasets, setDatasets] = useState<Dataset[]>(mockDatasets);
+  const [filteredDatasets, setFilteredDatasets] = useState<Dataset[]>(mockDatasets);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [loading, setLoading] = useState(false);
 
-  // Filter datasets based on search term (FIXED - removed tags)
-  const filteredDatasets = useMemo(() => {
-    if (!searchTerm) return datasets;
-    
-    const searchLower = searchTerm.toLowerCase();
-    return datasets.filter(dataset => 
-      dataset.name.toLowerCase().includes(searchLower) ||
-      dataset.description?.toLowerCase().includes(searchLower)
-      // Removed: dataset.tags?.some(tag => tag.toLowerCase().includes(searchLower))
+  const itemsPerPage = 10;
+  const totalPages = Math.ceil(filteredDatasets.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedDatasets = filteredDatasets.slice(startIndex, startIndex + itemsPerPage);
+
+  useEffect(() => {
+    const filtered = datasets.filter(dataset =>
+      dataset.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      dataset.schema.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      dataset.connection.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [datasets, searchTerm]);
+    setFilteredDatasets(filtered);
+    setCurrentPage(1);
+  }, [searchTerm, datasets]);
 
-  const formatLastUpdated = (date: Date | string) => {
-    const d = new Date(date);
-const now = Date.now();
-const diffMs = now - d.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return `${diffDays} days ago`;
-    return d.toLocaleDateString();
+  const handleDatasetSelect = (dataset: Dataset) => {
+    onSelect(dataset);
+    onClose();
   };
 
-  // REMOVED: getDatasetStatusColor function since status doesn't exist
+  const formatRowCount = (count?: number) => {
+    if (!count) return 'N/A';
+    return count.toLocaleString();
+  };
+
+  const formatLastModified = (date?: string) => {
+    if (!date) return 'N/A';
+    return new Date(date).toLocaleDateString();
+  };
 
   return (
-    <Paper elevation={1} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-          <Typography variant="h6">
-            Select Dataset
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="lg"
+      fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: 2,
+          minHeight: '70vh'
+        }
+      }}
+    >
+      <DialogTitle sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center',
+        borderBottom: 1,
+        borderColor: 'divider',
+        pb: 2
+      }}>
+        <Typography variant="h6">Change dataset</Typography>
+        <IconButton onClick={onClose} size="small">
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+
+      <DialogContent sx={{ p: 0 }}>
+        {/* Warning Alert */}
+        <Alert 
+          severity="warning" 
+          icon={<WarningIcon />}
+          sx={{ m: 3, mb: 2 }}
+          onClose={() => {}} // Add close handler if needed
+        >
+          <Typography variant="body2">
+            <strong>Warning!</strong> Changing the dataset may break the chart if the chart relies on columns or metadata that does not exist in the target dataset
           </Typography>
-          <Tooltip title="Refresh datasets">
-            <IconButton onClick={onRefresh} disabled={loading}>
-              <RefreshIcon />
-            </IconButton>
-          </Tooltip>
+        </Alert>
+
+        {/* Search Bar */}
+        <Box sx={{ p: 3, pt: 1, pb: 2 }}>
+          <TextField
+            fullWidth
+            placeholder="Search / Filter"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon color="action" />
+                </InputAdornment>
+              ),
+            }}
+            size="small"
+          />
         </Box>
 
-        {/* Search */}
-        <TextField
-          fullWidth
-          size="small"
-          placeholder="Search datasets..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon />
-              </InputAdornment>
-            ),
-            endAdornment: searchTerm && (
-              <InputAdornment position="end">
-                <IconButton
-                  size="small"
-                  onClick={() => setSearchTerm('')}
-                  edge="end"
-                >
-                  <ClearIcon />
-                </IconButton>
-              </InputAdornment>
-            ),
-          }}
-        />
-      </Box>
-
-      {/* Dataset List */}
-      <Box sx={{ flex: 1, overflow: 'auto' }}>
-        {filteredDatasets.length === 0 ? (
-          <Box sx={{ p: 3, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">
-              {searchTerm ? 'No datasets found matching your search' : 'No datasets available'}
-            </Typography>
-          </Box>
-        ) : (
-          <List sx={{ p: 0 }}>
-            {filteredDatasets.map((dataset) => (
-              <ListItem key={dataset.id} disablePadding>
-                <ListItemButton
-                  selected={selectedDataset === dataset.id}
-                  onClick={() => onSelect(dataset)}
-                  sx={{
-                    py: 2,
-                    px: 2,
-                    '&.Mui-selected': {
-                      backgroundColor: 'primary.50',
-                      '&:hover': {
-                        backgroundColor: 'primary.100',
-                      },
-                    },
+        {/* Dataset Table */}
+        <TableContainer>
+          <Table stickyHeader>
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 600 }}>Name</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Schema</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Connection</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Owners</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {paginatedDatasets.map((dataset) => (
+                <TableRow
+                  key={dataset.id}
+                  hover
+                  sx={{ 
+                    cursor: 'pointer',
+                    backgroundColor: dataset.id === selectedDatasetId ? 'action.selected' : undefined
                   }}
+                  onClick={() => handleDatasetSelect(dataset)}
                 >
-                  <ListItemIcon>
-                    <DatasetIcon color={selectedDataset === dataset.id ? 'primary' : 'action'} />
-                  </ListItemIcon>
-                  
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                        <Typography variant="subtitle1" component="div">
-                          {dataset.name}
-                        </Typography>
-                        {selectedDataset === dataset.id && (
-                          <CheckCircleIcon color="primary" fontSize="small" />
-                        )}
-                        {/* REMOVED: Status chip since dataset.status doesn't exist */}
-                      </Box>
-                    }
-                    secondary={
-                      <Box>
-                        {dataset.description && (
-                          <Typography variant="body2" color="text.secondary" noWrap>
-                            {dataset.description}
-                          </Typography>
-                        )}
-                        
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}>
-                          {/* Show active status using is_active property */}
-                          <Typography variant="caption" color="text.secondary">
-                            Updated {formatLastUpdated(dataset.updated_at)}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    }
-                  />
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {dataset.type === 'virtual' ? <StorageIcon fontSize="small" /> : <TableIcon fontSize="small" />}
+                      <Typography 
+                        color="primary" 
+                        sx={{ 
+                          fontWeight: dataset.id === selectedDatasetId ? 600 : 400,
+                          '&:hover': { textDecoration: 'underline' }
+                        }}
+                      >
+                        {dataset.name}
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Chip 
+                      label={dataset.type} 
+                      size="small" 
+                      variant="outlined"
+                      color={dataset.type === 'virtual' ? 'primary' : 'default'}
+                    />
+                  </TableCell>
+                  <TableCell>{dataset.schema}</TableCell>
+                  <TableCell>{dataset.connection}</TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Avatar 
+                        sx={{ width: 24, height: 24, fontSize: 10 }}
+                        src={dataset.owner.avatar}
+                      >
+                        {dataset.owner.avatar || dataset.owner.name.split(' ').map(n => n[0]).join('')}
+                      </Avatar>
+                      <Typography variant="body2" color="text.secondary">
+                        {dataset.owner.name}
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
 
-                  <Box sx={{ ml: 1 }}>
-                    <Tooltip title="Dataset info">
-                      <IconButton size="small">
-                        <InfoIcon />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </ListItemButton>
-              </ListItem>
-            ))}
-          </List>
-        )}
-      </Box>
+        {/* Pagination */}
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+          <Pagination
+            count={totalPages}
+            page={currentPage}
+            onChange={(_, page) => setCurrentPage(page)}
+            color="primary"
+            size="small"
+          />
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1, ml: 2 }}>
+            {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredDatasets.length)} of {filteredDatasets.length}
+          </Typography>
+        </Box>
+      </DialogContent>
 
-      {/* Footer */}
-      <Divider />
-      <Box sx={{ p: 2 }}>
-        <Typography variant="caption" color="text.secondary">
-          {filteredDatasets.length} dataset{filteredDatasets.length !== 1 ? 's' : ''} available
-        </Typography>
-      </Box>
-    </Paper>
+      <DialogActions sx={{ 
+        borderTop: 1, 
+        borderColor: 'divider',
+        p: 3,
+        justifyContent: 'space-between'
+      }}>
+        <Button onClick={onClose} variant="outlined">
+          Cancel
+        </Button>
+        <Button 
+          variant="contained" 
+          disabled={!selectedDatasetId}
+          onClick={() => {
+            const selectedDataset = datasets.find(d => d.id === selectedDatasetId);
+            if (selectedDataset) {
+              handleDatasetSelect(selectedDataset);
+            }
+          }}
+        >
+          Select Dataset
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 };
+
+export default DatasetSelector;
