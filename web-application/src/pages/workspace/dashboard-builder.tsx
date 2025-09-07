@@ -517,8 +517,8 @@ const DashboardBuilderPage: React.FC = () => {
   );
 
   const breadcrumbs = [
-    { label: 'Workspace', href: `/workspace/${workspace?.slug}` },
-    { label: 'Dashboards', href: `/workspace/${workspace?.slug}/dashboards` },
+    { label: 'Workspace', href: `/workspace/overview` },
+    { label: 'Dashboards', href: `/workspace/dashboards` },
     { label: 'Dashboard Builder' }
   ];
 
@@ -534,7 +534,7 @@ const DashboardBuilderPage: React.FC = () => {
       <Button
         variant="outlined"
         startIcon={<BackIcon />}
-        onClick={() => router.push(`/workspace/${workspace?.slug}/dashboards`)}
+        onClick={() => router.push(`/workspace/dashboards`)}
       >
         Cancel
       </Button>
