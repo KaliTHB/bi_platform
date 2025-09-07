@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS user_role_assignments (
 );
 
 -- Data sources table
-CREATE TABLE data_sources (
+CREATE TABLE datasources (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
@@ -428,7 +428,7 @@ CREATE TRIGGER update_workspaces_updated_at BEFORE UPDATE ON workspaces
 CREATE TRIGGER update_roles_updated_at BEFORE UPDATE ON roles
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_data_sources_updated_at BEFORE UPDATE ON data_sources
+CREATE TRIGGER update_datasources_updated_at BEFORE UPDATE ON datasources
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_datasets_updated_at BEFORE UPDATE ON datasets

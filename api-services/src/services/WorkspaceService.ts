@@ -1002,7 +1002,7 @@ WHERE w.id = ANY($1::uuid[])
            INNER JOIN dashboards d ON c.dashboard_id = d.id
            WHERE d.workspace_id = $1 AND c.is_active = true AND d.is_active = true) as chart_count,
           (SELECT COUNT(*) 
-           FROM data_sources dss 
+           FROM datasources dss 
            WHERE dss.workspace_id = $1 AND dss.is_active = true) as data_source_count
       `;
 

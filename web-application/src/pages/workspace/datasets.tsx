@@ -631,7 +631,7 @@ const DatasetsPage: NextPage = () => {
       )
     },
     {
-      key: 'data_sources',
+      key: 'datasources',
       label: 'Data Sources',
       render: (dataset: DatasetData) => (
         <Box>

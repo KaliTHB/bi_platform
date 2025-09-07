@@ -95,7 +95,7 @@ export class QueryExecutionService {
     const result = await DatabaseConfig.query(
       `SELECT d.*, ds.type as data_source_type, ds.connection_config
        FROM datasets d
-       LEFT JOIN data_sources ds ON d.data_source_id = ds.id
+       LEFT JOIN datasources ds ON d.data_source_id = ds.id
        WHERE d.id = $1 AND d.is_active = true`,
       [datasetId]
     );

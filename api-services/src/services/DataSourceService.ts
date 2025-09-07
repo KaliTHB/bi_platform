@@ -168,7 +168,7 @@ export class DataSourceService {
       const now = new Date();
 
       const result = await this.database.query(`
-        INSERT INTO data_sources (
+        INSERT INTO datasources (
           id, workspace_id, name, type, connection_config, is_active, created_by, created_at, updated_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING *
@@ -207,7 +207,7 @@ export class DataSourceService {
   async getDataSource(id: string, workspace_id: string): Promise<DataSource | null> {
     try {
       const result = await this.database.query(`
-        SELECT * FROM data_sources 
+        SELECT * FROM datasources 
         WHERE id = $1 AND workspace_id = $2 AND is_active = true
       `, [id, workspace_id]);
 
@@ -232,11 +232,11 @@ export class DataSourceService {
   async getDataSources(filters: DataSourceFilters, pagination?: PaginationOptions): Promise<PaginatedResult<DataSource>> {
     try {
       let query = `
-        SELECT * FROM data_sources 
+        SELECT * FROM datasources 
         WHERE workspace_id = $1 AND is_active = true
       `;
       let countQuery = `
-        SELECT COUNT(*) FROM data_sources 
+        SELECT COUNT(*) FROM datasources 
         WHERE workspace_id = $1 AND is_active = true
       `;
       
@@ -371,7 +371,7 @@ export class DataSourceService {
       updates.push(`updated_at = NOW()`);
       
       const query = `
-        UPDATE data_sources 
+        UPDATE datasources 
         SET ${updates.join(', ')}
         WHERE id = $${paramIndex++} AND workspace_id = $${paramIndex++}
         RETURNING *
@@ -404,7 +404,7 @@ export class DataSourceService {
   async deleteDataSource(id: string, workspace_id: string): Promise<boolean> {
     try {
       const result = await this.database.query(`
-        UPDATE data_sources 
+        UPDATE datasources 
         SET is_active = false, updated_at = NOW()
         WHERE id = $1 AND workspace_id = $2
       `, [id, workspace_id]);
