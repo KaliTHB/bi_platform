@@ -78,6 +78,11 @@ interface QueryResult {
   queryId?: string;
 }
 
+interface TabState {
+  mainTab: number;
+  rightPanelTab: number;
+}
+
 interface QueryHistory {
   id: string;
   query: string;
@@ -158,6 +163,10 @@ const SQLEditorPage: React.FC = () => {
   
   // UI state
   const [tabValue, setTabValue] = useState(0);
+  const [tabState, setTabState] = useState<TabState>({
+  mainTab: 0,
+  rightPanelTab: 0
+});
   const [leftPanelWidth, setLeftPanelWidth] = useState(300);
   const [rightPanelTab, setRightPanelTab] = useState(0);
   
@@ -167,6 +176,7 @@ const SQLEditorPage: React.FC = () => {
   const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
   const [loading, setLoading] = useState(false);
   
+
   // Dialog state
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [queryName, setQueryName] = useState('');
@@ -696,33 +706,38 @@ const SQLEditorPage: React.FC = () => {
             {/* Results Panel */}
             <Box sx={{ width: '50%', borderLeft: '1px solid', borderColor: 'divider' }}>
               <Paper elevation={0} sx={{ height: '100%', borderRadius: 0 }}>
-                <Tabs
-                  value={rightPanelTab}
-                  onChange={(_, newValue) => setRightPanelTab(newValue)}
-              //    onChange={(_, newValue) => setTabValue(newValue)}
-                  sx={{ borderBottom: '1px solid', borderColor: 'divider' }}
+                {/* Right Panel Tabs - Fixed structure */}
+                <Tabs 
+                  value={tabState.rightPanelTab} 
+                  onChange={(e, newValue) => handleTabChange('rightPanel', newValue)}
+                  variant="fullWidth"
                 >
-                  <Tab label="Info" icon={<InfoIcon />} iconPosition="start" />
                   <Tab 
-                    label={`Results ${queryResults ? `(${queryResults.rowCount})` : ''}`} 
-                    icon={<TableIcon />} 
-                    iconPosition="start" 
-                  />
-                  <Tab 
-                    label="History" 
-                    icon={<HistoryIcon />} 
+                    label="Info" 
+                    icon={<InfoIcon />} 
                     iconPosition="start"
                     sx={{ minHeight: 40, fontSize: '0.75rem' }}
                   />
                   <Tab 
-                    label="Saved" 
+                    label={`Results${queryResults ? ` (${queryResults.rowCount})` : ''}`} 
+                    icon={<TableIcon />} 
+                    iconPosition="start" 
+                  />
+                  <Tab 
+                    label={`Saved (${savedQueries.length})`}
                     icon={<SaveIcon />} 
+                    iconPosition="start"
+                    sx={{ minHeight: 40, fontSize: '0.75rem' }}
+                  />
+                  <Tab 
+                    label={`History (${queryHistory.length})`}
+                    icon={<HistoryIcon />} 
                     iconPosition="start"
                     sx={{ minHeight: 40, fontSize: '0.75rem' }}
                   />
                 </Tabs>
 
-                <TabPanel value={rightPanelTab} index={0}>
+                <TabPanel value={tabState.rightPanelTab} index={0}>
                   <Box sx={{ p: 2, height: 'calc(100% - 48px)', overflow: 'auto' }}>
                     <Grid container spacing={2}>
                       <Grid item xs={12}>
@@ -797,7 +812,7 @@ const SQLEditorPage: React.FC = () => {
                   </Box>
                 </TabPanel>
 
-                <TabPanel value={rightPanelTab} index={1}>
+                <TabPanel value={tabState.rightPanelTab} index={1}>
                   <Box sx={{ height: 'calc(100% - 48px)', overflow: 'auto' }}>
                     {isExecuting ? (
                       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
@@ -864,7 +879,7 @@ const SQLEditorPage: React.FC = () => {
                     )}
                   </Box>
                 </TabPanel>
-                <TabPanel value={tabValue} index={3}>
+                <TabPanel value={tabState.rightPanelTab} index={3}>
                 <List dense>
                   {queryHistory.map((item) => (
                     <ListItem
@@ -896,7 +911,7 @@ const SQLEditorPage: React.FC = () => {
                   ))}
                 </List>
               </TabPanel>
-              <TabPanel value={tabValue} index={4}>
+              <TabPanel value={tabState.rightPanelTab} index={4}>
                 <List dense>
                   {savedQueries.map((query) => (
                     <ListItem
