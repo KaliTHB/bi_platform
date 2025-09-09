@@ -597,93 +597,6 @@ const SQLEditorPage: React.FC = () => {
               </Box>
             )}
           </Box>
-
-          {/* Tabs for History and Saved Queries */}
-          <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
-            <Tabs
-              value={tabValue}
-              onChange={(_, newValue) => setTabValue(newValue)}
-              variant="fullWidth"
-              sx={{ minHeight: 40 }}
-            >
-              <Tab 
-                label="History" 
-                icon={<HistoryIcon />} 
-                iconPosition="start"
-                sx={{ minHeight: 40, fontSize: '0.75rem' }}
-              />
-              <Tab 
-                label="Saved" 
-                icon={<SaveIcon />} 
-                iconPosition="start"
-                sx={{ minHeight: 40, fontSize: '0.75rem' }}
-              />
-            </Tabs>
-
-            <Box sx={{ height: 200, overflow: 'auto' }}>
-              <TabPanel value={tabValue} index={0}>
-                <List dense>
-                  {queryHistory.map((item) => (
-                    <ListItem
-                      key={item.id}
-                      button
-                      onClick={() => handleLoadHistoryQuery(item)}
-                      sx={{ px: 2, py: 1 }}
-                    >
-                      <ListItemIcon sx={{ minWidth: 32 }}>
-                        {item.status === 'success' ? (
-                          <SuccessIcon fontSize="small" color="success" />
-                        ) : (
-                          <ErrorIcon fontSize="small" color="error" />
-                        )}
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={
-                          <Typography variant="body2" noWrap>
-                            {item.query.slice(0, 40)}...
-                          </Typography>
-                        }
-                        secondary={
-                          <Typography variant="caption" color="textSecondary">
-                            {new Date(item.executedAt).toLocaleString()} • {formatExecutionTime(item.executionTime)}
-                          </Typography>
-                        }
-                      />
-                    </ListItem>
-                  ))}
-                </List>
-              </TabPanel>
-
-              <TabPanel value={tabValue} index={1}>
-                <List dense>
-                  {savedQueries.map((query) => (
-                    <ListItem
-                      key={query.id}
-                      button
-                      onClick={() => handleLoadSavedQuery(query)}
-                      sx={{ px: 2, py: 1 }}
-                    >
-                      <ListItemIcon sx={{ minWidth: 32 }}>
-                        <SaveIcon fontSize="small" color="primary" />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={
-                          <Typography variant="body2" fontWeight={500}>
-                            {query.name}
-                          </Typography>
-                        }
-                        secondary={
-                          <Typography variant="caption" color="textSecondary">
-                            {new Date(query.updated_at).toLocaleDateString()}
-                          </Typography>
-                        }
-                      />
-                    </ListItem>
-                  ))}
-                </List>
-              </TabPanel>
-            </Box>
-          </Box>
         </Paper>
 
         {/* Main Content - Query Editor and Results */}
@@ -786,6 +699,7 @@ const SQLEditorPage: React.FC = () => {
                 <Tabs
                   value={rightPanelTab}
                   onChange={(_, newValue) => setRightPanelTab(newValue)}
+              //    onChange={(_, newValue) => setTabValue(newValue)}
                   sx={{ borderBottom: '1px solid', borderColor: 'divider' }}
                 >
                   <Tab label="Info" icon={<InfoIcon />} iconPosition="start" />
@@ -793,6 +707,18 @@ const SQLEditorPage: React.FC = () => {
                     label={`Results ${queryResults ? `(${queryResults.rowCount})` : ''}`} 
                     icon={<TableIcon />} 
                     iconPosition="start" 
+                  />
+                  <Tab 
+                    label="History" 
+                    icon={<HistoryIcon />} 
+                    iconPosition="start"
+                    sx={{ minHeight: 40, fontSize: '0.75rem' }}
+                  />
+                  <Tab 
+                    label="Saved" 
+                    icon={<SaveIcon />} 
+                    iconPosition="start"
+                    sx={{ minHeight: 40, fontSize: '0.75rem' }}
                   />
                 </Tabs>
 
@@ -938,6 +864,66 @@ const SQLEditorPage: React.FC = () => {
                     )}
                   </Box>
                 </TabPanel>
+                <TabPanel value={tabValue} index={3}>
+                <List dense>
+                  {queryHistory.map((item) => (
+                    <ListItem
+                      key={item.id}
+                      button
+                      onClick={() => handleLoadHistoryQuery(item)}
+                      sx={{ px: 2, py: 1 }}
+                    >
+                      <ListItemIcon sx={{ minWidth: 32 }}>
+                        {item.status === 'success' ? (
+                          <SuccessIcon fontSize="small" color="success" />
+                        ) : (
+                          <ErrorIcon fontSize="small" color="error" />
+                        )}
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={
+                          <Typography variant="body2" noWrap>
+                            {item.query.slice(0, 40)}...
+                          </Typography>
+                        }
+                        secondary={
+                          <Typography variant="caption" color="textSecondary">
+                            {new Date(item.executedAt).toLocaleString()} • {formatExecutionTime(item.executionTime)}
+                          </Typography>
+                        }
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              </TabPanel>
+              <TabPanel value={tabValue} index={4}>
+                <List dense>
+                  {savedQueries.map((query) => (
+                    <ListItem
+                      key={query.id}
+                      button
+                      onClick={() => handleLoadSavedQuery(query)}
+                      sx={{ px: 2, py: 1 }}
+                    >
+                      <ListItemIcon sx={{ minWidth: 32 }}>
+                        <SaveIcon fontSize="small" color="primary" />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={
+                          <Typography variant="body2" fontWeight={500}>
+                            {query.name}
+                          </Typography>
+                        }
+                        secondary={
+                          <Typography variant="caption" color="textSecondary">
+                            {new Date(query.updated_at).toLocaleDateString()}
+                          </Typography>
+                        }
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              </TabPanel>
               </Paper>
             </Box>
           </Box>
