@@ -27,19 +27,9 @@ import {
 import { useAuth } from '../../hooks/useAuth';
 import CollapsibleSidebar from './CollapsibleSidebar';
 
-// Import all the components that can be displayed
-import DashboardList from '../builder/DashboardList';
-import { DatasetList } from '../builder/DatasetList';
-import { DatasourceList } from '../builder/DatasourceList';
-import { ChartList } from '../builder/ChartList';
-
-// Define what content can be shown
+// Define simplified content types (removed list types)
 export type ContentType = 
   | 'overview' 
-  | 'dashboards' 
-  | 'datasets' 
-  | 'datasources' 
-  | 'charts'
   | 'dashboard-builder'
   | 'sql-editor'
   | 'recent'
@@ -52,11 +42,13 @@ export type ContentType =
 interface WorkspaceLayoutProps {
   children?: React.ReactNode; // Overview content
   defaultContent?: ContentType;
+  title?: string; // Optional title override
 }
 
 const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
   children,
-  defaultContent = 'overview'
+  defaultContent = 'overview',
+  title
 }) => {
   const router = useRouter();
   const { user, workspace, signOut } = useAuth();
@@ -66,10 +58,40 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuAnchor, setUserMenuAnchor] = useState<null | HTMLElement>(null);
 
-  // Handle sidebar navigation - this replaces router.push
+  // Handle sidebar navigation - now uses direct routing instead of content switching
   const handleContentChange = (contentType: ContentType) => {
-    console.log('🔄 Content changing to:', contentType);
-    setCurrentContent(contentType);
+    console.log('🔄 Navigating to:', contentType);
+    
+    // Route to actual pages instead of content switching
+    switch (contentType) {
+      case 'dashboard-builder':
+        router.push(`/workspace/${workspace?.slug}/dashboard-builder`);
+        break;
+      case 'sql-editor':
+        router.push(`/workspace/${workspace?.slug}/sql-editor`);
+        break;
+      case 'workspace-settings':
+        router.push(`/workspace/${workspace?.slug}/admin/settings`);
+        break;
+      case 'users':
+        router.push(`/workspace/${workspace?.slug}/admin/users`);
+        break;
+      case 'settings':
+        router.push(`/workspace/${workspace?.slug}/admin`);
+        break;
+      case 'categories':
+        router.push(`/workspace/${workspace?.slug}/admin/categories`);
+        break;
+      case 'recent':
+      case 'favorites':
+        // These could be query parameters on the overview page
+        router.push(`/workspace/${workspace?.slug}?filter=${contentType}`);
+        break;
+      case 'overview':
+      default:
+        router.push(`/workspace/${workspace?.slug}`);
+        break;
+    }
   };
 
   const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
@@ -89,74 +111,12 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
     setSidebarOpen(!sidebarOpen);
   };
 
-  // Function to render the main content based on current selection
+  // Simplified renderMainContent - only handles special cases, children for everything else
   const renderMainContent = () => {
-    const { workspaceSlug } = router.query;
+    // For most content, just render children (which will be the page content)
+    // Only handle special embedded content cases here if needed
     
     switch (currentContent) {
-      case 'dashboards':
-        return (
-          <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <DashboardList
-              onDashboardSelect={(dashboard) => {
-                // Navigate to individual dashboard page
-                router.push(`/workspace/dashboard/${dashboard.id}`);
-              }}
-              showCreateButton={true}
-            />
-          </Box>
-        );
-        
-      case 'datasets':
-        return (
-          <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <DatasetList
-              onDatasetSelect={(dataset) => {
-                // Navigate to dataset detail page
-                router.push(`/workspace/dataset/${dataset.id}`);
-              }}
-              showCreateButton={true}
-            />
-          </Box>
-        );
-        
-      case 'datasources':
-        return (
-          <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <DatasourceList
-              onDataSourceSelect={(datasource) => {
-                // Navigate to datasource detail page
-                router.push(`/workspace/datasource/${datasource.id}`);
-              }}
-              showCreateButton={true}
-            />
-          </Box>
-        );
-        
-      case 'charts':
-        return (
-          <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <ChartList
-              charts={[]} // This would come from a hook
-              loading={false}
-              error={undefined}
-              onChartSelect={(chart) => {
-                router.push(`/workspace/chart/${chart.id}`);
-              }}
-              onChartEdit={(chart) => {
-                router.push(`/workspace/chart-builder?id=${chart.id}`);
-              }}
-              onChartDelete={async (chartId) => {
-                console.log('Delete chart:', chartId);
-              }}
-              onChartDuplicate={async (chartId) => {
-                console.log('Duplicate chart:', chartId);
-              }}
-              showCreateButton={true}
-            />
-          </Box>
-        );
-        
       case 'dashboard-builder':
         return (
           <Box sx={{ p: 3 }}>
@@ -164,14 +124,14 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
               Dashboard Builder
             </Typography>
             <Typography variant="body1" color="textSecondary">
-              Dashboard builder component would go here
+              Loading dashboard builder...
             </Typography>
             <Button 
               variant="contained" 
               sx={{ mt: 2 }}
-              onClick={() => router.push(`/workspace/dashboard-builder`)}
+              onClick={() => router.push(`/workspace/${workspace?.slug}/dashboard-builder`)}
             >
-              Open Full Dashboard Builder
+              Go to Dashboard Builder
             </Button>
           </Box>
         );
@@ -183,65 +143,40 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
               SQL Editor
             </Typography>
             <Typography variant="body1" color="textSecondary">
-              SQL editor component would go here
+              Loading SQL editor...
             </Typography>
             <Button 
               variant="contained" 
               sx={{ mt: 2 }}
-              onClick={() => router.push(`/workspace/sql-editor`)}
+              onClick={() => router.push(`/workspace/${workspace?.slug}/sql-editor`)}
             >
-              Open Full SQL Editor
+              Go to SQL Editor
             </Button>
-          </Box>
-        );
-        
-      case 'recent':
-        return (
-          <Box sx={{ p: 3 }}>
-            <Typography variant="h4" gutterBottom>
-              Recent Items
-            </Typography>
-            <Typography variant="body1" color="textSecondary">
-              Recent dashboards and charts would be listed here
-            </Typography>
-          </Box>
-        );
-        
-      case 'favorites':
-        return (
-          <Box sx={{ p: 3 }}>
-            <Typography variant="h4" gutterBottom>
-              Favorite Items
-            </Typography>
-            <Typography variant="body1" color="textSecondary">
-              Favorite dashboards and charts would be listed here
-            </Typography>
           </Box>
         );
         
       case 'overview':
       default:
+        // Render children (page content) for overview and other cases
         return children || (
           <Box sx={{ p: 3 }}>
             <Typography variant="h4" gutterBottom>
-              Workspace Overview
+              {getPageTitle()}
             </Typography>
             <Typography variant="body1" color="textSecondary">
-              Welcome to your workspace overview
+              Welcome to your workspace
             </Typography>
           </Box>
         );
     }
   };
 
-  // Get page title based on current content
+  // Get page title based on current content or provided title
   const getPageTitle = () => {
+    if (title) return title;
+    
     const titles: Record<ContentType, string> = {
       overview: 'Overview',
-      dashboards: 'Dashboards',
-      datasets: 'Datasets', 
-      datasources: 'Data Sources',
-      charts: 'Charts',
       'dashboard-builder': 'Dashboard Builder',
       'sql-editor': 'SQL Editor',
       recent: 'Recent',
@@ -284,6 +219,19 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
               </Typography>
             </Box>
 
+            {/* Search and Actions - Optional */}
+            <Box sx={{ display: 'flex', gap: 1, mr: 2 }}>
+              <IconButton>
+                <Search />
+              </IconButton>
+              <IconButton>
+                <FilterList />
+              </IconButton>
+              <IconButton>
+                <Notifications />
+              </IconButton>
+            </Box>
+
             {/* User Menu */}
             <IconButton
               size="large"
@@ -294,7 +242,7 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
               color="inherit"
             >
               <Avatar sx={{ width: 32, height: 32 }}>
-                {user?.display_name?.[0]?.toUpperCase() || 'U'}
+                {user?.display_name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || 'U'}
               </Avatar>
             </IconButton>
 
@@ -313,18 +261,34 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
               open={Boolean(userMenuAnchor)}
               onClose={handleUserMenuClose}
             >
-              <MenuItem onClick={() => handleContentChange('overview')}>
+              <MenuItem onClick={() => {
+                handleUserMenuClose();
+                router.push(`/workspace/${workspace?.slug}`);
+              }}>
                 <ListItemIcon>
                   <AccountCircle fontSize="small" />
                 </ListItemIcon>
                 <ListItemText>Profile</ListItemText>
               </MenuItem>
               
-              <MenuItem onClick={() => handleContentChange('workspace-settings')}>
+              <MenuItem onClick={() => {
+                handleUserMenuClose();
+                handleContentChange('workspace-settings');
+              }}>
                 <ListItemIcon>
                   <SettingsIcon fontSize="small" />
                 </ListItemIcon>
                 <ListItemText>Workspace Settings</ListItemText>
+              </MenuItem>
+
+              <MenuItem onClick={() => {
+                handleUserMenuClose();
+                router.push('/support');
+              }}>
+                <ListItemIcon>
+                  <ContactSupport fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Support</ListItemText>
               </MenuItem>
 
               <Divider />

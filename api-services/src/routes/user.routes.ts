@@ -30,6 +30,7 @@ router.use((req, res, next) => {
   next();
 });
 
+
 /**
  * GET /api/user/default-workspace
  * Get user's default workspace using AuthService
