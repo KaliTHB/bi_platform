@@ -1,176 +1,243 @@
 // web-application/src/components/webview/CategorySidebar.tsx
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Box,
+  Typography,
+  TextField,
   List,
   ListItem,
   ListItemButton,
   ListItemIcon,
   ListItemText,
   Collapse,
-  Typography,
-  Chip,
-  TextField,
+  IconButton,
+  Badge,
+  Divider,
+  Skeleton,
+  Alert,
   InputAdornment,
-  CircularProgress,
-  Alert
+  Chip
 } from '@mui/material';
 import {
   ExpandLess,
   ExpandMore,
-  Folder,
-  Dashboard as DashboardIcon,
   Search as SearchIcon,
+  Clear as ClearIcon,
+  Dashboard as DashboardIcon,
+  Folder as FolderIcon,
+  FolderOpen as FolderOpenIcon,
   Star as StarIcon,
-  Warning as WarningIcon
+  Visibility as ViewIcon,
+  Category as CategoryIcon
 } from '@mui/icons-material';
-import { CategoryWithDashboards } from '../../types/index';
+import { useRouter } from 'next/router';
+
+// =============================================================================
+// INTERFACES
+// =============================================================================
+
+export interface CategoryWithDashboards {
+  id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  color?: string;
+  icon?: string;
+  dashboard_count: number;
+  order_index: number;
+  is_visible: boolean;
+  dashboards: WebviewDashboard[];
+}
+
+export interface WebviewDashboard {
+  id: string;
+  dashboard_id: string;
+  webview_id: string;
+  category_id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  thumbnail_url?: string;
+  is_featured: boolean;
+  is_public: boolean;
+  view_count: number;
+  last_viewed_at?: string;
+  order_index: number;
+  tags: string[];
+}
 
 export interface CategorySidebarProps {
   categories: CategoryWithDashboards[];
   expandedCategories: Set<string>;
   selectedDashboard?: string;
   searchQuery: string;
-  loading: boolean;
+  loading?: boolean;
   error?: string | null;
   onCategoryToggle: (categoryId: string) => void;
   onDashboardSelect: (dashboardId: string) => void;
-  onSearchChange?: (query: string) => void; // Add this prop
-  onRetry?: () => void;
+  onSearchChange: (query: string) => void;
 }
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+const getCategoryIcon = (iconName?: string) => {
+  const iconMap: Record<string, React.ReactNode> = {
+    'dashboard': <DashboardIcon />,
+    'folder': <FolderIcon />,
+    'category': <CategoryIcon />,
+    'star': <StarIcon />
+  };
+  
+  return iconMap[iconName || 'folder'] || <FolderIcon />;
+};
+
+const getColorFromString = (str: string): string => {
+  const colors = [
+    '#1976d2', '#388e3c', '#f57c00', '#d32f2f', 
+    '#7b1fa2', '#303f9f', '#0288d1', '#00796b'
+  ];
+  
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  
+  return colors[Math.abs(hash) % colors.length];
+};
+
+// =============================================================================
+// MAIN COMPONENT
+// =============================================================================
 
 export const CategorySidebar: React.FC<CategorySidebarProps> = ({
   categories,
   expandedCategories,
   selectedDashboard,
   searchQuery,
-  loading,
-  error,
+  loading = false,
+  error = null,
   onCategoryToggle,
   onDashboardSelect,
-  onSearchChange,
-  onRetry
+  onSearchChange
 }) => {
-  const [localSearchQuery, setLocalSearchQuery] = React.useState(searchQuery);
+  const router = useRouter();
+  const { 'webview-slug': webviewSlug } = router.query;
+  
+  const [localSearchQuery, setLocalSearchQuery] = useState(searchQuery);
 
-  React.useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (onSearchChange && localSearchQuery !== searchQuery) {
-        onSearchChange(localSearchQuery);
-      }
-    }, 300);
+  // =============================================================================
+  // COMPUTED VALUES
+  // =============================================================================
 
-    return () => clearTimeout(timeoutId);
-  }, [localSearchQuery, searchQuery, onSearchChange]);
+  const filteredCategories = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return categories.filter(cat => cat.is_visible);
+    }
+
+    const query = searchQuery.toLowerCase();
+    
+    return categories
+      .filter(cat => cat.is_visible)
+      .map(category => {
+        // Filter dashboards that match the search
+        const matchingDashboards = category.dashboards.filter(dashboard =>
+          dashboard.display_name.toLowerCase().includes(query) ||
+          dashboard.description?.toLowerCase().includes(query) ||
+          dashboard.tags.some(tag => tag.toLowerCase().includes(query))
+        );
+
+        // Include category if name matches or has matching dashboards
+        const categoryMatches = category.display_name.toLowerCase().includes(query) ||
+                               category.description?.toLowerCase().includes(query);
+
+        return {
+          ...category,
+          dashboards: matchingDashboards,
+          dashboard_count: matchingDashboards.length,
+          _matches: categoryMatches || matchingDashboards.length > 0
+        };
+      })
+      .filter(category => (category as any)._matches);
+  }, [categories, searchQuery]);
+
+  // =============================================================================
+  // HANDLERS
+  // =============================================================================
 
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setLocalSearchQuery(event.target.value);
+    const value = event.target.value;
+    setLocalSearchQuery(value);
+    onSearchChange(value);
   };
 
-  const filteredCategories = React.useMemo(() => {
-    if (!localSearchQuery.trim()) return categories;
-    
-    const query = localSearchQuery.toLowerCase();
-    
-    return categories.filter(category => {
-      // Check if category name matches
-      const categoryMatches = category.display_name.toLowerCase().includes(query) ||
-                             (category.description && category.description.toLowerCase().includes(query));
-      
-      // Check if any dashboard in category matches
-      const dashboardMatches = category.dashboards?.some(dashboard =>
-        dashboard.display_name?.toLowerCase().includes(query) ||
-        (dashboard.description && dashboard.description.toLowerCase().includes(query))
-      );
-      
-      return categoryMatches || dashboardMatches;
-    }).map(category => ({
-      ...category,
-      dashboards: category.dashboards?.filter(dashboard =>
-        dashboard.display_name?.toLowerCase().includes(query) ||
-        (dashboard.description && dashboard.description.toLowerCase().includes(query)) ||
-        category.display_name.toLowerCase().includes(query)
-      )
-    }));
-  }, [categories, localSearchQuery]);
+  const handleClearSearch = () => {
+    setLocalSearchQuery('');
+    onSearchChange('');
+  };
 
-  // Loading state
+  const handleDashboardClick = (dashboard: WebviewDashboard) => {
+    onDashboardSelect(dashboard.dashboard_id);
+    
+    // Navigate to dashboard
+    if (webviewSlug) {
+      router.push(`/${webviewSlug}/${dashboard.dashboard_id}`);
+    }
+  };
+
+  // =============================================================================
+  // LOADING STATE
+  // =============================================================================
+
   if (loading) {
     return (
-      <Box sx={{ 
-        height: '100%', 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'center',
-        flexDirection: 'column',
-        gap: 2,
-        p: 3
-      }}>
-        <CircularProgress size={32} />
-        <Typography variant="body2" color="text.secondary">
-          Loading categories...
-        </Typography>
+      <Box sx={{ p: 2 }}>
+        {/* Search Skeleton */}
+        <Skeleton variant="rectangular" height={40} sx={{ mb: 2 }} />
+        
+        {/* Category Skeletons */}
+        {Array.from({ length: 3 }).map((_, index) => (
+          <Box key={index} sx={{ mb: 2 }}>
+            <Skeleton variant="rectangular" height={48} sx={{ mb: 1 }} />
+            <Box sx={{ ml: 2 }}>
+              {Array.from({ length: 2 }).map((_, dashIndex) => (
+                <Skeleton 
+                  key={dashIndex} 
+                  variant="rectangular" 
+                  height={32} 
+                  sx={{ mb: 1 }} 
+                />
+              ))}
+            </Box>
+          </Box>
+        ))}
       </Box>
     );
   }
 
-  // Error state
+  // =============================================================================
+  // ERROR STATE
+  // =============================================================================
+
   if (error) {
     return (
       <Box sx={{ p: 2 }}>
-        <Alert 
-          severity="error" 
-          action={
-            onRetry ? (
-              <button 
-                onClick={onRetry}
-                style={{ 
-                  background: 'none', 
-                  border: 'none', 
-                  color: 'inherit', 
-                  textDecoration: 'underline',
-                  cursor: 'pointer'
-                }}
-              >
-                Retry
-              </button>
-            ) : undefined
-          }
-        >
+        <Alert severity="error" sx={{ mb: 2 }}>
           {error}
         </Alert>
       </Box>
     );
   }
 
-  // Empty state
-  if (!categories || categories.length === 0) {
-    return (
-      <Box sx={{ 
-        height: '100%', 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'center',
-        flexDirection: 'column',
-        gap: 2,
-        p: 3,
-        textAlign: 'center'
-      }}>
-        <WarningIcon sx={{ fontSize: 48, color: 'text.secondary' }} />
-        <Typography variant="h6" color="text.secondary">
-          No Categories Available
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Categories will appear here once they are created with dashboards.
-        </Typography>
-      </Box>
-    );
-  }
+  // =============================================================================
+  // RENDER
+  // =============================================================================
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Search Bar */}
-      <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+      {/* Search Section */}
+      <Box sx={{ p: 2, pb: 1 }}>
         <TextField
           fullWidth
           size="small"
@@ -182,251 +249,204 @@ export const CategorySidebar: React.FC<CategorySidebarProps> = ({
               <InputAdornment position="start">
                 <SearchIcon fontSize="small" />
               </InputAdornment>
+            ),
+            endAdornment: localSearchQuery && (
+              <InputAdornment position="end">
+                <IconButton
+                  size="small"
+                  onClick={handleClearSearch}
+                  edge="end"
+                >
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </InputAdornment>
             )
           }}
           sx={{
             '& .MuiOutlinedInput-root': {
-              borderRadius: 2
+              bgcolor: 'background.paper',
+              '&:hover': {
+                bgcolor: 'background.paper'
+              }
             }
           }}
         />
       </Box>
 
-      {/* Category List */}
+      <Divider />
+
+      {/* Categories List */}
       <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
-        <List sx={{ py: 1 }}>
-          {filteredCategories.map((category) => (
-            <CategoryItem
-              key={category.id}
-              category={category}
-              expanded={expandedCategories.has(category.id)}
-              selectedDashboard={selectedDashboard}
-              onToggle={() => onCategoryToggle(category.id)}
-              onDashboardSelect={onDashboardSelect}
-              searchQuery={localSearchQuery}
-            />
-          ))}
+        <List dense sx={{ py: 0 }}>
+          {filteredCategories.length === 0 ? (
+            <Box sx={{ p: 3, textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary">
+                {searchQuery ? 'No dashboards found matching your search' : 'No categories available'}
+              </Typography>
+            </Box>
+          ) : (
+            filteredCategories.map((category) => (
+              <Box key={category.id}>
+                {/* Category Header */}
+                <ListItem disablePadding>
+                  <ListItemButton
+                    onClick={() => onCategoryToggle(category.id)}
+                    sx={{
+                      py: 1.5,
+                      minHeight: 48,
+                      '&:hover': {
+                        bgcolor: 'action.hover'
+                      }
+                    }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 36 }}>
+                      <Box
+                        sx={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: '50%',
+                          bgcolor: category.color || getColorFromString(category.name),
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'white',
+                          fontSize: '12px'
+                        }}
+                      >
+                        {getCategoryIcon(category.icon)}
+                      </Box>
+                    </ListItemIcon>
+                    
+                    <ListItemText
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="subtitle2" noWrap>
+                            {category.display_name}
+                          </Typography>
+                          {category.dashboard_count > 0 && (
+                            <Badge
+                              badgeContent={category.dashboard_count}
+                              color="primary"
+                              sx={{
+                                '& .MuiBadge-badge': {
+                                  fontSize: '10px',
+                                  height: '16px',
+                                  minWidth: '16px'
+                                }
+                              }}
+                            />
+                          )}
+                        </Box>
+                      }
+                      secondary={category.description}
+                      secondaryTypographyProps={{
+                        variant: 'caption',
+                        noWrap: true,
+                        sx: { color: 'text.secondary' }
+                      }}
+                    />
+                    
+                    {category.dashboards.length > 0 && (
+                      expandedCategories.has(category.id) ? 
+                        <ExpandLess /> : <ExpandMore />
+                    )}
+                  </ListItemButton>
+                </ListItem>
+
+                {/* Category Dashboards */}
+                <Collapse
+                  in={expandedCategories.has(category.id)}
+                  timeout="auto"
+                  unmountOnExit
+                >
+                  <List dense disablePadding>
+                    {category.dashboards
+                      .sort((a, b) => a.order_index - b.order_index)
+                      .map((dashboard) => (
+                        <ListItem key={dashboard.id} disablePadding>
+                          <ListItemButton
+                            selected={selectedDashboard === dashboard.dashboard_id}
+                            onClick={() => handleDashboardClick(dashboard)}
+                            sx={{
+                              pl: 4,
+                              py: 0.75,
+                              minHeight: 36,
+                              '&.Mui-selected': {
+                                bgcolor: 'primary.main',
+                                color: 'primary.contrastText',
+                                '&:hover': {
+                                  bgcolor: 'primary.dark'
+                                }
+                              }
+                            }}
+                          >
+                            <ListItemIcon sx={{ minWidth: 32 }}>
+                              <DashboardIcon 
+                                fontSize="small" 
+                                color={selectedDashboard === dashboard.dashboard_id ? 'inherit' : 'action'}
+                              />
+                            </ListItemIcon>
+                            
+                            <ListItemText
+                              primary={dashboard.display_name}
+                              primaryTypographyProps={{
+                                variant: 'body2',
+                                noWrap: true
+                              }}
+                            />
+                            
+                            {/* Dashboard Metadata */}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              {dashboard.is_featured && (
+                                <StarIcon 
+                                  fontSize="inherit" 
+                                  sx={{ 
+                                    color: selectedDashboard === dashboard.dashboard_id 
+                                      ? 'inherit' 
+                                      : 'warning.main',
+                                    fontSize: 14 
+                                  }} 
+                                />
+                              )}
+                              {dashboard.view_count > 0 && (
+                                <Chip
+                                  size="small"
+                                  label={dashboard.view_count}
+                                  icon={<ViewIcon />}
+                                  sx={{
+                                    height: 16,
+                                    fontSize: 10,
+                                    '& .MuiChip-icon': { fontSize: 12 },
+                                    bgcolor: selectedDashboard === dashboard.dashboard_id 
+                                      ? 'rgba(255,255,255,0.2)' 
+                                      : 'action.hover'
+                                  }}
+                                />
+                              )}
+                            </Box>
+                          </ListItemButton>
+                        </ListItem>
+                      ))}
+                  </List>
+                </Collapse>
+
+                <Divider variant="middle" />
+              </Box>
+            ))
+          )}
         </List>
-        
-        {/* No search results */}
-        {filteredCategories.length === 0 && localSearchQuery && (
-          <Box sx={{ p: 3, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">
-              No dashboards found matching "{localSearchQuery}"
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-              Try adjusting your search terms
-            </Typography>
-          </Box>
-        )}
       </Box>
 
-      {/* Footer Stats */}
-      {!localSearchQuery && (
-        <Box sx={{ 
-          p: 2, 
-          borderTop: '1px solid', 
-          borderColor: 'divider',
-          bgcolor: 'background.paper'
-        }}>
-          <Typography variant="caption" color="text.secondary">
-            {categories.length} {categories.length === 1 ? 'category' : 'categories'} • {' '}
-            {categories.reduce((total, cat) => total + (cat.dashboard_count || 0), 0)} dashboards
-          </Typography>
-        </Box>
-      )}
+      {/* Footer */}
+      <Divider />
+      <Box sx={{ p: 2, pt: 1 }}>
+        <Typography variant="caption" color="text.secondary" align="center" display="block">
+          {filteredCategories.length} {filteredCategories.length === 1 ? 'category' : 'categories'} • {' '}
+          {filteredCategories.reduce((sum, cat) => sum + cat.dashboards.length, 0)} dashboards
+        </Typography>
+      </Box>
     </Box>
   );
 };
 
-// Category Item Component with enhanced features
-interface CategoryItemProps {
-  category: CategoryWithDashboards;
-  expanded: boolean;
-  selectedDashboard?: string;
-  onToggle: () => void;
-  onDashboardSelect: (dashboardId: string) => void;
-  searchQuery?: string;
-}
-
-const CategoryItem: React.FC<CategoryItemProps> = ({
-  category,
-  expanded,
-  selectedDashboard,
-  onToggle,
-  onDashboardSelect,
-  searchQuery
-}) => {
-  const dashboardCount = category.dashboards?.length || category.dashboard_count || 0;
-  const hasSearch = searchQuery && searchQuery.trim().length > 0;
-
-  // Highlight matching text
-  const highlightText = (text: string, query?: string) => {
-    if (!query || !text) return text;
-    
-    const regex = new RegExp(`(${query})`, 'gi');
-    const parts = text.split(regex);
-    
-    return parts.map((part, index) => 
-      regex.test(part) ? (
-        <Box component="span" key={index} sx={{ bgcolor: 'primary.light', color: 'primary.contrastText', px: 0.5, borderRadius: 0.5 }}>
-          {part}
-        </Box>
-      ) : part
-    );
-  };
-
-  return (
-    <>
-      {/* Category Header */}
-      <ListItem disablePadding>
-        <ListItemButton
-          onClick={onToggle}
-          sx={{
-            pl: 2,
-            pr: 1,
-            py: 1.5,
-            '&:hover': {
-              backgroundColor: 'action.hover'
-            }
-          }}
-        >
-          <ListItemIcon sx={{ minWidth: 40 }}>
-            {category.icon ? (
-              <Box
-                component="span"
-                sx={{
-                  fontSize: 20,
-                  color: category.color || 'text.secondary'
-                }}
-              >
-                {category.icon}
-              </Box>
-            ) : (
-              <Folder sx={{ color: category.color || 'text.secondary' }} />
-            )}
-          </ListItemIcon>
-          
-          <ListItemText
-            primary={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="subtitle2" component="div">
-                  {highlightText(category.display_name, searchQuery)}
-                </Typography>
-                {dashboardCount > 0 && (
-                  <Chip
-                    label={dashboardCount}
-                    size="small"
-                    sx={{
-                      height: 20,
-                      fontSize: '0.75rem',
-                      bgcolor: 'action.selected',
-                      color: 'text.secondary'
-                    }}
-                  />
-                )}
-              </Box>
-            }
-            secondary={
-              category.description ? 
-                highlightText(category.description, searchQuery) : 
-                `${dashboardCount} dashboards`
-            }
-          />
-          
-          {dashboardCount > 0 ? (expanded ? <ExpandLess /> : <ExpandMore />) : null}
-        </ListItemButton>
-      </ListItem>
-
-      {/* Dashboards List */}
-      {dashboardCount > 0 && (
-        <Collapse in={expanded} timeout="auto" unmountOnExit>
-          <List component="div" disablePadding>
-            {category.dashboards?.map((dashboard) => (
-              <ListItem key={dashboard.id} disablePadding>
-                <ListItemButton
-                  selected={selectedDashboard === dashboard.id}
-                  onClick={() => onDashboardSelect(dashboard.id)}
-                  sx={{
-                    pl: 7,
-                    pr: 2,
-                    py: 1,
-                    '&:hover': {
-                      backgroundColor: 'action.hover'
-                    },
-                    '&.Mui-selected': {
-                      backgroundColor: 'primary.light',
-                      '&:hover': {
-                        backgroundColor: 'primary.main'
-                      },
-                      '& .MuiTypography-root': {
-                        color: 'primary.contrastText'
-                      }
-                    }
-                  }}
-                >
-                  <ListItemIcon sx={{ minWidth: 36 }}>
-                    <DashboardIcon 
-                      fontSize="small" 
-                      sx={{ 
-                        color: selectedDashboard === dashboard.id ? 'primary.contrastText' : 'text.secondary'
-                      }} 
-                    />
-                  </ListItemIcon>
-                  
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="body2" component="div" sx={{ flexGrow: 1 }}>
-                          {highlightText(dashboard.display_name ?? '', searchQuery)}
-                        </Typography>
-                        {dashboard.is_featured && (
-                          <StarIcon 
-                            fontSize="small" 
-                            sx={{ 
-                              color: selectedDashboard === dashboard.id ? 'warning.light' : 'warning.main'
-                            }} 
-                          />
-                        )}
-                      </Box>
-                    }
-                    secondary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                        {dashboard.view_count && dashboard.view_count > 0 && (
-                          <Typography 
-                            variant="caption" 
-                            sx={{ 
-                              color: selectedDashboard === dashboard.id ? 'primary.contrastText' : 'text.secondary'
-                            }}
-                          >
-                            {dashboard.view_count} views
-                          </Typography>
-                        )}
-                        {dashboard.tags && dashboard.tags.length > 0 && (
-                          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                            {dashboard.tags.slice(0, 2).map((tag) => (
-                              <Chip
-                                key={tag}
-                                label={tag}
-                                size="small"
-                                sx={{
-                                  height: 16,
-                                  fontSize: '0.6rem',
-                                  bgcolor: selectedDashboard === dashboard.id ? 'primary.dark' : 'action.selected'
-                                }}
-                              />
-                            ))}
-                          </Box>
-                        )}
-                      </Box>
-                    }
-                  />
-                </ListItemButton>
-              </ListItem>
-            ))}
-          </List>
-        </Collapse>
-      )}
-    </>
-  );
-};
+export default CategorySidebar;
