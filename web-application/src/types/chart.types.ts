@@ -964,25 +964,6 @@ export interface CacheConfig {
 // ============================================================================
 
 /**
- * Props for ChartContainer component
- */
-export interface ChartContainerProps {
-  chart: Chart;
-  workspaceId?: string;
-  preview?: boolean;
-  filters?: any[];
-  dimensions?: ChartDimensions;
-  theme?: ChartTheme;
-  refreshInterval?: number;
-  onChartClick?: (chart: Chart) => void;
-  onChartError?: (chartId: string, error: string) => void;
-  onChartLoad?: (chartId: string, metadata: ChartMetadata) => void;
-  onChartInteraction?: (event: ChartInteractionEvent) => void;
-  className?: string;
-  style?: React.CSSProperties;
-}
-
-/**
  * Chart data structure returned from API
  * Enhanced version with metadata and execution info
  */

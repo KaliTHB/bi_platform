@@ -56,6 +56,13 @@ export interface ColumnDefinition {
   aggregation_type?: 'sum' | 'avg' | 'count' | 'min' | 'max' | 'none';
 }
 
+export interface ColumnInfo {
+  name: string;
+  type: string;
+  nullable: boolean;
+  description?: string;
+  format?: string;
+}
 export interface IndexDefinition {
   name: string;
   columns: string[];
