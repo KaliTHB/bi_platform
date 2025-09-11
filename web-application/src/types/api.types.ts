@@ -9,6 +9,21 @@ export interface ApiResponse<T = any> {
   meta?: ResponseMetadata;
 }
 
+export interface BaseApiResponse {
+  success: boolean;
+  message?: string;
+  timestamp?: string;
+}
+
+export interface PaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
+  has_next: boolean;
+  has_previous: boolean;
+}
+
 // Alternative response structure for some APIs
 export interface SimpleApiResponse<T = any> {
   success: boolean;

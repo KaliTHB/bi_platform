@@ -17,6 +17,34 @@ interface UpdateUserArgs {
   updates: UpdateUserRequest;
 }
 
+interface SearchUsersParams {
+  query?: string;
+  limit?: number;
+  offset?: number;
+  role?: string;
+  is_active?: boolean;
+}
+
+interface UserWorkspace {
+  id: string;
+  name: string;
+  slug: string;
+  user_role: string;
+  assigned_at: string;
+}
+
+interface UserPermission {
+  permission: string;
+  resource?: string;
+  granted: boolean;
+}
+
+interface WorkspaceAssignmentArgs {
+  userId: string;
+  workspaceId: string;
+  roleId?: string;
+}
+
 export const userApi = createApi({
   reducerPath: 'userApi',
   baseQuery: fetchBaseQuery({
@@ -38,6 +66,7 @@ export const userApi = createApi({
   }),
   tagTypes: ['User'],
   endpoints: (builder) => ({
+    // Existing endpoints
     getUsers: builder.query<GetUsersResponse, any>({
       query: (params = {}) => ({
         url: '',
@@ -108,10 +137,107 @@ export const userApi = createApi({
         body: passwordData,
       }),
     }),
+
+    // MISSING ENDPOINTS - Add these to complete the API
+    
+    // Get user by ID (alias for getUser for consistency)
+    getUserById: builder.query<{ data: User }, string>({
+      query: (id) => `/${id}`,
+      providesTags: (result, error, id) => [{ type: 'User', id }],
+    }),
+    
+    // Get current authenticated user
+    getCurrentUser: builder.query<{ data: User }, void>({
+      query: () => '/me',
+      providesTags: [{ type: 'User', id: 'CURRENT' }],
+    }),
+    
+    // Get user's workspaces
+    getUserWorkspaces: builder.query<{ data: UserWorkspace[] }, string>({
+      query: (userId) => `/${userId}/workspaces`,
+      providesTags: (result, error, userId) => [
+        { type: 'User', id: `${userId}-workspaces` }
+      ],
+    }),
+    
+    // Get user's permissions in current workspace
+    getUserPermissions: builder.query<{ data: UserPermission[] }, string>({
+      query: (userId) => `/${userId}/permissions`,
+      providesTags: (result, error, userId) => [
+        { type: 'User', id: `${userId}-permissions` }
+      ],
+    }),
+    
+    // Deactivate user (soft delete)
+    deactivateUser: builder.mutation<{ data: User; message: string }, string>({
+      query: (id) => ({
+        url: `/${id}/deactivate`,
+        method: 'PATCH',
+      }),
+      invalidatesTags: (result, error, id) => [
+        { type: 'User', id },
+        { type: 'User', id: 'LIST' },
+      ],
+    }),
+    
+    // Reactivate user
+    reactivateUser: builder.mutation<{ data: User; message: string }, string>({
+      query: (id) => ({
+        url: `/${id}/reactivate`,
+        method: 'PATCH',
+      }),
+      invalidatesTags: (result, error, id) => [
+        { type: 'User', id },
+        { type: 'User', id: 'LIST' },
+      ],
+    }),
+    
+    // Add user to workspace
+    addUserToWorkspace: builder.mutation<
+      { message: string },
+      WorkspaceAssignmentArgs
+    >({
+      query: ({ userId, workspaceId, roleId }) => ({
+        url: `/${userId}/workspaces/${workspaceId}`,
+        method: 'POST',
+        body: { role_id: roleId },
+      }),
+      invalidatesTags: (result, error, { userId }) => [
+        { type: 'User', id: userId },
+        { type: 'User', id: `${userId}-workspaces` },
+        { type: 'User', id: 'LIST' },
+      ],
+    }),
+    
+    // Remove user from workspace
+    removeUserFromWorkspace: builder.mutation<
+      { message: string },
+      { userId: string; workspaceId: string }
+    >({
+      query: ({ userId, workspaceId }) => ({
+        url: `/${userId}/workspaces/${workspaceId}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (result, error, { userId }) => [
+        { type: 'User', id: userId },
+        { type: 'User', id: `${userId}-workspaces` },
+        { type: 'User', id: 'LIST' },
+      ],
+    }),
+    
+    // Search users
+    searchUsers: builder.query<GetUsersResponse, SearchUsersParams>({
+      query: (params) => ({
+        url: '/search',
+        params,
+      }),
+      providesTags: [{ type: 'User', id: 'SEARCH' }],
+    }),
   }),
 });
 
 export const {
+  // Original exports
   useGetUsersQuery,
   useGetUserQuery,
   useCreateUserMutation,
@@ -119,4 +245,16 @@ export const {
   useDeleteUserMutation,
   useUpdateProfileMutation,
   useChangePasswordMutation,
+  
+  // Missing exports that you need to add
+  useGetUserByIdQuery,
+  useGetCurrentUserQuery,
+  useGetUserWorkspacesQuery,
+  useGetUserPermissionsQuery,
+  useDeactivateUserMutation,
+  useReactivateUserMutation,
+  useAddUserToWorkspaceMutation,
+  useRemoveUserFromWorkspaceMutation,
+  useSearchUsersQuery,
+  useLazySearchUsersQuery,
 } = userApi;
