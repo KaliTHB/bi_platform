@@ -21,3 +21,30 @@ BEGIN
     RETURN permissions;
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE VIEW user_activity_summary AS
+SELECT 
+  u.id,
+  u.username,
+  u.email,
+  COUNT(DISTINCT ura.role_id) as role_count,
+  COUNT(DISTINCT upv.permission_name) as permission_count,
+  MAX(u.last_login) as last_activity
+FROM users u
+LEFT JOIN user_role_assignments ura ON u.id = ura.user_id AND ura.is_active = TRUE
+LEFT JOIN user_permissions_view upv ON u.id = upv.user_id AND upv.is_permission_active = TRUE
+GROUP BY u.id, u.username, u.email;
+
+-- Role effectiveness view
+CREATE VIEW role_effectiveness_summary AS
+SELECT 
+  r.id,
+  r.name,
+  COUNT(DISTINCT ura.user_id) as active_users,
+  COUNT(DISTINCT rp.permission_id) as permission_count,
+  r.created_at,
+  r.is_system
+FROM roles r
+LEFT JOIN user_role_assignments ura ON r.id = ura.role_id AND ura.is_active = TRUE
+LEFT JOIN role_permissions rp ON r.id = rp.role_id
+GROUP BY r.id, r.name, r.created_at, r.is_system;
