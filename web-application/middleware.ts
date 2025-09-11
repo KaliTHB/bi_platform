@@ -1,4 +1,4 @@
-// web-application/middleware.ts - FIXED VERSION
+// middleware.ts - FIXED VERSION WITH PROPER WEBVIEW/WORKSPACE ACCESS CONTROL
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -23,22 +23,8 @@ export function middleware(request: NextRequest) {
     '/images'
   ];
 
-  // Protected routes that require authentication
-  const protectedRoutes = [
-    '/workspace',
-    '/dashboard',
-    '/profile',
-    '/settings',
-    '/admin'
-  ];
-
   // Check if current path is public
   const isPublicRoute = publicRoutes.some(route => {
-    return pathname.startsWith(route);
-  });
-
-  // Check if current path is protected
-  const isProtectedRoute = protectedRoutes.some(route => {
     return pathname.startsWith(route);
   });
 
@@ -48,26 +34,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 🔥 FIXED: Only redirect bare /workspace to overview
+  // FIXED: Only redirect bare /workspace to overview
   if (pathname === '/workspace') {
     console.log('Redirecting bare workspace to overview');
     return NextResponse.redirect(new URL('/workspace/overview', request.url));
-  }
-
-  // 🔥 FIXED: Allow all workspace-specific routes to pass through
-  // This includes /workspace/[slug]/datasets, /workspace/[slug]/dashboards, etc.
-  if (pathname.startsWith('/workspace/')) {
-    console.log('Workspace-specific route, allowing access');
-    
-    // Only redirect if the user doesn't have a token
-    if (!token) {
-      console.log('Protected workspace route without token, redirecting to login');
-      const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('returnUrl', pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-    
-    return NextResponse.next();
   }
 
   // Allow API routes to pass through without authentication check
@@ -76,60 +46,113 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 🆕 HANDLE DIRECT DASHBOARD ROUTES
-  if (pathname.startsWith('/dashboard/')) {
-    console.log('Direct dashboard route detected');
+  // FIXED: Handle workspace dashboard routes (ALWAYS PROTECTED)
+  // Pattern: /workspace/{dashboard-uuid}
+  const workspaceDashboardMatch = pathname.match(/^\/workspace\/([a-f0-9\-]{36})$/i);
+  if (workspaceDashboardMatch) {
+    const [, dashboardUuid] = workspaceDashboardMatch;
+    console.log(`Workspace dashboard route detected: ${dashboardUuid}`);
     
-    // Validate UUID format in the URL
-    const dashboardUuidMatch = pathname.match(/^\/dashboard\/([a-f0-9\-]{36})$/i);
-    if (!dashboardUuidMatch) {
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(dashboardUuid)) {
       console.log('Invalid dashboard UUID format, returning 404');
       return NextResponse.redirect(new URL('/404', request.url));
     }
 
-    // Allow access to dashboard routes (both public and private dashboards)
-    // Authentication will be handled at the component level
-    console.log('Allowing access to dashboard route');
+    // Workspace dashboard routes are ALWAYS PROTECTED
+    if (!token) {
+      console.log('Protected workspace dashboard route without token, redirecting to login');
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('returnUrl', pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+    
+    console.log('Valid workspace dashboard route with token, allowing access');
     return NextResponse.next();
   }
 
-  
-  if (pathname.match(/^\/workspace\/[^\/]+\/overview$/)) {
-    console.log('Redirecting workspace-specific overview to main overview');
-    return NextResponse.redirect(new URL('/workspace/overview', request.url));
+  // FIXED: Handle other workspace routes (ALWAYS PROTECTED)
+  if (pathname.startsWith('/workspace/') && !pathname.match(/^\/workspace\/[a-f0-9\-]{36}$/i)) {
+    console.log('General workspace route, checking authentication');
+    
+    // All workspace routes require authentication
+    if (!token) {
+      console.log('Protected workspace route without token, redirecting to login');
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('returnUrl', pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+    
+    console.log('Workspace route with token, allowing access');
+    return NextResponse.next();
+  }
+
+  // FIXED: Handle webview dashboard routes (CAN BE PUBLIC OR PROTECTED)
+  // Pattern: /{webview-slug}/{dashboard-uuid}
+  const webviewDashboardMatch = pathname.match(/^\/([^\/]+)\/([a-f0-9\-]{36})$/i);
+  if (webviewDashboardMatch) {
+    const [, webviewSlug, dashboardUuid] = webviewDashboardMatch;
+    console.log(`Webview dashboard route detected: ${webviewSlug}/${dashboardUuid}`);
+    
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(dashboardUuid)) {
+      console.log('Invalid dashboard UUID format, returning 404');
+      return NextResponse.redirect(new URL('/404', request.url));
+    }
+    
+    // IMPORTANT: Webview dashboard access control is handled at the component level
+    // Some webviews are public, some require authentication
+    // The component will check webview permissions and redirect if needed
+    console.log('Valid webview dashboard route, allowing access - auth will be handled by component');
+    return NextResponse.next();
   }
 
   // Allow public routes
   if (isPublicRoute) {
     console.log('Public route, allowing access');
-    // If user has token but is on login page, redirect to workspace overview
+    // If user has token but is on login page, check where to redirect
     if (token && pathname === '/login') {
-      console.log('User has token but on login page, redirecting to workspace overview');
-      return NextResponse.redirect(new URL('/workspace/overview', request.url));
+      // Check if there's a returnUrl to go back to
+      const returnUrl = request.nextUrl.searchParams.get('returnUrl');
+      if (returnUrl) {
+        console.log(`User has token, redirecting to returnUrl: ${returnUrl}`);
+        return NextResponse.redirect(new URL(returnUrl, request.url));
+      } else {
+        console.log('User has token but no returnUrl, redirecting to workspace overview');
+        return NextResponse.redirect(new URL('/workspace/overview', request.url));
+      }
     }
     return NextResponse.next();
   }
 
-  // Handle protected routes
-  if (isProtectedRoute) {
+  // FIXED: Handle webview homepage routes (CAN BE PUBLIC OR PROTECTED)
+  // Pattern: /{webview-slug} (single segment, no UUID)
+  if (pathname.match(/^\/([^\/]+)$/) && !pathname.match(/^\/[a-f0-9\-]{36}$/i)) {
+    const webviewSlug = pathname.substring(1); // Remove leading slash
+    console.log(`Webview homepage route detected: ${webviewSlug}`);
+    
+    // IMPORTANT: Webview access control is handled at the component level
+    // Some webviews are public, some require authentication
+    // The component will check webview permissions and redirect if needed
+    console.log('Webview homepage route, allowing access - auth will be handled by component');
+    return NextResponse.next();
+  }
+
+  // Handle any other protected routes (admin, profile, settings, etc.)
+  const otherProtectedRoutes = ['/profile', '/settings', '/admin'];
+  const isOtherProtectedRoute = otherProtectedRoutes.some(route => pathname.startsWith(route));
+  
+  if (isOtherProtectedRoute) {
     if (!token) {
-      console.log('Protected route without token, redirecting to login');
+      console.log('Other protected route without token, redirecting to login');
       const loginUrl = new URL('/login', request.url);
-      // Add return URL so we can redirect back after login
-      if (pathname !== '/') {
-        loginUrl.searchParams.set('returnUrl', pathname);
-      }
+      loginUrl.searchParams.set('returnUrl', pathname);
       return NextResponse.redirect(loginUrl);
     }
     
-    console.log('Protected route with token, allowing access');
-    return NextResponse.next();
-  }
-
-  // Handle potential webview routes (public dashboard access)
-  // Pattern: /{webview-name} or /{webview-name}/{dashboard-slug}
-  if (pathname.match(/^\/[^\/]+$/) || pathname.match(/^\/[^\/]+\/[^\/]+$/)) {
-    console.log('Potential webview route, allowing access');
+    console.log('Other protected route with token, allowing access');
     return NextResponse.next();
   }
 
