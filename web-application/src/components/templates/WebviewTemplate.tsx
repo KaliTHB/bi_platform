@@ -22,7 +22,7 @@ import {
 } from '@mui/icons-material';
 
 // Import webview components
-import { WebviewLayout } from '../webview/WebviewLayout';
+import { WebviewLayout } from '../layout/WebviewLayout';
 import { useWebview } from '../../hooks/useWebview';
 import { useAuth } from '../../hooks/useAuth';
 

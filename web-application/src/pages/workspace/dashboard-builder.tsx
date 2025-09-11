@@ -1,14 +1,11 @@
 // web-application/src/pages/workspace/dashboard-builder.tsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import {
   Box,
   Typography,
   Paper,
   Button,
-  Grid,
-  Card,
-  CardContent,
   IconButton,
   Tooltip,
   Dialog,
@@ -31,7 +28,12 @@ import {
   Tab,
   Switch,
   FormControlLabel,
-  Alert
+  Alert,
+  Card,
+  CardContent,
+  CardHeader,
+  Menu,
+  ListItemButton
 } from '@mui/material';
 import {
   ArrowBack as BackIcon,
@@ -50,12 +52,72 @@ import {
   Image as ImageIcon,
   TableChart as TableIcon,
   FilterList as FilterIcon,
-  Palette as ThemeIcon
+  Palette as ThemeIcon,
+  Menu as MenuIcon,
+  Close as CloseIcon,
+  GridView as GridIcon,
+  AspectRatio as AspectRatioIcon,
+  PhotoSizeSelectLarge as ResizeHandleIcon
 } from '@mui/icons-material';
+
+// React Grid Layout imports
+import { Responsive, WidthProvider, Layouts, Layout } from 'react-grid-layout';
+import 'react-grid-layout/css/styles.css';
+import 'react-resizable/css/styles.css';
+
+// Components and hooks
 import { useAuth } from '@/hooks/useAuth';
 import { usePermissions } from '@/hooks/usePermissions';
 import { PermissionGate } from '@/components/shared/PermissionGate';
+import { ChartContainer } from '@/components/dashboard/ChartContainer';
 import NavbarOnlyLayout from '@/components/layout/NavbarOnlyLayout';
+
+// Make ResponsiveGridLayout responsive
+const ResponsiveGridLayout = WidthProvider(Responsive);
+
+// Additional CSS styles to fix layout issues
+const dashboardBuilderStyles = `
+  .dashboard-grid-layout {
+    position: relative !important;
+    width: 100% !important;
+  }
+  
+  .react-grid-item {
+    box-sizing: border-box !important;
+  }
+  
+  .react-grid-item.react-draggable-dragging {
+    z-index: 1000 !important;
+    transform: rotate(1deg) !important;
+  }
+  
+  .grid-item-card {
+    width: 100% !important;
+    height: 100% !important;
+    box-sizing: border-box !important;
+  }
+  
+  .widget-content-container {
+    width: 100% !important;
+    height: 100% !important;
+    overflow: hidden !important;
+  }
+`;
+
+// Inject styles
+if (typeof document !== 'undefined') {
+  const existingStyle = document.getElementById('dashboard-builder-styles');
+  if (!existingStyle) {
+    const style = document.createElement('style');
+    style.id = 'dashboard-builder-styles';
+    style.textContent = dashboardBuilderStyles;
+    document.head.appendChild(style);
+  }
+}
+
+// ============================================================================
+// INTERFACES & TYPES
+// ============================================================================
 
 interface DashboardConfig {
   id?: string;
@@ -80,12 +142,6 @@ interface Widget {
   id: string;
   type: 'chart' | 'text' | 'image' | 'table' | 'metric' | 'filter';
   title: string;
-  position: {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-  };
   config: {
     chart_id?: string;
     content?: string;
@@ -95,13 +151,15 @@ interface Widget {
     metric_label?: string;
     filter_field?: string;
   };
+  // Grid layout will handle positioning
 }
 
 interface Chart {
   id: string;
   name: string;
   display_name: string;
-  type: string;
+  chart_type: string;
+  config_json: any;
 }
 
 interface TabPanelProps {
@@ -110,55 +168,270 @@ interface TabPanelProps {
   value: number;
 }
 
-const TabPanel = ({ children, value, index }: TabPanelProps) => (
-  <div role="tabpanel" hidden={value !== index}>
-    {value === index && <Box sx={{ p: 2 }}>{children}</Box>}
-  </div>
-);
+// ============================================================================
+// WIDGET TYPES CONFIGURATION
+// ============================================================================
 
 const widgetTypes = [
   {
     type: 'chart',
     label: 'Chart',
     icon: <ChartIcon />,
-    description: 'Add existing charts to your dashboard'
+    description: 'Add existing charts to your dashboard',
+    defaultSize: { w: 6, h: 4 }
   },
   {
     type: 'text',
     label: 'Text',
     icon: <TextIcon />,
-    description: 'Rich text content and markdown'
+    description: 'Rich text content and markdown',
+    defaultSize: { w: 4, h: 3 }
   },
   {
     type: 'metric',
     label: 'Metric',
     icon: <DashboardIcon />,
-    description: 'Key performance indicators'
+    description: 'Key performance indicators',
+    defaultSize: { w: 3, h: 2 }
   },
   {
     type: 'table',
     label: 'Table',
     icon: <TableIcon />,
-    description: 'Data tables with custom queries'
+    description: 'Data tables with custom queries',
+    defaultSize: { w: 8, h: 6 }
   },
   {
     type: 'image',
     label: 'Image',
     icon: <ImageIcon />,
-    description: 'Images, logos, and graphics'
+    description: 'Images, logos, and graphics',
+    defaultSize: { w: 4, h: 4 }
   },
   {
     type: 'filter',
     label: 'Filter',
     icon: <FilterIcon />,
-    description: 'Interactive dashboard filters'
+    description: 'Interactive dashboard filters',
+    defaultSize: { w: 3, h: 2 }
   }
 ];
+
+// ============================================================================
+// HELPER COMPONENTS
+// ============================================================================
+
+const TabPanel = ({ children, value, index }: TabPanelProps) => (
+  <div role="tabpanel" hidden={value !== index}>
+    {value === index && <Box sx={{ p: 2 }}>{children}</Box>}
+  </div>
+);
+
+// Custom Widget Renderer for Grid Layout
+const WidgetRenderer: React.FC<{ 
+  widget: Widget; 
+  onEdit: (widget: Widget) => void; 
+  onDelete: (widgetId: string) => void;
+  previewMode: boolean;
+}> = ({ widget, onEdit, onDelete, previewMode }) => {
+  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+
+  const handleMenuClose = () => setMenuAnchor(null);
+
+  const renderWidgetContent = () => {
+    switch (widget.type) {
+      case 'chart':
+        if (widget.config.chart_id) {
+          // Mock chart for demo - replace with actual chart data
+          const mockChart = {
+            id: widget.config.chart_id,
+            name: `chart-${widget.id}`,
+            display_name: widget.title,
+            chart_type: 'bar',
+            config_json: {
+              library: 'echarts',
+              chartType: 'bar',
+              title: { text: widget.title }
+            },
+            dataset_ids: [],
+            is_active: true,
+            version: 1,
+            created_by: 'user',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+
+          return (
+            <ChartContainer
+              chart={mockChart}
+              preview={true}
+              dimensions={{ width: '100%', height: '100%' }}
+            />
+          );
+        }
+        return (
+          <Box sx={{ 
+            height: '100%', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            flexDirection: 'column',
+            color: 'text.secondary'
+          }}>
+            <ChartIcon sx={{ fontSize: 48, mb: 1 }} />
+            <Typography variant="body2">Select a chart</Typography>
+          </Box>
+        );
+
+      case 'text':
+        return (
+          <Box sx={{ p: 2, height: '100%', overflow: 'auto' }}>
+            <Typography variant="body1">
+              {widget.config.content || 'Click to edit text content...'}
+            </Typography>
+          </Box>
+        );
+
+      case 'metric':
+        return (
+          <Box sx={{ 
+            height: '100%', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            flexDirection: 'column',
+            p: 2
+          }}>
+            <Typography variant="h3" color="primary" gutterBottom>
+              {widget.config.metric_value?.toLocaleString() || '0'}
+            </Typography>
+            <Typography variant="subtitle1" color="text.secondary">
+              {widget.config.metric_label || widget.title}
+            </Typography>
+          </Box>
+        );
+
+      case 'table':
+        return (
+          <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <TableIcon sx={{ fontSize: 48, color: 'text.secondary' }} />
+          </Box>
+        );
+
+      case 'image':
+        return (
+          <Box sx={{ 
+            height: '100%', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            backgroundColor: '#f5f5f5'
+          }}>
+            {widget.config.image_url ? (
+              <img 
+                src={widget.config.image_url} 
+                alt={widget.title}
+                style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+              />
+            ) : (
+              <ImageIcon sx={{ fontSize: 48, color: 'text.secondary' }} />
+            )}
+          </Box>
+        );
+
+      case 'filter':
+        return (
+          <Box sx={{ p: 2 }}>
+            <FormControl fullWidth size="small">
+              <InputLabel>{widget.title}</InputLabel>
+              <Select value="" label={widget.title}>
+                <MenuItem value="option1">Option 1</MenuItem>
+                <MenuItem value="option2">Option 2</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+        );
+
+      default:
+        return (
+          <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Typography color="text.secondary">Unknown widget type</Typography>
+          </Box>
+        );
+    }
+  };
+
+  return (
+    <Card 
+      sx={{ 
+        height: '100%', 
+        display: 'flex', 
+        flexDirection: 'column',
+        cursor: previewMode ? 'default' : 'grab',
+        '&:hover': {
+          boxShadow: previewMode ? 1 : 3
+        }
+      }}
+      className="grid-item-card"
+    >
+      {/* Widget Header */}
+      <CardHeader
+        title={widget.title}
+        titleTypographyProps={{ variant: 'subtitle2', noWrap: true }}
+        action={
+          !previewMode && (
+            <IconButton
+              size="small"
+              onClick={(e) => setMenuAnchor(e.currentTarget)}
+            >
+              <MenuIcon fontSize="small" />
+            </IconButton>
+          )
+        }
+        sx={{ 
+          pb: 1,
+          '& .MuiCardHeader-content': { minWidth: 0 }
+        }}
+      />
+      
+      {/* Widget Content */}
+      <CardContent sx={{ flex: 1, pt: 0, '&:last-child': { pb: 1 } }}>
+        {renderWidgetContent()}
+      </CardContent>
+
+      {/* Widget Menu */}
+      <Menu
+        anchorEl={menuAnchor}
+        open={Boolean(menuAnchor)}
+        onClose={handleMenuClose}
+        transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+      >
+        <MenuItem onClick={() => { onEdit(widget); handleMenuClose(); }}>
+          <EditIcon fontSize="small" sx={{ mr: 1 }} />
+          Edit
+        </MenuItem>
+        <MenuItem onClick={() => { onDelete(widget.id); handleMenuClose(); }}>
+          <DeleteIcon fontSize="small" sx={{ mr: 1 }} />
+          Delete
+        </MenuItem>
+      </Menu>
+    </Card>
+  );
+};
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
 
 const DashboardBuilderPage: React.FC = () => {
   const router = useRouter();
   const { workspace } = useAuth();
   const { hasPermission } = usePermissions();
+
+  // ============================================================================
+  // STATE MANAGEMENT
+  // ============================================================================
 
   const [dashboardConfig, setDashboardConfig] = useState<DashboardConfig>({
     name: '',
@@ -180,6 +453,8 @@ const DashboardBuilderPage: React.FC = () => {
 
   const [widgets, setWidgets] = useState<Widget[]>([]);
   const [charts, setCharts] = useState<Chart[]>([]);
+  
+  // UI State
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedWidget, setSelectedWidget] = useState<Widget | null>(null);
   const [widgetDialogOpen, setWidgetDialogOpen] = useState(false);
@@ -187,16 +462,157 @@ const DashboardBuilderPage: React.FC = () => {
   const [tabValue, setTabValue] = useState(0);
   const [saving, setSaving] = useState(false);
 
-  // Load charts and initialize
+  // Grid Layout State
+  const [layouts, setLayouts] = useState<Layouts>({});
+  const [currentBreakpoint, setCurrentBreakpoint] = useState('lg');
+
+  // ============================================================================
+  // GRID LAYOUT CONFIGURATION
+  // ============================================================================
+
+  const gridProps = {
+    className: 'dashboard-grid-layout',
+    layouts: layouts,
+    onLayoutChange: (layout: Layout[], layouts: Layouts) => {
+      console.log('Layout changed:', { layout, layouts });
+      setLayouts(layouts);
+    },
+    onBreakpointChange: (breakpoint: string) => {
+      console.log('Breakpoint changed:', breakpoint);
+      setCurrentBreakpoint(breakpoint);
+    },
+    breakpoints: { lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 },
+    cols: { lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 },
+    rowHeight: 60,
+    isDraggable: !previewMode,
+    isResizable: !previewMode,
+    margin: [16, 16] as [number, number],
+    containerPadding: [24, 24] as [number, number],
+    useCSSTransforms: true,
+    autoSize: true,
+    preventCollision: false,
+    compactType: 'vertical' as const,
+    // Handle drag start/stop
+    onDragStart: (layout: Layout[], oldItem: Layout, newItem: Layout) => {
+      console.log('Drag started:', newItem);
+    },
+    onDragStop: (layout: Layout[], oldItem: Layout, newItem: Layout) => {
+      console.log('Drag stopped:', newItem);
+    },
+    // Handle resize start/stop
+    onResizeStart: (layout: Layout[], oldItem: Layout, newItem: Layout) => {
+      console.log('Resize started:', newItem);
+    },
+    onResizeStop: (layout: Layout[], oldItem: Layout, newItem: Layout) => {
+      console.log('Resize stopped:', newItem);
+    }
+  };
+
+  // ============================================================================
+  // WIDGET MANAGEMENT
+  // ============================================================================
+
+  const addWidget = useCallback((type: string) => {
+    const widgetType = widgetTypes.find(wt => wt.type === type);
+    if (!widgetType) return;
+
+    const newWidget: Widget = {
+      id: `widget-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      type: type as any,
+      title: `New ${widgetType.label}`,
+      config: {}
+    };
+
+    setWidgets(prev => [...prev, newWidget]);
+
+    // Add to grid layout
+    const defaultLayout: Layout = {
+      i: newWidget.id,
+      x: (widgets.length * 2) % 12,
+      y: Infinity, // Auto-place at bottom
+      w: widgetType.defaultSize.w,
+      h: widgetType.defaultSize.h,
+      minW: 2,
+      minH: 2,
+      maxW: 12,
+      maxH: 20
+    };
+
+    setLayouts(prev => ({
+      ...prev,
+      [currentBreakpoint]: [...(prev[currentBreakpoint] || []), defaultLayout]
+    }));
+
+    console.log('Added widget:', newWidget, 'Layout:', defaultLayout);
+  }, [widgets.length, currentBreakpoint]);
+
+  const editWidget = useCallback((widget: Widget) => {
+    setSelectedWidget(widget);
+    setWidgetDialogOpen(true);
+  }, []);
+
+  const deleteWidget = useCallback((widgetId: string) => {
+    setWidgets(prev => prev.filter(w => w.id !== widgetId));
+    
+    // Remove from layouts
+    setLayouts(prev => {
+      const newLayouts: Layouts = {};
+      Object.keys(prev).forEach(breakpoint => {
+        newLayouts[breakpoint] = prev[breakpoint]?.filter(item => item.i !== widgetId) || [];
+      });
+      return newLayouts;
+    });
+  }, []);
+
+  const updateWidget = useCallback((updatedWidget: Widget) => {
+    setWidgets(prev => prev.map(w => w.id === updatedWidget.id ? updatedWidget : w));
+    setSelectedWidget(null);
+    setWidgetDialogOpen(false);
+  }, []);
+
+  // ============================================================================
+  // DASHBOARD ACTIONS
+  // ============================================================================
+
+  const saveDashboard = useCallback(async () => {
+    if (!dashboardConfig.name.trim()) {
+      alert('Please enter a dashboard name');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      console.log('Saving dashboard:', {
+        config: dashboardConfig,
+        widgets,
+        layouts
+      });
+
+      // Mock save - replace with actual API call
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      console.log('Dashboard saved successfully!');
+      // router.push(`/workspace/${workspace?.slug}/dashboards`);
+    } catch (error) {
+      console.error('Failed to save dashboard:', error);
+    } finally {
+      setSaving(false);
+    }
+  }, [dashboardConfig, widgets, layouts, workspace]);
+
+  // ============================================================================
+  // LOAD INITIAL DATA
+  // ============================================================================
+
   useEffect(() => {
     const loadCharts = async () => {
       try {
         // Mock data - replace with actual API call
         setTimeout(() => {
           setCharts([
-            { id: '1', name: 'sales-chart', display_name: 'Sales Overview', type: 'bar' },
-            { id: '2', name: 'revenue-chart', display_name: 'Revenue Trends', type: 'line' },
-            { id: '3', name: 'customers-chart', display_name: 'Customer Distribution', type: 'pie' }
+            { id: '1', name: 'sales-chart', display_name: 'Sales Overview', chart_type: 'bar', config_json: {} },
+            { id: '2', name: 'revenue-chart', display_name: 'Revenue Trends', chart_type: 'line', config_json: {} },
+            { id: '3', name: 'user-chart', display_name: 'User Analytics', chart_type: 'pie', config_json: {} }
           ]);
         }, 500);
       } catch (error) {
@@ -204,225 +620,49 @@ const DashboardBuilderPage: React.FC = () => {
       }
     };
 
-    if (workspace) {
-      loadCharts();
-    }
-  }, [workspace]);
+    loadCharts();
+  }, []);
 
-  // Handle widget creation
-  const handleAddWidget = (type: Widget['type']) => {
-    const newWidget: Widget = {
-      id: `widget-${Date.now()}`,
-      type,
-      title: `New ${type.charAt(0).toUpperCase() + type.slice(1)}`,
-      position: {
-        x: widgets.length % 3 * 4,
-        y: Math.floor(widgets.length / 3) * 4,
-        w: 4,
-        h: 4
-      },
-      config: {}
-    };
+  // ============================================================================
+  // RENDER HELPERS
+  // ============================================================================
 
-    setWidgets(prev => [...prev, newWidget]);
-    setSelectedWidget(newWidget);
-    setWidgetDialogOpen(true);
-  };
+  const renderWidgetDialog = () => {
+    if (!selectedWidget) return null;
 
-  const handleEditWidget = (widget: Widget) => {
-    setSelectedWidget(widget);
-    setWidgetDialogOpen(true);
-  };
-
-  const handleDeleteWidget = (widgetId: string) => {
-    setWidgets(prev => prev.filter(w => w.id !== widgetId));
-  };
-
-  const handleUpdateWidget = (updatedWidget: Widget) => {
-    setWidgets(prev => prev.map(w => w.id === updatedWidget.id ? updatedWidget : w));
-    setWidgetDialogOpen(false);
-    setSelectedWidget(null);
-  };
-
-  const handleSaveDashboard = async () => {
-    setSaving(true);
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      console.log('Saving dashboard:', { dashboardConfig, widgets });
-      
-      // Navigate back to dashboards list
-      router.push(`/workspace/dashboards`);
-    } catch (error) {
-      console.error('Error saving dashboard:', error);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const renderWidget = (widget: Widget) => (
-    <Grid item key={widget.id} xs={widget.position.w} style={{ minHeight: widget.position.h * 50 }}>
-      <Card
-        sx={{
-          height: '100%',
-          position: 'relative',
-          border: selectedWidget?.id === widget.id ? 2 : 1,
-          borderColor: selectedWidget?.id === widget.id ? 'primary.main' : 'divider',
-          '&:hover .widget-controls': {
-            opacity: 1
-          }
-        }}
+    return (
+      <Dialog 
+        open={widgetDialogOpen} 
+        onClose={() => setWidgetDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
       >
-        {!previewMode && (
-          <Box
-            className="widget-controls"
-            sx={{
-              position: 'absolute',
-              top: 8,
-              right: 8,
-              display: 'flex',
-              gap: 1,
-              opacity: 0,
-              transition: 'opacity 0.2s',
-              zIndex: 1
-            }}
-          >
-            <IconButton
-              size="small"
-              sx={{ bgcolor: 'background.paper', boxShadow: 1 }}
-              onClick={() => handleEditWidget(widget)}
-            >
-              <EditIcon fontSize="small" />
-            </IconButton>
-            <IconButton
-              size="small"
-              sx={{ bgcolor: 'background.paper', boxShadow: 1 }}
-              onClick={() => handleDeleteWidget(widget.id)}
-            >
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Box>
-        )}
-
-        <CardContent sx={{ height: '100%', p: 2 }}>
-          <Typography variant="h6" gutterBottom noWrap>
-            {widget.title}
-          </Typography>
-          
-          {widget.type === 'chart' && (
-            <Box
-              sx={{
-                height: 'calc(100% - 40px)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                border: '2px dashed',
-                borderColor: 'divider',
-                borderRadius: 1
-              }}
-            >
-              <Box textAlign="center">
-                <ChartIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-                <Typography variant="body2" color="textSecondary">
-                  {widget.config.chart_id ? 
-                    charts.find(c => c.id === widget.config.chart_id)?.display_name || 'Chart Preview' :
-                    'Select Chart'
-                  }
-                </Typography>
-              </Box>
-            </Box>
-          )}
-
-          {widget.type === 'text' && (
-            <Box sx={{ height: 'calc(100% - 40px)', overflow: 'auto' }}>
-              <Typography variant="body2">
-                {widget.config.content || 'Add your text content here...'}
-              </Typography>
-            </Box>
-          )}
-
-          {widget.type === 'metric' && (
-            <Box
-              sx={{
-                height: 'calc(100% - 40px)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-            >
-              <Typography variant="h2" color="primary" gutterBottom>
-                {widget.config.metric_value || '0'}
-              </Typography>
-              <Typography variant="body2" color="textSecondary">
-                {widget.config.metric_label || 'Metric Label'}
-              </Typography>
-            </Box>
-          )}
-
-          {widget.type === 'table' && (
-            <Box
-              sx={{
-                height: 'calc(100% - 40px)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                border: '2px dashed',
-                borderColor: 'divider',
-                borderRadius: 1
-              }}
-            >
-              <Box textAlign="center">
-                <TableIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-                <Typography variant="body2" color="textSecondary">
-                  Data Table Preview
-                </Typography>
-              </Box>
-            </Box>
-          )}
-        </CardContent>
-      </Card>
-    </Grid>
-  );
-
-  const renderWidgetDialog = () => (
-    <Dialog
-      open={widgetDialogOpen}
-      onClose={() => setWidgetDialogOpen(false)}
-      maxWidth="md"
-      fullWidth
-    >
-      <DialogTitle>
-        {selectedWidget ? `Edit ${selectedWidget.type} Widget` : 'Add Widget'}
-      </DialogTitle>
-      <DialogContent>
-        {selectedWidget && (
+        <DialogTitle>
+          Edit {selectedWidget.type.charAt(0).toUpperCase() + selectedWidget.type.slice(1)} Widget
+        </DialogTitle>
+        <DialogContent>
           <Box sx={{ pt: 1 }}>
             <TextField
               fullWidth
               label="Widget Title"
               value={selectedWidget.title}
-              onChange={(e) => setSelectedWidget({
-                ...selectedWidget,
-                title: e.target.value
-              })}
-              margin="normal"
+              onChange={(e) => setSelectedWidget(prev => prev ? { ...prev, title: e.target.value } : null)}
+              sx={{ mb: 2 }}
             />
 
             {selectedWidget.type === 'chart' && (
-              <FormControl fullWidth margin="normal">
+              <FormControl fullWidth sx={{ mb: 2 }}>
                 <InputLabel>Select Chart</InputLabel>
                 <Select
                   value={selectedWidget.config.chart_id || ''}
-                  onChange={(e) => setSelectedWidget({
-                    ...selectedWidget,
-                    config: { ...selectedWidget.config, chart_id: e.target.value }
-                  })}
+                  onChange={(e) => setSelectedWidget(prev => prev ? {
+                    ...prev,
+                    config: { ...prev.config, chart_id: e.target.value }
+                  } : null)}
                 >
                   {charts.map((chart) => (
                     <MenuItem key={chart.id} value={chart.id}>
-                      {chart.display_name} ({chart.type})
+                      {chart.display_name}
                     </MenuItem>
                   ))}
                 </Select>
@@ -432,15 +672,14 @@ const DashboardBuilderPage: React.FC = () => {
             {selectedWidget.type === 'text' && (
               <TextField
                 fullWidth
-                label="Content"
-                value={selectedWidget.config.content || ''}
-                onChange={(e) => setSelectedWidget({
-                  ...selectedWidget,
-                  config: { ...selectedWidget.config, content: e.target.value }
-                })}
-                margin="normal"
                 multiline
                 rows={4}
+                label="Text Content"
+                value={selectedWidget.config.content || ''}
+                onChange={(e) => setSelectedWidget(prev => prev ? {
+                  ...prev,
+                  config: { ...prev.config, content: e.target.value }
+                } : null)}
               />
             )}
 
@@ -448,102 +687,74 @@ const DashboardBuilderPage: React.FC = () => {
               <>
                 <TextField
                   fullWidth
-                  label="Metric Value"
                   type="number"
+                  label="Metric Value"
                   value={selectedWidget.config.metric_value || ''}
-                  onChange={(e) => setSelectedWidget({
-                    ...selectedWidget,
-                    config: { ...selectedWidget.config, metric_value: parseInt(e.target.value) }
-                  })}
-                  margin="normal"
+                  onChange={(e) => setSelectedWidget(prev => prev ? {
+                    ...prev,
+                    config: { ...prev.config, metric_value: parseFloat(e.target.value) || 0 }
+                  } : null)}
+                  sx={{ mb: 2 }}
                 />
                 <TextField
                   fullWidth
                   label="Metric Label"
                   value={selectedWidget.config.metric_label || ''}
-                  onChange={(e) => setSelectedWidget({
-                    ...selectedWidget,
-                    config: { ...selectedWidget.config, metric_label: e.target.value }
-                  })}
-                  margin="normal"
+                  onChange={(e) => setSelectedWidget(prev => prev ? {
+                    ...prev,
+                    config: { ...prev.config, metric_label: e.target.value }
+                  } : null)}
                 />
               </>
             )}
-
-            {selectedWidget.type === 'table' && (
-              <TextField
-                fullWidth
-                label="SQL Query"
-                value={selectedWidget.config.table_query || ''}
-                onChange={(e) => setSelectedWidget({
-                  ...selectedWidget,
-                  config: { ...selectedWidget.config, table_query: e.target.value }
-                })}
-                margin="normal"
-                multiline
-                rows={3}
-                placeholder="SELECT * FROM your_table LIMIT 10"
-              />
-            )}
-
-            {selectedWidget.type === 'image' && (
-              <TextField
-                fullWidth
-                label="Image URL"
-                value={selectedWidget.config.image_url || ''}
-                onChange={(e) => setSelectedWidget({
-                  ...selectedWidget,
-                  config: { ...selectedWidget.config, image_url: e.target.value }
-                })}
-                margin="normal"
-              />
-            )}
           </Box>
-        )}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={() => setWidgetDialogOpen(false)}>
-          Cancel
-        </Button>
-        <Button
-          onClick={() => selectedWidget && handleUpdateWidget(selectedWidget)}
-          variant="contained"
-          disabled={!selectedWidget?.title}
-        >
-          {selectedWidget?.id ? 'Update' : 'Add'} Widget
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setWidgetDialogOpen(false)}>Cancel</Button>
+          <Button 
+            onClick={() => selectedWidget && updateWidget(selectedWidget)}
+            variant="contained"
+          >
+            Save Changes
+          </Button>
+        </DialogActions>
+      </Dialog>
+    );
+  };
+
+  // ============================================================================
+  // NAVIGATION & ACTIONS
+  // ============================================================================
 
   const breadcrumbs = [
-    { label: 'Workspace', href: `/workspace/overview` },
-    { label: 'Dashboards', href: `/workspace/dashboards` },
-    { label: 'Dashboard Builder' }
+    { label: 'Dashboard', href: `/workspace/${workspace?.slug}/dashboards` },
+    { label: 'Builder', href: '#' }
   ];
 
   const actions = (
     <>
       <Button
-        variant="outlined"
-        startIcon={previewMode ? <EditIcon /> : <ViewIcon />}
-        onClick={() => setPreviewMode(!previewMode)}
+        startIcon={<GridIcon />}
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+        sx={{ mr: 1 }}
       >
-        {previewMode ? 'Edit' : 'Preview'}
+        {sidebarOpen ? 'Hide' : 'Show'} Sidebar
       </Button>
+      
       <Button
-        variant="outlined"
-        startIcon={<BackIcon />}
-        onClick={() => router.push(`/workspace/dashboards`)}
+        startIcon={previewMode ? <EditIcon /> : <PreviewIcon />}
+        onClick={() => setPreviewMode(!previewMode)}
+        sx={{ mr: 1 }}
       >
-        Cancel
+        {previewMode ? 'Edit Mode' : 'Preview'}
       </Button>
+
       <PermissionGate permission="dashboard.create">
         <Button
           variant="contained"
           startIcon={<SaveIcon />}
-          onClick={handleSaveDashboard}
-          disabled={saving || !dashboardConfig.title}
+          onClick={saveDashboard}
+          disabled={saving}
         >
           {saving ? 'Saving...' : 'Save Dashboard'}
         </Button>
@@ -555,10 +766,14 @@ const DashboardBuilderPage: React.FC = () => {
     return <div>Loading workspace...</div>;
   }
 
+  // ============================================================================
+  // MAIN RENDER
+  // ============================================================================
+
   return (
     <NavbarOnlyLayout
       title="Dashboard Builder"
-      subtitle="Create interactive dashboards with widgets and charts"
+      subtitle="Create interactive dashboards with drag & drop"
       breadcrumbs={breadcrumbs}
       actions={actions}
     >
@@ -568,21 +783,28 @@ const DashboardBuilderPage: React.FC = () => {
           <Drawer
             variant="permanent"
             sx={{
-              width: sidebarOpen ? 300 : 0,
+              width: sidebarOpen ? 320 : 0,
               flexShrink: 0,
               transition: 'width 0.3s',
               '& .MuiDrawer-paper': {
-                width: sidebarOpen ? 300 : 0,
+                width: sidebarOpen ? 320 : 0,
                 position: 'relative',
                 transition: 'width 0.3s',
-                overflowX: 'hidden'
+                overflowX: 'hidden',
+                borderRight: '1px solid',
+                borderColor: 'divider'
               },
             }}
           >
             <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-              <Typography variant="h6" gutterBottom>
-                Dashboard Settings
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Typography variant="h6">
+                  Dashboard Builder
+                </Typography>
+                <IconButton size="small" onClick={() => setSidebarOpen(false)}>
+                  <CloseIcon />
+                </IconButton>
+              </Box>
               
               <Tabs
                 value={tabValue}
@@ -594,106 +816,179 @@ const DashboardBuilderPage: React.FC = () => {
               </Tabs>
             </Box>
 
+            {/* Widgets Tab */}
             <TabPanel value={tabValue} index={0}>
               <Typography variant="subtitle2" gutterBottom>
-                Add Widgets
+                Add Widgets to Dashboard
               </Typography>
               
               <List dense>
                 {widgetTypes.map((widgetType) => (
-                  <ListItem
+                  <ListItemButton
                     key={widgetType.type}
-                    button
-                    onClick={() => handleAddWidget(widgetType.type)}
-                    sx={{ mb: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
+                    onClick={() => addWidget(widgetType.type)}
+                    sx={{ 
+                      mb: 1, 
+                      border: '1px solid', 
+                      borderColor: 'divider', 
+                      borderRadius: 1,
+                      '&:hover': {
+                        borderColor: 'primary.main',
+                        backgroundColor: 'primary.50'
+                      }
+                    }}
                   >
-                    <ListItemIcon>
+                    <ListItemIcon sx={{ minWidth: 40 }}>
                       {widgetType.icon}
                     </ListItemIcon>
-                    <ListItemText
+                    <ListItemText 
                       primary={widgetType.label}
-                      secondary={widgetType.description}
+                      secondary={`${widgetType.defaultSize.w}×${widgetType.defaultSize.h}`}
+                      primaryTypographyProps={{ variant: 'body2', fontWeight: 500 }}
+                      secondaryTypographyProps={{ variant: 'caption' }}
                     />
-                  </ListItem>
+                    <AddIcon fontSize="small" color="action" />
+                  </ListItemButton>
                 ))}
               </List>
+
+              <Divider sx={{ my: 2 }} />
+
+              <Typography variant="subtitle2" gutterBottom>
+                Current Widgets ({widgets.length})
+              </Typography>
+              
+              {widgets.map((widget) => (
+                <Chip
+                  key={widget.id}
+                  label={widget.title}
+                  size="small"
+                  sx={{ m: 0.5 }}
+                  onDelete={() => deleteWidget(widget.id)}
+                  onClick={() => editWidget(widget)}
+                />
+              ))}
             </TabPanel>
 
+            {/* Settings Tab */}
             <TabPanel value={tabValue} index={1}>
+              <Typography variant="subtitle2" gutterBottom>
+                Dashboard Settings
+              </Typography>
+
+              <TextField
+                fullWidth
+                label="Dashboard Name"
+                value={dashboardConfig.name}
+                onChange={(e) => setDashboardConfig(prev => ({ ...prev, name: e.target.value }))}
+                sx={{ mb: 2 }}
+              />
+
               <TextField
                 fullWidth
                 label="Dashboard Title"
                 value={dashboardConfig.title}
-                onChange={(e) => setDashboardConfig(prev => ({
-                  ...prev,
-                  title: e.target.value
-                }))}
-                margin="normal"
-                size="small"
+                onChange={(e) => setDashboardConfig(prev => ({ ...prev, title: e.target.value }))}
+                sx={{ mb: 2 }}
               />
-              
+
               <TextField
                 fullWidth
+                multiline
+                rows={3}
                 label="Description"
                 value={dashboardConfig.description}
-                onChange={(e) => setDashboardConfig(prev => ({
-                  ...prev,
-                  description: e.target.value
-                }))}
-                margin="normal"
-                multiline
-                rows={2}
-                size="small"
+                onChange={(e) => setDashboardConfig(prev => ({ ...prev, description: e.target.value }))}
+                sx={{ mb: 2 }}
               />
 
               <FormControlLabel
                 control={
                   <Switch
                     checked={dashboardConfig.is_public}
-                    onChange={(e) => setDashboardConfig(prev => ({
-                      ...prev,
-                      is_public: e.target.checked
-                    }))}
+                    onChange={(e) => setDashboardConfig(prev => ({ ...prev, is_public: e.target.checked }))}
                   />
                 }
                 label="Public Dashboard"
-                sx={{ mt: 2 }}
+                sx={{ mb: 2 }}
               />
 
               <Divider sx={{ my: 2 }} />
 
               <Typography variant="subtitle2" gutterBottom>
-                Theme Settings
+                Layout Info
               </Typography>
               
-              <TextField
-                fullWidth
-                label="Primary Color"
-                type="color"
-                value={dashboardConfig.theme.primary_color}
-                onChange={(e) => setDashboardConfig(prev => ({
-                  ...prev,
-                  theme: { ...prev.theme, primary_color: e.target.value }
-                }))}
-                margin="normal"
-                size="small"
-              />
+              <Box sx={{ mb: 1 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Current Breakpoint: <strong>{currentBreakpoint.toUpperCase()}</strong>
+                </Typography>
+              </Box>
+              
+              <Box sx={{ mb: 1 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Grid Columns: <strong>{gridProps.cols[currentBreakpoint as keyof typeof gridProps.cols]}</strong>
+                </Typography>
+              </Box>
+              
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Items in Layout: <strong>{layouts[currentBreakpoint]?.length || 0}</strong>
+                </Typography>
+              </Box>
             </TabPanel>
           </Drawer>
         )}
 
         {/* Main Canvas */}
-        <Box sx={{ flexGrow: 1, p: 3, overflow: 'auto' }}>
-          <Paper
-            variant="outlined"
-            sx={{
-              minHeight: '100%',
-              p: dashboardConfig.layout.padding / 8,
-              backgroundColor: dashboardConfig.theme.background_color
+        <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          {/* Canvas Header */}
+          <Paper 
+            sx={{ 
+              p: 2, 
+              mb: 2, 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between' 
+            }}
+            elevation={1}
+          >
+            <Box>
+              <Typography variant="h6">
+                {dashboardConfig.title || 'Untitled Dashboard'}
+              </Typography>
+              {dashboardConfig.description && (
+                <Typography variant="body2" color="text.secondary">
+                  {dashboardConfig.description}
+                </Typography>
+              )}
+            </Box>
+            
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Chip 
+                label={`${widgets.length} widgets`} 
+                size="small" 
+                color={widgets.length > 0 ? 'primary' : 'default'}
+              />
+              <Chip 
+                label={previewMode ? 'Preview Mode' : 'Edit Mode'} 
+                size="small" 
+                color={previewMode ? 'success' : 'warning'}
+              />
+            </Box>
+          </Paper>
+
+          {/* Grid Layout Canvas */}
+          <Box 
+            sx={{ 
+              flex: 1, 
+              overflow: 'auto',
+              backgroundColor: previewMode ? dashboardConfig.theme.background_color : 'grey.50',
+              p: 2
             }}
           >
             {widgets.length === 0 ? (
-              <Box
+              <Paper
                 sx={{
                   height: 400,
                   display: 'flex',
@@ -703,26 +998,45 @@ const DashboardBuilderPage: React.FC = () => {
                   borderColor: 'divider',
                   borderRadius: 2,
                   flexDirection: 'column',
-                  gap: 2
+                  gap: 2,
+                  backgroundColor: 'background.paper'
                 }}
               >
                 <DashboardIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
                 <Typography variant="h5" color="textSecondary" gutterBottom>
                   {dashboardConfig.title || 'Your Dashboard'}
                 </Typography>
-                <Typography variant="body1" color="textSecondary">
+                <Typography variant="body1" color="textSecondary" sx={{ textAlign: 'center' }}>
                   {previewMode 
                     ? 'No widgets added yet'
                     : 'Add widgets from the sidebar to start building your dashboard'
                   }
                 </Typography>
-              </Box>
+                {!previewMode && (
+                  <Button
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={() => setTabValue(0)}
+                  >
+                    Add Your First Widget
+                  </Button>
+                )}
+              </Paper>
             ) : (
-              <Grid container spacing={dashboardConfig.layout.gap / 8}>
-                {widgets.map(renderWidget)}
-              </Grid>
+              <ResponsiveGridLayout {...gridProps}>
+                {widgets.map((widget) => (
+                  <div key={widget.id}>
+                    <WidgetRenderer
+                      widget={widget}
+                      onEdit={editWidget}
+                      onDelete={deleteWidget}
+                      previewMode={previewMode}
+                    />
+                  </div>
+                ))}
+              </ResponsiveGridLayout>
             )}
-          </Paper>
+          </Box>
         </Box>
 
         {renderWidgetDialog()}

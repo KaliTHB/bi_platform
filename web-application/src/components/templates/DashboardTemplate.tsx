@@ -25,7 +25,7 @@ import {
 
 // Import dashboard components
 import WorkspaceLayout from '../layout/WorkspaceLayout';
-import { DashboardViewer } from '../viewer/DashboardViewer';
+import { DashboardContainer } from '@/components/dashboard/DashboardContainer';
 import { useAuth } from '../../hooks/useAuth';
 import { usePermissions } from '../../hooks/usePermissions';
 
@@ -327,7 +327,7 @@ const DashboardTemplate: React.FC<DashboardTemplateProps> = ({
 
         <Box sx={{ flex: 1 }}>
           <Container maxWidth="xl" sx={{ py: fullscreen ? 0 : 2, height: '100%' }}>
-            <DashboardViewer
+            <DashboardContainer
               dashboardId={dashboardId}
               fullscreen={fullscreen}
               onFullscreenChange={setFullscreen}

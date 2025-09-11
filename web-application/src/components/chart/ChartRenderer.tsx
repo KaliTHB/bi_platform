@@ -1,18 +1,23 @@
-// File: web-application/src/components/charts/ChartRenderer.tsx
+// web-application/src/components/chart/ChartRenderer.tsx
 'use client';
 
 import React, { useMemo, useCallback, useState, useEffect } from 'react';
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
+
+// Import ChartFactory and Registry
+import { ChartFactory } from '@/plugins/charts/factory/ChartFactory';
+import { ChartRegistry } from '@/plugins/charts/registry/ChartRegistry';
+import ChartErrorBoundary from './ChartErrorBoundary';
+
+// Types
 import {
   ChartProps,
   ChartDimensions,
   ChartConfiguration,
-  Chart,
   ChartInteractionEvent,
   ChartError
 } from '@/types/chart.types';
-import { ChartRegistry } from '@/plugins/charts/registry/ChartRegistry';
-import { ChartRendererProps } from '@/types/index'
+import { ChartRendererProps } from '@/types/index';
 
 export const ChartRenderer: React.FC<ChartRendererProps> = ({
   chart,
@@ -32,11 +37,14 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
   className,
   style
 }) => {
+  // State for dynamic chart loading
   const [ChartComponent, setChartComponent] = useState<React.ComponentType<ChartProps> | null>(null);
+  const [chartElement, setChartElement] = useState<React.ReactElement | null>(null);
   const [pluginLoading, setPluginLoading] = useState(true);
   const [pluginError, setPluginError] = useState<string | null>(null);
+  const [isRendering, setIsRendering] = useState(false);
 
-  // Ensure dimensions have proper defaults with margin support
+  // Ensure dimensions have proper defaults
   const chartDimensions: ChartDimensions = useMemo(() => ({
     width: dimensions?.width || chart.config_json?.dimensions?.width || 400,
     height: dimensions?.height || chart.config_json?.dimensions?.height || 300,
@@ -61,69 +69,39 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
     theme: theme || chart.config_json?.theme
   }), [chart.config_json, chartDimensions, theme]);
 
-  // ✅ DYNAMIC PLUGIN LOADING FROM REGISTRY
-  useEffect(() => {
-    const loadChartPlugin = async () => {
-      setPluginLoading(true);
-      setPluginError(null);
+  // Get chart library and type
+  const chartLibrary = chart.config_json?.library || 'echarts';
+  const chartType = chart.chart_type || chart.config_json?.chartType || 'bar';
 
-      try {
-        // Initialize registry if not already done
-        await ChartRegistry.initialize();
+  // ============================================================================
+  // ERROR HANDLING
+  // ============================================================================
 
-        // Get chart type from config
-        const chartType = chart.chart_type || chart.config_json?.chartType;
-        const chartLibrary = chart.config_json?.library || 'echarts';
-        
-        // Try specific chart first, then fallback to library renderer
-        const pluginKey = `${chartLibrary}-${chartType}` || `${chartLibrary}-renderer`;
-        
-        console.log(`Loading chart plugin: ${pluginKey}`);
-        
-        // Get plugin from registry
-        let plugin = ChartRegistry.getPlugin(pluginKey);
-        
-        // Fallback to main renderer if specific chart not found
-        if (!plugin) {
-          const fallbackKey = `${chartLibrary}-renderer`;
-          plugin = ChartRegistry.getPlugin(fallbackKey);
-          console.log(`Using fallback renderer: ${fallbackKey}`);
-        }
-
-       if (plugin?.component) {
-  const validPlugin = plugin; // TypeScript now knows this is not undefined
-  setChartComponent(() => validPlugin.component);
-  console.log(`✅ Loaded chart component: ${validPlugin.displayName}`);
-} else {
-  throw new Error(`Chart plugin not found: ${pluginKey}`);
-}
-
-      } catch (error) {
-        console.error('Failed to load chart plugin:', error);
-        setPluginError(error instanceof Error ? error.message : 'Failed to load chart plugin');
-      } finally {
-        setPluginLoading(false);
-      }
-    };
-
-    loadChartPlugin();
-  }, [chart.chart_type, chart.config_json?.chartType, chart.config_json?.library]);
-
-  // Handle chart errors
-  const handleChartError = useCallback((errorInfo: ChartError | string) => {
-    const chartError: ChartError = typeof errorInfo === 'string' 
-      ? {
-          code: 'CHART_RENDER_ERROR',
-          message: errorInfo,
-          timestamp: Date.now()
-        }
-      : errorInfo;
+  const handleChartError = useCallback((errorInfo: ChartError | string | Error) => {
+    let chartError: ChartError;
+    
+    if (typeof errorInfo === 'string') {
+      chartError = {
+        code: 'CHART_RENDER_ERROR',
+        message: errorInfo,
+        timestamp: Date.now()
+      };
+    } else if (errorInfo instanceof Error) {
+      chartError = {
+        code: 'CHART_RENDER_ERROR',
+        message: errorInfo.message,
+        timestamp: Date.now(),
+        details: errorInfo.stack
+      };
+    } else {
+      chartError = errorInfo;
+    }
 
     console.error('Chart render error:', chartError);
+    setPluginError(chartError.message);
     onError?.(chartError);
   }, [onError]);
 
-  // Handle chart interactions
   const handleInteraction = useCallback((event: ChartInteractionEvent) => {
     // Add chart context to the event
     const enhancedEvent: ChartInteractionEvent = {
@@ -152,19 +130,115 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
     }
   }, [chart.id, onInteraction, onDataPointClick, onDataPointHover, onLegendClick, onZoom]);
 
-  // Calculate the inner dimensions (subtracting margins and padding)
-  const innerDimensions = useMemo(() => {
-    const margin = chartDimensions.margin!;
-    const padding = chartDimensions.padding || { top: 0, right: 0, bottom: 0, left: 0 };
-    
-    return {
-      width: chartDimensions.width - (margin.left ?? 0) - (margin.right ?? 0) - (padding.left || 0) - (padding.right || 0),
-      height : chartDimensions.height - (margin.top ?? 0) - (margin.bottom ?? 0) - (padding.top || 0) - (padding.bottom || 0)
+  // ============================================================================
+  // PLUGIN LOADING WITH FACTORY AND REGISTRY
+  // ============================================================================
+
+  useEffect(() => {
+    const loadChartPlugin = async () => {
+      setPluginLoading(true);
+      setPluginError(null);
+      setChartComponent(null);
+      setChartElement(null);
+
+      try {
+        // Ensure both systems are initialized
+        await Promise.all([
+          ChartRegistry.initialize(),
+          ChartFactory.initialize()
+        ]);
+
+        console.log(`🔍 Loading chart: ${chartLibrary}-${chartType}`);
+
+        // Strategy 1: Try to get component directly from ChartRegistry
+        const pluginKey = `${chartLibrary}-${chartType}`;
+        const plugin = ChartRegistry.getPlugin(pluginKey);
+
+        if (plugin?.component) {
+          // Use plugin component directly from registry
+          console.log(`✅ Using Registry component: ${plugin.displayName}`);
+          setChartComponent(() => plugin.component);
+        } else {
+          // Strategy 2: Use ChartFactory to create chart element (for chart builder & dashboard template)
+          console.log(`🏭 Using ChartFactory for: ${chartLibrary}-${chartType}`);
+          
+          const isSupported = await ChartFactory.isChartSupported(chartType, chartLibrary);
+          if (!isSupported) {
+            throw new Error(`Chart type '${chartType}' is not supported for library '${chartLibrary}'`);
+          }
+
+          // Create chart element using ChartFactory
+          const element = ChartFactory.createChart(chartType, chartLibrary, {
+            data: data || [],
+            config: chartConfig,
+            dimensions: chartDimensions,
+            onError: handleChartError,
+            onInteraction: handleInteraction
+          });
+
+          if (element) {
+            console.log(`✅ Created chart element via ChartFactory`);
+            setChartElement(element);
+          } else {
+            throw new Error(`ChartFactory failed to create chart element for ${pluginKey}`);
+          }
+        }
+
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error loading chart';
+        console.error(`❌ Failed to load chart plugin ${pluginKey}:`, error);
+        
+        // Enhanced error reporting
+        const registryStats = ChartRegistry.getRegistrationStats();
+        console.log('📊 Registry stats:', registryStats);
+        
+        handleChartError({
+          code: 'PLUGIN_LOAD_ERROR',
+          message: `Failed to load ${pluginKey}: ${errorMessage}`,
+          timestamp: Date.now(),
+          details: {
+            pluginKey,
+            chartType,
+            chartLibrary,
+            availablePlugins: registryStats.plugins,
+            registryInitialized: ChartRegistry.hasPlugin('echarts-bar') // Basic check
+          }
+        });
+      } finally {
+        setPluginLoading(false);
+      }
     };
-  }, [chartDimensions]);
 
-  // Render plugin loading state
-  if (pluginLoading) {
+    // Only load if we have the required data
+    if (chartType && chartLibrary && data) {
+      loadChartPlugin();
+    } else {
+      setPluginLoading(false);
+      setPluginError('Missing required chart configuration');
+    }
+  }, [chartType, chartLibrary, data, chartConfig, chartDimensions, handleChartError, handleInteraction]);
+
+  // ============================================================================
+  // CHART RENDERING EFFECT
+  // ============================================================================
+
+  useEffect(() => {
+    if (ChartComponent || chartElement) {
+      setIsRendering(true);
+      // Simulate rendering delay
+      const timer = setTimeout(() => {
+        setIsRendering(false);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [ChartComponent, chartElement]);
+
+  // ============================================================================
+  // RENDER STATES
+  // ============================================================================
+
+  // Loading state
+  if (loading || pluginLoading || isRendering) {
     return (
       <Box
         className={className}
@@ -176,76 +250,30 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
           alignItems: 'center',
           justifyContent: 'center',
           border: '1px dashed #ccc',
-          borderRadius: 1
-        }}
-      >
-        <Box textAlign="center">
-          <CircularProgress size={30} />
-          <Typography variant="body2" sx={{ mt: 1 }}>
-            Loading chart plugin...
-          </Typography>
-        </Box>
-      </Box>
-    );
-  }
-
-  // Render plugin error state
-  if (pluginError) {
-    return (
-      <Box
-        className={className}
-        style={style}
-        sx={{
-          width: chartDimensions.width,
-          height: chartDimensions.height,
-          p: 2
-        }}
-      >
-        <Alert severity="error" sx={{ height: '100%', display: 'flex', alignItems: 'center' }}>
-          <Box>
-            <Typography variant="subtitle2" gutterBottom>
-              Failed to load chart plugin
-            </Typography>
-            <Typography variant="body2">
-              {pluginError}
-            </Typography>
-            <Typography variant="caption" sx={{ mt: 1, display: 'block' }}>
-              Chart Type: {chart.chart_type || 'unknown'} | Library: {chart.config_json?.library || 'unknown'}
-            </Typography>
-          </Box>
-        </Alert>
-      </Box>
-    );
-  }
-
-  // Render data loading state
-  if (loading) {
-    return (
-      <Box
-        className={className}
-        style={style}
-        sx={{
-          width: chartDimensions.width,
-          height: chartDimensions.height,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          border: '1px dashed #ccc',
-          borderRadius: 1
+          borderRadius: 1,
+          position: 'relative'
         }}
       >
         <Box textAlign="center">
           <CircularProgress size={40} />
           <Typography variant="body2" sx={{ mt: 2 }}>
-            Loading chart data...
+            {pluginLoading 
+              ? `Loading ${chartLibrary} plugin...` 
+              : isRendering 
+                ? `Rendering ${chartType} chart...` 
+                : 'Loading chart data...'
+            }
+          </Typography>
+          <Typography variant="caption" sx={{ mt: 1, opacity: 0.7, display: 'block' }}>
+            {chartLibrary}-{chartType}
           </Typography>
         </Box>
       </Box>
     );
   }
 
-  // Render data error state
-  if (error) {
+  // Error state
+  if (error || pluginError) {
     return (
       <Box
         className={className}
@@ -259,10 +287,17 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
         <Alert severity="error" sx={{ height: '100%', display: 'flex', alignItems: 'center' }}>
           <Box>
             <Typography variant="subtitle2" gutterBottom>
-              Failed to render chart
+              Chart Rendering Failed
             </Typography>
-            <Typography variant="body2">
-              {error as any}
+            <Typography variant="body2" gutterBottom>
+              {pluginError || error}
+            </Typography>
+            <Typography variant="caption" sx={{ opacity: 0.7, display: 'block' }}>
+              Chart: {chartType} | Library: {chartLibrary}
+            </Typography>
+            <Typography variant="caption" sx={{ opacity: 0.7, display: 'block', mt: 1 }}>
+              Available plugins: {ChartRegistry.getAvailableCharts().slice(0, 3).join(', ')}
+              {ChartRegistry.getAvailableCharts().length > 3 && '...'}
             </Typography>
           </Box>
         </Alert>
@@ -270,7 +305,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
     );
   }
 
-  // Render empty state
+  // Empty data state
   if (!data || data.length === 0) {
     return (
       <Box
@@ -286,18 +321,26 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
           borderRadius: 1
         }}
       >
-        <Typography variant="body2" color="text.secondary">
-          No data available
-        </Typography>
+        <Box textAlign="center">
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            No data available
+          </Typography>
+          <Typography variant="caption" sx={{ opacity: 0.7 }}>
+            {chartLibrary}-{chartType}
+          </Typography>
+        </Box>
       </Box>
     );
   }
 
-  // Common props for all chart renderers
+  // ============================================================================
+  // MAIN CHART RENDER
+  // ============================================================================
+
   const commonProps: ChartProps = {
     chart,
     data,
-    columns: (chart as any).columns || [],
+    columns: columns || [],
     config: chartConfig,
     dimensions: chartDimensions,
     theme,
@@ -307,9 +350,8 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
     style
   };
 
-  // ✅ RENDER DYNAMICALLY LOADED COMPONENT
-  if (ChartComponent) {
-    return (
+  return (
+    <ChartErrorBoundary onError={handleChartError}>
       <Box
         className={className}
         style={style}
@@ -317,64 +359,127 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
           width: chartDimensions.width,
           height: chartDimensions.height,
           position: 'relative',
-          ...chartDimensions.margin && {
-            '& > *': {
-              margin: `${chartDimensions.margin.top}px ${chartDimensions.margin.right}px ${chartDimensions.margin.bottom}px ${chartDimensions.margin.left}px`
-            }
-          }
+          overflow: 'hidden'
         }}
       >
-        <ChartComponent {...commonProps} />
-        
-        {/* Debug info in development */}
+        {/* Render via Registry Component */}
+        {ChartComponent && (
+          <ChartComponent {...commonProps} />
+        )}
+
+        {/* Render via Factory Element */}
+        {chartElement && !ChartComponent && (
+          <Box
+            sx={{
+              width: '100%',
+              height: '100%',
+              '& > *': {
+                width: '100%',
+                height: '100%'
+              }
+            }}
+          >
+            {chartElement}
+          </Box>
+        )}
+
+        {/* Chart Metadata Overlay */}
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            display: 'flex',
+            gap: 1,
+            opacity: 0.7,
+            pointerEvents: 'none'
+          }}
+        >
+          <Typography
+            variant="caption"
+            sx={{
+              backgroundColor: 'rgba(0,0,0,0.6)',
+              color: 'white',
+              px: 1,
+              py: 0.5,
+              borderRadius: 0.5,
+              fontSize: '10px'
+            }}
+          >
+            {chartType}
+          </Typography>
+          <Typography
+            variant="caption"
+            sx={{
+              backgroundColor: getLibraryColor(chartLibrary),
+              color: 'white',
+              px: 1,
+              py: 0.5,
+              borderRadius: 0.5,
+              fontSize: '10px'
+            }}
+          >
+            {chartLibrary}
+          </Typography>
+        </Box>
+
+        {/* Debug Info (only in development) */}
         {process.env.NODE_ENV === 'development' && (
           <Box
             sx={{
               position: 'absolute',
-              top: 0,
-              right: 0,
-              fontSize: '10px',
-              background: 'rgba(0,0,0,0.7)',
-              color: 'white',
-              p: 0.5,
-              borderRadius: '0 0 0 4px',
-              zIndex: 1000,
-              display: 'none',
-              '&:hover': { display: 'block' }
+              bottom: 8,
+              left: 8,
+              fontSize: '8px',
+              opacity: 0.5,
+              pointerEvents: 'none',
+              fontFamily: 'monospace'
             }}
           >
-            <div>Chart: {chart.id}</div>
-            <div>Type: {chart.chart_type}</div>
-            <div>Library: {chart.config_json?.library}</div>
-            <div>Dimensions: {chartDimensions.width}×{chartDimensions.height}</div>
-            <div>Inner: {innerDimensions.width}×{innerDimensions.height}</div>
-            <div>Data Points: {data.length}</div>
+            {ChartComponent ? 'Registry' : chartElement ? 'Factory' : 'None'}
           </Box>
         )}
       </Box>
-    );
-  }
-
-  // Fallback if no component loaded
-  return (
-    <Box
-      className={className}
-      style={style}
-      sx={{
-        width: chartDimensions.width,
-        height: chartDimensions.height,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        border: '1px dashed #ccc',
-        borderRadius: 1
-      }}
-    >
-      <Typography variant="body2" color="text.secondary">
-        Chart component not available
-      </Typography>
-    </Box>
+    </ChartErrorBoundary>
   );
+};
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+function getLibraryColor(library: string): string {
+  switch (library) {
+    case 'echarts': return '#1976d2';
+    case 'chartjs': return '#2e7d32';
+    case 'plotly': return '#7b1fa2';
+    case 'd3js': return '#f57c00';
+    default: return '#757575';
+  }
+}
+
+// ============================================================================
+// ENHANCED DEBUG UTILITIES
+// ============================================================================
+
+// Debug function to inspect chart loading (development only)
+export const debugChartRenderer = () => {
+  if (process.env.NODE_ENV === 'development') {
+    console.group('🔍 ChartRenderer Debug Info');
+    
+    console.log('📦 Registry Status:');
+    ChartRegistry.debugRegistry?.();
+    
+    console.log('🏭 Factory Status:');
+    ChartFactory.getAllCharts().then(charts => {
+      console.log('Available charts via Factory:', charts.length);
+      charts.slice(0, 5).forEach(chart => {
+        console.log(`  - ${chart.name}: ${chart.displayName}`);
+      });
+    });
+    
+    console.groupEnd();
+  }
 };
 
 export default ChartRenderer;
