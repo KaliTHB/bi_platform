@@ -1,202 +1,201 @@
 // src/plugins/charts/registry/ChartRegistry.ts
-import { ChartPluginConfig } from '@/types/chart.types';
+import { ChartPlugin } from '@/types/plugin.types';
+
+// Use ChartPlugin as the base interface for registry
+type ChartPluginConfig = ChartPlugin & {
+  component: React.ComponentType<any>;
+  interactionSupport?: {
+    tooltip?: boolean;
+    zoom?: boolean;
+    pan?: boolean;
+    selection?: boolean;
+    brush?: boolean;
+    drilldown?: boolean;
+    crossFilter?: boolean;
+  };
+};
+
+// Static imports at the top level - this solves the webpack critical dependency warning
+const chartModules = {
+  'echarts-line': () => import('../echarts/LineChart'),
+  'echarts-bar': () => import('../echarts/BarChart'), 
+  'echarts-pie': () => import('../echarts/PieChart'),
+  'echarts-scatter': () => import('../echarts/ScatterChart'),
+  'chartjs-line': () => import('../chartjs/LineChart'),
+  'chartjs-doughnut': () => import('../chartjs/DoughnutChart'),
+  
+  // Optional modules - these will fail gracefully if files don't exist
+  'echarts-heatmap': () => import('../echarts/HeatmapChart').catch(() => null),
+  'echarts-treemap': () => import('../echarts/TreemapChart').catch(() => null),
+  'echarts-gauge': () => import('../echarts/GaugeChart').catch(() => null),
+  'echarts-sunburst': () => import('../echarts/SunburstChart').catch(() => null),
+  'echarts-parallel': () => import('../echarts/ParallelChart').catch(() => null),
+  'echarts-waterfall': () => import('../echarts/WaterfallChart').catch(() => null),
+  'echarts-radar': () => import('../echarts/RadarChart').catch(() => null),
+  'chartjs-bar': () => import('../chartjs/BarChart').catch(() => null),
+  'chartjs-radar': () => import('../chartjs/RadarChart').catch(() => null),
+  'chartjs-bubble': () => import('../chartjs/BubbleChart').catch(() => null),
+  'chartjs-polar': () => import('../chartjs/PolarChart').catch(() => null)
+} as const;
+
+type ChartModuleKey = keyof typeof chartModules;
 
 export class ChartRegistry {
-  private static plugins = new Map<string, ChartPluginConfig>();
-  private static initialized = false;
-  
+  private static plugins: Map<string, ChartPluginConfig> = new Map();
+  private static initialized: boolean = false;
+  private static initializationPromise: Promise<void> | null = null;
+
+  /**
+   * Initialize the chart registry using the chartModules const
+   */
   static async initialize(): Promise<void> {
-    if (this.initialized) return;
+    // Prevent multiple initializations
+    if (ChartRegistry.initialized) {
+      console.log('📊 ChartRegistry already initialized');
+      return;
+    }
+
+    // Return existing promise if initialization is in progress
+    if (ChartRegistry.initializationPromise) {
+      return ChartRegistry.initializationPromise;
+    }
+
+    // Create and store the initialization promise
+    ChartRegistry.initializationPromise = ChartRegistry.doInitialization();
+    return ChartRegistry.initializationPromise;
+  }
+
+  /**
+   * Perform the actual initialization
+   */
+  private static async doInitialization(): Promise<void> {
+    console.log('🚀 Initializing ChartRegistry with dynamic module loading...');
     
     try {
-      console.log('Initializing ChartRegistry...');
-      
-      // ONLY IMPORT COMPONENTS THAT ACTUALLY EXIST
-      // Start conservative - add more as you implement them
-      const chartImports = [
-        // Core ECharts components that should exist
-        { 
-          name: 'echarts-bar',
-          importFn: async () => {
-            try {
-              const m = await import('../echarts/BarChart');
-              return m.EChartsBarChartConfig || this.createFallbackConfig('echarts-bar', 'Bar Chart', m.default);
-            } catch (error) {
-              console.warn('BarChart not found, skipping...');
-              return null;
-            }
-          }
-        },
-        { 
-          name: 'echarts-pie',
-          importFn: async () => {
-            try {
-              const m = await import('../echarts/PieChart');
-              return m.EChartsPieChartConfig || this.createFallbackConfig('echarts-pie', 'Pie Chart', m.default);
-            } catch (error) {
-              console.warn('PieChart not found, skipping...');
-              return null;
-            }
-          }
-        },
-        { 
-          name: 'echarts-line',
-          importFn: async () => {
-            try {
-              const m = await import('../echarts/LineChart');
-              return m.EChartsLineChartConfig || this.createFallbackConfig('echarts-line', 'Line Chart', m.default);
-            } catch (error) {
-              console.warn('LineChart not found, skipping...');
-              return null;
-            }
-          }
-        },
-        { 
-          name: 'echarts-scatter',
-          importFn: async () => {
-            try {
-              const m = await import('../echarts/ScatterChart');
-              return m.EChartsScatterChartConfig || this.createFallbackConfig('echarts-scatter', 'Scatter Chart', m.default);
-            } catch (error) {
-              console.warn('ScatterChart not found, skipping...');
-              return null;
-            }
-          }
-        },
-        { 
-          name: 'echarts-waterfall',
-          importFn: async () => {
-            try {
-              const m = await import('../echarts/WaterfallChart');
-              return m.EChartsWaterfallChartConfig || this.createFallbackConfig('echarts-waterfall', 'Waterfall Chart', m.WaterfallChart || m.default);
-            } catch (error) {
-              console.warn('WaterfallChart not found, skipping...');
-              return null;
-            }
-          }
-        },
-        { 
-          name: 'echarts-radar',
-          importFn: async () => {
-            try {
-              const m = await import('../echarts/RadarChart');
-              return m.EChartsRadarChartConfig || this.createFallbackConfig('echarts-radar', 'Radar Chart', m.default);
-            } catch (error) {
-              console.warn('RadarChart not found, skipping...');
-              return null;
-            }
-          }
-        },
-
-        // Chart.js components with error handling
-        { 
-          name: 'chartjs-line',
-          importFn: async () => {
-            try {
-              const m = await import('../chartjs/LineChart');
-              return m.ChartJSLineConfig || this.createFallbackConfig('chartjs-line', 'Chart.js Line Chart', m.default);
-            } catch (error) {
-              console.warn('Chart.js LineChart not found, skipping...');
-              return null;
-            }
-          }
-        },
-        { 
-          name: 'chartjs-doughnut',
-          importFn: async () => {
-            try {
-              const m = await import('../chartjs/DoughnutChart');
-              return m.ChartJSDoughnutConfig || this.createFallbackConfig('chartjs-doughnut', 'Chart.js Doughnut Chart', m.default);
-            } catch (error) {
-              console.warn('Chart.js DoughnutChart not found, skipping...');
-              return null;
-            }
-          }
-        }
-
-        // Add more components here as you implement them
-        // Uncomment these when the files exist:
-        
-        // { 
-        //   name: 'echarts-sunburst',
-        //   importFn: async () => {
-        //     try {
-        //       const m = await import('../echarts/SunburstChart');
-        //       return m.EChartsSunburstChartConfig || this.createFallbackConfig('echarts-sunburst', 'Sunburst Chart', m.default);
-        //     } catch (error) {
-        //       console.warn('SunburstChart not found, skipping...');
-        //       return null;
-        //     }
-        //   }
-        // },
-        // { 
-        //   name: 'echarts-parallel',
-        //   importFn: async () => {
-        //     try {
-        //       const m = await import('../echarts/ParallelChart');
-        //       return m.EChartsParallelChartConfig || this.createFallbackConfig('echarts-parallel', 'Parallel Chart', m.default);
-        //     } catch (error) {
-        //       console.warn('ParallelChart not found, skipping...');
-        //       return null;
-        //     }
-        //   }
-        // }
-      ];
-
-      // Load plugins with enhanced error handling
       let loadedCount = 0;
       let skippedCount = 0;
 
-      for (const { name, importFn } of chartImports) {
+      // Process all chart modules from the const definition
+      const initPromises = Object.entries(chartModules).map(async ([chartName, importFn]) => {
         try {
-          const config = await importFn();
-          if (config && config.component) {
-            const validatedConfig = this.validateAndEnrichConfig(config, name);
-            this.registerPlugin(validatedConfig);
-            loadedCount++;
-            console.log(`✅ Registered chart plugin: ${validatedConfig.name}`);
-          } else {
+          console.log(`🔄 Loading chart module: ${chartName}`);
+          
+          const module = await importFn();
+          
+          // Skip if module is null (optional module that failed to load)
+          if (!module) {
+            console.log(`⚠️ Skipped optional chart module: ${chartName} (not available)`);
             skippedCount++;
-            console.log(`⚠️ Skipped chart plugin: ${name} (no component)`);
+            return;
+          }
+
+          // Try to extract the config from the module
+          const config = ChartRegistry.extractConfigFromModule(module, chartName);
+          
+          if (config && config.component) {
+            const validatedConfig = ChartRegistry.validateAndEnrichConfig(config, chartName);
+            ChartRegistry.registerPlugin(validatedConfig);
+            console.log(`✅ Registered chart plugin: ${validatedConfig.name}`);
+            loadedCount++;
+          } else {
+            console.log(`⚠️ Skipped chart module: ${chartName} (no valid config or component)`);
+            skippedCount++;
           }
         } catch (error) {
+          console.warn(`❌ Failed to load chart module ${chartName}:`, error);
           skippedCount++;
-          console.warn(`❌ Failed to load chart plugin ${name}:`, error);
         }
-      }
+      });
 
-      this.initialized = true;
+      // Wait for all modules to be processed
+      await Promise.allSettled(initPromises);
+
+      ChartRegistry.initialized = true;
       console.log(`🎯 ChartRegistry initialized successfully!`);
       console.log(`   - Loaded: ${loadedCount} plugins`);
       console.log(`   - Skipped: ${skippedCount} plugins`);
-      console.log(`   - Available charts: ${this.getAvailableCharts().join(', ')}`);
+      console.log(`   - Available charts: ${ChartRegistry.getAvailableCharts().join(', ')}`);
       
     } catch (error) {
       console.error('❌ Critical error initializing ChartRegistry:', error);
       // Initialize with empty registry rather than failing completely
-      this.initialized = true;
+      ChartRegistry.initialized = true;
     }
+  }
+
+  /**
+   * Extract configuration from a loaded module
+   * Tries multiple possible export patterns
+   */
+  private static extractConfigFromModule(module: any, chartName: string): ChartPluginConfig | null {
+    if (!module) return null;
+
+    // List of possible config export names to try
+    const possibleConfigNames = [
+      // Exact match patterns
+      `${ChartRegistry.toPascalCase(chartName)}Config`,
+      `${ChartRegistry.toPascalCase(chartName.replace(/^(echarts|chartjs)-/, ''))}Config`,
+      
+      // Library-specific patterns
+      chartName.startsWith('echarts-') ? `ECharts${ChartRegistry.toPascalCase(chartName.replace('echarts-', ''))}ChartConfig` : null,
+      chartName.startsWith('chartjs-') ? `ChartJS${ChartRegistry.toPascalCase(chartName.replace('chartjs-', ''))}Config` : null,
+      
+      // Generic patterns
+      'chartConfig',
+      'config',
+      'default'
+    ].filter(Boolean) as string[];
+
+    // Try each possible config name
+    for (const configName of possibleConfigNames) {
+      if (module[configName]) {
+        console.log(`🔍 Found config for ${chartName} at export: ${configName}`);
+        return module[configName];
+      }
+    }
+
+    // If no config found, try to create a fallback from the default export
+    if (module.default) {
+      console.log(`📝 Creating fallback config for ${chartName} from default export`);
+      return ChartRegistry.createFallbackConfig(chartName, module.default);
+    }
+
+    return null;
+  }
+
+  /**
+   * Convert kebab-case to PascalCase
+   */
+  private static toPascalCase(str: string): string {
+    return str
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join('');
   }
 
   /**
    * Create a fallback configuration for charts that don't have proper plugin configs
    */
-  private static createFallbackConfig(name: string, displayName: string, component: any): ChartPluginConfig | null {
+  private static createFallbackConfig(chartName: string, component: any): ChartPluginConfig | null {
     if (!component) return null;
 
-    console.log(`📝 Creating fallback config for ${name}`);
-
-    const library = name.startsWith('chartjs-') ? 'chartjs' : 
-                   name.startsWith('echarts-') ? 'echarts' : 'unknown';
+    const library = chartName.startsWith('chartjs-') ? 'chartjs' : 
+                   chartName.startsWith('echarts-') ? 'echarts' : 'unknown';
+    
+    const displayName = chartName
+      .replace(/^(chartjs-|echarts-)/, '')
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ') + ' Chart';
 
     return {
-      name,
+      name: chartName,
       displayName,
       category: 'basic',
       library: library as any,
       version: '1.0.0',
       description: `${displayName} - Auto-generated configuration`,
-      tags: [name.replace(/^(chartjs-|echarts-)/, ''), 'auto-generated'],
+      tags: [chartName.replace(/^(chartjs-|echarts-)/, ''), 'auto-generated'],
       
       configSchema: {
         type: 'object',
@@ -211,7 +210,7 @@ export class ChartRegistry {
             title: 'X-Axis Field'
           },
           yField: {
-            type: 'string',
+            type: 'string', 
             title: 'Y-Axis Field'
           }
         }
@@ -261,13 +260,6 @@ export class ChartRegistry {
   }
 
   /**
-   * Ensure the registry is initialized (alternative to initialize for compatibility)
-   */
-  static async ensureInitialized(): Promise<void> {
-    return this.initialize();
-  }
-  
-  /**
    * Register a single plugin
    */
   static registerPlugin(plugin: ChartPluginConfig): void {
@@ -281,74 +273,107 @@ export class ChartRegistry {
       return;
     }
 
-    if (this.plugins.has(plugin.name)) {
+    if (ChartRegistry.plugins.has(plugin.name)) {
       console.warn(`Plugin "${plugin.name}" is already registered, overwriting...`);
     }
 
-    this.plugins.set(plugin.name, plugin);
+    ChartRegistry.plugins.set(plugin.name, plugin);
   }
-  
+
   /**
    * Get a plugin by name
    */
   static getPlugin(name: string): ChartPluginConfig | undefined {
-    const plugin = this.plugins.get(name);
+    const plugin = ChartRegistry.plugins.get(name);
     if (!plugin) {
-      console.warn(`Chart plugin "${name}" not found. Available: ${this.getAvailableCharts().join(', ')}`);
+      console.warn(`Chart plugin "${name}" not found. Available plugins: ${Array.from(ChartRegistry.plugins.keys()).join(', ')}`);
     }
     return plugin;
   }
-  
+
   /**
-   * Get chart configuration (alias for getPlugin)
+   * Check if a plugin exists
    */
-  static getChartConfig(name: string): ChartPluginConfig | undefined {
-    return this.getPlugin(name);
+  static hasPlugin(name: string): boolean {
+    return ChartRegistry.plugins.has(name);
   }
-  
+
   /**
-   * Get all registered plugins
-   */
-  static getAllPlugins(): ChartPluginConfig[] {
-    return Array.from(this.plugins.values());
-  }
-  
-  /**
-   * Get list of available chart names
+   * Get all available chart names
    */
   static getAvailableCharts(): string[] {
-    return Array.from(this.plugins.keys());
+    return Array.from(ChartRegistry.plugins.keys());
   }
-  
+
+  /**
+   * Get all plugins
+   */
+  static getAllPlugins(): ChartPluginConfig[] {
+    return Array.from(ChartRegistry.plugins.values());
+  }
+
+  /**
+   * Get plugins as a Map
+   */
+  static getPluginsMap(): Map<string, ChartPluginConfig> {
+    return new Map(ChartRegistry.plugins);
+  }
+
+  /**
+   * Clear all plugins (useful for testing)
+   */
+  static clearPlugins(): void {
+    ChartRegistry.plugins.clear();
+    ChartRegistry.initialized = false;
+    ChartRegistry.initializationPromise = null;
+  }
+
+  /**
+   * Ensure the registry is initialized (alternative method name for compatibility)
+   */
+  static async ensureInitialized(): Promise<void> {
+    return ChartRegistry.initialize();
+  }
+
+  /**
+   * Add a new chart module dynamically (for runtime registration)
+   */
+  static async addDynamicChart(name: string, importFn: () => Promise<any>): Promise<boolean> {
+    try {
+      console.log(`🔄 Dynamically loading chart: ${name}`);
+      
+      const module = await importFn();
+      const config = ChartRegistry.extractConfigFromModule(module, name);
+      
+      if (config && config.component) {
+        const validatedConfig = ChartRegistry.validateAndEnrichConfig(config, name);
+        ChartRegistry.registerPlugin(validatedConfig);
+        console.log(`✅ Dynamically registered chart plugin: ${validatedConfig.name}`);
+        return true;
+      } else {
+        console.warn(`⚠️ Failed to dynamically register chart: ${name} (no valid config)`);
+        return false;
+      }
+    } catch (error) {
+      console.error(`❌ Failed to dynamically load chart ${name}:`, error);
+      return false;
+    }
+  }
+
   /**
    * Get plugins filtered by category
    */
   static getPluginsByCategory(category: string): ChartPluginConfig[] {
-    return this.getAllPlugins().filter(plugin => plugin.category === category);
+    return ChartRegistry.getAllPlugins().filter(plugin => plugin.category === category);
   }
-  
+
   /**
    * Get plugins filtered by library
    */
   static getPluginsByLibrary(library: string): ChartPluginConfig[] {
-    return this.getAllPlugins().filter(plugin => plugin.library === library);
+    return ChartRegistry.getAllPlugins().filter(plugin => plugin.library === library);
   }
-  
-  /**
-   * Check if a plugin is registered
-   */
-  static hasPlugin(name: string): boolean {
-    return this.plugins.has(name);
-  }
-  
-  /**
-   * Clear all plugins and reset initialization state
-   */
-  static clear(): void {
-    this.plugins.clear();
-    this.initialized = false;
-  }
-  
+
   /**
    * Get registration statistics
    */
@@ -358,7 +383,7 @@ export class ChartRegistry {
     byLibrary: Record<string, number>;
     plugins: string[];
   } {
-    const plugins = this.getAllPlugins();
+    const plugins = ChartRegistry.getAllPlugins();
     
     const byCategory = plugins.reduce((acc, plugin) => {
       acc[plugin.category] = (acc[plugin.category] || 0) + 1;
@@ -383,12 +408,12 @@ export class ChartRegistry {
    */
   static debugRegistry(): void {
     console.group('🔍 ChartRegistry Debug Info');
-    console.log('Initialized:', this.initialized);
-    console.log('Plugin count:', this.plugins.size);
+    console.log('Initialized:', ChartRegistry.initialized);
+    console.log('Plugin count:', ChartRegistry.plugins.size);
     
-    if (this.plugins.size > 0) {
+    if (ChartRegistry.plugins.size > 0) {
       console.table(
-        Array.from(this.plugins.entries()).map(([name, config]) => ({
+        Array.from(ChartRegistry.plugins.entries()).map(([name, config]: [string, ChartPluginConfig]) => ({
           name,
           displayName: config.displayName,
           category: config.category,
@@ -397,42 +422,38 @@ export class ChartRegistry {
           hasComponent: !!config.component
         }))
       );
+    } else {
+      console.log('No plugins registered');
     }
     
     console.groupEnd();
   }
 
   /**
-   * Gradually add more components as they become available
+   * Get statistics about the registry
    */
-  static async addOptionalComponents(): Promise<void> {
-    const optionalComponents = [
-      // Add these when the files exist
-      { name: 'echarts-heatmap', path: '../echarts/HeatmapChart', configName: 'EChartsHeatmapChartConfig' },
-      { name: 'echarts-treemap', path: '../echarts/TreemapChart', configName: 'EChartsTreemapChartConfig' },
-      { name: 'echarts-gauge', path: '../echarts/GaugeChart', configName: 'EChartsGaugeChartConfig' },
-      { name: 'echarts-sunburst', path: '../echarts/SunburstChart', configName: 'EChartsSunburstChartConfig' },
-      { name: 'echarts-parallel', path: '../echarts/ParallelChart', configName: 'EChartsParallelChartConfig' },
-      { name: 'chartjs-bar', path: '../chartjs/BarChart', configName: 'ChartJSBarConfig' },
-      { name: 'chartjs-radar', path: '../chartjs/RadarChart', configName: 'ChartJSRadarConfig' }
-    ];
+  static getStats(): {
+    totalPlugins: number;
+    pluginsByLibrary: Record<string, number>;
+    pluginsByCategory: Record<string, number>;
+    initialized: boolean;
+  } {
+    const plugins = Array.from(ChartRegistry.plugins.values());
+    
+    const pluginsByLibrary: Record<string, number> = {};
+    const pluginsByCategory: Record<string, number> = {};
+    
+    plugins.forEach(plugin => {
+      pluginsByLibrary[plugin.library] = (pluginsByLibrary[plugin.library] || 0) + 1;
+      pluginsByCategory[plugin.category] = (pluginsByCategory[plugin.category] || 0) + 1;
+    });
 
-    for (const { name, path, configName } of optionalComponents) {
-      if (!this.hasPlugin(name)) {
-        try {
-          const module = await import(path);
-          const config = module[configName] || this.createFallbackConfig(name, name, module.default);
-          
-          if (config && config.component) {
-            const validatedConfig = this.validateAndEnrichConfig(config, name);
-            this.registerPlugin(validatedConfig);
-            console.log(`✅ Added optional chart plugin: ${name}`);
-          }
-        } catch (error) {
-          // Silently ignore - these are optional
-        }
-      }
-    }
+    return {
+      totalPlugins: plugins.length,
+      pluginsByLibrary,
+      pluginsByCategory,
+      initialized: ChartRegistry.initialized
+    };
   }
 }
 

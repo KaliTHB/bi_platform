@@ -1443,3 +1443,155 @@ export interface Chart {
   created_at: Date;
   updated_at: Date;
 }
+
+/**
+ * Complete Props for ChartContainer component
+ * Based on actual usage in ChartContainer.tsx and DashboardContainer.tsx
+ */
+export interface ChartContainerProps {
+  // Core required props
+  chart: Chart;
+  
+  // Context props
+  workspaceId?: string;
+  dashboardId?: string;
+  
+  // Display modes
+  preview?: boolean;
+  fullscreen?: boolean;
+  
+  // Data and filtering
+  filters?: any[] | FilterConfig[];
+  globalFilters?: Record<string, any>;
+  
+  // Layout and dimensions
+  dimensions?: ChartDimensions | {
+    width: number | string;
+    height: number | string;
+  };
+  position?: ChartPosition;
+  
+  // Theming and styling
+  theme?: ChartTheme;
+  className?: string;
+  style?: React.CSSProperties;
+  
+  // Refresh and caching
+  refreshInterval?: number;
+  autoRefresh?: boolean;
+  refreshOnMount?: boolean;
+  cacheEnabled?: boolean;
+  cacheTTL?: number;
+  
+  // Data loading states
+  loading?: boolean;
+  initialLoading?: boolean;
+  refreshing?: boolean;
+  
+  // Error handling
+  error?: string | ChartError | null;
+  onError?: (error: string | ChartError) => void;
+  
+  // Event handlers - Chart interactions
+  onChartClick?: (chart: Chart) => void;
+  onChartDoubleClick?: (chart: Chart) => void;
+  onChartError?: (chartId: string, error: string) => void;
+  onChartLoad?: (chartId: string, metadata: ChartMetadata) => void;
+  onChartInteraction?: (event: ChartInteractionEvent) => void;
+  onChartRefresh?: (chartId: string) => void;
+  
+  // Event handlers - Data interactions
+  onDataPointClick?: (data: any, series?: any) => void;
+  onDataPointHover?: (data: any, series?: any) => void;
+  onLegendClick?: (series?: any) => void;
+  onZoom?: (domain?: any) => void;
+  onBrush?: (selection?: any) => void;
+  onDrillDown?: (data: any, level: DrilldownLevel) => void;
+  onCrossfiltrer?: (filter: FilterConfig) => void;
+  
+  // Configuration overrides
+  config?: Partial<ChartConfiguration>;
+  configOverrides?: Record<string, any>;
+  
+  // Data overrides (for testing/preview)
+  data?: any[];
+  columns?: ColumnInfo[];
+  
+  // Export functionality
+  allowExport?: boolean;
+  exportFormats?: ExportFormat[];
+  onExport?: (format: ExportFormat, options?: ChartExportOptions) => void;
+  
+  // Menu and actions
+  showMenu?: boolean;
+  menuActions?: ChartMenuAction[];
+  onMenuAction?: (action: string, chart: Chart) => void;
+  
+  // Performance options
+  lazy?: boolean;
+  virtualRendering?: boolean;
+  throttleResize?: number;
+  debounceRefresh?: number;
+  
+  // Accessibility
+  ariaLabel?: string;
+  ariaDescription?: string;
+  tabIndex?: number;
+  role?: string;
+  
+  // Development/debugging
+  debug?: boolean;
+  showMetadata?: boolean;
+  showPerformanceStats?: boolean;
+  
+  // Container behavior
+  resizable?: boolean;
+  draggable?: boolean;
+  selectable?: boolean;
+  
+  // Data management
+  dataSource?: string;
+  query?: string;
+  parameters?: Record<string, any>;
+  
+  // Responsive behavior  
+  responsive?: boolean;
+  breakpoints?: {
+    xs?: ChartDimensions;
+    sm?: ChartDimensions;
+    md?: ChartDimensions;
+    lg?: ChartDimensions;
+    xl?: ChartDimensions;
+  };
+}
+
+/**
+ * Chart menu action definition
+ */
+export interface ChartMenuAction {
+  id: string;
+  label: string;
+  icon?: React.ReactNode;
+  disabled?: boolean;
+  divider?: boolean;
+  onClick: (chart: Chart) => void;
+}
+
+/**
+ * Chart refresh options
+ */
+export interface ChartRefreshOptions {
+  force?: boolean;
+  clearCache?: boolean;
+  silent?: boolean;
+  preserveSelection?: boolean;
+}
+
+/**
+ * Chart validation result
+ */
+export interface ChartValidationResult {
+  valid: boolean;
+  errors: ValidationError[];
+  warnings?: ValidationWarning[];
+}
