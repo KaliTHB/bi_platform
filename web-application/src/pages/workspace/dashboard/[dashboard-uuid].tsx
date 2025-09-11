@@ -1,11 +1,11 @@
-// web-application/src/pages/dashboard/[dashboard-uuid].tsx
+// web-application/src/pages/workspace/[dashboard-uuid].tsx
 import React from 'react';
 import { GetServerSideProps } from 'next';
 import { useRouter } from 'next/router';
 import DashboardTemplate from '@/components/templates/DashboardTemplate';
 import { useAuth } from '@/hooks/useAuth';
 
-interface DirectDashboardPageProps {
+interface WorkspaceDashboardPageProps {
   dashboardId: string;
   dashboardData?: {
     id: string;
@@ -19,7 +19,7 @@ interface DirectDashboardPageProps {
   error?: string;
 }
 
-const DirectDashboardPage: React.FC<DirectDashboardPageProps> = ({
+const WorkspaceDashboardPage: React.FC<WorkspaceDashboardPageProps> = ({
   dashboardId,
   dashboardData,
   error
@@ -44,29 +44,26 @@ const DirectDashboardPage: React.FC<DirectDashboardPageProps> = ({
     );
   }
 
-  // Handle navigation back
+  // Handle navigation back to workspace
   const handleBack = () => {
-    if (dashboardData?.workspace_slug) {
-      // Go to workspace dashboards list
-      router.push(`/workspace/${dashboardData.workspace_slug}/dashboards`);
+    if (workspace?.slug) {
+      router.push(`/workspace/${workspace.slug}/dashboards`);
     } else {
-      // Fallback to browser back
-      router.back();
+      router.push('/workspace/overview');
     }
   };
 
   // Handle edit action
   const handleEdit = () => {
-    if (dashboardData?.workspace_slug) {
-      router.push(`/workspace/${dashboardData.workspace_slug}/dashboard-builder?id=${dashboardId}`);
+    if (workspace?.slug) {
+      router.push(`/workspace/${workspace.slug}/dashboard-builder?id=${dashboardId}`);
     }
   };
 
   // Handle share action
   const handleShare = () => {
-    const shareUrl = `${window.location.origin}/dashboard/${dashboardId}`;
+    const shareUrl = `${window.location.origin}/workspace/${dashboardId}`;
     navigator.clipboard.writeText(shareUrl).then(() => {
-      // You could show a toast notification here
       console.log('Dashboard URL copied to clipboard');
       alert('Dashboard URL copied to clipboard!');
     });
@@ -74,19 +71,19 @@ const DirectDashboardPage: React.FC<DirectDashboardPageProps> = ({
 
   // Handle export action
   const handleExport = () => {
-    // Implement export functionality
     console.log('Exporting dashboard:', dashboardId);
+    // Implement export functionality
   };
 
   return (
     <DashboardTemplate
       dashboardId={dashboardId}
-      workspaceSlug={dashboardData?.workspace_slug}
-      title={dashboardData?.display_name}
+      workspaceSlug={workspace?.slug}
+      title={dashboardData?.display_name || `Dashboard ${dashboardId}`}
       description={dashboardData?.description}
       showToolbar={true}
-      showBreadcrumbs={false} // Simplified view, no breadcrumbs needed
-      allowEdit={!!user} // Only allow edit if user is logged in
+      showBreadcrumbs={true}
+      allowEdit={!!user}
       allowShare={true}
       allowExport={true}
       onBack={handleBack}
@@ -112,35 +109,54 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
       };
     }
 
-    // Fetch dashboard data to check if it exists and get basic info
+    // Get authorization token from request
+    const token = context.req.cookies.token || 
+                  context.req.headers.authorization?.replace('Bearer ', '');
+
+    if (!token) {
+      // Redirect to login if no token (this should be handled by middleware, but double-check)
+      return {
+        redirect: {
+          destination: `/login?returnUrl=${encodeURIComponent(`/workspace/${dashboardUuid}`)}`,
+          permanent: false,
+        },
+      };
+    }
+
+    // Fetch dashboard data server-side
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
     
-    // Try to get dashboard info without authentication first (for public dashboards)
-    let dashboardResponse;
     try {
-      dashboardResponse = await fetch(`${apiUrl}/api/v1/public/dashboards/${dashboardUuid}`, {
+      const response = await fetch(`${apiUrl}/api/v1/dashboards/${dashboardUuid}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         }
       });
-    } catch (publicError) {
-      // If public endpoint fails, we'll handle it in the component
-      console.log('Public dashboard fetch failed, will handle client-side');
-    }
 
-    let dashboardData = null;
-    if (dashboardResponse && dashboardResponse.ok) {
-      const response = await dashboardResponse.json();
-      if (response.success) {
-        dashboardData = response.data;
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          return {
+            props: {
+              dashboardId: dashboardUuid as string,
+              dashboardData: data.data
+            }
+          };
+        }
       }
+
+      // If API call fails, still render the page but with limited data
+      console.log('Failed to fetch dashboard data server-side');
+      
+    } catch (serverError) {
+      console.error('Server-side fetch error:', serverError);
     }
 
     return {
       props: {
-        dashboardId: dashboardUuid as string,
-        dashboardData,
+        dashboardId: dashboardUuid as string
       }
     };
 
@@ -156,4 +172,4 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
   }
 };
 
-export default DirectDashboardPage;
+export default WorkspaceDashboardPage;

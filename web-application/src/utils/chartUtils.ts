@@ -1,5 +1,5 @@
 // web-application/src/utils/chartUtils.ts
-import { ChartDimensions, ChartConfiguration, ChartTheme, ChartType } from '@/types/chart.types';
+import { ChartDimensions, ChartConfiguration, ChartTheme, ChartType, ChartData, ChartMetadata } from '@/types/chart.types';
 
 // ============================================================================
 // EXISTING UTILITIES (keeping all previous functions)
@@ -61,40 +61,6 @@ export const createResponsiveDimensions = (
   return createDefaultDimensions(width, height);
 };
 
-// Chart configuration utilities
-export const mergeChartConfigurations = (
-  baseConfig: ChartConfiguration,
-  overrideConfig: Partial<ChartConfiguration>
-): ChartConfiguration => {
-  return {
-    ...baseConfig,
-    ...overrideConfig,
-    dimensions: {
-      ...baseConfig.dimensions,
-      ...overrideConfig.dimensions
-    },
-    axes: {
-      ...baseConfig.axes,
-      ...overrideConfig.axes,
-      x: {
-        ...baseConfig.axes?.x,
-        ...overrideConfig.axes?.x
-      },
-      y: {
-        ...baseConfig.axes?.y,
-        ...overrideConfig.axes?.y
-      }
-    },
-    legend: {
-      ...baseConfig.legend,
-      ...overrideConfig.legend
-    },
-    title: {
-      ...baseConfig.title,
-      ...overrideConfig.title
-    }
-  };
-};
 
 export const validateChartConfiguration = (config: ChartConfiguration): { valid: boolean; errors: string[] } => {
   const errors: string[] = [];
@@ -329,78 +295,6 @@ export const generatePluginKey = (chartType: string, library: string): {
 };
 
 /**
- * Generate plugin key from chart object with multiple data source fallbacks
- * Handles various chart object formats and configurations
- */
-export const generatePluginKeyFromChart = (chart: {
-  chart_type?: string;
-  type?: string;
-  config_json?: { chartType?: string; library?: string; };
-  config?: { library?: string; };
-}): {
-  primaryKey: string;
-  fallbackKeys: string[];
-  chartType: string;
-  library: string;
-} => {
-  // Extract chart type from multiple sources
-  const rawChartType = chart.chart_type || 
-                      chart.config_json?.chartType || 
-                      chart.type || 
-                      'bar';
-  
-  // Extract library from multiple sources  
-  const rawLibrary = chart.config_json?.library || 
-                    chart.config?.library ||
-                    'echarts';
-  
-  return generatePluginKey(rawChartType, rawLibrary);
-};
-
-/**
- * Format time duration for display
- * Examples: 500 -> "500ms", 1500 -> "1.5s", 65000 -> "1m 5s"
- */
-export const formatQueryTime = (timeMs: number): string => {
-  if (timeMs < 1000) {
-    return `${timeMs.toFixed(0)}ms`;
-  }
-  
-  if (timeMs < 60000) {
-    return `${(timeMs / 1000).toFixed(1)}s`;
-  }
-  
-  const minutes = Math.floor(timeMs / 60000);
-  const seconds = Math.floor((timeMs % 60000) / 1000);
-  
-  if (seconds === 0) {
-    return `${minutes}m`;
-  }
-  
-  return `${minutes}m ${seconds}s`;
-};
-
-/**
- * Format large numbers for display in charts
- * Examples: 1234 -> "1.2K", 1234567 -> "1.2M", 1234567890 -> "1.2B"
- */
-export const formatLargeNumber = (value: number, precision: number = 1): string => {
-  if (Math.abs(value) >= 1e12) {
-    return `${(value / 1e12).toFixed(precision)}T`;
-  }
-  if (Math.abs(value) >= 1e9) {
-    return `${(value / 1e9).toFixed(precision)}B`;
-  }
-  if (Math.abs(value) >= 1e6) {
-    return `${(value / 1e6).toFixed(precision)}M`;
-  }
-  if (Math.abs(value) >= 1e3) {
-    return `${(value / 1e3).toFixed(precision)}K`;
-  }
-  return value.toString();
-};
-
-/**
  * Validate plugin key format
  */
 export const isValidPluginKey = (key: string): boolean => {
@@ -428,6 +322,161 @@ export const getSuggestedChartTypes = (library: string): string[] => {
   return chartTypesByLibrary[normalizedLibrary] || ['bar', 'line', 'pie'];
 };
 
+/**
+ * Checks if chart data is empty regardless of input type
+ */
+export const isChartDataEmpty = (data: any[] | ChartData | null | undefined): boolean => {
+  if (!data) return true;
+  
+  if (Array.isArray(data)) {
+    return data.length === 0;
+  }
+  
+  if (typeof data === 'object' && 'data' in data) {
+    return !data.data || data.data.length === 0;
+  }
+  
+  return true;
+};
+
+/**
+ * Validates chart for rendering requirements
+ */
+export const validateChartForRendering = (chart: any): { valid: boolean; message?: string } => {
+  if (!chart) {
+    return { valid: false, message: 'Chart is required' };
+  }
+
+  if (!chart.name || chart.name.trim().length === 0) {
+    return { valid: false, message: 'Chart name is required' };
+  }
+
+  if (!chart.chart_type) {
+    return { valid: false, message: 'Chart type is required' };
+  }
+
+  if (!chart.dataset_id) {
+    return { valid: false, message: 'Dataset is required' };
+  }
+
+  return { valid: true };
+};
+
+/**
+ * Generate plugin key from chart configuration
+ */
+export const generatePluginKeyFromChart = (chart: any) => {
+  if (!chart) {
+    return {
+      primaryKey: 'echarts/bar',
+      library: 'echarts',
+      type: 'bar',
+      valid: false
+    };
+  }
+
+  const library = chart.chart_library || 'echarts';
+  const type = chart.chart_type || 'bar';
+  const primaryKey = `${library}/${type}`;
+
+  return {
+    primaryKey,
+    library,
+    type,
+    valid: !!chart.chart_type
+  };
+};
+
+/**
+ * Format query execution time
+ */
+export const formatQueryTime = (milliseconds: number): string => {
+  if (milliseconds < 1000) {
+    return `${milliseconds}ms`;
+  }
+  
+  if (milliseconds < 60000) {
+    return `${(milliseconds / 1000).toFixed(1)}s`;
+  }
+  
+  const minutes = Math.floor(milliseconds / 60000);
+  const seconds = Math.floor((milliseconds % 60000) / 1000);
+  return `${minutes}m ${seconds}s`;
+};
+
+/**
+ * Format large numbers with K, M, B suffixes
+ */
+export const formatLargeNumber = (value: number, precision: number = 1): string => {
+  if (value >= 1e9) {
+    return (value / 1e9).toFixed(precision) + 'B';
+  }
+  if (value >= 1e6) {
+    return (value / 1e6).toFixed(precision) + 'M';
+  }
+  if (value >= 1e3) {
+    return (value / 1e3).toFixed(precision) + 'K';
+  }
+  return value.toString();
+};
+
+/**
+ * Merge chart configurations with precedence
+ */
+export const mergeChartConfigurations = (
+  baseConfig: any = {},
+  userConfig: any = {},
+  overrides: any = {}
+): any => {
+  return {
+    ...baseConfig,
+    ...userConfig,
+    ...overrides
+  };
+};
+
+/**
+ * Create chart metadata object
+ */
+export const createChartMetadata = (
+  chart: any,
+  chartData?: ChartData,
+  executionTime?: number
+): ChartMetadata => {
+  return {
+    chartId: chart.id || chart.chart_id || '',
+    chartName: chart.name || chart.display_name || 'Untitled Chart',
+    chartType: chart.chart_type || 'unknown',
+    datasetId: chart.dataset_id || '',
+    rowCount: chartData?.data?.length || 0,
+    columnCount: chartData?.columns?.length || 0,
+    executionTime: executionTime || 0,
+    lastUpdated: new Date().toISOString(),
+    pluginKey: chart.chart_library ? `${chart.chart_library}/${chart.chart_type}` : 'echarts/bar',
+    version: chart.version || 1
+  };
+};
+
+/**
+ * Default chart dimensions constant
+ */
+export const DEFAULT_CHART_DIMENSIONS: ChartDimensions = {
+  width: 400,
+  height: 300,
+  margin: {
+    top: 20,
+    right: 20,
+    bottom: 20,
+    left: 20
+  },
+  padding: {
+    top: 10,
+    right: 10,
+    bottom: 10,
+    left: 10
+  }
+};
+
 // ============================================================================
 // Export all utilities (existing + new) - FIXED SYNTAX
 // ============================================================================
@@ -452,7 +501,9 @@ const chartUtils = {
   formatQueryTime,
   formatLargeNumber,
   isValidPluginKey,
-  getSuggestedChartTypes
+  getSuggestedChartTypes,
+  createChartMetadata,
+  validateChartForRendering
 };
 
 export default chartUtils;

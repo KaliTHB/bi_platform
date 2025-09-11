@@ -1,26 +1,22 @@
-import React, { Suspense, useState, useEffect } from 'react';
+// ============================================================================
+// FILE: /src/plugins/charts/factory/ChartFactory.tsx
+// PURPOSE: Chart Factory without static fallbacks - Registry-only approach
+// ============================================================================
+
+import React, { Suspense } from 'react';
 import { Box, Typography, CircularProgress, Alert } from '@mui/material';
-import { ChartProps, ChartPluginConfig, ChartData } from '@/types/chart.types';
+import { ChartProps, ChartPluginConfig } from '@/types/chart.types';
 import { ChartRegistry } from '../registry/ChartRegistry';
 
 // ============================================================================
-// Additional Interfaces for ChartFactory
+// TYPE DEFINITIONS
 // ============================================================================
 
 interface ChartFactoryProps extends ChartProps {
   chartType: string;
   chartLibrary: string;
   enableDynamicLoading?: boolean;
-  FallbackComponent?: React.ComponentType<ChartProps>;
   onPluginLoadError?: (error: Error) => void;
-}
-
-interface StaticChartRegistration {
-  displayName: string;
-  component: React.ComponentType<ChartProps>;
-  library: string;
-  category: string;
-  description?: string;
 }
 
 interface ChartPluginInfo {
@@ -34,22 +30,7 @@ interface ChartPluginInfo {
 }
 
 // ============================================================================
-// Static Chart Registry (Fallback)
-// ============================================================================
-
-const STATIC_CHART_REGISTRY: Record<string, StaticChartRegistration> = {
-  // Fallback registry for essential charts
-  'echarts-bar': {
-    displayName: 'Bar Chart',
-    component: React.lazy(() => import('../echarts/BarChart').then(m => ({ default: m.BarChart }))),
-    library: 'echarts',
-    category: 'basic',
-    description: 'Basic bar chart visualization'
-  }
-};
-
-// ============================================================================
-// Loading and Error Components
+// LOADING AND ERROR COMPONENTS
 // ============================================================================
 
 const ChartLoadingFallback: React.FC = () => (
@@ -63,111 +44,86 @@ const ChartLoadingFallback: React.FC = () => (
   >
     <CircularProgress size={40} />
     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-      Loading chart...
+      Loading chart component...
     </Typography>
   </Box>
 );
 
-const ChartErrorFallback: React.FC<{ error: string; chartType: string }> = ({ error, chartType }) => (
+const ChartErrorFallback: React.FC<{ error: string; chartType: string }> = ({ 
+  error, 
+  chartType 
+}) => (
   <Alert severity="error" sx={{ height: '100%', display: 'flex', alignItems: 'center' }}>
     <Box>
       <Typography variant="subtitle2" gutterBottom>
-        Failed to load chart: <strong>{chartType}</strong>
+        Chart plugin not found: <strong>{chartType}</strong>
       </Typography>
       <Typography variant="body2" color="text.secondary">
         {error}
+      </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+        Please register this chart type in the ChartRegistry.
       </Typography>
     </Box>
   </Alert>
 );
 
 // ============================================================================
-// Chart Factory Component
+// CHART FACTORY COMPONENT - REGISTRY ONLY
 // ============================================================================
 
 const ChartFactoryComponent: React.FC<ChartFactoryProps> = ({
   chartType,
   chartLibrary,
-  enableDynamicLoading = true,
-  FallbackComponent,
   onPluginLoadError,
   ...chartProps
 }) => {
-  const [dynamicComponent, setDynamicComponent] = useState<React.ComponentType<ChartProps> | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingError, setLoadingError] = useState<string | null>(null);
+  const [dynamicComponent, setDynamicComponent] = React.useState<React.ComponentType<ChartProps> | null>(null);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [loadingError, setLoadingError] = React.useState<string | null>(null);
 
-  // Check static registry first
-  const chartKey = `${chartLibrary}-${chartType}`;
-  const staticChartConfig = STATIC_CHART_REGISTRY[chartKey];
+  React.useEffect(() => {
+    const loadDynamicChart = async () => {
+      setIsLoading(true);
+      setLoadingError(null);
 
-  useEffect(() => {
-    // If static component exists and dynamic loading is disabled, use static
-    if (staticChartConfig && !enableDynamicLoading) {
-      return;
-    }
-
-    // Try to load component dynamically
-    if (enableDynamicLoading) {
-      const loadDynamicChart = async () => {
-        setIsLoading(true);
-        setLoadingError(null);
-
-        try {
-          // Ensure ChartRegistry is initialized
-          await ChartRegistry.ensureInitialized();
-          
-          // Get chart from registry
-          const plugin = ChartRegistry.getPlugin(chartKey);
-          
-          if (plugin && plugin.component) {
-            setDynamicComponent(() => plugin.component);
-          } else {
-            throw new Error(`Chart plugin '${chartKey}' not found in registry`);
-          }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          setLoadingError(errorMessage);
-          onPluginLoadError?.(error instanceof Error ? error : new Error(errorMessage));
-        } finally {
-          setIsLoading(false);
+      try {
+        // ONLY use ChartRegistry - no static fallbacks
+        await ChartRegistry.ensureInitialized();
+        
+        const chartKey = `${chartLibrary}-${chartType}`;
+        const plugin = ChartRegistry.getPlugin(chartKey);
+        
+        if (plugin && plugin.component) {
+          console.log(`✅ ChartFactory loaded: ${plugin.displayName}`);
+          setDynamicComponent(() => plugin.component);
+        } else {
+          throw new Error(`Chart plugin '${chartKey}' not found in registry`);
         }
-      };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error(`❌ ChartFactory failed to load ${chartLibrary}-${chartType}:`, errorMessage);
+        setLoadingError(errorMessage);
+        onPluginLoadError?.(error instanceof Error ? error : new Error(errorMessage));
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-      loadDynamicChart();
-    } else if (!staticChartConfig) {
-      // No static component and dynamic loading disabled
-      setLoadingError(`Chart type '${chartType}' is not available in static registry`);
-    }
-  }, [chartType, chartLibrary, enableDynamicLoading, staticChartConfig, chartKey, onPluginLoadError]);
+    loadDynamicChart();
+  }, [chartType, chartLibrary, onPluginLoadError]);
 
   // Show loading state
   if (isLoading) {
     return <ChartLoadingFallback />;
   }
 
-  // Show error if component not found and no fallback
-  if (loadingError && !FallbackComponent && !staticChartConfig) {
-    return <ChartErrorFallback error={loadingError} chartType={chartType} />;
-  }
-
-  // Determine which component to render
-  let ComponentToRender: React.ComponentType<ChartProps> | null = null;
-
-  if (staticChartConfig) {
-    ComponentToRender = staticChartConfig.component;
-  } else if (dynamicComponent) {
-    ComponentToRender = dynamicComponent;
-  } else if (FallbackComponent) {
-    ComponentToRender = FallbackComponent;
-  }
-
-  // Final fallback if no component available
-  if (!ComponentToRender) {
+  // Show error if component not found - NO fallbacks
+  if (loadingError || !dynamicComponent) {
     return (
       <ChartErrorFallback 
-        error={loadingError || `No component available for chart type: ${chartType}`} 
-        chartType={chartType} 
+        error={loadingError || `Component not available for ${chartLibrary}-${chartType}`} 
+        chartType={`${chartLibrary}-${chartType}`} 
       />
     );
   }
@@ -175,13 +131,13 @@ const ChartFactoryComponent: React.FC<ChartFactoryProps> = ({
   // Render the chart component with error boundary
   return (
     <Suspense fallback={<ChartLoadingFallback />}>
-      <ComponentToRender {...chartProps} />
+      <dynamicComponent {...chartProps} />
     </Suspense>
   );
 };
 
 // ============================================================================
-// Enhanced Chart Plugin Service
+// ENHANCED CHART PLUGIN SERVICE - REGISTRY ONLY
 // ============================================================================
 
 class EnhancedChartPluginService {
@@ -200,57 +156,63 @@ class EnhancedChartPluginService {
     if (this.initialized) return;
 
     try {
-      // Initialize ChartRegistry first
+      console.log('🏭 Initializing ChartFactory (Registry Only)...');
+      
+      // ONLY load plugins from ChartRegistry - no static fallbacks
       await ChartRegistry.ensureInitialized();
 
-      // Load plugins from ChartRegistry
       const registryPlugins = ChartRegistry.getAllPlugins();
+      console.log(`📦 Loading ${registryPlugins.length} plugins from registry...`);
+
+      // Clear existing plugins
+      this.plugins.clear();
+
       for (const pluginConfig of registryPlugins) {
         this.plugins.set(pluginConfig.name, {
-          name: pluginConfig.name,
+          name: pluginConfig.name.replace(/^[^-]+-/, ''), // Remove library prefix
           displayName: pluginConfig.displayName,
           component: pluginConfig.component as React.ComponentType<ChartProps>,
           library: pluginConfig.library,
           category: pluginConfig.category,
           description: pluginConfig.description,
-          version: pluginConfig.version
+          version: pluginConfig.version || '1.0.0'
         });
       }
 
-      // Load additional plugins from static registry if available
-      Object.entries(STATIC_CHART_REGISTRY).forEach(([key, registration]) => {
-        if (!this.plugins.has(key)) {
-          const [library, type] = this.parseChartKey(key);
-          this.plugins.set(key, {
-            name: type,
-            displayName: registration.displayName,
-            component: registration.component,
-            library: registration.library,
-            category: registration.category,
-            description: registration.description
-          });
-        }
-      });
-
       this.initialized = true;
-      console.log('Enhanced Chart Plugin Service initialized with', this.plugins.size, 'plugins');
+      console.log(`✅ ChartFactory initialized with ${this.plugins.size} plugins from registry`);
     } catch (error) {
-      console.error('Failed to initialize Enhanced Chart Plugin Service:', error);
+      console.error('❌ Failed to initialize ChartFactory:', error);
       // Don't throw, just log the error and continue with empty registry
       this.initialized = true;
     }
   }
 
-  private parseChartKey(key: string): [string, string] {
-    const parts = key.split('-');
-    if (parts.length >= 2) {
-      return [parts[0], parts.slice(1).join('-')];
+  createChart(chartType: string, chartLibrary: string, props: ChartProps): React.ReactElement | null {
+    if (!this.initialized) {
+      console.warn('ChartFactory not initialized, cannot create chart');
+      return null;
     }
-    return ['unknown', key];
+
+    const chartKey = `${chartLibrary}-${chartType}`;
+    const plugin = this.plugins.get(chartKey);
+
+    if (plugin && plugin.component) {
+      console.log(`🎯 ChartFactory creating: ${plugin.displayName}`);
+      return React.createElement(plugin.component, props);
+    }
+
+    // NO static fallbacks - return null if not found
+    console.warn(`⚠️ ChartFactory: No plugin found for ${chartKey}`);
+    return null;
   }
 
-  isInitialized(): boolean {
-    return this.initialized;
+  async isChartSupported(type: string, library: string): Promise<boolean> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    const chartKey = `${library}-${type}`;
+    return this.plugins.has(chartKey);
   }
 
   getChart(chartKey: string): ChartPluginInfo | undefined {
@@ -262,7 +224,10 @@ class EnhancedChartPluginService {
     return this.plugins.get(chartKey);
   }
 
-  getAllCharts(): ChartPluginInfo[] {
+  async getAllCharts(): Promise<ChartPluginInfo[]> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
     return Array.from(this.plugins.values());
   }
 
@@ -294,11 +259,6 @@ class EnhancedChartPluginService {
     return Array.from(libraries);
   }
 
-  isChartSupported(type: string, library: string): boolean {
-    const chartKey = `${library}-${type}`;
-    return this.plugins.has(chartKey);
-  }
-
   searchCharts(query: string): ChartPluginInfo[] {
     const lowercaseQuery = query.toLowerCase();
     return Array.from(this.plugins.values()).filter(plugin =>
@@ -308,151 +268,67 @@ class EnhancedChartPluginService {
     );
   }
 
-  validateChartConfig(type: string, library: string, config: any): { valid: boolean; errors: string[] } {
-    const chartKey = `${library}-${type}`;
-    const plugin = this.getChart(chartKey);
-    
-    if (!plugin) {
-      return {
-        valid: false,
-        errors: [`Chart type '${type}' not supported for library '${library}'`]
-      };
-    }
+  isInitialized(): boolean {
+    return this.initialized;
+  }
 
-    // Basic validation - can be extended
-    const errors: string[] = [];
-    
-    if (!config || typeof config !== 'object') {
-      errors.push('Configuration must be an object');
-    }
+  // Force re-initialization (useful for testing or plugin updates)
+  async reinitialize(): Promise<void> {
+    this.initialized = false;
+    this.plugins.clear();
+    await this.initialize();
+  }
 
-    return {
-      valid: errors.length === 0,
-      errors
+  // Debug methods
+  debugFactory(): void {
+    if (process.env.NODE_ENV === 'development') {
+      console.group('🔍 ChartFactory Debug Info');
+      console.log(`Initialized: ${this.initialized}`);
+      console.log(`Total plugins: ${this.plugins.size}`);
+      console.log('Available plugins:');
+      this.plugins.forEach((plugin, key) => {
+        console.log(`  - ${key}: ${plugin.displayName} (${plugin.library})`);
+      });
+      console.groupEnd();
+    }
+  }
+
+  // Get plugin statistics
+  getStatistics() {
+    const stats = {
+      total: this.plugins.size,
+      byLibrary: {} as Record<string, number>,
+      byCategory: {} as Record<string, number>,
+      initialized: this.initialized
     };
+
+    this.plugins.forEach(plugin => {
+      // Count by library
+      if (plugin.library) {
+        stats.byLibrary[plugin.library] = (stats.byLibrary[plugin.library] || 0) + 1;
+      }
+
+      // Count by category
+      if (plugin.category) {
+        stats.byCategory[plugin.category] = (stats.byCategory[plugin.category] || 0) + 1;
+      }
+    });
+
+    return stats;
   }
 }
 
 // ============================================================================
-// Chart Factory Class (Static Methods for API Compatibility)
+// SINGLETON INSTANCES AND EXPORTS
 // ============================================================================
 
-class ChartFactory {
-  private static pluginService: EnhancedChartPluginService | null = null;
-  private static initialized = false;
+export const ChartFactory = EnhancedChartPluginService.getInstance();
 
-  static async initialize(): Promise<void> {
-    if (this.initialized) return;
-    
-    try {
-      this.pluginService = EnhancedChartPluginService.getInstance();
-      await this.pluginService.initialize();
-      this.initialized = true;
-    } catch (error) {
-      console.error('Failed to initialize ChartFactory:', error);
-      // Initialize with empty service rather than failing completely
-      this.pluginService = EnhancedChartPluginService.getInstance();
-      this.initialized = true;
-    }
-  }
+// Component export
+export { ChartFactoryComponent };
 
-  /**
-   * Create a chart React element dynamically
-   */
-  static createChart(
-    type: string,
-    library: string,
-    props: {
-      data: any[] | ChartData;
-      config: any;
-      dimensions: { width: string | number; height: string | number };
-      onError?: (error: Error) => void;
-      onInteraction?: (event: any) => void;
-    }
-  ): React.ReactElement {
-    // Use ChartFactoryComponent for consistent loading behavior
-    return React.createElement(ChartFactoryComponent, {
-  key: `${library}-${type}-${Date.now()}`,
-  chartType: type,
-  chartLibrary: library,
-  ...props,
-  dimensions: {
-    width: Number(props.dimensions.width) || 400,
-    height: Number(props.dimensions.height) || 300
-  }
-} as any);
+// Type exports
+export type { ChartFactoryProps, ChartPluginInfo };
 
-}
-  /**
-   * Get chart information
-   */
-  static async getChartInfo(type: string, library: string): Promise<ChartPluginInfo | null> {
-    await this.ensureInitialized();
-    return this.pluginService!.getChartByTypeAndLibrary(type, library) || null;
-  }
-
-  /**
-   * Get all available charts
-   */
-  static async getAllCharts(): Promise<ChartPluginInfo[]> {
-    await this.ensureInitialized();
-    return this.pluginService!.getAllCharts();
-  }
-
-  /**
-   * Get available categories
-   */
-  static async getCategories(): Promise<string[]> {
-    await this.ensureInitialized();
-    return this.pluginService!.getChartCategories();
-  }
-
-  /**
-   * Search charts by query
-   */
-  static async searchCharts(query: string): Promise<ChartPluginInfo[]> {
-    await this.ensureInitialized();
-    return this.pluginService!.searchCharts(query);
-  }
-
-  /**
-   * Validate chart configuration
-   */
-  static async validateConfig(type: string, library: string, config: any): Promise<{ valid: boolean; errors: string[] }> {
-    await this.ensureInitialized();
-    return this.pluginService!.validateChartConfig(type, library, config);
-  }
-
-  /**
-   * Check if chart is supported
-   */
-  static async isChartSupported(type: string, library: string): Promise<boolean> {
-    await this.ensureInitialized();
-    return this.pluginService!.isChartSupported(type, library);
-  }
-
-  private static async ensureInitialized(): Promise<void> {
-    if (!this.initialized) {
-      await this.initialize();
-    }
-  }
-}
-
-// ============================================================================
-// Auto-initialize on module load
-// ============================================================================
-
-// Initialize when module is imported (fire-and-forget)
-ChartFactory.initialize().catch(error => {
-  console.error('Failed to initialize ChartFactory:', error);
-});
-
-// ============================================================================
-// Exports (Single source, no duplicates)
-// ============================================================================
-
-export { ChartFactory };
-export { ChartFactoryComponent };  // ✅ This should be the ONLY export of ChartFactoryComponent
-export { EnhancedChartPluginService };
-export type { ChartFactoryProps, StaticChartRegistration, ChartPluginInfo };
+// Default export
 export default ChartFactory;

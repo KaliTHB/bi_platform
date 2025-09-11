@@ -1,4 +1,8 @@
-// web-application/src/components/dashboard/ChartContainer.tsx
+// ============================================================================
+// FILE: /src/components/dashboard/ChartContainer.tsx
+// PURPOSE: Dashboard chart container - NO DIRECT RENDERER IMPORTS
+// ============================================================================
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Box,
@@ -22,11 +26,15 @@ import {
 } from '@mui/icons-material';
 
 // ============================================================================
-// IMPORTS FROM EXTERNAL FILES
+// IMPORTS FROM EXTERNAL FILES - NO DIRECT RENDERERS
 // ============================================================================
 
 import { chartAPI } from '@/api/index';
-import { ChartRenderer } from '../chart/ChartRenderer';
+import { ChartRenderer } from '../chart/ChartRenderer'; // ONLY dynamic renderer
+
+// REMOVED: All direct renderer imports
+// import EChartsRenderer from '@/plugins/charts/renderer/EChartsRenderer';
+// import D3ChartRenderer from '@/plugins/charts/renderer/D3ChartRenderer';
 
 // Types from external file
 import {
@@ -39,13 +47,14 @@ import {
   ChartInteractionEvent,
   ChartError,
   ExportFormat,
+} from '@/types/chart.types';
+
+import {
   createChartMetadata,
   isChartDataEmpty,
   DEFAULT_CHART_DIMENSIONS,
   validateChartForRendering
-} from '@/types/chart.types';
-
-
+} from '@/utils/chartUtils';
 
 // Utilities from external file
 import {
@@ -70,353 +79,252 @@ const LOADING_TIMEOUT_MS = 30000;
 
 const ChartContainer: React.FC<ChartContainerProps> = ({
   chart,
-  workspaceId,
-  preview = false,
-  filters = [],
-  dimensions,
+  data: initialData,
+  config: overrideConfig,
+  dimensions = DEFAULT_CHART_DIMENSIONS,
   theme,
-  refreshInterval,
+  filters = [],
+  refreshOptions,
+  exportOptions,
+  interactionMode = 'default',
   onChartClick,
-  onChartError,
-  onChartLoad,
   onChartInteraction,
+  onChartError,
+  onDataRefresh,
   className,
-  style
+  style,
+  showMetadata = false,
+  showActions = true,
+  autoRefresh = false,
+  refreshInterval = 30000,
+  enableExport = true,
+  enableFullscreen = false
 }) => {
   // ============================================================================
   // STATE MANAGEMENT
   // ============================================================================
-  
-  const [chartData, setChartData] = useState<ChartData | null>(null);
-  const [loading, setLoading] = useState(true);
+
+  const [chartData, setChartData] = useState<ChartData | null>(initialData || null);
+  const [loading, setLoading] = useState<boolean>(!initialData);
   const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [exportLoading, setExportLoading] = useState<boolean>(false);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  const [metadata, setMetadata] = useState<ChartMetadata | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
-  const [exportLoading, setExportLoading] = useState(false);
-  
+
   // Refs
-  const containerRef = useRef<HTMLDivElement>(null);
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const autoRefreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // ============================================================================
-  // VALIDATION & PLUGIN RESOLUTION
+  // COMPUTED VALUES
   // ============================================================================
-  
-  // Validate chart configuration
-  const chartValidation = useMemo(() => {
-    return validateChartForRendering(chart);
-  }, [chart]);
-  
-  // Plugin key resolution using external utility
-  const pluginInfo = useMemo(() => {
-    const result = generatePluginKeyFromChart(chart);
-    
-    if (!chartValidation.valid) {
-      console.warn(`⚠️ Chart validation failed for "${chart.name}":`, chartValidation.errors);
+
+  // Enhanced chart with runtime overrides
+  const enhancedChart = useMemo(() => ({
+    ...chart,
+    // Force consistent library usage - can be overridden if needed
+    chart_library: chart.chart_library || 'echarts'
+  }), [chart]);
+
+  // Plugin information for debugging
+  const pluginInfo = useMemo(() => ({
+    primaryKey: generatePluginKeyFromChart(enhancedChart),
+    library: enhancedChart.chart_library,
+    type: enhancedChart.chart_type,
+    version: enhancedChart.version || '1.0.0'
+  }), [enhancedChart]);
+
+  // Merged configuration
+  const chartConfig: ChartConfiguration = useMemo(() => 
+    mergeChartConfigurations(enhancedChart.config_json || {}, overrideConfig || {})
+  , [enhancedChart.config_json, overrideConfig]);
+
+  // Chart dimensions with defaults
+  const chartDimensions = useMemo(() => 
+    createDefaultDimensions(dimensions, enhancedChart.position_json)
+  , [dimensions, enhancedChart.position_json]);
+
+  // Validation
+  const isValidChart = useMemo(() => 
+    validateChartForRendering(enhancedChart, chartData)
+  , [enhancedChart, chartData]);
+
+  // ============================================================================
+  // DATA LOADING AND REFRESH
+  // ============================================================================
+
+  // Load chart data
+  const loadChartData = async (options: ChartRefreshOptions = {}) => {
+    if (!enhancedChart.id) {
+      setError('Chart ID is required');
+      return;
     }
-    
-    console.log(`🔑 Plugin resolution for chart "${chart.name}":`, {
-      chartId: chart.id,
-      pluginKey: result.primaryKey,
-      fallbackKeys: result.fallbackKeys,
-      validation: chartValidation
-    });
-    
-    return result;
-  }, [chart.chart_type, chart.config_json?.chartType, chart.config_json?.library, chart.type, chartValidation]);
-
-  // ============================================================================
-  // CHART CONFIGURATION
-  // ============================================================================
-  
-  const enhancedChart = useMemo(() => {
-    // Create base configuration
-    const chartDimensions = dimensions || 
-                           chart.config_json?.dimensions || 
-                           createDefaultDimensions();
-    
-    const baseConfig: Partial<ChartConfiguration> = {
-      chartType: pluginInfo.chartType as any,
-      library: pluginInfo.library as any,
-      dimensions: chartDimensions
-    };
-    
-    // Merge with existing config using external utility
-    let mergedConfig: ChartConfiguration;
-    
-    try {
-      mergedConfig = mergeChartConfigurations(
-        chart.config_json || { dimensions: chartDimensions, series: [] }, 
-        baseConfig
-      );
-    } catch (configError) {
-      console.warn(`Config merge failed for chart "${chart.name}":`, configError);
-      mergedConfig = {
-        ...baseConfig,
-        dimensions: chartDimensions,
-        series: []
-      } as ChartConfiguration;
-    }
-    
-    // Return enhanced chart object
-    return {
-      ...chart,
-      config_json: {
-        ...mergedConfig,
-        // Ensure required fields
-        columns: chart.columns || chartData?.columns || [],
-        // Add metadata for debugging
-        _pluginInfo: {
-          key: pluginInfo.primaryKey,
-          fallbacks: pluginInfo.fallbackKeys,
-          resolvedAt: new Date().toISOString()
-        }
-      }
-    };
-  }, [chart, pluginInfo, dimensions, chartData]);
-
-  // ============================================================================
-  // DATA FETCHING
-  // ============================================================================
-  
-  const fetchChartData = async (options: ChartRefreshOptions = {}) => {
-    const { showLoading = true, force = false, timeout = LOADING_TIMEOUT_MS } = options;
-    
-    // Clear any existing timeouts
-    if (loadingTimeoutRef.current) {
-      clearTimeout(loadingTimeoutRef.current);
-    }
-    
-    if (showLoading) setLoading(true);
-    setError(null);
-
-    // Set loading timeout
-    loadingTimeoutRef.current = setTimeout(() => {
-      if (loading) {
-        setError('Chart loading timeout - please try refreshing');
-        setLoading(false);
-        setRefreshing(false);
-      }
-    }, timeout);
 
     try {
-      console.log(`📊 Fetching data for chart: ${chart.name} (${pluginInfo.primaryKey})`);
-      
-      const requestStart = Date.now();
-      
-      const response = await chartAPI.getChartData(chart.id, {
-        workspace_id: workspaceId,
-        filters: filters,
-        force_refresh: force,
-        timeout: timeout - 1000 // API timeout slightly less than loading timeout
+      setError(null);
+      if (!options.silent) {
+        setLoading(true);
+      }
+
+      console.log(`🔄 Loading data for chart "${enhancedChart.name}" (${pluginInfo.primaryKey})`);
+
+      const response = await chartAPI.getChartData(enhancedChart.id, {
+        filters: [...filters, ...(options.additionalFilters || [])],
+        refresh: options.forceRefresh || false,
+        timeout: options.timeout || 30000
       });
 
-      const requestTime = Date.now() - requestStart;
-
-      if (response && response.data !== undefined) {
-        // Create metadata using external utility
-        const metadata = createChartMetadata(
-          Array.isArray(response.data) ? response.data.length : 0,
-          response.execution_time || requestTime,
-          {
-            cacheHit: response.cache_hit || false,
-            dataSource: response.data_source,
-            refreshedAt: new Date().toISOString(),
-            requestTime,
-            apiVersion: response.version,
-            queryHash: response.query_hash
-          }
-        );
-
-        const chartDataResult: ChartData = {
-          data: Array.isArray(response.data) ? response.data : [],
-          columns: response.columns || chart.columns || [],
-          execution_time: response.execution_time || requestTime,
-          metadata,
-          query: response.query,
-          parameters: response.parameters,
-          cacheInfo: {
-            hit: response.cache_hit || false,
-            key: response.cache_key,
-            ttl: response.cache_ttl,
-            createdAt: response.cache_created_at
-          }
-        };
-
-        setChartData(chartDataResult);
+      if (response.data) {
+        setChartData(response.data);
+        setMetadata(createChartMetadata(response.data, enhancedChart));
         setLastRefresh(new Date());
         
-        // Notify parent of successful load
-        onChartLoad?.(chart.id, metadata);
-
-        console.log(`✅ Chart data loaded successfully:`, {
-          chartId: chart.id,
-          chartName: chart.name,
-          rows: metadata.totalRows,
-          queryTime: metadata.queryTime,
-          requestTime,
-          pluginKey: pluginInfo.primaryKey,
-          cacheHit: metadata.cacheHit
+        console.log(`✅ Chart data loaded:`, {
+          chartId: enhancedChart.id,
+          rows: response.data.data?.length || 0,
+          columns: response.data.columns?.length || 0,
+          queryTime: response.data.metadata?.queryTime
         });
+
+        onDataRefresh?.(response.data, enhancedChart);
       } else {
-        throw new Error('No data received from API - empty response');
+        throw new Error('No data returned from API');
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch chart data';
-      const errorDetails = {
-        chartId: chart.id,
-        chartName: chart.name,
-        pluginKey: pluginInfo.primaryKey,
-        workspaceId,
-        filtersCount: filters?.length || 0,
-        error: err
-      };
-      
-      console.error(`❌ Error fetching chart data:`, errorDetails);
-      
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load chart data';
       setError(errorMessage);
-      onChartError?.(chart.id, errorMessage);
+      console.error('Chart data loading failed:', err);
+      onChartError?.({
+        code: 'DATA_LOAD_ERROR',
+        message: errorMessage,
+        timestamp: Date.now(),
+        details: {
+          chartId: enhancedChart.id,
+          pluginKey: pluginInfo.primaryKey
+        }
+      });
     } finally {
-      // Clear loading timeout
-      if (loadingTimeoutRef.current) {
-        clearTimeout(loadingTimeoutRef.current);
-        loadingTimeoutRef.current = null;
-      }
-      
       setLoading(false);
       setRefreshing(false);
     }
   };
 
+  // Debounced refresh function
+  const debouncedRefresh = (options: ChartRefreshOptions = {}) => {
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+    }
+
+    refreshTimeoutRef.current = setTimeout(() => {
+      loadChartData(options);
+    }, REFRESH_DEBOUNCE_MS);
+  };
+
+  // Manual refresh handler
+  const handleRefresh = () => {
+    setRefreshing(true);
+    debouncedRefresh({ 
+      forceRefresh: true,
+      ...refreshOptions
+    });
+  };
+
   // ============================================================================
-  // LIFECYCLE EFFECTS
+  // AUTO-REFRESH LOGIC
   // ============================================================================
-  
-  // Initial data load
-  useEffect(() => {
-    fetchChartData();
-  }, [chart.id, workspaceId, JSON.stringify(filters)]);
 
-  // Auto-refresh interval
   useEffect(() => {
-    if (!refreshInterval || refreshInterval <= 0) return;
-    
-    const interval = setInterval(() => {
-      console.log(`🔄 Auto-refreshing chart: ${chart.name}`);
-      fetchChartData({ showLoading: false, force: false });
-    }, refreshInterval * 1000);
+    if (autoRefresh && refreshInterval > 0 && !loading && !error) {
+      autoRefreshTimeoutRef.current = setTimeout(() => {
+        debouncedRefresh({ 
+          silent: true,
+          forceRefresh: false,
+          ...refreshOptions
+        });
+      }, refreshInterval);
 
-    return () => clearInterval(interval);
-  }, [refreshInterval, chart.id]);
+      return () => {
+        if (autoRefreshTimeoutRef.current) {
+          clearTimeout(autoRefreshTimeoutRef.current);
+        }
+      };
+    }
+  }, [autoRefresh, refreshInterval, loading, error, refreshOptions]);
 
-  // Cleanup on unmount
+  // ============================================================================
+  // INITIAL DATA LOAD
+  // ============================================================================
+
   useEffect(() => {
+    if (!initialData && enhancedChart.id) {
+      loadChartData();
+    } else if (initialData) {
+      setChartData(initialData);
+      setMetadata(createChartMetadata(initialData, enhancedChart));
+      setLoading(false);
+    }
+
+    // Cleanup on unmount
     return () => {
       if (refreshTimeoutRef.current) {
         clearTimeout(refreshTimeoutRef.current);
       }
-      if (loadingTimeoutRef.current) {
-        clearTimeout(loadingTimeoutRef.current);
+      if (autoRefreshTimeoutRef.current) {
+        clearTimeout(autoRefreshTimeoutRef.current);
       }
     };
-  }, []);
+  }, [enhancedChart.id, initialData]);
 
   // ============================================================================
-  // EVENT HANDLERS
+  // EXPORT FUNCTIONALITY
   // ============================================================================
-  
-  const handleRefresh = () => {
-    // Debounce rapid refresh clicks
-    if (refreshTimeoutRef.current) {
-      clearTimeout(refreshTimeoutRef.current);
-    }
-    
-    refreshTimeoutRef.current = setTimeout(() => {
-      setRefreshing(true);
-      fetchChartData({ showLoading: false, force: true });
-      setMenuAnchor(null);
-    }, REFRESH_DEBOUNCE_MS);
-  };
 
   const handleExport = async (format: ExportFormat) => {
-    if (!chartData || isChartDataEmpty(chartData)) {
-      console.warn('No data available for export');
+    if (!chartData || !chartData.data) {
       setError('No data available for export');
-      return;
-    }
-
-    if (chartData.data.length > MAX_EXPORT_ROWS) {
-      setError(`Dataset too large for export (${chartData.data.length.toLocaleString()} rows). Maximum allowed: ${MAX_EXPORT_ROWS.toLocaleString()}`);
       return;
     }
 
     setExportLoading(true);
     
     try {
-      const timestamp = new Date().toISOString().split('T')[0];
-      const safeChartName = chart.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      const filename = `${safeChartName}_${timestamp}.${format}`;
-      
+      const filename = `${enhancedChart.name || 'chart'}_${new Date().toISOString().split('T')[0]}.${format}`;
       let content: string;
       let mimeType: string;
-      
+
       switch (format) {
+        case 'csv':
+          const csvHeaders = chartData.columns?.map(col => col.name).join(',') || '';
+          const csvRows = chartData.data.map(row => 
+            chartData.columns?.map(col => row[col.name] || '').join(',')
+          );
+          content = [csvHeaders, ...csvRows].join('\n');
+          mimeType = 'text/csv';
+          break;
+          
         case 'json':
           content = JSON.stringify({
             chart: {
-              id: chart.id,
-              name: chart.name,
-              type: chart.chart_type,
-              library: pluginInfo.library,
-              pluginKey: pluginInfo.primaryKey
+              id: enhancedChart.id,
+              name: enhancedChart.name,
+              type: enhancedChart.chart_type
             },
             data: chartData.data,
             columns: chartData.columns,
-            metadata: {
-              ...chartData.metadata,
-              exportedAt: new Date().toISOString(),
-              exportFormat: format
-            },
-            query: chartData.query,
-            parameters: chartData.parameters
+            metadata: chartData.metadata,
+            exportedAt: new Date().toISOString()
           }, null, 2);
           mimeType = 'application/json';
           break;
           
-        case 'csv':
-          const headers = chartData.columns?.map(col => col.name) || Object.keys(chartData.data[0] || {});
-          const csvRows = [
-            // Header row
-            headers.join(','),
-            // Data rows
-            ...chartData.data.map(row => 
-              headers.map(header => {
-                const value = row[header];
-                // Escape commas and quotes in CSV
-                if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
-                  return `"${value.replace(/"/g, '""')}"`;
-                }
-                return value ?? '';
-              }).join(',')
-            )
-          ];
-          content = csvRows.join('\n');
-          mimeType = 'text/csv;charset=utf-8';
-          break;
-          
         case 'excel':
-          // For Excel, we'll export as CSV with .xlsx extension for now
-          // In a full implementation, you'd use a library like xlsx
-          const excelHeaders = chartData.columns?.map(col => col.name) || Object.keys(chartData.data[0] || {});
-          const excelRows = [
-            excelHeaders.join('\t'), // Tab-separated for Excel
-            ...chartData.data.map(row => 
-              excelHeaders.map(header => row[header] ?? '').join('\t')
-            )
-          ];
-          content = excelRows.join('\n');
+          const excelHeaders = chartData.columns?.map(col => col.name).join('\t') || '';
+          const excelRows = chartData.data.map(row => 
+            chartData.columns?.map(col => row[col.name] || '').join('\t')
+          );
+          content = [excelHeaders, ...excelRows].join('\n');
           mimeType = 'application/vnd.ms-excel';
           break;
           
@@ -438,7 +346,7 @@ const ChartContainer: React.FC<ChartContainerProps> = ({
       URL.revokeObjectURL(url);
       
       console.log(`📥 Chart exported successfully:`, {
-        chartId: chart.id,
+        chartId: enhancedChart.id,
         format,
         filename,
         rows: chartData.data.length,
@@ -454,6 +362,10 @@ const ChartContainer: React.FC<ChartContainerProps> = ({
     }
   };
 
+  // ============================================================================
+  // EVENT HANDLERS
+  // ============================================================================
+
   const handleChartClick = () => {
     if (!loading && !error) {
       onChartClick?.(enhancedChart);
@@ -464,12 +376,12 @@ const ChartContainer: React.FC<ChartContainerProps> = ({
     // Add chart context and forward to parent
     const enhancedEvent: ChartInteractionEvent = {
       ...event,
-      chartId: chart.id,
+      chartId: enhancedChart.id,
       timestamp: Date.now()
     };
     
     onChartInteraction?.(enhancedEvent);
-    console.log(`🎯 Chart interaction for "${chart.name}":`, enhancedEvent);
+    console.log(`🎯 Chart interaction for "${enhancedChart.name}":`, enhancedEvent);
   };
 
   const handleChartError = (errorInfo: ChartError | string) => {
@@ -479,345 +391,254 @@ const ChartContainer: React.FC<ChartContainerProps> = ({
           message: errorInfo,
           timestamp: Date.now(),
           details: {
-            chartId: chart.id,
+            chartId: enhancedChart.id,
             pluginKey: pluginInfo.primaryKey
           }
         }
       : errorInfo;
 
-    console.error(`Chart render error for "${chart.name}":`, chartError);
+    console.error(`Chart render error for "${enhancedChart.name}":`, chartError);
     setError(chartError.message);
-    onChartError?.(chart.id, chartError.message);
+    onChartError?.(chartError);
+  };
+
+  // Menu handlers
+  const handleMenuClick = (event: React.MouseEvent<HTMLElement>) => {
+    setMenuAnchor(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setMenuAnchor(null);
   };
 
   // ============================================================================
-  // RENDER HELPERS
+  // RENDER LOGIC
   // ============================================================================
-  
-  const renderChartContent = () => {
-    if (!chartData || isChartDataEmpty(chartData)) {
-      return (
+
+  return (
+    <Paper 
+      className={className}
+      style={style}
+      sx={{ 
+        position: 'relative', 
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden'
+      }}
+    >
+      {/* Chart Header */}
+      {(showActions || showMetadata) && (
         <Box
           sx={{
             display: 'flex',
+            justifyContent: 'space-between',
             alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            color: 'text.secondary',
-            flexDirection: 'column',
-            gap: 1.5,
-            p: 3
+            p: 1,
+            borderBottom: 1,
+            borderColor: 'divider',
+            minHeight: 48
           }}
         >
-          <ErrorIcon sx={{ fontSize: 48, opacity: 0.5 }} />
-          <Typography variant="body2" align="center">
-            No data available
-          </Typography>
-          <Typography variant="caption" sx={{ opacity: 0.7 }} align="center">
-            Plugin: {pluginInfo.primaryKey}
-          </Typography>
-          {!chartValidation.valid && (
-            <Box sx={{ mt: 1 }}>
-              <Typography variant="caption" color="error" align="center">
-                Configuration issues detected
-              </Typography>
+          {/* Chart Title and Metadata */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+            <Typography variant="subtitle2" noWrap>
+              {enhancedChart.display_name || enhancedChart.name}
+            </Typography>
+            
+            {showMetadata && metadata && (
+              <>
+                <Chip 
+                  label={`${formatLargeNumber(metadata.rowCount)} rows`}
+                  size="small"
+                  variant="outlined"
+                />
+                {metadata.queryTime && (
+                  <Tooltip title={`Query executed in ${formatQueryTime(metadata.queryTime)}`}>
+                    <Chip 
+                      icon={<TimeIcon />}
+                      label={formatQueryTime(metadata.queryTime)}
+                      size="small"
+                      variant="outlined"
+                    />
+                  </Tooltip>
+                )}
+                {lastRefresh && (
+                  <Tooltip title={`Last updated: ${lastRefresh.toLocaleTimeString()}`}>
+                    <Chip 
+                      icon={<SuccessIcon />}
+                      label="Updated"
+                      size="small"
+                      color="success"
+                      variant="outlined"
+                    />
+                  </Tooltip>
+                )}
+              </>
+            )}
+          </Box>
+
+          {/* Actions */}
+          {showActions && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              {/* Refresh Button */}
+              <Tooltip title="Refresh chart data">
+                <IconButton 
+                  size="small" 
+                  onClick={handleRefresh}
+                  disabled={loading || refreshing}
+                >
+                  <RefreshIcon />
+                </IconButton>
+              </Tooltip>
+
+              {/* Export Menu */}
+              {enableExport && (
+                <>
+                  <Tooltip title="Export chart data">
+                    <IconButton 
+                      size="small" 
+                      onClick={handleMenuClick}
+                      disabled={!chartData || exportLoading}
+                    >
+                      <DownloadIcon />
+                    </IconButton>
+                  </Tooltip>
+                  
+                  <Menu
+                    anchorEl={menuAnchor}
+                    open={Boolean(menuAnchor)}
+                    onClose={handleMenuClose}
+                  >
+                    <MenuItem onClick={() => handleExport('csv')}>
+                      Export as CSV
+                    </MenuItem>
+                    <MenuItem onClick={() => handleExport('json')}>
+                      Export as JSON
+                    </MenuItem>
+                    <MenuItem onClick={() => handleExport('excel')}>
+                      Export as Excel
+                    </MenuItem>
+                  </Menu>
+                </>
+              )}
+
+              {/* More Actions */}
+              <Tooltip title="More actions">
+                <IconButton size="small">
+                  <MoreVertIcon />
+                </IconButton>
+              </Tooltip>
             </Box>
           )}
         </Box>
-      );
-    }
+      )}
 
-    return (
-      <ChartRenderer
-        chart={enhancedChart}
-        data={chartData.data}
-        dimensions={dimensions}
-        theme={theme}
-        loading={loading}
-        onError={handleChartError}
-        onInteraction={handleChartInteraction}
-      />
-    );
-  };
-
-  const renderLoadingState = () => (
-    <Box
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100%',
-        flexDirection: 'column',
-        gap: 2,
-        p: 3
-      }}
-    >
-      <CircularProgress size={40} />
-      <Box sx={{ textAlign: 'center' }}>
-        <Typography variant="body2" color="text.secondary">
-          Loading {pluginInfo.library} {pluginInfo.chartType} chart...
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ opacity: 0.7 }}>
-          Plugin: {pluginInfo.primaryKey}
-        </Typography>
-      </Box>
-    </Box>
-  );
-
-  const renderErrorState = () => (
-    <Alert 
-      severity="error" 
-      sx={{ 
-        height: 'fit-content', 
-        m: 2,
-        '& .MuiAlert-message': { width: '100%' }
-      }}
-    >
-      <Box>
-        <Typography variant="subtitle2" gutterBottom>
-          Chart Error
-        </Typography>
-        <Typography variant="body2" paragraph>
-          {error}
-        </Typography>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
-          <Typography variant="caption" sx={{ opacity: 0.7 }}>
-            Plugin: {pluginInfo.primaryKey}
-          </Typography>
-          <Box>
-            <Tooltip title="Retry loading">
-              <IconButton size="small" onClick={handleRefresh} disabled={refreshing}>
-                <RefreshIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Box>
-        </Box>
-      </Box>
-    </Alert>
-  );
-
-  const renderMetadataFooter = () => {
-    if (!chartData?.metadata || loading || error) return null;
-
-    const { metadata } = chartData;
-    
-    return (
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          mt: 1,
-          pt: 1,
-          borderTop: '1px solid',
-          borderTopColor: 'divider',
-          fontSize: '0.75rem',
-          color: 'text.secondary',
-          opacity: 0.8,
-          flexWrap: 'wrap',
-          gap: 1
-        }}
-      >
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Typography variant="caption">
-            {formatLargeNumber(metadata.totalRows)} rows
-          </Typography>
-          
-          <Typography variant="caption" sx={{ opacity: 0.5 }}>•</Typography>
-          
-          <Typography variant="caption">
-            {pluginInfo.library}
-          </Typography>
-          
-          {metadata.cacheHit && (
-            <>
-              <Typography variant="caption" sx={{ opacity: 0.5 }}>•</Typography>
-              <Chip 
-                label="cached" 
-                size="small" 
-                color="success" 
-                sx={{ 
-                  height: 16, 
-                  fontSize: '0.6rem',
-                  '& .MuiChip-label': { px: 0.5 }
-                }} 
-              />
-            </>
-          )}
-          
-          {lastRefresh && (
-            <>
-              <Typography variant="caption" sx={{ opacity: 0.5 }}>•</Typography>
-              <Tooltip title={`Last refreshed: ${lastRefresh.toLocaleString()}`}>
-                <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <TimeIcon sx={{ fontSize: 12 }} />
-                  {formatQueryTime(Date.now() - lastRefresh.getTime())} ago
-                </Typography>
-              </Tooltip>
-            </>
-          )}
-        </Box>
-        
-        <Typography variant="caption">
-          {formatQueryTime(metadata.queryTime)}
-        </Typography>
-      </Box>
-    );
-  };
-
-  // ============================================================================
-  // MAIN RENDER
-  // ============================================================================
-  
-  return (
-    <Paper
-      ref={containerRef}
-      className={className}
-      style={style}
-      elevation={preview ? 1 : 2}
-      sx={{
-        position: 'relative',
-        width: '100%',
-        height: '100%',
-        minHeight: preview ? 200 : 300,
-        display: 'flex',
-        flexDirection: 'column',
-        cursor: (!loading && !error && onChartClick) ? 'pointer' : 'default',
-        transition: 'box-shadow 0.2s ease-in-out',
-        '&:hover': {
-          ...((!loading && !error && onChartClick) && {
-            boxShadow: 4
-          })
-        }
-      }}
-      onClick={handleChartClick}
-    >
-      {/* Chart Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          p: 1.5,
-          borderBottom: '1px solid',
-          borderBottomColor: 'divider',
-          flexShrink: 0,
-          backgroundColor: 'background.paper'
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
-          <Typography 
-            variant="subtitle2" 
-            sx={{ 
-              fontWeight: 600,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              flex: 1
+      {/* Chart Content */}
+      <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {/* Loading State */}
+        {(loading || refreshing) && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: 'rgba(255, 255, 255, 0.8)',
+              zIndex: 10
             }}
-            title={chart.name}
           >
-            {chart.name}
-          </Typography>
-          
-          {/* Status indicators */}
-          {!chartValidation.valid && (
-            <Tooltip title={`Configuration issues: ${chartValidation.errors.join(', ')}`}>
-              <ErrorIcon sx={{ fontSize: 16, color: 'warning.main' }} />
-            </Tooltip>
-          )}
-          
-          {chartData && !error && (
-            <Tooltip title="Chart loaded successfully">
-              <SuccessIcon sx={{ fontSize: 16, color: 'success.main', opacity: 0.7 }} />
-            </Tooltip>
-          )}
-        </Box>
-        
-        {!preview && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            {(refreshing || exportLoading) && (
-              <CircularProgress size={16} sx={{ mr: 1 }} />
-            )}
-            
-            <Tooltip title="Chart options">
-              <IconButton
-                size="small"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setMenuAnchor(e.currentTarget);
-                }}
-                aria-label="Chart options"
-                disabled={exportLoading}
-              >
-                <MoreVertIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            <Box sx={{ textAlign: 'center' }}>
+              <CircularProgress size={40} />
+              <Typography variant="body2" sx={{ mt: 1 }}>
+                {refreshing ? 'Refreshing...' : 'Loading chart...'}
+              </Typography>
+            </Box>
           </Box>
+        )}
+
+        {/* Error State */}
+        {error && !loading && (
+          <Alert 
+            severity="error" 
+            sx={{ m: 2 }}
+            action={
+              <IconButton size="small" onClick={handleRefresh}>
+                <RefreshIcon />
+              </IconButton>
+            }
+          >
+            <Typography variant="subtitle2">Chart Error</Typography>
+            <Typography variant="body2">{error}</Typography>
+          </Alert>
+        )}
+
+        {/* Empty Data State */}
+        {!loading && !error && (!chartData || isChartDataEmpty(chartData)) && (
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%',
+              p: 3
+            }}
+          >
+            <Typography variant="h6" color="text.secondary">
+              No data available
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              This chart has no data to display
+            </Typography>
+            <IconButton onClick={handleRefresh} sx={{ mt: 2 }}>
+              <RefreshIcon />
+            </IconButton>
+          </Box>
+        )}
+
+        {/* Chart Renderer - NO STATIC FALLBACKS */}
+        {!loading && !error && chartData && !isChartDataEmpty(chartData) && isValidChart && (
+          <ChartRenderer
+            chart={enhancedChart}
+            data={chartData.data}
+            config={chartConfig}
+            columns={chartData.columns}
+            dimensions={chartDimensions}
+            theme={theme}
+            onInteraction={handleChartInteraction}
+            onError={handleChartError}
+            onClick={handleChartClick}
+          />
         )}
       </Box>
 
-      {/* Chart Content */}
-      <Box
-        sx={{
-          flex: 1,
-          position: 'relative',
-          overflow: 'hidden',
-          display: 'flex',
-          alignItems: 'stretch',
-          backgroundColor: 'background.default'
-        }}
-      >
-        {loading && !refreshing ? renderLoadingState() : 
-         error ? renderErrorState() : 
-         renderChartContent()}
-      </Box>
-
-      {/* Metadata Footer */}
-      {!preview && renderMetadataFooter()}
-
-      {/* Context Menu */}
-      <Menu
-        anchorEl={menuAnchor}
-        open={Boolean(menuAnchor)}
-        onClose={() => setMenuAnchor(null)}
-        transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-        PaperProps={{
-          sx: { minWidth: 180 }
-        }}
-      >
-        <MenuItem onClick={handleRefresh} disabled={refreshing || loading}>
-          <RefreshIcon fontSize="small" sx={{ mr: 1 }} />
-          Refresh Data
-        </MenuItem>
-        
-        <MenuItem 
-          onClick={() => handleExport('json')} 
-          disabled={!chartData || isChartDataEmpty(chartData) || exportLoading}
+      {/* Debug Info (development only) */}
+      {process.env.NODE_ENV === 'development' && (
+        <Box
+          sx={{
+            position: 'absolute',
+            bottom: 4,
+            right: 4,
+            fontSize: '8px',
+            opacity: 0.5,
+            fontFamily: 'monospace',
+            backgroundColor: 'rgba(255,255,255,0.8)',
+            px: 0.5,
+            borderRadius: 0.5
+          }}
         >
-          <DownloadIcon fontSize="small" sx={{ mr: 1 }} />
-          Export as JSON
-        </MenuItem>
-        
-        <MenuItem 
-          onClick={() => handleExport('csv')} 
-          disabled={!chartData || isChartDataEmpty(chartData) || exportLoading}
-        >
-          <DownloadIcon fontSize="small" sx={{ mr: 1 }} />
-          Export as CSV
-        </MenuItem>
-        
-        <MenuItem 
-          onClick={() => handleExport('excel')} 
-          disabled={!chartData || isChartDataEmpty(chartData) || exportLoading}
-        >
-          <DownloadIcon fontSize="small" sx={{ mr: 1 }} />
-          Export as Excel
-        </MenuItem>
-      </Menu>
+          {pluginInfo.primaryKey}
+        </Box>
+      )}
     </Paper>
   );
 };
 
 export default ChartContainer;
+
+export { ChartContainer}

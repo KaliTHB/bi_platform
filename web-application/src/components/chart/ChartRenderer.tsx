@@ -1,15 +1,24 @@
-// web-application/src/components/chart/ChartRenderer.tsx
+// ============================================================================
+// FILE: /src/components/chart/ChartRenderer.tsx
+// PURPOSE: Main chart renderer - NO DIRECT STATIC IMPORTS
+// ============================================================================
+
 'use client';
 
 import React, { useMemo, useCallback, useState, useEffect } from 'react';
-import { Box, Typography, Alert, CircularProgress } from '@mui/material';
+import { Box, Typography, Alert, CircularProgress, IconButton } from '@mui/material';
+import { Refresh as RefreshIcon } from '@mui/icons-material';
 
-// Import ChartFactory and Registry
+// ONLY import plugin system components - NO direct renderer imports
 import { ChartFactory } from '@/plugins/charts/factory/ChartFactory';
 import { ChartRegistry } from '@/plugins/charts/registry/ChartRegistry';
 import ChartErrorBoundary from './ChartErrorBoundary';
 
-// Types
+// REMOVED: All direct renderer imports
+// import EChartsRenderer from '@/plugins/charts/renderer/EChartsRenderer';
+// import D3ChartRenderer from '@/plugins/charts/renderer/D3ChartRenderer';
+
+// Types only
 import {
   ChartProps,
   ChartDimensions,
@@ -18,6 +27,10 @@ import {
   ChartError
 } from '@/types/chart.types';
 import { ChartRendererProps } from '@/types/index';
+
+// ============================================================================
+// MAIN CHART RENDERER COMPONENT
+// ============================================================================
 
 export const ChartRenderer: React.FC<ChartRendererProps> = ({
   chart,
@@ -37,14 +50,28 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
   className,
   style
 }) => {
-  // State for dynamic chart loading
+  // ============================================================================
+  // STATE MANAGEMENT
+  // ============================================================================
+
+  // State for dynamic chart loading ONLY - no static component state
   const [ChartComponent, setChartComponent] = useState<React.ComponentType<ChartProps> | null>(null);
   const [chartElement, setChartElement] = useState<React.ReactElement | null>(null);
   const [pluginLoading, setPluginLoading] = useState(true);
   const [pluginError, setPluginError] = useState<string | null>(null);
-  const [isRendering, setIsRendering] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
-  // Ensure dimensions have proper defaults
+  // ============================================================================
+  // CHART CONFIGURATION
+  // ============================================================================
+
+  // Extract chart configuration
+  const chartLibrary = chart.chart_library || 'echarts';
+  const chartType = chart.chart_type;
+  const chartId = chart.id;
+  const chartName = chart.name || chart.display_name || 'Untitled Chart';
+
+  // Chart dimensions with proper defaults
   const chartDimensions: ChartDimensions = useMemo(() => ({
     width: dimensions?.width || chart.config_json?.dimensions?.width || 400,
     height: dimensions?.height || chart.config_json?.dimensions?.height || 300,
@@ -62,53 +89,33 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
     }
   }), [dimensions, chart.config_json?.dimensions]);
 
-  // Merge chart config with any runtime overrides
+  // Merge chart configuration with runtime overrides
   const chartConfig: ChartConfiguration = useMemo(() => ({
     ...chart.config_json,
-    dimensions: chartDimensions,
-    theme: theme || chart.config_json?.theme
-  }), [chart.config_json, chartDimensions, theme]);
-
-  // Get chart library and type
-  const chartLibrary = chart.config_json?.library || 'echarts';
-  const chartType = chart.chart_type || chart.config_json?.chartType || 'bar';
+    ...config,
+    // Ensure dimensions are always available
+    dimensions: chartDimensions
+  }), [chart.config_json, config, chartDimensions]);
 
   // ============================================================================
-  // ERROR HANDLING
+  // EVENT HANDLERS
   // ============================================================================
 
-  const handleChartError = useCallback((errorInfo: ChartError | string | Error) => {
-    let chartError: ChartError;
-    
-    if (typeof errorInfo === 'string') {
-      chartError = {
-        code: 'CHART_RENDER_ERROR',
-        message: errorInfo,
-        timestamp: Date.now()
-      };
-    } else if (errorInfo instanceof Error) {
-      chartError = {
-        code: 'CHART_RENDER_ERROR',
-        message: errorInfo.message,
-        timestamp: Date.now(),
-        details: errorInfo.stack
-      };
-    } else {
-      chartError = errorInfo;
-    }
-
-    console.error('Chart render error:', chartError);
-    setPluginError(chartError.message);
-    onError?.(chartError);
-  }, [onError]);
-
+  // Enhanced interaction handler
   const handleInteraction = useCallback((event: ChartInteractionEvent) => {
-    // Add chart context to the event
     const enhancedEvent: ChartInteractionEvent = {
       ...event,
-      chartId: chart.id
+      chartId: chartId,
+      timestamp: Date.now(),
+      metadata: {
+        chartType,
+        chartLibrary,
+        chartName,
+        ...event.metadata
+      }
     };
-    
+
+    // Call parent interaction handler
     onInteraction?.(enhancedEvent);
 
     // Handle specific interaction types
@@ -128,10 +135,51 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
       default:
         break;
     }
-  }, [chart.id, onInteraction, onDataPointClick, onDataPointHover, onLegendClick, onZoom]);
+  }, [chartId, chartType, chartLibrary, chartName, onInteraction, onDataPointClick, onDataPointHover, onLegendClick, onZoom]);
+
+  // Enhanced error handler
+  const handleChartError = useCallback((errorInfo: ChartError | string) => {
+    const chartError: ChartError = typeof errorInfo === 'string' 
+      ? {
+          code: 'CHART_RENDER_ERROR',
+          message: errorInfo,
+          timestamp: Date.now(),
+          details: { 
+            chartId,
+            chartType,
+            chartLibrary,
+            chartName,
+            retryCount 
+          }
+        }
+      : {
+          ...errorInfo,
+          details: {
+            chartId,
+            chartType,
+            chartLibrary,
+            chartName,
+            retryCount,
+            ...errorInfo.details
+          }
+        };
+
+    console.error(`Chart render error for "${chartName}" (${chartType}):`, chartError);
+    setPluginError(chartError.message);
+    onError?.(chartError);
+  }, [chartId, chartType, chartLibrary, chartName, retryCount, onError]);
+
+  // Retry handler
+  const handleRetry = useCallback(() => {
+    setRetryCount(prev => prev + 1);
+    setPluginError(null);
+    setPluginLoading(true);
+    setChartComponent(null);
+    setChartElement(null);
+  }, []);
 
   // ============================================================================
-  // PLUGIN LOADING WITH FACTORY AND REGISTRY
+  // PLUGIN LOADING - REGISTRY AND FACTORY ONLY
   // ============================================================================
 
   useEffect(() => {
@@ -142,66 +190,75 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
       setChartElement(null);
 
       try {
-        // Ensure both systems are initialized
+        // Validate required data
+        if (!chart || !chartType) {
+          throw new Error('Invalid chart configuration: missing chart or chartType');
+        }
+
+        if (!data || data.length === 0) {
+          console.warn(`Chart "${chartName}" has no data`);
+          // Don't throw error, let chart component handle empty data
+        }
+
+        // Ensure both plugin systems are initialized
+        console.log(`🔍 Loading chart: ${chartLibrary}-${chartType} (attempt ${retryCount + 1})`);
+        
         await Promise.all([
           ChartRegistry.initialize(),
           ChartFactory.initialize()
         ]);
 
-        console.log(`🔍 Loading chart: ${chartLibrary}-${chartType}`);
-
-        // Strategy 1: Try to get component directly from ChartRegistry
+        // Strategy 1: Try ChartRegistry first (preferred)
         const pluginKey = `${chartLibrary}-${chartType}`;
         const plugin = ChartRegistry.getPlugin(pluginKey);
 
         if (plugin?.component) {
-          // Use plugin component directly from registry
           console.log(`✅ Using Registry component: ${plugin.displayName}`);
           setChartComponent(() => plugin.component);
+          return;
+        }
+
+        // Strategy 2: Use ChartFactory as fallback
+        console.log(`🏭 Using ChartFactory for: ${chartLibrary}-${chartType}`);
+        
+        const isSupported = await ChartFactory.isChartSupported(chartType, chartLibrary);
+        if (!isSupported) {
+          throw new Error(`Chart type '${chartType}' is not supported for library '${chartLibrary}'`);
+        }
+
+        // Create chart element using ChartFactory
+        const element = ChartFactory.createChart(chartType, chartLibrary, {
+          chart,
+          data: data || [],
+          config: chartConfig,
+          dimensions: chartDimensions,
+          theme,
+          onError: handleChartError,
+          onInteraction: handleInteraction
+        });
+
+        if (element) {
+          console.log(`✅ Created chart element via ChartFactory`);
+          setChartElement(element);
         } else {
-          // Strategy 2: Use ChartFactory to create chart element (for chart builder & dashboard template)
-          console.log(`🏭 Using ChartFactory for: ${chartLibrary}-${chartType}`);
-          
-          const isSupported = await ChartFactory.isChartSupported(chartType, chartLibrary);
-          if (!isSupported) {
-            throw new Error(`Chart type '${chartType}' is not supported for library '${chartLibrary}'`);
-          }
-
-          // Create chart element using ChartFactory
-          const element = ChartFactory.createChart(chartType, chartLibrary, {
-            data: data || [],
-            config: chartConfig,
-            dimensions: chartDimensions,
-            onError: handleChartError,
-            onInteraction: handleInteraction
-          });
-
-          if (element) {
-            console.log(`✅ Created chart element via ChartFactory`);
-            setChartElement(element);
-          } else {
-            throw new Error(`ChartFactory failed to create chart element for ${pluginKey}`);
-          }
+          throw new Error(`ChartFactory failed to create chart element for ${pluginKey}`);
         }
 
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error loading chart';
-        console.error(`❌ Failed to load chart plugin ${pluginKey}:`, error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown chart loading error';
+        console.error(`❌ Failed to load chart ${chartLibrary}-${chartType}:`, errorMessage);
         
-        // Enhanced error reporting
-        const registryStats = ChartRegistry.getRegistrationStats();
-        console.log('📊 Registry stats:', registryStats);
-        
+        // NO static fallbacks - only show error
         handleChartError({
           code: 'PLUGIN_LOAD_ERROR',
-          message: `Failed to load ${pluginKey}: ${errorMessage}`,
+          message: errorMessage,
           timestamp: Date.now(),
           details: {
-            pluginKey,
+            chartId,
             chartType,
             chartLibrary,
-            availablePlugins: registryStats.plugins,
-            registryInitialized: ChartRegistry.hasPlugin('echarts-bar') // Basic check
+            pluginKey: `${chartLibrary}-${chartType}`,
+            retryCount
           }
         });
       } finally {
@@ -209,166 +266,93 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
       }
     };
 
-    // Only load if we have the required data
-    if (chartType && chartLibrary && data) {
+    // Only attempt to load if we have a valid chart configuration
+    if (chart && chartType) {
       loadChartPlugin();
     } else {
       setPluginLoading(false);
-      setPluginError('Missing required chart configuration');
+      setPluginError('Invalid chart configuration');
     }
-  }, [chartType, chartLibrary, data, chartConfig, chartDimensions, handleChartError, handleInteraction]);
-
-  // ============================================================================
-  // CHART RENDERING EFFECT
-  // ============================================================================
-
-  useEffect(() => {
-    if (ChartComponent || chartElement) {
-      setIsRendering(true);
-      // Simulate rendering delay
-      const timer = setTimeout(() => {
-        setIsRendering(false);
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [ChartComponent, chartElement]);
-
-  // ============================================================================
-  // RENDER STATES
-  // ============================================================================
-
-  // Loading state
-  if (loading || pluginLoading || isRendering) {
-    return (
-      <Box
-        className={className}
-        style={style}
-        sx={{
-          width: chartDimensions.width,
-          height: chartDimensions.height,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          border: '1px dashed #ccc',
-          borderRadius: 1,
-          position: 'relative'
-        }}
-      >
-        <Box textAlign="center">
-          <CircularProgress size={40} />
-          <Typography variant="body2" sx={{ mt: 2 }}>
-            {pluginLoading 
-              ? `Loading ${chartLibrary} plugin...` 
-              : isRendering 
-                ? `Rendering ${chartType} chart...` 
-                : 'Loading chart data...'
-            }
-          </Typography>
-          <Typography variant="caption" sx={{ mt: 1, opacity: 0.7, display: 'block' }}>
-            {chartLibrary}-{chartType}
-          </Typography>
-        </Box>
-      </Box>
-    );
-  }
-
-  // Error state
-  if (error || pluginError) {
-    return (
-      <Box
-        className={className}
-        style={style}
-        sx={{
-          width: chartDimensions.width,
-          height: chartDimensions.height,
-          p: 2
-        }}
-      >
-        <Alert severity="error" sx={{ height: '100%', display: 'flex', alignItems: 'center' }}>
-          <Box>
-            <Typography variant="subtitle2" gutterBottom>
-              Chart Rendering Failed
-            </Typography>
-            <Typography variant="body2" gutterBottom>
-              {pluginError || error}
-            </Typography>
-            <Typography variant="caption" sx={{ opacity: 0.7, display: 'block' }}>
-              Chart: {chartType} | Library: {chartLibrary}
-            </Typography>
-            <Typography variant="caption" sx={{ opacity: 0.7, display: 'block', mt: 1 }}>
-              Available plugins: {ChartRegistry.getAvailableCharts().slice(0, 3).join(', ')}
-              {ChartRegistry.getAvailableCharts().length > 3 && '...'}
-            </Typography>
-          </Box>
-        </Alert>
-      </Box>
-    );
-  }
-
-  // Empty data state
-  if (!data || data.length === 0) {
-    return (
-      <Box
-        className={className}
-        style={style}
-        sx={{
-          width: chartDimensions.width,
-          height: chartDimensions.height,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          border: '1px dashed #ccc',
-          borderRadius: 1
-        }}
-      >
-        <Box textAlign="center">
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            No data available
-          </Typography>
-          <Typography variant="caption" sx={{ opacity: 0.7 }}>
-            {chartLibrary}-{chartType}
-          </Typography>
-        </Box>
-      </Box>
-    );
-  }
-
-  // ============================================================================
-  // MAIN CHART RENDER
-  // ============================================================================
-
-  const commonProps: ChartProps = {
-    chart,
-    data,
-    columns: columns || [],
-    config: chartConfig,
-    dimensions: chartDimensions,
+  }, [
+    chart, 
+    chartType, 
+    chartLibrary, 
+    data, 
+    chartConfig, 
+    chartDimensions, 
     theme,
-    onInteraction: handleInteraction,
-    onError: handleChartError,
-    className,
-    style
-  };
+    chartId,
+    chartName,
+    retryCount,
+    handleChartError, 
+    handleInteraction
+  ]);
 
+  // ============================================================================
+  // RENDER LOGIC - NO STATIC FALLBACKS
+  // ============================================================================
+
+  // Show external loading state
+  if (loading) {
+    return <ChartLoadingFallback message="Loading chart data..." />;
+  }
+
+  // Show external error
+  if (error) {
+    return (
+      <ChartErrorFallback 
+        error={typeof error === 'string' ? error : error.message} 
+        chartType={chartType}
+        chartName={chartName}
+      />
+    );
+  }
+
+  // Show plugin loading state
+  if (pluginLoading) {
+    return <ChartLoadingFallback message="Loading chart renderer..." />;
+  }
+
+  // Show plugin error with retry option - NO static fallbacks
+  if (pluginError) {
+    return (
+      <ChartErrorFallback 
+        error={pluginError} 
+        chartType={chartType}
+        chartName={chartName}
+        showRetry={true}
+        onRetry={handleRetry}
+        retryCount={retryCount}
+      />
+    );
+  }
+
+  // Render the chart
   return (
-    <ChartErrorBoundary onError={handleChartError}>
-      <Box
+    <ChartErrorBoundary>
+      <Box 
+        position="relative" 
+        width="100%" 
+        height="100%"
         className={className}
         style={style}
-        sx={{
-          width: chartDimensions.width,
-          height: chartDimensions.height,
-          position: 'relative',
-          overflow: 'hidden'
-        }}
       >
-        {/* Render via Registry Component */}
+        {/* Registry Component Render */}
         {ChartComponent && (
-          <ChartComponent {...commonProps} />
+          <ChartComponent
+            chart={chart}
+            data={data}
+            config={chartConfig}
+            columns={columns}
+            dimensions={chartDimensions}
+            theme={theme}
+            onInteraction={handleInteraction}
+            onError={handleChartError}
+          />
         )}
 
-        {/* Render via Factory Element */}
-        {chartElement && !ChartComponent && (
+        {/* Factory Element Render */}
+        {chartElement && (
           <Box
             sx={{
               width: '100%',
@@ -392,7 +376,8 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
             display: 'flex',
             gap: 1,
             opacity: 0.7,
-            pointerEvents: 'none'
+            pointerEvents: 'none',
+            zIndex: 1
           }}
         >
           <Typography
@@ -423,7 +408,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
           </Typography>
         </Box>
 
-        {/* Debug Info (only in development) */}
+        {/* Debug Info (development only) */}
         {process.env.NODE_ENV === 'development' && (
           <Box
             sx={{
@@ -433,16 +418,104 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
               fontSize: '8px',
               opacity: 0.5,
               pointerEvents: 'none',
-              fontFamily: 'monospace'
+              fontFamily: 'monospace',
+              backgroundColor: 'rgba(255,255,255,0.8)',
+              px: 0.5,
+              borderRadius: 0.5
             }}
           >
-            {ChartComponent ? 'Registry' : chartElement ? 'Factory' : 'None'}
+            {ChartComponent ? 'Registry' : chartElement ? 'Factory' : 'None'} | ID: {chartId}
           </Box>
         )}
       </Box>
     </ChartErrorBoundary>
   );
 };
+
+// ============================================================================
+// HELPER COMPONENTS
+// ============================================================================
+
+const ChartLoadingFallback: React.FC<{ message?: string }> = ({ 
+  message = "Loading chart..." 
+}) => (
+  <Box
+    display="flex"
+    flexDirection="column"
+    alignItems="center"
+    justifyContent="center"
+    height="100%"
+    minHeight={200}
+    sx={{
+      backgroundColor: 'background.default',
+      borderRadius: 1,
+      border: '1px dashed',
+      borderColor: 'divider'
+    }}
+  >
+    <CircularProgress size={40} />
+    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+      {message}
+    </Typography>
+  </Box>
+);
+
+const ChartErrorFallback: React.FC<{ 
+  error: string; 
+  chartType: string;
+  chartName?: string;
+  showRetry?: boolean;
+  onRetry?: () => void;
+  retryCount?: number;
+}> = ({ 
+  error, 
+  chartType, 
+  chartName, 
+  showRetry = false, 
+  onRetry,
+  retryCount = 0 
+}) => (
+  <Alert 
+    severity="error" 
+    sx={{ 
+      height: '100%', 
+      display: 'flex', 
+      alignItems: 'center',
+      '& .MuiAlert-message': {
+        flex: 1
+      }
+    }}
+    action={
+      showRetry && onRetry ? (
+        <IconButton 
+          color="inherit" 
+          size="small" 
+          onClick={onRetry}
+          disabled={retryCount >= 3}
+          title={retryCount >= 3 ? 'Maximum retries reached' : 'Retry loading chart'}
+        >
+          <RefreshIcon />
+        </IconButton>
+      ) : undefined
+    }
+  >
+    <Box>
+      <Typography variant="subtitle2" gutterBottom>
+        Failed to load chart: <strong>{chartName || chartType}</strong>
+      </Typography>
+      <Typography variant="body2" color="text.secondary" gutterBottom>
+        {error}
+      </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+        Chart type: {chartType}
+        {retryCount > 0 && ` | Retries: ${retryCount}`}
+      </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+        Please ensure the chart plugin is registered in ChartRegistry.
+      </Typography>
+    </Box>
+  </Alert>
+);
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -459,7 +532,7 @@ function getLibraryColor(library: string): string {
 }
 
 // ============================================================================
-// ENHANCED DEBUG UTILITIES
+// DEBUG UTILITIES
 // ============================================================================
 
 // Debug function to inspect chart loading (development only)
@@ -481,5 +554,9 @@ export const debugChartRenderer = () => {
     console.groupEnd();
   }
 };
+
+// ============================================================================
+// EXPORTS
+// ============================================================================
 
 export default ChartRenderer;
