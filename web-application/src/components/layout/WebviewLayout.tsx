@@ -3,8 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { Box, AppBar, Toolbar, Typography, IconButton, Drawer, useMediaQuery, useTheme } from '@mui/material';
 import { Menu as MenuIcon, AccountCircle } from '@mui/icons-material';
-import { CategorySidebar } from './CategorySidebar';
-import { WebviewNavbar } from './WebviewNavbar';
+import { CategorySidebar } from '../webview/CategorySidebar';
+import { WebviewNavbar } from '../webview/WebviewNavbar';
 import { useWebview } from '../../hooks/useWebview';
 
 export interface WebviewLayoutProps {

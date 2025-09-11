@@ -426,3 +426,124 @@ export const DEFAULT_ROLE_TEMPLATES: RoleTemplate[] = [
     is_system_role: true
   }
 ];
+
+export interface CreateUserRequest {
+  username: string;
+  email: string;
+  password: string;
+  first_name: string;
+  last_name: string;
+  role_ids?: string[];
+  is_active?: boolean;
+  
+  // RLS-related fields for user creation
+  department?: string;
+  region?: string;
+  level?: string;
+  location?: string;
+  team?: string;
+  cost_center?: string;
+  manager_id?: string;
+  profile_data?: Record<string, any>;
+}
+
+export interface UpdateUserRequest {
+  username?: string;
+  email?: string;
+  first_name?: string;
+  last_name?: string;
+  avatar_url?: string;
+  role_ids?: string[];
+  is_active?: boolean;
+  password?: string;
+  
+  // RLS-related fields for user updates
+  department?: string;
+  region?: string;
+  level?: string;
+  location?: string;
+  team?: string;
+  cost_center?: string;
+  manager_id?: string;
+  profile_data?: Record<string, any>;
+}
+
+export interface UserRoleAssignment {
+  id: string;
+  user_id: string;
+  role_id: string;
+  workspace_id: string;
+  assigned_by: string;
+  assigned_at: string;
+  expires_at?: string;
+  is_active: boolean;
+}
+
+// Add these missing types to your rbac.types.ts file:
+
+/**
+ * Permission Query Filters
+ */
+export interface PermissionQueryFilters {
+  search?: string;
+  category?: Permission['category'];
+  resource_type?: string;
+  action?: Permission['action'];
+  is_system?: boolean;
+  page?: number;
+  limit?: number;
+  sort_by?: 'name' | 'description' | 'category' | 'created_at';
+  sort_order?: 'asc' | 'desc';
+}
+
+/**
+ * Role Permission Assignment Interface
+ */
+export interface RolePermissionAssignment {
+  id: string;
+  role_id: string;
+  permission_id: string;
+  workspace_id: string;
+  assigned_by: string;
+  assigned_at: string;
+  is_active: boolean;
+  
+  // Expanded role information
+  role_name?: string;
+  role_display_name?: string;
+  role_description?: string;
+  
+  // Expanded permission information
+  permission_name?: string;
+  permission_description?: string;
+  permission_category?: string;
+  
+  // Expanded assigner information
+  assigned_by_name?: string;
+  assigned_by_email?: string;
+}
+
+/**
+ * Assign Permission to Role Request
+ */
+export interface AssignPermissionToRoleRequest {
+  role_id: string;
+  permission_id: string;
+}
+
+/**
+ * Remove Permission from Role Request
+ */
+export interface RemovePermissionFromRoleRequest {
+  role_id: string;
+  permission_id: string;
+}
+
+/**
+ * Bulk Assign Permissions Request
+ */
+export interface BulkAssignPermissionsRequest {
+  role_id: string;
+  permission_ids: string[];
+  replace_existing?: boolean;
+}

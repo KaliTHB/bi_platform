@@ -1,4 +1,4 @@
-// src/store/api/permissionsApi.ts - Merged Permissions Management & Assignment API
+// src/store/api/permissionApi.ts - Merged Permissions Management & Assignment API
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { RootState } from '../index';
 import type {
@@ -12,8 +12,8 @@ import type {
   ApiResponse
 } from '@/types/rbac.types';
 
-export const permissionsApi = createApi({
-  reducerPath: 'permissionsApi',
+export const permissionApi = createApi({
+  reducerPath: 'permissionApi',
   baseQuery: fetchBaseQuery({
     baseUrl: '/api/v1/',
     prepareHeaders: (headers, { getState }) => {
@@ -497,4 +497,4 @@ export const {
   useLazyValidatePermissionSetQuery,
   useGetPermissionAssignmentStatsQuery,
   useSyncFromTemplateMutation,
-} = permissionsApi;
+} = permissionApi;

@@ -22,7 +22,7 @@ import uiReducer from "./slices/uiSlice";
 // Import RBAC RTK Query APIs (now merged)
 import { userApi } from "./api/userApi";
 import { roleApi } from "./api/roleApi"; // Now contains both roles and role assignments
-import { permissionsApi } from "./api/permissionApi"; // Now contains both permissions and permission assignments
+import { permissionApi } from "./api/permissionApi"; // Now contains both permissions and permission assignments
 
 // Import other existing APIs
 import { baseApi } from "./api/baseApi";
@@ -42,7 +42,7 @@ const rootPersistConfig = {
     dashboardApi.reducerPath,
     userApi.reducerPath,
     roleApi.reducerPath, // Merged API
-    permissionsApi.reducerPath, // Merged API
+    permissionApi.reducerPath, // Merged API
   ],
 };
 
@@ -63,7 +63,7 @@ const rootReducer = combineReducers({
   // Merged RBAC API slices
   [userApi.reducerPath]: userApi.reducer,
   [roleApi.reducerPath]: roleApi.reducer, // Contains roles + role assignments
-  [permissionsApi.reducerPath]: permissionsApi.reducer, // Contains permissions + permission assignments
+  [permissionApi.reducerPath]: permissionApi.reducer, // Contains permissions + permission assignments
 });
 
 // Create persisted reducer
@@ -83,9 +83,9 @@ export const store = configureStore({
           baseApi.reducerPath,
           authApi.reducerPath,
           dashboardApi.reducerPath,
-          usersApi.reducerPath,
-          rolesApi.reducerPath, // Merged API
-          permissionsApi.reducerPath, // Merged API
+          userApi.reducerPath,
+          roleApi.reducerPath, // Merged API
+          permissionApi.reducerPath, // Merged API
         ],
       },
     })
@@ -95,7 +95,7 @@ export const store = configureStore({
     .concat(dashboardApi.middleware)
     .concat(userApi.middleware)
     .concat(roleApi.middleware) // Handles both roles and role assignments
-    .concat(permissionsApi.middleware), // Handles both permissions and permission assignments
+    .concat(permissionApi.middleware), // Handles both permissions and permission assignments
 
   devTools: process.env.NODE_ENV !== "production",
 });
