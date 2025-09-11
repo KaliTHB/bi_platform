@@ -704,6 +704,7 @@ const UserManagementPage: NextPage = () => {
               </Box>
 
               <CommonTableLayout
+                title='USERS'
                 items={users}
                 columns={userColumns}
                 actions={userActions}
@@ -731,6 +732,7 @@ const UserManagementPage: NextPage = () => {
               </Box>
 
               <CommonTableLayout
+                title='ROLES'
                 items={roles}
                 columns={roleColumns}
                 actions={roleActions}

@@ -1,4 +1,4 @@
-// src/store/index.ts - Updated Store Configuration with Merged RBAC APIs
+// src/store/index.ts - Updated Store Configuration (Fixed Duplicate Middleware Issue)
 import { configureStore, combineReducers } from "@reduxjs/toolkit";
 import {
   persistStore,
@@ -19,15 +19,16 @@ import dashboardReducer from "./slices/dashboardSlice";
 import uiReducer from "./slices/uiSlice";
 // ... other slice imports
 
-// Import RBAC RTK Query APIs (now merged)
+// Import RBAC RTK Query APIs
 import { userApi } from "./api/userApi";
-import { roleApi } from "./api/roleApi"; // Now contains both roles and role assignments
-import { permissionApi } from "./api/permissionApi"; // Now contains both permissions and permission assignments
+import { roleApi } from "./api/roleApi"; // Contains both roles and role assignments
+import { permissionApi } from "./api/permissionApi"; // Contains both permissions and permission assignments
 
 // Import other existing APIs
 import { baseApi } from "./api/baseApi";
 import { authApi } from "./api/authApi";
-import { dashboardApi } from "./api/dashboardApi";
+import { dashboardApi } from "./api/dashboardApi"; // This extends baseApi via injectEndpoints
+import { categoryApi } from "./api/categoryApi"; // This also extends baseApi via injectEndpoints
 
 // Root persist configuration - Exclude all RTK Query APIs from persistence
 const rootPersistConfig = {
@@ -37,16 +38,15 @@ const rootPersistConfig = {
   whitelist: ["auth", "workspace"], // Only persist these slices
   blacklist: [
     // Exclude ALL RTK Query APIs from persistence
-    baseApi.reducerPath,
+    baseApi.reducerPath, // This includes dashboardApi and categoryApi
     authApi.reducerPath,
-    dashboardApi.reducerPath,
     userApi.reducerPath,
-    roleApi.reducerPath, // Merged API
-    permissionApi.reducerPath, // Merged API
+    roleApi.reducerPath,
+    permissionApi.reducerPath,
   ],
 };
 
-// Combine all reducers including merged RBAC APIs
+// Combine all reducers including RBAC APIs
 const rootReducer = combineReducers({
   // Your existing slices
   auth: authReducer,
@@ -55,12 +55,12 @@ const rootReducer = combineReducers({
   ui: uiReducer,
   // ... other slices
 
-  // All RTK Query API slices
+  // RTK Query API slices
+  // Note: baseApi includes dashboardApi and categoryApi endpoints via injectEndpoints
   [baseApi.reducerPath]: baseApi.reducer,
   [authApi.reducerPath]: authApi.reducer,
-  [dashboardApi.reducerPath]: dashboardApi.reducer,
   
-  // Merged RBAC API slices
+  // Separate RBAC API slices (these use createApi, not injectEndpoints)
   [userApi.reducerPath]: userApi.reducer,
   [roleApi.reducerPath]: roleApi.reducer, // Contains roles + role assignments
   [permissionApi.reducerPath]: permissionApi.reducer, // Contains permissions + permission assignments
@@ -69,7 +69,7 @@ const rootReducer = combineReducers({
 // Create persisted reducer
 const persistedReducer = persistReducer(rootPersistConfig, rootReducer);
 
-// Configure store with merged RTK Query middleware
+// Configure store with RTK Query middleware
 export const store = configureStore({
   reducer: persistedReducer,
   middleware: (getDefaultMiddleware) =>
@@ -80,22 +80,21 @@ export const store = configureStore({
         ignoredPaths: [
           'register',
           // All RTK Query paths that may contain functions
-          baseApi.reducerPath,
+          baseApi.reducerPath, // This includes dashboardApi and categoryApi
           authApi.reducerPath,
-          dashboardApi.reducerPath,
           userApi.reducerPath,
-          roleApi.reducerPath, // Merged API
-          permissionApi.reducerPath, // Merged API
+          roleApi.reducerPath,
+          permissionApi.reducerPath,
         ],
       },
     })
-    // Add merged RTK Query middleware - Reduced from 7 to 5 APIs
-    .concat(baseApi.middleware)
+    // Add RTK Query middleware - Only for APIs created with createApi()
+    .concat(baseApi.middleware) // This handles dashboardApi and categoryApi too
     .concat(authApi.middleware)
-    .concat(dashboardApi.middleware)
+    // These APIs use createApi() so they need their own middleware:
     .concat(userApi.middleware)
-    .concat(roleApi.middleware) // Handles both roles and role assignments
-    .concat(permissionApi.middleware), // Handles both permissions and permission assignments
+    .concat(roleApi.middleware) 
+    .concat(permissionApi.middleware),
 
   devTools: process.env.NODE_ENV !== "production",
 });
@@ -105,9 +104,9 @@ export type RootState = ReturnType<typeof store.getState>;
 export type AppDispatch = typeof store.dispatch;
 export default store;
 
-// Export all merged API hooks for easy importing
+// Export all API hooks for easy importing
 export {
-  // Users API hooks (unchanged)
+  // Users API hooks
   useGetUsersQuery,
   useGetUserByIdQuery,
   useGetCurrentUserQuery,
@@ -196,3 +195,23 @@ export {
   useGetPermissionAssignmentStatsQuery,
   useSyncFromTemplateMutation,
 } from './api/permissionApi';
+
+// Export dashboard API hooks (these come from baseApi via injectEndpoints)
+export {
+  useGetDashboardsQuery,
+  useGetDashboardQuery,
+  useCreateDashboardMutation,
+  useUpdateDashboardMutation,
+  useDeleteDashboardMutation,
+  useDuplicateDashboardMutation,
+  useGetDashboardDataQuery,
+  // Add other dashboard hooks as needed
+} from './api/dashboardApi';
+
+// Export category API hooks (these also come from baseApi via injectEndpoints)
+export {
+  useGetCategoriesQuery,
+  useCreateCategoryMutation,
+  useUpdateCategoryMutation,
+  useDeleteCategoryMutation,
+} from './api/categoryApi';
