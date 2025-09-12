@@ -661,42 +661,37 @@ async getUserById(userId: string): Promise<AuthenticatedUser | null> {
 }
 
 /**
- * Get user permissions for workspace
+ * Get user permissions for workspace using the existing user_permissions_view
  */
 async getUserPermissions(userId: string, workspaceId: string): Promise<{ permissions: string[] }> {
   try {
-    logger.debug('Getting user permissions', { 
-      userId, 
-      workspaceId, 
-      service: 'bi-platform-api' 
+    logger.debug('Getting user permissions', {
+      userId,
+      workspaceId,
+      service: 'bi-platform-api'
     });
 
+    // Use the existing user_permissions_view which already handles all the JOINs and active checks
     const query = `
-      SELECT DISTINCT rp.permission_name
-      FROM user_role_assignments ura
-      JOIN roles r ON ura.role_id = r.id
-      JOIN role_permissions rp ON r.id = rp.role_id
-      WHERE ura.user_id = $1 
-        AND ura.workspace_id = $2 
-        AND ura.is_active = true 
-        AND r.is_active = true
-        AND rp.is_active = true
-      ORDER BY rp.permission_name
+      SELECT DISTINCT permission_name
+      FROM user_permissions_view
+      WHERE user_id = $1 
+        AND workspace_id = $2
+        AND is_permission_active = true
+      ORDER BY permission_name
     `;
 
     const result = await this.database.query(query, [userId, workspaceId]);
-
     const permissions = result.rows.map(row => row.permission_name);
 
-    logger.debug('User permissions retrieved', { 
+    logger.debug('User permissions retrieved', {
       userId,
       workspaceId,
       permissionCount: permissions.length,
-      service: 'bi-platform-api' 
+      service: 'bi-platform-api'
     });
 
     return { permissions };
-
   } catch (error: any) {
     logger.error('Error getting user permissions:', {
       error: error.message,
@@ -704,97 +699,112 @@ async getUserPermissions(userId: string, workspaceId: string): Promise<{ permiss
       workspaceId,
       service: 'bi-platform-api'
     });
-    
+
     // Return empty permissions instead of throwing to allow graceful degradation
     return { permissions: [] };
   }
 }
 
 /**
- * Get workspace by slug for a user
+ * Enhanced version that returns more detailed permission info if needed
  */
-async getWorkspaceBySlug(workspaceSlug: string, userId: string): Promise<WorkspaceInfo | null> {
+async getUserPermissionsDetailed(userId: string, workspaceId: string): Promise<{
+  permissions: string[];
+  roles: Array<{
+    roleId: string;
+    roleName: string;
+    roleLevel: number;
+    isSystemRole: boolean;
+  }>;
+  permissionDetails: Array<{
+    permission: string;
+    displayName: string;
+    description: string;
+    category: string;
+    fromRole: string;
+  }>;
+}> {
   try {
-    logger.debug('Getting workspace by slug', { 
-      workspaceSlug, 
-      userId, 
-      service: 'bi-platform-api' 
+    logger.debug('Getting detailed user permissions', {
+      userId,
+      workspaceId,
+      service: 'bi-platform-api'
     });
 
     const query = `
-      SELECT 
-        w.id,
-        w.name,
-        w.slug,
-        w.description,
-        w.is_active,
-        w.created_at,
-        w.updated_at,
-        r.name as role,
-        r.level as role_level,
-        r.id as role_id,
-        ura.joined_at,
-        (SELECT COUNT(*) FROM user_role_assignments ura2 WHERE ura2.workspace_id = w.id AND ura2.is_active = true) as member_count,
-        (SELECT COUNT(*) FROM dashboards d WHERE d.workspace_id = w.id AND d.status != 'archived') as dashboard_count,
-        (SELECT COUNT(*) FROM datasets ds WHERE ds.workspace_id = w.id AND ds.is_active = true) as dataset_count
-      FROM workspaces w
-      JOIN user_role_assignments ura ON w.id = ura.workspace_id
-      JOIN roles r ON ura.role_id = r.id
-      WHERE w.slug = $1 
-        AND ura.user_id = $2 
-        AND ura.is_active = true 
-        AND w.is_active = true
-        AND r.is_active = true
-      LIMIT 1
+      SELECT DISTINCT 
+        permission_name,
+        permission_display_name,
+        permission_description,
+        permission_category,
+        role_name,
+        role_id,
+        role_level,
+        is_system_role
+      FROM user_permissions_view
+      WHERE user_id = $1 
+        AND workspace_id = $2
+        AND is_permission_active = true
+      ORDER BY permission_name, role_level DESC
     `;
 
-    const result = await this.database.query(query, [workspaceSlug, userId]);
-
-    if (result.rows.length === 0) {
-      logger.warn('Workspace not found by slug for user', { 
-        workspaceSlug, 
-        userId, 
-        service: 'bi-platform-api' 
-      });
-      return null;
-    }
-
-    const workspaceData = result.rows[0];
+    const result = await this.database.query(query, [userId, workspaceId]);
     
-    logger.debug('Workspace retrieved successfully by slug', { 
-      workspaceId: workspaceData.id,
-      workspaceSlug: workspaceData.slug,
+    // Extract unique permissions
+    const permissions = [...new Set(result.rows.map(row => row.permission_name))];
+    
+    // Extract unique roles
+    const rolesMap = new Map();
+    result.rows.forEach(row => {
+      if (!rolesMap.has(row.role_id)) {
+        rolesMap.set(row.role_id, {
+          roleId: row.role_id,
+          roleName: row.role_name,
+          roleLevel: row.role_level,
+          isSystemRole: row.is_system_role
+        });
+      }
+    });
+    const roles = Array.from(rolesMap.values());
+
+    // Extract permission details
+    const permissionDetails = result.rows.map(row => ({
+      permission: row.permission_name,
+      displayName: row.permission_display_name,
+      description: row.permission_description,
+      category: row.permission_category,
+      fromRole: row.role_name
+    }));
+
+    logger.debug('Detailed user permissions retrieved', {
       userId,
-      service: 'bi-platform-api' 
+      workspaceId,
+      permissionCount: permissions.length,
+      roleCount: roles.length,
+      service: 'bi-platform-api'
     });
 
     return {
-      id: workspaceData.id,
-      name: workspaceData.name,
-      slug: workspaceData.slug,
-      description: workspaceData.description,
-      is_active: workspaceData.is_active,
-      created_at: workspaceData.created_at,
-      updated_at: workspaceData.updated_at,
-      role: workspaceData.role,
-      role_level: workspaceData.role_level,
-      role_id: workspaceData.role_id,
-      member_count: workspaceData.member_count,
-      dashboard_count: workspaceData.dashboard_count,
-      dataset_count: workspaceData.dataset_count,
-      joined_at: workspaceData.joined_at
+      permissions,
+      roles,
+      permissionDetails
     };
-
   } catch (error: any) {
-    logger.error('Error getting workspace by slug:', {
+    logger.error('Error getting detailed user permissions:', {
       error: error.message,
-      workspaceSlug,
       userId,
+      workspaceId,
       service: 'bi-platform-api'
     });
-    throw new Error(`Failed to get workspace by slug: ${error.message}`);
+
+    return {
+      permissions: [],
+      roles: [],
+      permissionDetails: []
+    };
   }
 }
+
 
 /**
  * Get workspace by ID for a user

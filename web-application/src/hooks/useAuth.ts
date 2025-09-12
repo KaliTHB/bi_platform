@@ -1,743 +1,421 @@
-// web-application/src/hooks/useAuth.ts - Enhanced version supporting email/username
-import { useState, useEffect, useCallback, createContext, useContext } from 'react';
+// web-application/src/hooks/useAuth.ts
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
-import type { NextRouter } from 'next/router';
+import { apiUtils } from '../utils/apiUtils';
+import { authAPI } from '../api/authAPI';
+import type { User, LoginRequest, LoginResponse } from '../types/auth.types';
 
-// Types
-export interface User {
-  user_id: number;
-  email: string;
-  username: string;
-  display_name?: string;
-  first_name?: string;
-  last_name?: string;
-  role?: string;
-  avatar_url?: string;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Workspace {
-  id: number;
-  name: string;
-  slug: string;
-  display_name?: string;
-  description?: string;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-  role?: string;
-}
-
-export interface AuthState {
+// Auth state interface
+interface AuthState {
   user: User | null;
   token: string | null;
+  workspaces: any[];
+  currentWorkspace: any | null;
+  permissions: string[];
   isAuthenticated: boolean;
   isLoading: boolean;
-  workspace: Workspace | null;
-}
-
-export interface LoginResult {
-  success: boolean;
-  error?: string;
-}
-
-export interface SwitchWorkspaceResult {
-  success: boolean;
-  error?: string;
-}
-
-// Enhanced login credentials interface
-export interface LoginCredentials {
-  email?: string;
-  username?: string;
-  password: string;
-  workspace_slug?: string;
-}
-
-export interface AuthContextType extends AuthState {
-  // Support both old and new login signatures for backward compatibility
-  login: {
-    (emailOrUsername: string, password: string, workspaceSlug?: string): Promise<LoginResult>;
-    (credentials: LoginCredentials): Promise<LoginResult>;
-  };
-  signOut: () => Promise<void>;
-  switchWorkspace: (workspaceSlug: string) => Promise<SwitchWorkspaceResult>;
-  refreshUser: () => Promise<boolean>;
-  getDefaultWorkspace: () => Promise<Workspace | null>;
-  getAvailableWorkspaces: () => Promise<Workspace[]>;
-}
-
-interface ApiResponse {
-  data: any;
+  isInitialized: boolean;
   error: string | null;
 }
 
-// Create context
-export const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// Enhanced redirect functionality
-class RedirectManager {
-  private static redirectAttempts: number = 0;
-  private static maxAttempts: number = 5;
-  private static redirectKey: string = 'auth_redirect_attempts';
-
-  static async performRedirect(router: NextRouter, targetUrl: string = '/workspace/overview'): Promise<boolean> {
-    console.log('🚀 Starting enhanced redirect process...');
-    
-    // Get current attempts from localStorage
-    const storedAttempts: string | null = localStorage.getItem(this.redirectKey);
-    this.redirectAttempts = storedAttempts ? parseInt(storedAttempts, 10) : 0;
-    
-    if (this.redirectAttempts >= this.maxAttempts) {
-      console.warn('⚠️ Max redirect attempts reached, clearing cache and forcing reload');
-      localStorage.removeItem(this.redirectKey);
-      if (typeof window !== 'undefined') {
-        window.location.reload();
-      }
-      return false;
-    }
-
-    // Increment attempt counter
-    this.redirectAttempts = this.redirectAttempts + 1;
-    localStorage.setItem(this.redirectKey, this.redirectAttempts.toString());
-
-    console.log(`🔄 Redirect attempt ${this.redirectAttempts}/${this.maxAttempts} to ${targetUrl}`);
-
-    // Debug current state
-    this.debugRedirectState(router);
-
-    // Try different redirect strategies based on attempt number
-    const success: boolean = await this.executeRedirectStrategy(router, targetUrl, this.redirectAttempts);
-    
-    if (success) {
-      // Clear attempts on successful redirect
-      setTimeout(() => {
-        localStorage.removeItem(this.redirectKey);
-      }, 1000);
-      return true;
-    }
-
-    // Schedule next attempt if needed
-    if (this.redirectAttempts < this.maxAttempts) {
-      const delay: number = Math.min(1000 * this.redirectAttempts, 5000); // Exponential backoff, max 5s
-      setTimeout(() => {
-        if (typeof window !== 'undefined' && window.location.pathname === '/login') {
-          console.log(`🔄 Scheduling next redirect attempt in ${delay}ms...`);
-          this.performRedirect(router, targetUrl);
-        }
-      }, delay);
-    }
-
-    return false;
-  }
-
-  private static async executeRedirectStrategy(router: NextRouter, targetUrl: string, attempt: number): Promise<boolean> {
-    try {
-      switch (attempt) {
-        case 1:
-          // Standard router push
-          console.log('📍 Strategy 1: Standard router.push');
-          await router.push(targetUrl);
-          return true;
-
-        case 2:
-          // Router replace
-          console.log('📍 Strategy 2: Router.replace');
-          await router.replace(targetUrl);
-          return true;
-
-        case 3:
-          // Window location href
-          console.log('📍 Strategy 3: Window.location.href');
-          if (typeof window !== 'undefined') {
-            window.location.href = targetUrl;
-          }
-          return true;
-
-        case 4:
-          // Window location replace
-          console.log('📍 Strategy 4: Window.location.replace');
-          if (typeof window !== 'undefined') {
-            window.location.replace(targetUrl);
-          }
-          return true;
-
-        case 5:
-          // Force reload and let middleware handle redirect
-          console.log('📍 Strategy 5: Force reload for middleware redirect');
-          if (typeof window !== 'undefined') {
-            window.location.reload();
-          }
-          return true;
-
-        default:
-          return false;
-      }
-    } catch (error) {
-      console.error(`❌ Redirect strategy ${attempt} failed:`, error);
-      return false;
-    }
-  }
-
-  private static debugRedirectState(router: NextRouter): void {
-    if (typeof window !== 'undefined') {
-      console.log('🔍 Redirect Debug Info:', {
-        currentPathname: window.location.pathname,
-        routerReady: router.isReady,
-        documentState: document.readyState,
-        windowLoaded: document.readyState === 'complete',
-        timestamp: new Date().toISOString()
-      });
-    }
-  }
-
-  static clearRedirectAttempts(): void {
-    localStorage.removeItem(this.redirectKey);
-    this.redirectAttempts = 0;
-  }
+// Auth actions interface
+interface AuthActions {
+  login: (credentials: LoginRequest) => Promise<LoginResponse>;
+  logout: () => Promise<void>;
+  register: (data: {
+    email: string;
+    password: string;
+    first_name: string;
+    last_name: string;
+    invitation_token?: string;
+  }) => Promise<any>;
+  verifyToken: () => Promise<boolean>;
+  clearError: () => void;
+  refreshAuth: () => Promise<void>;
+  switchWorkspace: (workspaceSlug: string) => Promise<void>;
+  forgotPassword: (email: string) => Promise<any>;
+  resetPassword: (token: string, newPassword: string) => Promise<any>;
 }
 
-// Utility functions
-const getApiBaseUrl = (): string => {
-  if (typeof window !== 'undefined') {
-    return window.location.origin.replace(':3000', ':3001');
-  }
-  return process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
-};
+// Hook return type
+interface UseAuthReturn extends AuthState, AuthActions {}
 
-// Helper function to detect email format
-const isEmailFormat = (input: string): boolean => {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
-};
+// Storage keys
+const STORAGE_KEYS = {
+  USER: 'auth_user',
+  WORKSPACE: 'auth_workspace',
+  WORKSPACES: 'auth_workspaces',
+  PERMISSIONS: 'auth_permissions',
+} as const;
 
-const safeApiCall = async (
-  url: string, 
-  options: RequestInit, 
-  operation: string
-): Promise<ApiResponse> => {
+// Helper function to safely access localStorage
+const getStorageItem = (key: string): string | null => {
+  if (typeof window === 'undefined') return null;
   try {
-    console.log(`🌐 API Call [${operation}]:`, { url, method: options.method });
-    
-    const response: Response = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-    });
-
-    const responseText: string = await response.text();
-    console.log(`📥 API Response [${operation}]:`, {
-      status: response.status,
-      statusText: response.statusText,
-      hasContent: responseText.length > 0,
-    });
-
-    if (!response.ok) {
-      let errorMessage: string = `HTTP ${response.status}: ${response.statusText}`;
-      
-      if (responseText) {
-        try {
-          const errorData = JSON.parse(responseText);
-          errorMessage = errorData.message || errorMessage;
-        } catch (parseError) {
-          console.warn('Could not parse error response:', parseError);
-        }
-      }
-
-      return { data: null, error: errorMessage };
-    }
-
-    if (!responseText) {
-      return { data: null, error: 'Empty response from server' };
-    }
-
-    try {
-      const data = JSON.parse(responseText);
-      return { data, error: null };
-    } catch (parseError) {
-      console.error('JSON parse error:', parseError);
-      return { data: null, error: 'Invalid JSON response from server' };
-    }
-
+    return localStorage.getItem(key);
   } catch (error) {
-    console.error(`❌ API Error [${operation}]:`, error);
-    
-    if (error instanceof TypeError && error.message.includes('fetch')) {
-      return { data: null, error: 'Network error. Please check your connection and try again.' };
-    }
-    
-    return { 
-      data: null, 
-      error: error instanceof Error ? error.message : 'An unexpected error occurred' 
-    };
+    console.warn(`Failed to get ${key} from localStorage:`, error);
+    return null;
   }
 };
 
-// Auth Hook Implementation
-function useAuthHook(): AuthContextType {
+const setStorageItem = (key: string, value: any): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn(`Failed to set ${key} in localStorage:`, error);
+  }
+};
+
+const removeStorageItem = (key: string): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(key);
+  } catch (error) {
+    console.warn(`Failed to remove ${key} from localStorage:`, error);
+  }
+};
+
+export const useAuth = (): UseAuthReturn => {
   const router = useRouter();
+  const initializationAttempted = useRef(false);
   
+  // Initial state
   const [authState, setAuthState] = useState<AuthState>({
     user: null,
     token: null,
+    workspaces: [],
+    currentWorkspace: null,
+    permissions: [],
     isAuthenticated: false,
     isLoading: true,
-    workspace: null
+    isInitialized: false,
+    error: null,
   });
 
-  // Initialize auth state from localStorage
-  useEffect(() => {
-    const initializeAuth = async (): Promise<void> => {
-      try {
-        console.log('🔐 Initializing auth state...');
-        
-        if (typeof window === 'undefined') {
-          setAuthState(prev => ({ ...prev, isLoading: false }));
-          return;
-        }
-        
-        const storedToken: string | null = localStorage.getItem('token');
-        const storedUser: string | null = localStorage.getItem('user');
-        const storedWorkspace: string | null = localStorage.getItem('workspace');
-
-        if (storedToken && storedUser) {
-          try {
-            const user: User = JSON.parse(storedUser);
-            const workspace: Workspace | null = storedWorkspace ? JSON.parse(storedWorkspace) : null;
-
-            console.log('✅ Found stored auth data:', {
-              hasToken: Boolean(storedToken),
-              userEmail: user?.email,
-              workspaceName: workspace?.name
-            });
-
-            setAuthState({
-              user,
-              token: storedToken,
-              isAuthenticated: true,
-              isLoading: false,
-              workspace
-            });
-
-            // Clear any old redirect attempts since we found valid auth
-            RedirectManager.clearRedirectAttempts();
-          } catch (parseError) {
-            console.error('Error parsing stored auth data:', parseError);
-            localStorage.clear();
-            setAuthState(prev => ({ ...prev, isLoading: false }));
-          }
-        } else {
-          console.log('📭 No stored auth data found');
-          setAuthState(prev => ({ ...prev, isLoading: false }));
-        }
-      } catch (error) {
-        console.error('Auth initialization error:', error);
-        setAuthState(prev => ({ ...prev, isLoading: false }));
-      }
-    };
-
-    initializeAuth();
+  // Update auth state helper
+  const updateAuthState = useCallback((updates: Partial<AuthState>) => {
+    setAuthState(prev => ({ ...prev, ...updates }));
   }, []);
 
-  // Enhanced login function with flexible signature support
-  const loginFunction = useCallback(async (
-    emailOrUsernameOrCredentials: string | LoginCredentials,
-    password?: string,
-    workspaceSlug?: string
-  ): Promise<LoginResult> => {
+  // Clear all auth data
+  const clearAuthData = useCallback(() => {
+    // Clear API client token
+    apiUtils.clearAuthToken();
     
-    setAuthState(prev => ({ ...prev, isLoading: true }));
-
-    let loginData: Record<string, string>;
-
-    // Handle different function signatures
-    if (typeof emailOrUsernameOrCredentials === 'string') {
-      // Called with individual parameters: login(emailOrUsername, password, workspaceSlug?)
-      if (!password) {
-        setAuthState(prev => ({ ...prev, isLoading: false }));
-        return { success: false, error: 'Password is required' };
-      }
-
-      console.log('🔑 Login called with individual parameters');
-      
-      const emailOrUsername = emailOrUsernameOrCredentials.trim();
-      
-      if (isEmailFormat(emailOrUsername)) {
-        loginData = { 
-          email: emailOrUsername,
-          password: password
-        };
-        console.log('📧 Detected email format:', emailOrUsername);
-      } else {
-        loginData = { 
-          username: emailOrUsername,
-          password: password
-        };
-        console.log('👤 Detected username format:', emailOrUsername);
-      }
-      
-      if (workspaceSlug) {
-        loginData.workspace_slug = workspaceSlug;
-      }
-    } else {
-      // Called with credentials object: login({ email/username, password, workspace_slug? })
-      console.log('🔑 Login called with credentials object');
-      
-      const credentials = emailOrUsernameOrCredentials;
-      
-      if (!credentials.password) {
-        setAuthState(prev => ({ ...prev, isLoading: false }));
-        return { success: false, error: 'Password is required' };
-      }
-
-      if (!credentials.email && !credentials.username) {
-        setAuthState(prev => ({ ...prev, isLoading: false }));
-        return { success: false, error: 'Email or username is required' };
-      }
-
-      loginData = {
-        password: credentials.password
-      };
-
-      if (credentials.email) {
-        loginData.email = credentials.email;
-        console.log('📧 Using email from credentials:', credentials.email);
-      } else if (credentials.username) {
-        loginData.username = credentials.username;
-        console.log('👤 Using username from credentials:', credentials.username);
-      }
-
-      if (credentials.workspace_slug) {
-        loginData.workspace_slug = credentials.workspace_slug;
-      }
-    }
-
-    console.log('🔑 Starting login process with:', { 
-      hasEmail: !!loginData.email,
-      hasUsername: !!loginData.username,
-      hasWorkspace: !!loginData.workspace_slug 
+    // Clear localStorage
+    removeStorageItem(STORAGE_KEYS.USER);
+    removeStorageItem(STORAGE_KEYS.WORKSPACE);
+    removeStorageItem(STORAGE_KEYS.WORKSPACES);
+    removeStorageItem(STORAGE_KEYS.PERMISSIONS);
+    
+    // Reset state
+    updateAuthState({
+      user: null,
+      token: null,
+      workspaces: [],
+      currentWorkspace: null,
+      permissions: [],
+      isAuthenticated: false,
+      error: null,
     });
+  }, [updateAuthState]);
 
-    const apiUrl: string = getApiBaseUrl();
+  // Store auth data
+  const storeAuthData = useCallback((loginResponse: LoginResponse) => {
+    // Set API client token
+    apiUtils.setAuthToken(loginResponse.token);
+    
+    // Store in localStorage
+    setStorageItem(STORAGE_KEYS.USER, loginResponse.user);
+    setStorageItem(STORAGE_KEYS.WORKSPACES, loginResponse.workspaces);
+    setStorageItem(STORAGE_KEYS.PERMISSIONS, loginResponse.permissions || []);
+    
+    // Store current workspace if available
+    if (loginResponse.workspaces && loginResponse.workspaces.length > 0) {
+      const currentWorkspace = loginResponse.workspaces[0]; // Default to first workspace
+      setStorageItem(STORAGE_KEYS.WORKSPACE, currentWorkspace);
+      
+      updateAuthState({
+        currentWorkspace,
+      });
+    }
+    
+    // Update state
+    updateAuthState({
+      user: loginResponse.user,
+      token: loginResponse.token,
+      workspaces: loginResponse.workspaces || [],
+      permissions: loginResponse.permissions || [],
+      isAuthenticated: true,
+      error: null,
+    });
+  }, [updateAuthState]);
+
+  // Initialize auth on app start
+  const initializeAuth = useCallback(async () => {
+    if (initializationAttempted.current) return;
+    initializationAttempted.current = true;
+
+    updateAuthState({ isLoading: true });
 
     try {
-      const apiResult = await safeApiCall(
-        `${apiUrl}/api/auth/login`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(loginData)
-        },
-        'login'
-      );
-
-      const { data, error } = apiResult;
-
-      if (error) {
-        setAuthState(prev => ({ ...prev, isLoading: false }));
-        return { 
-          success: false, 
-          error: error.includes('fetch') 
-            ? 'Server error. Please try again later or contact support.'
-            : error
-        };
-      }
-
-      if (!data?.success || !data.data?.user || !data.data?.token) {
-        setAuthState(prev => ({ ...prev, isLoading: false }));
-        return { 
-          success: false, 
-          error: data?.message || 'Login failed. Invalid response from server.' 
-        };
-      }
-
-      const { user, token, workspace: initialWorkspace } = data.data;
-
-      console.log('✅ Login successful:', {
-        userEmail: user.email,
-        username: user.username,
-        hasToken: Boolean(token),
-        hasWorkspace: Boolean(initialWorkspace)
-      });
-
-      // Store user and token immediately
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(user));
-      }
-
-      // Update auth state
-      setAuthState(prev => ({
-        ...prev,
-        user,
-        token,
-        isAuthenticated: true,
-        isLoading: false,
-        workspace: initialWorkspace || null
-      }));
-
-      // Store workspace if provided by login response
-      if (initialWorkspace && typeof window !== 'undefined') {
-        localStorage.setItem('workspace', JSON.stringify(initialWorkspace));
-        console.log('📁 Workspace from login stored:', initialWorkspace.name);
-      }
-
-      // Enhanced redirect with multiple fallbacks
-      console.log('🚀 Starting enhanced redirect process...');
+      // Initialize API client token
+      apiUtils.initializeToken();
       
-      // Clear any previous redirect attempts
-      RedirectManager.clearRedirectAttempts();
+      const token = apiUtils.getAuthToken();
       
-      // Start the enhanced redirect process
-      setTimeout(async () => {
-        await RedirectManager.performRedirect(router, '/workspace/overview');
-      }, 100);
+      if (!token) {
+        updateAuthState({ 
+          isLoading: false, 
+          isInitialized: true,
+          isAuthenticated: false 
+        });
+        return;
+      }
 
-      return { success: true };
+      // Try to get stored user data
+      const storedUser = getStorageItem(STORAGE_KEYS.USER);
+      const storedWorkspace = getStorageItem(STORAGE_KEYS.WORKSPACE);
+      const storedWorkspaces = getStorageItem(STORAGE_KEYS.WORKSPACES);
+      const storedPermissions = getStorageItem(STORAGE_KEYS.PERMISSIONS);
 
-    } catch (error) {
-      console.error('❌ Critical login error:', error);
-      setAuthState(prev => ({ ...prev, isLoading: false }));
-      
-      return { 
-        success: false, 
-        error: 'An unexpected error occurred during login. Please try again.'
-      };
-    }
-  }, [router]);
+      if (storedUser) {
+        // Restore from localStorage
+        updateAuthState({
+          user: JSON.parse(storedUser),
+          token,
+          currentWorkspace: storedWorkspace ? JSON.parse(storedWorkspace) : null,
+          workspaces: storedWorkspaces ? JSON.parse(storedWorkspaces) : [],
+          permissions: storedPermissions ? JSON.parse(storedPermissions) : [],
+          isAuthenticated: true,
+          isLoading: false,
+          isInitialized: true,
+        });
 
-  // Enhanced switch workspace function
-  const switchWorkspace = useCallback(async (workspaceSlug: string): Promise<SwitchWorkspaceResult> => {
-    if (!authState.token) {
-      return { success: false, error: 'Not authenticated' };
-    }
-
-    console.log('🔄 Switching to workspace:', workspaceSlug);
-
-    const apiUrl: string = getApiBaseUrl();
-    const apiResult = await safeApiCall(
-      `${apiUrl}/api/auth/switch-workspace`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authState.token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ workspace_slug: workspaceSlug })
-      },
-      'switchWorkspace'
-    );
-
-    const { data, error } = apiResult;
-
-    if (!error && data?.success) {
-      const { workspace, token: newToken } = data.data;
-
-      console.log('✅ Workspace switch successful:', workspace.name);
-
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('workspace', JSON.stringify(workspace));
-        if (newToken) {
-          localStorage.setItem('token', newToken);
+        // Verify token in background
+        verifyToken().catch(() => {
+          // Token verification failed, but don't interrupt user experience
+          console.warn('Token verification failed during initialization');
+        });
+      } else {
+        // No stored user, verify token with API
+        const isValid = await verifyToken();
+        if (!isValid) {
+          clearAuthData();
         }
+        updateAuthState({ isLoading: false, isInitialized: true });
       }
-
-      setAuthState(prev => ({
-        ...prev,
-        workspace,
-        token: newToken || prev.token
-      }));
-
-      // Enhanced redirect after successful switch
-      setTimeout(async () => {
-        await RedirectManager.performRedirect(router, '/workspace/overview');
-      }, 100);
-      
-      return { success: true };
-    } else {
-      console.warn('⚠️ Workspace switching not available or failed:', error);
-      // Still redirect to overview even if switch fails
-      setTimeout(async () => {
-        await RedirectManager.performRedirect(router, '/workspace/overview');
-      }, 100);
-      
-      return { 
-        success: false, 
-        error: error || 'Workspace switching not available'
-      };
+    } catch (error) {
+      console.error('Auth initialization error:', error);
+      clearAuthData();
+      updateAuthState({ 
+        isLoading: false, 
+        isInitialized: true,
+        error: 'Failed to initialize authentication' 
+      });
     }
-  }, [authState.token, router]);
+  }, [updateAuthState, clearAuthData]);
 
-  // Enhanced sign out function
-  const signOut = useCallback(async (): Promise<void> => {
-    console.log('🔓 Signing out user');
+  // Login function
+  const login = useCallback(async (credentials: LoginRequest): Promise<LoginResponse> => {
+    updateAuthState({ isLoading: true, error: null });
     
     try {
-      if (authState.token) {
-        const apiUrl: string = getApiBaseUrl();
-        // Try to call logout API but don't wait for it
-        safeApiCall(
-          `${apiUrl}/api/auth/logout`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${authState.token}`,
-              'Content-Type': 'application/json'
-            }
-          },
-          'signOut'
-        ).catch((error) => {
-          console.warn('Logout API call failed:', error);
-        });
-      }
-    } finally {
-      // Always clear localStorage and reset state
-      if (typeof window !== 'undefined') {
-        localStorage.clear();
-      }
-      RedirectManager.clearRedirectAttempts();
+      const response = await authAPI.login(credentials);
+      storeAuthData(response);
+      updateAuthState({ isLoading: false });
+      return response;
+    } catch (error: any) {
+      const errorMessage = error.message || 'Login failed';
+      updateAuthState({ 
+        isLoading: false, 
+        error: errorMessage,
+        isAuthenticated: false 
+      });
+      throw error;
+    }
+  }, [storeAuthData, updateAuthState]);
 
-      setAuthState({
-        user: null,
-        token: null,
-        isAuthenticated: false,
-        isLoading: false,
-        workspace: null
+  // Logout function
+  const logout = useCallback(async (): Promise<void> => {
+    updateAuthState({ isLoading: true });
+    
+    try {
+      await authAPI.logout();
+    } catch (error) {
+      console.warn('Logout API call failed:', error);
+    } finally {
+      clearAuthData();
+      updateAuthState({ isLoading: false, isInitialized: true });
+      
+      // Redirect to login page
+      if (typeof window !== 'undefined') {
+        router.push('/login');
+      }
+    }
+  }, [clearAuthData, updateAuthState, router]);
+
+  // Register function
+  const register = useCallback(async (data: {
+    email: string;
+    password: string;
+    first_name: string;
+    last_name: string;
+    invitation_token?: string;
+  }) => {
+    updateAuthState({ isLoading: true, error: null });
+    
+    try {
+      const response = await authAPI.register(data);
+      updateAuthState({ isLoading: false });
+      return response;
+    } catch (error: any) {
+      const errorMessage = error.message || 'Registration failed';
+      updateAuthState({ 
+        isLoading: false, 
+        error: errorMessage 
+      });
+      throw error;
+    }
+  }, [updateAuthState]);
+
+  // Verify token function
+  const verifyToken = useCallback(async (): Promise<boolean> => {
+    try {
+      const result = await authAPI.verifyToken();
+      
+      if (result.valid && result.user) {
+        updateAuthState({
+          user: result.user,
+          isAuthenticated: true,
+          error: null,
+        });
+        return true;
+      } else {
+        clearAuthData();
+        return false;
+      }
+    } catch (error) {
+      console.error('Token verification error:', error);
+      clearAuthData();
+      return false;
+    }
+  }, [updateAuthState, clearAuthData]);
+
+  // Refresh auth data
+  const refreshAuth = useCallback(async (): Promise<void> => {
+    await verifyToken();
+  }, [verifyToken]);
+
+  // Switch workspace function
+  const switchWorkspace = useCallback(async (workspaceSlug: string): Promise<void> => {
+    updateAuthState({ isLoading: true, error: null });
+    
+    try {
+      // Find workspace in current workspaces
+      const workspace = authState.workspaces.find(w => w.slug === workspaceSlug);
+      
+      if (!workspace) {
+        throw new Error('Workspace not found');
+      }
+
+      // Update current workspace
+      setStorageItem(STORAGE_KEYS.WORKSPACE, workspace);
+      updateAuthState({ 
+        currentWorkspace: workspace,
+        isLoading: false 
       });
 
-      // Enhanced redirect to login
-      setTimeout(async () => {
-        await RedirectManager.performRedirect(router, '/login');
-      }, 100);
-    }
-  }, [authState.token, router]);
-
-  // Refresh user data function
-  const refreshUser = useCallback(async (): Promise<boolean> => {
-    if (!authState.token) {
-      return false;
-    }
-
-    console.log('🔄 Refreshing user data...');
-
-    const apiUrl: string = getApiBaseUrl();
-    const apiResult = await safeApiCall(
-      `${apiUrl}/api/auth/me`,
-      {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${authState.token}`,
-          'Content-Type': 'application/json'
-        }
-      },
-      'refreshUser'
-    );
-
-    const { data, error } = apiResult;
-
-    if (!error && data?.success && data.data?.user) {
-      const { user, workspace } = data.data;
+      // You might want to call an API endpoint to switch workspace context
+      // const response = await authAPI.switchWorkspace(workspaceSlug);
       
-      console.log('✅ User data refreshed:', user.email);
-      
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('user', JSON.stringify(user));
-        if (workspace) {
-          localStorage.setItem('workspace', JSON.stringify(workspace));
-        }
+    } catch (error: any) {
+      const errorMessage = error.message || 'Failed to switch workspace';
+      updateAuthState({ 
+        isLoading: false, 
+        error: errorMessage 
+      });
+      throw error;
+    }
+  }, [authState.workspaces, updateAuthState]);
+
+  // Forgot password function
+  const forgotPassword = useCallback(async (email: string) => {
+    updateAuthState({ isLoading: true, error: null });
+    
+    try {
+      const response = await authAPI.forgotPassword(email);
+      updateAuthState({ isLoading: false });
+      return response;
+    } catch (error: any) {
+      const errorMessage = error.message || 'Password reset request failed';
+      updateAuthState({ 
+        isLoading: false, 
+        error: errorMessage 
+      });
+      throw error;
+    }
+  }, [updateAuthState]);
+
+  // Reset password function
+  const resetPassword = useCallback(async (token: string, newPassword: string) => {
+    updateAuthState({ isLoading: true, error: null });
+    
+    try {
+      const response = await authAPI.resetPassword(token, newPassword);
+      updateAuthState({ isLoading: false });
+      return response;
+    } catch (error: any) {
+      const errorMessage = error.message || 'Password reset failed';
+      updateAuthState({ 
+        isLoading: false, 
+        error: errorMessage 
+      });
+      throw error;
+    }
+  }, [updateAuthState]);
+
+  // Clear error function
+  const clearError = useCallback(() => {
+    updateAuthState({ error: null });
+  }, [updateAuthState]);
+
+  // Initialize auth on mount
+  useEffect(() => {
+    initializeAuth();
+  }, [initializeAuth]);
+
+  // Auto-logout on token expiration (optional)
+  useEffect(() => {
+    if (!authState.isAuthenticated || !authState.token) return;
+
+    // Check token every 5 minutes
+    const interval = setInterval(async () => {
+      const isValid = await verifyToken();
+      if (!isValid) {
+        clearInterval(interval);
+        logout();
       }
+    }, 5 * 60 * 1000); // 5 minutes
 
-      setAuthState(prev => ({
-        ...prev,
-        user,
-        workspace: workspace || prev.workspace
-      }));
-
-      return true;
-    } else {
-      console.warn('⚠️ Failed to refresh user data:', error);
-      return false;
-    }
-  }, [authState.token]);
-
-  // Get default workspace function
-  const getDefaultWorkspace = useCallback(async (): Promise<Workspace | null> => {
-    if (!authState.token) {
-      return null;
-    }
-
-    const apiUrl: string = getApiBaseUrl();
-    const apiResult = await safeApiCall(
-      `${apiUrl}/api/workspaces`,
-      {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${authState.token}`,
-          'Content-Type': 'application/json'
-        }
-      },
-      'getDefaultWorkspace'
-    );
-
-    const { data, error } = apiResult;
-
-    if (!error && data?.success && Array.isArray(data.data) && data.data.length > 0) {
-      return data.data[0]; // Return first workspace as default
-    }
-
-    return null;
-  }, [authState.token]);
-
-  // Get available workspaces function
-  const getAvailableWorkspaces = useCallback(async (): Promise<Workspace[]> => {
-    if (!authState.token) {
-      return [];
-    }
-
-    const apiUrl: string = getApiBaseUrl();
-    const apiResult = await safeApiCall(
-      `${apiUrl}/api/workspaces`,
-      {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${authState.token}`,
-          'Content-Type': 'application/json'
-        }
-      },
-      'getAvailableWorkspaces'
-    );
-
-    const { data, error } = apiResult;
-
-    if (!error && data?.success) {
-      return Array.isArray(data.data) ? data.data : [];
-    }
-
-    return [];
-  }, [authState.token]);
+    return () => clearInterval(interval);
+  }, [authState.isAuthenticated, authState.token, verifyToken, logout]);
 
   return {
+    // State
     ...authState,
-    login: loginFunction as AuthContextType['login'],
-    signOut,
+    
+    // Actions
+    login,
+    logout,
+    register,
+    verifyToken,
+    refreshAuth,
     switchWorkspace,
-    refreshUser,
-    getDefaultWorkspace,
-    getAvailableWorkspaces
+    forgotPassword,
+    resetPassword,
+    clearError,
   };
-}
-
-// Export the main hook
-export const useAuth = useAuthHook;
-
-// Hook to use auth context
-export function useAuthContext(): AuthContextType {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuthContext must be used within an AuthProvider');
-  }
-  return context;
-}
+};

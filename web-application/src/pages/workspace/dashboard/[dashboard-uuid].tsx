@@ -1,626 +1,826 @@
-// /pages/workspace/dashboard/[dashboard-uuid].tsx
-// Dashboard page with automatic token refresh handling
+// web-application/src/pages/workspace/dashboard/[id].tsx
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { GetServerSideProps } from 'next';
+import { NextPage } from 'next';
 import { useRouter } from 'next/router';
 import {
   Box,
-  Container,
   Typography,
   Paper,
-  CircularProgress,
+  Grid,
+  Card,
+  CardContent,
+  IconButton,
+  Tooltip,
+  Chip,
   Alert,
+  Skeleton,
   Breadcrumbs,
   Link,
+  Menu,
+  MenuItem,
   Button,
-  IconButton,
-  Toolbar,
-  Chip
+  Divider,
+  Avatar,
+  Tabs,
+  Tab,
+  Badge,
+  CircularProgress,
+  Container
 } from '@mui/material';
 import {
-  ArrowBack as ArrowBackIcon,
-  Share as ShareIcon,
-  Download as DownloadIcon,
-  Fullscreen as FullscreenIcon,
-  Edit as EditIcon,
-  Home as HomeIcon,
+  ArrowBack as BackIcon,
   Refresh as RefreshIcon,
-  Dashboard as DashboardIcon
+  Share as ShareIcon,
+  Edit as EditIcon,
+  MoreVert as MoreIcon,
+  Dashboard as DashboardIcon,
+  Visibility as ViewIcon,
+  Schedule as ScheduleIcon,
+  Person as PersonIcon,
+  Category as CategoryIcon,
+  Star as StarIcon,
+  Public as PublicIcon,
+  Lock as PrivateIcon,
+  Group as WorkspaceIcon,
+  Settings as SettingsIcon,
+  BarChart as ChartIcon,
+  FilterAlt as FilterIcon,
+  Fullscreen as FullscreenIcon,
+  Download as DownloadIcon
 } from '@mui/icons-material';
 
-// Import existing components from your project
-import { DashboardContainer } from '@/components/dashboard/DashboardContainer';
-import { useAuth } from '@/hooks/useAuth';
-import { usePermissions } from '@/hooks/usePermissions';
+// Import API utilities and hooks
+import { apiUtils } from '../../../utils/apiUtils';
+import { dashboardAPI } from '@/store/api/dashboardApi';
+import { useAuth } from '../../../hooks/useAuth';
+import { usePermissions } from '../../../hooks/usePermissions';
+import WorkspaceLayout from '../../../components/layout/WorkspaceLayout';
+import { PermissionGate } from '../../../components/shared/PermissionGate';
 
 // Types
-import { 
-  Dashboard,
-  ChartInteractionEvent 
-} from '@/types/dashboard.types';
-
-// =============================================================================
-// TOKEN REFRESH UTILITY
-// =============================================================================
-
-class TokenManager {
-  private static refreshPromise: Promise<string | null> | null = null;
-
-  static async getValidToken(): Promise<string | null> {
-    const token = this.getStoredToken();
-    
-    if (!token) {
-      return null;
-    }
-
-    // Check if token is expired by making a quick test call
-    try {
-      const testResponse = await fetch('/api/auth/refresh', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (testResponse.ok) {
-        return token; // Token is valid
-      }
-
-      if (testResponse.status === 401) {
-        // Token expired, try to refresh
-        return await this.refreshToken();
-      }
-    } catch (error) {
-      console.warn('Token validation failed:', error);
-    }
-
-    return token; // Return token anyway, let the API calls handle it
-  }
-
-  static async refreshToken(): Promise<string | null> {
-    // Prevent multiple concurrent refresh requests
-    if (this.refreshPromise) {
-      return this.refreshPromise;
-    }
-
-    this.refreshPromise = this.doRefreshToken();
-    
-    try {
-      const result = await this.refreshPromise;
-      return result;
-    } finally {
-      this.refreshPromise = null;
-    }
-  }
-
-  private static async doRefreshToken(): Promise<string | null> {
-    try {
-      console.log('🔄 Refreshing access token...');
-
-      const refreshToken = this.getRefreshToken();
-      const currentToken = this.getStoredToken();
-
-      const refreshResponse = await fetch('/api/auth/refresh', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(currentToken && { 'Authorization': `Bearer ${currentToken}` })
-        },
-        body: JSON.stringify({
-          refresh_token: refreshToken
-        })
-      });
-
-      if (refreshResponse.ok) {
-        const data = await refreshResponse.json();
-        
-        if (data.success && data.token) {
-          console.log('✅ Token refreshed successfully');
-          
-          // Store new token
-          localStorage.setItem('token', data.token);
-          if (data.refresh_token) {
-            localStorage.setItem('refreshToken', data.refresh_token);
-          }
-          
-          // Update cookie if used
-          document.cookie = `token=${data.token}; path=/; SameSite=lax`;
-          
-          return data.token;
-        }
-      }
-
-      console.log('❌ Token refresh failed, redirecting to login');
-      this.clearTokens();
-      window.location.href = `/login?returnUrl=${encodeURIComponent(window.location.pathname)}`;
-      return null;
-
-    } catch (error) {
-      console.error('❌ Token refresh error:', error);
-      this.clearTokens();
-      window.location.href = `/login?returnUrl=${encodeURIComponent(window.location.pathname)}`;
-      return null;
-    }
-  }
-
-  private static getStoredToken(): string | null {
-    return (
-      localStorage.getItem('token') ||
-      localStorage.getItem('authToken') ||
-      localStorage.getItem('accessToken') ||
-      document.cookie.match(/token=([^;]+)/)?.[1] ||
-      null
-    );
-  }
-
-  private static getRefreshToken(): string | null {
-    return (
-      localStorage.getItem('refreshToken') ||
-      localStorage.getItem('refresh_token') ||
-      document.cookie.match(/refreshToken=([^;]+)/)?.[1] ||
-      null
-    );
-  }
-
-  private static clearTokens(): void {
-    localStorage.removeItem('token');
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('refresh_token');
-    document.cookie = 'token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-    document.cookie = 'refreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-  }
+interface Chart {
+  id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  chart_type: string;
+  config_json: any;
+  data_json?: any;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  min_width?: number;
+  min_height?: number;
+  is_visible: boolean;
+  dataset_ids: string[];
+  created_at: string;
+  updated_at: string;
 }
 
-// Enhanced fetch function with automatic token refresh
-async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
-  const token = await TokenManager.getValidToken();
-  
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...options.headers
+interface DashboardTab {
+  id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  charts: Chart[];
+  is_visible: boolean;
+  sort_order: number;
+}
+
+interface GlobalFilter {
+  id: string;
+  name: string;
+  display_name: string;
+  type: 'date_range' | 'single_select' | 'multi_select' | 'text' | 'numeric_range';
+  default_value?: any;
+  current_value?: any;
+  is_required: boolean;
+  is_visible: boolean;
+  position: number;
+}
+
+interface Dashboard {
+  id: string;
+  workspace_id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  slug: string;
+  status: 'draft' | 'published' | 'archived';
+  visibility: 'public' | 'private' | 'workspace';
+  is_featured: boolean;
+  is_public: boolean;
+  chart_count: number;
+  view_count: number;
+  category?: {
+    id: string;
+    name: string;
+    color: string;
+    icon?: string;
   };
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  let response = await fetch(url, {
-    ...options,
-    headers
-  });
-
-  // If token expired, try refreshing and retry the request
-  if (response.status === 401) {
-    console.log('🔄 Token expired, attempting refresh...');
-    
-    const newToken = await TokenManager.refreshToken();
-    
-    if (newToken) {
-      console.log('🔄 Retrying request with new token...');
-      headers.Authorization = `Bearer ${newToken}`;
-      
-      response = await fetch(url, {
-        ...options,
-        headers
-      });
-    }
-  }
-
-  return response;
+  thumbnail_url?: string;
+  tags: string[];
+  tabs: DashboardTab[];
+  global_filters: GlobalFilter[];
+  owner: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  config_json: {
+    auto_refresh?: {
+      enabled: boolean;
+      interval: number; // seconds
+    };
+    export_settings?: {
+      include_filters: boolean;
+      page_size: string;
+      orientation: string;
+    };
+    interaction_settings?: {
+      enable_cross_filtering: boolean;
+      enable_drill_through: boolean;
+      click_behavior: string;
+    };
+    performance_settings?: {
+      lazy_loading: boolean;
+      concurrent_chart_loads: number;
+      cache_duration: number;
+    };
+  };
+  theme_config?: {
+    primary_color?: string;
+    background_color?: string;
+    text_color?: string;
+    accent_color?: string;
+  };
+  created_at: string;
+  updated_at: string;
+  published_at?: string;
+  last_viewed_at?: string;
 }
 
-// =============================================================================
-// INTERFACES
-// =============================================================================
+// Chart component to render individual charts
+const ChartComponent: React.FC<{ 
+  chart: Chart; 
+  onChartClick?: (chart: Chart) => void;
+  filters?: Record<string, any>;
+}> = ({ chart, onChartClick, filters }) => {
+  const [chartData, setChartData] = useState<any>(null);
+  const [chartLoading, setChartLoading] = useState(true);
+  const [chartError, setChartError] = useState<string | null>(null);
 
-interface DashboardPageProps {
-  dashboardId: string;
-  dashboardData?: Dashboard;
-  error?: string;
-  debugInfo?: any;
-}
-
-// =============================================================================
-// MAIN COMPONENT
-// =============================================================================
-
-const DashboardViewPage: React.FC<DashboardPageProps> = ({
-  dashboardId,
-  dashboardData: initialDashboardData,
-  error: initialError,
-  debugInfo
-}) => {
-  const router = useRouter();
-  const { user, workspace, isAuthenticated } = useAuth();
-  const { hasPermission } = usePermissions();
-
-  // State management
-  const [dashboard, setDashboard] = useState<Dashboard | null>(initialDashboardData || null);
-  const [loading, setLoading] = useState(!initialDashboardData && !initialError);
-  const [error, setError] = useState<string | null>(initialError || null);
-  const [fullscreen, setFullscreen] = useState(false);
-  const [tokenRefreshed, setTokenRefreshed] = useState(false);
-
-  // Debug logging
   useEffect(() => {
-    console.log('🔍 Dashboard Page Debug:');
-    console.log('- Dashboard ID:', dashboardId);
-    console.log('- User authenticated:', isAuthenticated);
-    console.log('- Initial dashboard data:', !!initialDashboardData);
-    console.log('- Initial error:', initialError);
-    
-    if (debugInfo) {
-      console.log('- Debug info:', debugInfo);
-    }
-  }, [dashboardId, isAuthenticated, initialDashboardData, initialError, debugInfo]);
-
-  // Load dashboard data with token refresh handling
-  const loadDashboardData = useCallback(async () => {
-    if (!dashboardId) {
-      setError('Dashboard ID is required');
-      return;
-    }
-
-    try {
-      console.log('📡 Loading dashboard with automatic token refresh...');
-      setLoading(true);
-      setError(null);
-
-      const response = await fetchWithAuth(`/api/dashboards/${dashboardId}`);
-
-      console.log('📡 Dashboard API response status:', response.status);
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          console.log('🔒 Still unauthorized after token refresh, redirecting to login');
-          router.push(`/login?returnUrl=${encodeURIComponent(router.asPath)}`);
-          return;
+    const loadChartData = async () => {
+      try {
+        setChartLoading(true);
+        setChartError(null);
+        
+        // Load chart data with filters
+        const response = await apiUtils.post(`/charts/${chart.id}/data`, {
+          filters: filters || {}
+        });
+        
+        if (response.success) {
+          setChartData(response.data);
         }
-        throw new Error(`API returned ${response.status}: ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      console.log('📡 Dashboard API response:', result);
-
-      if (result.success && result.data) {
-        setDashboard(result.data);
-      } else {
-        setError(result.message || 'Failed to load dashboard');
-      }
-    } catch (err) {
-      console.error('❌ Error loading dashboard:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load dashboard');
-    } finally {
-      setLoading(false);
-    }
-  }, [dashboardId, router]);
-
-  // Initial load and auth check
-  useEffect(() => {
-    const initializeDashboard = async () => {
-      // If we don't have dashboard data and no error, try to load it
-      if (!dashboard && !error && dashboardId) {
-        await loadDashboardData();
+      } catch (error) {
+        console.error(`Error loading chart ${chart.id}:`, error);
+        setChartError(error instanceof Error ? error.message : 'Failed to load chart');
+      } finally {
+        setChartLoading(false);
       }
     };
 
-    initializeDashboard();
-  }, [dashboard, error, dashboardId, loadDashboardData]);
+    loadChartData();
+  }, [chart.id, filters]);
 
-  // Event handlers
-  const handleBack = () => {
-    if (workspace?.slug) {
-      router.push(`/workspace/${workspace.slug}/dashboards`);
-    } else {
-      router.push('/workspace');
+  return (
+    <Card 
+      sx={{ 
+        height: '100%',
+        cursor: onChartClick ? 'pointer' : 'default',
+        '&:hover': onChartClick ? {
+          boxShadow: 3,
+          transform: 'translateY(-2px)',
+          transition: 'all 0.2s ease-in-out'
+        } : {}
+      }}
+      onClick={() => onChartClick?.(chart)}
+    >
+      <CardContent sx={{ height: '100%', position: 'relative' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+          <Typography variant="h6" component="h3" noWrap>
+            {chart.display_name}
+          </Typography>
+          <IconButton size="small">
+            <MoreIcon fontSize="small" />
+          </IconButton>
+        </Box>
+        
+        {chart.description && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {chart.description}
+          </Typography>
+        )}
+
+        <Box sx={{ 
+          height: 'calc(100% - 80px)', 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          {chartLoading && (
+            <CircularProgress />
+          )}
+          
+          {chartError && (
+            <Alert severity="error" sx={{ width: '100%' }}>
+              {chartError}
+            </Alert>
+          )}
+          
+          {chartData && !chartLoading && (
+            <Box sx={{ width: '100%', height: '100%' }}>
+              <Typography variant="body2" color="text.secondary" align="center">
+                📊 Chart: {chart.chart_type}
+              </Typography>
+              <Typography variant="caption" display="block" align="center">
+                {JSON.stringify(chartData).length} bytes of data
+              </Typography>
+              {/* Here you would render the actual chart based on chart.chart_type */}
+              {/* For now showing placeholder */}
+            </Box>
+          )}
+        </Box>
+
+        <Chip 
+          label={chart.chart_type}
+          size="small"
+          variant="outlined"
+          sx={{ position: 'absolute', top: 8, right: 8 }}
+        />
+      </CardContent>
+    </Card>
+  );
+};
+
+const DashboardViewPage: NextPage = () => {
+  const router = useRouter();
+  const { id: dashboardId } = router.query as { id: string };
+  const { user, workspace } = useAuth();
+  const { hasPermission } = usePermissions();
+
+  // State
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState(0);
+  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<NodeJS.Timeout | null>(null);
+  const [globalFilters, setGlobalFilters] = useState<Record<string, any>>({});
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Load dashboard data
+  const loadDashboard = useCallback(async () => {
+    if (!dashboardId) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      console.log(`🔍 Loading dashboard: ${dashboardId}`);
+      
+      // Use the new API utils - automatically includes workspace ID and auth token
+      const response = await dashboardAPI.getById(dashboardId);
+      
+      if (response.success && response.data) {
+        console.log('✅ Dashboard loaded successfully:', response.data);
+        setDashboard(response.data);
+        
+        // Initialize global filters with default values
+        const initialFilters: Record<string, any> = {};
+        response.data.global_filters?.forEach(filter => {
+          if (filter.default_value !== undefined) {
+            initialFilters[filter.id] = filter.default_value;
+          }
+        });
+        setGlobalFilters(initialFilters);
+        
+        // Set up auto-refresh if enabled
+        if (response.data.config_json?.auto_refresh?.enabled) {
+          const interval = response.data.config_json.auto_refresh.interval * 1000; // Convert to ms
+          const refreshInterval = setInterval(() => {
+            console.log('🔄 Auto-refreshing dashboard...');
+            refreshDashboard();
+          }, interval);
+          setAutoRefreshInterval(refreshInterval);
+        }
+      } else {
+        setError('Dashboard not found');
+      }
+    } catch (error) {
+      console.error('❌ Error loading dashboard:', error);
+      
+      if (error instanceof AuthenticationError) {
+        setError('Please log in to access this dashboard');
+      } else if (error instanceof WorkspaceError) {
+        setError('Please select a workspace to access this dashboard');
+      } else if (error instanceof ApiError) {
+        if (error.status === 403) {
+          setError('You don\'t have permission to access this dashboard');
+        } else if (error.status === 404) {
+          setError('Dashboard not found');
+        } else {
+          setError(`Failed to load dashboard: ${error.message}`);
+        }
+      } else {
+        setError('An unexpected error occurred while loading the dashboard');
+      }
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [dashboardId]);
 
-  const handleEdit = () => {
-    if (workspace?.slug && dashboardId) {
-      router.push(`/workspace/${workspace.slug}/dashboard-builder?id=${dashboardId}`);
-    } else {
-      router.push(`/dashboard-builder?id=${dashboardId}`);
+  // Refresh dashboard data
+  const refreshDashboard = useCallback(async () => {
+    if (!dashboardId) return;
+
+    try {
+      setRefreshing(true);
+      console.log('🔄 Refreshing dashboard...');
+      
+      const response = await dashboardAPI.getById(dashboardId);
+      if (response.success && response.data) {
+        setDashboard(response.data);
+        console.log('✅ Dashboard refreshed');
+      }
+    } catch (error) {
+      console.error('❌ Error refreshing dashboard:', error);
+      // Don't show error for refresh failures, just log them
+    } finally {
+      setRefreshing(false);
     }
+  }, [dashboardId]);
+
+  // Load dashboard on mount and when ID changes
+  useEffect(() => {
+    loadDashboard();
+    
+    // Cleanup auto-refresh on unmount
+    return () => {
+      if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+      }
+    };
+  }, [loadDashboard]);
+
+  // Handle tab change
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue);
   };
 
-  const handleShare = () => {
-    const shareUrl = `${window.location.origin}${router.asPath}`;
-    navigator.clipboard.writeText(shareUrl).then(() => {
-      console.log('✅ Dashboard URL copied to clipboard');
-      alert('Dashboard URL copied to clipboard!');
-    }).catch(() => {
-      console.log('❌ Failed to copy to clipboard');
-      alert(`Share this URL: ${shareUrl}`);
-    });
+  // Handle global filter change
+  const handleFilterChange = (filterId: string, value: any) => {
+    setGlobalFilters(prev => ({
+      ...prev,
+      [filterId]: value
+    }));
   };
 
-  const handleExport = () => {
-    console.log('📄 Export requested for dashboard:', dashboardId);
-    alert('Export functionality will be implemented soon!');
+  // Handle menu actions
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setMenuAnchor(event.currentTarget);
   };
 
-  const handleFullscreenChange = (isFullscreen: boolean) => {
-    setFullscreen(isFullscreen);
+  const handleMenuClose = () => {
+    setMenuAnchor(null);
   };
 
-  const handleChartInteraction = (event: ChartInteractionEvent) => {
-    console.log('📊 Chart interaction:', event);
+  const handleEditDashboard = () => {
+    router.push(`/workspace/dashboard-builder?id=${dashboardId}`);
+    handleMenuClose();
   };
 
-  const handleDashboardError = (errorMessage: string) => {
-    console.error('❌ Dashboard error:', errorMessage);
-    setError(errorMessage);
+  const handleShareDashboard = () => {
+    // Implement share functionality
+    console.log('Share dashboard:', dashboardId);
+    handleMenuClose();
   };
 
-  const handleRefresh = () => {
-    loadDashboardData();
+  const handleExportDashboard = () => {
+    // Implement export functionality
+    console.log('Export dashboard:', dashboardId);
+    handleMenuClose();
+  };
+
+  const handleChartClick = (chart: Chart) => {
+    // Handle chart interaction
+    console.log('Chart clicked:', chart.id);
   };
 
   // Render loading state
   if (loading) {
     return (
-      <Container maxWidth="xl" sx={{ mt: 4 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-          <Box sx={{ textAlign: 'center' }}>
-            <CircularProgress size={60} />
-            <Typography variant="h6" sx={{ mt: 2 }}>
-              Loading Dashboard...
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Dashboard ID: {dashboardId}
-            </Typography>
-            {tokenRefreshed && (
-              <Typography variant="body2" color="success.main" sx={{ mt: 1 }}>
-                ✅ Authentication refreshed
-              </Typography>
-            )}
+      <WorkspaceLayout>
+        <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
+          <Box sx={{ mb: 3 }}>
+            <Skeleton variant="text" width={300} height={40} />
+            <Skeleton variant="text" width={200} height={24} />
           </Box>
-        </Box>
-      </Container>
+          <Grid container spacing={3}>
+            {Array.from({ length: 6 }).map((_, index) => (
+              <Grid item xs={12} sm={6} md={4} key={index}>
+                <Skeleton variant="rectangular" height={300} />
+              </Grid>
+            ))}
+          </Grid>
+        </Container>
+      </WorkspaceLayout>
     );
   }
 
   // Render error state
-  if (error && !dashboard) {
+  if (error) {
     return (
-      <Container maxWidth="xl" sx={{ mt: 4 }}>
-        <Alert severity="error" sx={{ mb: 2 }}>
-          <Typography variant="h6">Dashboard Error</Typography>
-          <Typography>{error}</Typography>
-        </Alert>
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          <Button 
-            variant="contained" 
-            onClick={handleBack}
-            startIcon={<ArrowBackIcon />}
+      <WorkspaceLayout>
+        <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
+          <Alert 
+            severity="error" 
+            action={
+              <Button color="inherit" size="small" onClick={loadDashboard}>
+                Retry
+              </Button>
+            }
           >
-            Go Back
-          </Button>
-          <Button 
-            variant="outlined" 
-            onClick={handleRefresh}
-            startIcon={<RefreshIcon />}
-          >
-            Retry
-          </Button>
-        </Box>
-      </Container>
+            {error}
+          </Alert>
+          
+          <Box sx={{ mt: 3, display: 'flex', gap: 2 }}>
+            <Button
+              variant="contained"
+              startIcon={<BackIcon />}
+              onClick={() => router.push('/workspace/dashboards')}
+            >
+              Back to Dashboards
+            </Button>
+            
+            <Button
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              onClick={loadDashboard}
+            >
+              Try Again
+            </Button>
+          </Box>
+        </Container>
+      </WorkspaceLayout>
     );
   }
 
-  const displayTitle = dashboard?.display_name || dashboard?.name || `Dashboard ${dashboardId}`;
-  const displayDescription = dashboard?.description;
+  if (!dashboard) {
+    return (
+      <WorkspaceLayout>
+        <Container maxWidth="xl" sx={{ mt: 4 }}>
+          <Alert severity="warning">
+            Dashboard not found
+          </Alert>
+        </Container>
+      </WorkspaceLayout>
+    );
+  }
+
+  const currentTab = dashboard.tabs?.[activeTab];
+  const visibleTabs = dashboard.tabs?.filter(tab => tab.is_visible) || [];
 
   return (
-    <Box sx={{ 
-      minHeight: fullscreen ? '100vh' : 'auto', 
-      display: 'flex', 
-      flexDirection: 'column',
-      bgcolor: fullscreen ? 'background.default' : 'transparent'
-    }}>
-      {/* Breadcrumbs */}
-      {!fullscreen && (
-        <Container maxWidth="xl" sx={{ py: 2 }}>
-          <Breadcrumbs aria-label="breadcrumb">
-            <Link
-              color="inherit"
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                router.push(`/workspace/${workspace?.slug || 'default'}`);
-              }}
-              sx={{ display: 'flex', alignItems: 'center' }}
+    <WorkspaceLayout>
+      <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
+        {/* Header */}
+        <Box sx={{ mb: 3 }}>
+          {/* Breadcrumbs */}
+          <Breadcrumbs sx={{ mb: 2 }}>
+            <Link 
+              color="inherit" 
+              href="/workspace"
+              onClick={(e) => { e.preventDefault(); router.push('/workspace'); }}
+              sx={{ cursor: 'pointer' }}
             >
-              <HomeIcon sx={{ mr: 0.5 }} fontSize="inherit" />
               Workspace
             </Link>
-            <Link
-              color="inherit"
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                router.push(`/workspace/${workspace?.slug || 'default'}/dashboards`);
-              }}
+            <Link 
+              color="inherit" 
+              href="/workspace/dashboards"
+              onClick={(e) => { e.preventDefault(); router.push('/workspace/dashboards'); }}
+              sx={{ cursor: 'pointer' }}
             >
               Dashboards
             </Link>
             <Typography color="text.primary">
-              {displayTitle}
+              {dashboard.display_name}
             </Typography>
           </Breadcrumbs>
-        </Container>
-      )}
 
-      {/* Toolbar */}
-      {!fullscreen && (
-        <Paper elevation={1} sx={{ mb: 2 }}>
-          <Container maxWidth="xl">
-            <Toolbar sx={{ px: { xs: 1, sm: 0 } }}>
-              <IconButton
-                edge="start"
-                color="inherit"
-                onClick={handleBack}
-                sx={{ mr: 2 }}
-              >
-                <ArrowBackIcon />
-              </IconButton>
-
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="h5" component="h1" noWrap>
-                  {displayTitle}
+          {/* Dashboard Header */}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+            <Box sx={{ flex: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <DashboardIcon color="primary" />
+                <Typography variant="h4" component="h1">
+                  {dashboard.display_name}
                 </Typography>
-                {displayDescription && (
-                  <Typography variant="body2" color="text.secondary" noWrap>
-                    {displayDescription}
-                  </Typography>
-                )}
-                <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                
+                {/* Status chips */}
+                <Chip 
+                  label={dashboard.status}
+                  color={dashboard.status === 'published' ? 'success' : 'default'}
+                  size="small"
+                />
+                
+                {dashboard.is_featured && (
                   <Chip 
-                    label={dashboard?.status || 'Unknown'} 
-                    size="small" 
-                    color={dashboard?.status === 'published' ? 'success' : 'default'}
+                    icon={<StarIcon />}
+                    label="Featured"
+                    color="warning"
+                    size="small"
                   />
-                  {tokenRefreshed && (
-                    <Chip 
-                      label="Token Refreshed" 
-                      size="small" 
-                      color="success" 
-                      variant="outlined"
-                    />
-                  )}
-                </Box>
+                )}
+
+                {/* Visibility indicator */}
+                {dashboard.visibility === 'public' && <PublicIcon color="success" />}
+                {dashboard.visibility === 'private' && <PrivateIcon color="action" />}
+                {dashboard.visibility === 'workspace' && <WorkspaceIcon color="info" />}
               </Box>
 
-              <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
-                <IconButton
-                  color="inherit"
-                  onClick={handleRefresh}
-                  title="Refresh Dashboard"
-                >
-                  <RefreshIcon />
-                </IconButton>
+              {dashboard.description && (
+                <Typography variant="body1" color="text.secondary" sx={{ mb: 1 }}>
+                  {dashboard.description}
+                </Typography>
+              )}
 
-                <IconButton
-                  color="inherit"
-                  onClick={() => handleFullscreenChange(!fullscreen)}
-                  title={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-                >
-                  <FullscreenIcon />
-                </IconButton>
+              {/* Metadata */}
+              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <PersonIcon fontSize="small" color="action" />
+                  <Typography variant="body2">
+                    {dashboard.owner.name}
+                  </Typography>
+                </Box>
+                
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <ChartIcon fontSize="small" color="action" />
+                  <Typography variant="body2">
+                    {dashboard.chart_count} charts
+                  </Typography>
+                </Box>
+                
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <ViewIcon fontSize="small" color="action" />
+                  <Typography variant="body2">
+                    {dashboard.view_count} views
+                  </Typography>
+                </Box>
 
-                {user && hasPermission('dashboard.update') && (
-                  <IconButton
-                    color="inherit"
-                    onClick={handleEdit}
-                    title="Edit Dashboard"
-                  >
+                {dashboard.last_viewed_at && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <ScheduleIcon fontSize="small" color="action" />
+                    <Typography variant="body2">
+                      Last viewed {new Date(dashboard.last_viewed_at).toLocaleDateString()}
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+
+              {/* Category and Tags */}
+              <Box sx={{ mt: 1, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                {dashboard.category && (
+                  <Chip
+                    icon={<CategoryIcon />}
+                    label={dashboard.category.name}
+                    size="small"
+                    sx={{ bgcolor: dashboard.category.color + '20', color: dashboard.category.color }}
+                  />
+                )}
+                
+                {dashboard.tags.map((tag, index) => (
+                  <Chip
+                    key={index}
+                    label={tag}
+                    size="small"
+                    variant="outlined"
+                  />
+                ))}
+              </Box>
+            </Box>
+
+            {/* Action buttons */}
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Tooltip title="Refresh Dashboard">
+                <IconButton
+                  onClick={refreshDashboard}
+                  disabled={refreshing}
+                  color="primary"
+                >
+                  <RefreshIcon sx={{ animation: refreshing ? 'spin 1s linear infinite' : 'none' }} />
+                </IconButton>
+              </Tooltip>
+
+              <PermissionGate permissions={['dashboard.share']}>
+                <Tooltip title="Share Dashboard">
+                  <IconButton onClick={handleShareDashboard} color="primary">
+                    <ShareIcon />
+                  </IconButton>
+                </Tooltip>
+              </PermissionGate>
+
+              <PermissionGate permissions={['dashboard.update']}>
+                <Tooltip title="Edit Dashboard">
+                  <IconButton onClick={handleEditDashboard} color="primary">
                     <EditIcon />
                   </IconButton>
-                )}
+                </Tooltip>
+              </PermissionGate>
 
-                <IconButton
-                  color="inherit"
-                  onClick={handleShare}
-                  title="Share Dashboard"
-                >
-                  <ShareIcon />
+              <Tooltip title="More Actions">
+                <IconButton onClick={handleMenuOpen}>
+                  <MoreIcon />
                 </IconButton>
+              </Tooltip>
 
-                <IconButton
-                  color="inherit"
-                  onClick={handleExport}
-                  title="Export Dashboard"
-                >
-                  <DownloadIcon />
-                </IconButton>
-              </Box>
-            </Toolbar>
-          </Container>
-        </Paper>
-      )}
+              {/* Actions Menu */}
+              <Menu
+                anchorEl={menuAnchor}
+                open={Boolean(menuAnchor)}
+                onClose={handleMenuClose}
+              >
+                <PermissionGate permissions={['dashboard.update']}>
+                  <MenuItem onClick={handleEditDashboard}>
+                    <EditIcon sx={{ mr: 1 }} />
+                    Edit Dashboard
+                  </MenuItem>
+                </PermissionGate>
+                
+                <MenuItem onClick={handleExportDashboard}>
+                  <DownloadIcon sx={{ mr: 1 }} />
+                  Export Dashboard
+                </MenuItem>
+                
+                <MenuItem onClick={() => setIsFullscreen(!isFullscreen)}>
+                  <FullscreenIcon sx={{ mr: 1 }} />
+                  {isFullscreen ? 'Exit' : 'Enter'} Fullscreen
+                </MenuItem>
+                
+                <Divider />
+                
+                <MenuItem onClick={handleShareDashboard}>
+                  <ShareIcon sx={{ mr: 1 }} />
+                  Share Dashboard
+                </MenuItem>
+              </Menu>
+            </Box>
+          </Box>
+        </Box>
 
-      {/* Main Dashboard Content - Using DashboardContainer */}
-      <Container maxWidth="xl" sx={{ flex: 1, pb: 3 }}>
-        {dashboardId ? (
-          <DashboardContainer
-            dashboardId={dashboardId}
-            workspaceId={workspace?.id}
-            fullscreen={fullscreen}
-            showFilters={true}
-            autoRefresh={dashboard?.config_json?.auto_refresh?.enabled || false}
-            refreshInterval={dashboard?.config_json?.auto_refresh?.interval || 300000}
-            onFullscreenChange={handleFullscreenChange}
-            onChartInteraction={handleChartInteraction}
-            onError={handleDashboardError}
-            className="dashboard-main-container"
-          />
-        ) : (
-          <Paper elevation={1} sx={{ minHeight: '60vh', p: 4 }}>
-            <Alert severity="warning">
-              <Typography variant="h6">Dashboard ID Required</Typography>
-              <Typography>No dashboard ID provided in the URL.</Typography>
-            </Alert>
+        {/* Global Filters */}
+        {dashboard.global_filters && dashboard.global_filters.length > 0 && (
+          <Paper sx={{ p: 2, mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <FilterIcon color="primary" />
+              <Typography variant="h6">Filters</Typography>
+            </Box>
+            
+            <Grid container spacing={2}>
+              {dashboard.global_filters
+                .filter(filter => filter.is_visible)
+                .sort((a, b) => a.position - b.position)
+                .map((filter) => (
+                  <Grid item xs={12} sm={6} md={3} key={filter.id}>
+                    <Box>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        {filter.display_name}
+                        {filter.is_required && <span style={{ color: 'red' }}>*</span>}
+                      </Typography>
+                      
+                      {/* Render filter controls based on type */}
+                      {filter.type === 'text' && (
+                        <input
+                          type="text"
+                          placeholder={`Enter ${filter.display_name.toLowerCase()}`}
+                          value={globalFilters[filter.id] || ''}
+                          onChange={(e) => handleFilterChange(filter.id, e.target.value)}
+                          style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+                        />
+                      )}
+                      
+                      {/* Add other filter types as needed */}
+                    </Box>
+                  </Grid>
+                ))}
+            </Grid>
           </Paper>
         )}
 
-        {/* Success message after token refresh */}
-        {tokenRefreshed && !error && (
-          <Alert severity="success" sx={{ mt: 2 }}>
-            <Typography variant="body2">
-              ✅ Authentication token was automatically refreshed. Dashboard loaded successfully.
-            </Typography>
-          </Alert>
+        {/* Tabs */}
+        {visibleTabs.length > 1 && (
+          <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+            <Tabs value={activeTab} onChange={handleTabChange}>
+              {visibleTabs.map((tab, index) => (
+                <Tab 
+                  key={tab.id} 
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {tab.display_name}
+                      <Badge badgeContent={tab.charts.length} color="primary" />
+                    </Box>
+                  }
+                />
+              ))}
+            </Tabs>
+          </Box>
+        )}
+
+        {/* Dashboard Content */}
+        {currentTab && (
+          <Box>
+            {/* Tab description */}
+            {currentTab.description && (
+              <Alert severity="info" sx={{ mb: 3 }}>
+                {currentTab.description}
+              </Alert>
+            )}
+
+            {/* Charts Grid */}
+            {currentTab.charts.length > 0 ? (
+              <Grid container spacing={3}>
+                {currentTab.charts
+                  .filter(chart => chart.is_visible)
+                  .sort((a, b) => (a.y - b.y) || (a.x - b.x)) // Sort by position
+                  .map((chart) => (
+                    <Grid 
+                      item 
+                      xs={12} 
+                      sm={Math.max(6, Math.min(12, chart.width))} 
+                      md={Math.max(4, Math.min(12, chart.width))}
+                      key={chart.id}
+                    >
+                      <ChartComponent
+                        chart={chart}
+                        onChartClick={handleChartClick}
+                        filters={globalFilters}
+                      />
+                    </Grid>
+                  ))}
+              </Grid>
+            ) : (
+              <Paper sx={{ p: 4, textAlign: 'center' }}>
+                <ChartIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+                <Typography variant="h6" color="text.secondary">
+                  No charts in this tab
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Add some charts to make this dashboard come alive!
+                </Typography>
+                
+                <PermissionGate permissions={['dashboard.update']}>
+                  <Button
+                    variant="contained"
+                    startIcon={<EditIcon />}
+                    onClick={handleEditDashboard}
+                    sx={{ mt: 2 }}
+                  >
+                    Edit Dashboard
+                  </Button>
+                </PermissionGate>
+              </Paper>
+            )}
+          </Box>
+        )}
+
+        {/* Auto-refresh indicator */}
+        {dashboard.config_json?.auto_refresh?.enabled && (
+          <Box sx={{ position: 'fixed', bottom: 16, right: 16 }}>
+            <Chip
+              icon={<ScheduleIcon />}
+              label={`Auto-refresh: ${dashboard.config_json.auto_refresh.interval}s`}
+              color="info"
+              variant="outlined"
+              sx={{ bgcolor: 'background.paper' }}
+            />
+          </Box>
         )}
       </Container>
-    </Box>
+
+      <style jsx>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+    </WorkspaceLayout>
   );
-};
-
-// =============================================================================
-// SERVER-SIDE PROPS - SIMPLIFIED FOR CLIENT-SIDE TOKEN HANDLING
-// =============================================================================
-
-export const getServerSideProps: GetServerSideProps = async (context) => {
-  const dashboardUuid = context.params?.['dashboard-uuid'] as string;
-  
-  console.log('🔄 getServerSideProps - Dashboard UUID:', dashboardUuid);
-
-  if (!dashboardUuid) {
-    return {
-      props: {
-        dashboardId: '',
-        error: 'Dashboard ID parameter is missing from URL'
-      }
-    };
-  }
-
-  // Validate UUID format
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(dashboardUuid)) {
-    return {
-      props: {
-        dashboardId: dashboardUuid,
-        error: 'Invalid dashboard ID format'
-      }
-    };
-  }
-
-  // For now, let client-side handle authentication and data loading
-  // This avoids server-side token issues
-  return {
-    props: {
-      dashboardId: dashboardUuid,
-      debugInfo: {
-        mode: 'client-side-auth-with-refresh',
-        timestamp: new Date().toISOString()
-      }
-    }
-  };
 };
 
 export default DashboardViewPage;

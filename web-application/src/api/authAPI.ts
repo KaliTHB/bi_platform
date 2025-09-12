@@ -1,54 +1,23 @@
-// web-application/src/services/authAPI.ts
+// web-application/src/api/authAPI.ts
 import { apiClient, apiUtils } from '../utils/apiUtils';
-
-export interface LoginRequest {
-  email: string;
-  password: string;
-  workspace_slug?: string;
-}
-
-export interface LoginResponse {
-  user: {
-    id: string;
-    email: string;
-    first_name: string;
-    last_name: string;
-    role?: string;
-    avatar_url?: string;
-    is_active: boolean;
-    last_login?: string;
-    created_at: string;
-    updated_at: string;
-    workspace_ids: string[];
-  };
-  token: string;
-  expires_in: number;
-  workspaces: Array<{
-    id: string;
-    name: string;
-    slug: string;
-    description?: string;
-    logo_url?: string;
-    settings?: any;
-    is_active: boolean;
-    created_at: string;
-    updated_at: string;
-    user_roles: string[];
-  }>;
-}
-
-export interface User {
-  id: string;
-  email: string;
-  first_name: string;
-  last_name: string;
-  role?: string;
-  avatar_url?: string;
-  is_active: boolean;
-  last_login?: string;
-  created_at: string;
-  updated_at: string;
-}
+import type {
+  LoginRequest,
+  LoginResponse,
+  RegisterRequest,
+  RegisterResponse,
+  User,
+  VerifyTokenResponse,
+  ForgotPasswordRequest,
+  ForgotPasswordResponse,
+  ResetPasswordRequest,
+  ResetPasswordResponse,
+  ChangePasswordRequest,
+  ChangePasswordResponse,
+  UpdateProfileRequest,
+  UpdateProfileResponse,
+  SwitchWorkspaceRequest,
+  SwitchWorkspaceResponse,
+} from '../types/auth.types';
 
 // Authentication API service
 export const authAPI = {
@@ -82,18 +51,18 @@ export const authAPI = {
   },
 
   // Register new user
-  register: async (data: {
-    email: string;
-    password: string;
-    first_name: string;
-    last_name: string;
-    invitation_token?: string;
-  }): Promise<{ user: User; message: string }> => {
+  register: async (data: RegisterRequest): Promise<RegisterResponse> => {
     try {
-      const response = await apiClient.post('/auth/register', data);
+      const response = await apiClient.post<RegisterResponse>('/auth/register', data);
       return response.data;
     } catch (error: any) {
-      throw new Error(error.response?.data?.error || error.response?.data?.message || 'Registration failed');
+      if (error.response?.status === 409) {
+        throw new Error('Email already exists');
+      } else if (error.response?.status === 400) {
+        throw new Error(error.response?.data?.message || 'Invalid registration data');
+      } else {
+        throw new Error(error.response?.data?.error || error.response?.data?.message || 'Registration failed');
+      }
     }
   },
 
@@ -110,23 +79,59 @@ export const authAPI = {
   },
 
   // Verify current token
-  verifyToken: async (): Promise<{ valid: boolean; user?: User }> => {
+  verifyToken: async (): Promise<VerifyTokenResponse> => {
     try {
-      const response = await apiClient.get('/auth/verify');
-      return {
-        valid: response.data.valid,
-        user: response.data.user,
-      };
+      const response = await apiClient.get<VerifyTokenResponse>('/auth/verify');
+      return response.data;
     } catch (error: any) {
+      // Clear invalid token
       apiUtils.clearAuthToken();
       return { valid: false };
     }
   },
 
-  // Request password reset
-  forgotPassword: async (email: string): Promise<{ message: string }> => {
+  // Refresh token
+  refreshToken: async (): Promise<LoginResponse> => {
     try {
-      const response = await apiClient.post('/auth/forgot-password', { email });
+      const response = await apiClient.post<LoginResponse>('/auth/refresh');
+      
+      // Update stored token
+      if (response.data.token) {
+        apiUtils.setAuthToken(response.data.token);
+      }
+      
+      return response.data;
+    } catch (error: any) {
+      // Clear invalid token
+      apiUtils.clearAuthToken();
+      throw new Error(error.response?.data?.error || error.response?.data?.message || 'Token refresh failed');
+    }
+  },
+
+  // Switch workspace
+  switchWorkspace: async (workspaceSlug: string): Promise<SwitchWorkspaceResponse> => {
+    try {
+      const response = await apiClient.post<SwitchWorkspaceResponse>('/auth/switch-workspace', {
+        workspace_slug: workspaceSlug,
+      });
+      
+      // Update token if provided
+      if (response.data.token) {
+        apiUtils.setAuthToken(response.data.token);
+      }
+      
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || error.response?.data?.message || 'Failed to switch workspace');
+    }
+  },
+
+  // Request password reset
+  forgotPassword: async (email: string): Promise<ForgotPasswordResponse> => {
+    try {
+      const response = await apiClient.post<ForgotPasswordResponse>('/auth/forgot-password', { 
+        email 
+      });
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.error || error.response?.data?.message || 'Password reset request failed');
@@ -134,21 +139,137 @@ export const authAPI = {
   },
 
   // Reset password with token
-  resetPassword: async (token: string, new_password: string): Promise<{ message: string }> => {
+  resetPassword: async (token: string, new_password: string): Promise<ResetPasswordResponse> => {
     try {
-      const response = await apiClient.post('/auth/reset-password', { 
+      const response = await apiClient.post<ResetPasswordResponse>('/auth/reset-password', { 
         token, 
         new_password 
       });
       return response.data;
     } catch (error: any) {
-      throw new Error(error.response?.data?.error || error.response?.data?.message || 'Password reset failed');
+      if (error.response?.status === 400) {
+        throw new Error('Invalid or expired reset token');
+      } else {
+        throw new Error(error.response?.data?.error || error.response?.data?.message || 'Password reset failed');
+      }
+    }
+  },
+
+  // Change password (authenticated user)
+  changePassword: async (currentPassword: string, newPassword: string): Promise<ChangePasswordResponse> => {
+    try {
+      const response = await apiClient.post<ChangePasswordResponse>('/auth/change-password', {
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 400) {
+        throw new Error('Current password is incorrect');
+      } else {
+        throw new Error(error.response?.data?.error || error.response?.data?.message || 'Password change failed');
+      }
+    }
+  },
+
+  // Update user profile
+  updateProfile: async (data: UpdateProfileRequest): Promise<UpdateProfileResponse> => {
+    try {
+      const response = await apiClient.put<UpdateProfileResponse>('/auth/profile', data);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || error.response?.data?.message || 'Profile update failed');
+    }
+  },
+
+  // Get current user profile
+  getProfile: async (): Promise<User> => {
+    try {
+      const response = await apiClient.get<{ user: User }>('/auth/profile');
+      return response.data.user;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || error.response?.data?.message || 'Failed to fetch profile');
+    }
+  },
+
+  // Upload user avatar
+  uploadAvatar: async (file: File): Promise<{ avatar_url: string }> => {
+    try {
+      const formData = new FormData();
+      formData.append('avatar', file);
+
+      const response = await apiClient.post<{ avatar_url: string }>('/auth/upload-avatar', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || error.response?.data?.message || 'Avatar upload failed');
+    }
+  },
+
+  // Get user sessions
+  getSessions: async (): Promise<{ sessions: any[] }> => {
+    try {
+      const response = await apiClient.get('/auth/sessions');
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || error.response?.data?.message || 'Failed to fetch sessions');
+    }
+  },
+
+  // Revoke session
+  revokeSession: async (sessionId: string): Promise<{ message: string }> => {
+    try {
+      const response = await apiClient.delete(`/auth/sessions/${sessionId}`);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || error.response?.data?.message || 'Failed to revoke session');
+    }
+  },
+
+  // Revoke all sessions except current
+  revokeAllSessions: async (): Promise<{ message: string }> => {
+    try {
+      const response = await apiClient.post('/auth/revoke-all-sessions');
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || error.response?.data?.message || 'Failed to revoke sessions');
     }
   },
 
   // Check if API is available
   healthCheck: async (): Promise<boolean> => {
-    return await apiUtils.healthCheck();
+    try {
+      await apiClient.get('/health');
+      return true;
+    } catch (error) {
+      console.warn('Health check failed:', error);
+      return false;
+    }
+  },
+
+  // Validate email format
+  validateEmail: (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  },
+
+  // Validate password strength
+  validatePassword: (password: string): { valid: boolean; message?: string } => {
+    if (password.length < 8) {
+      return { valid: false, message: 'Password must be at least 8 characters long' };
+    }
+    
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
+      return { 
+        valid: false, 
+        message: 'Password must contain at least one uppercase letter, one lowercase letter, and one number' 
+      };
+    }
+    
+    return { valid: true };
   },
 };
 

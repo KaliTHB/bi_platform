@@ -1,6 +1,7 @@
 // web-application/src/store/api/dashboardApi.ts - UPDATED WITH SHARED BASE CONFIG
 import { baseApi } from './baseApi';
 import { Dashboard, DashboardWithCharts, CreateDashboardRequest, UpdateDashboardRequest } from '../../types/dashboard.types';
+import { dashboardAPI } from '@/api';
 
 // Dashboard API slice extending baseApi (shares the same middleware and reducer)
 export const dashboardApi = baseApi.injectEndpoints({
@@ -290,3 +291,5 @@ export const {
   useShareDashboardMutation,
   useToggleDashboardFavoriteMutation,
 } = dashboardApi;
+
+export { dashboardAPI }
