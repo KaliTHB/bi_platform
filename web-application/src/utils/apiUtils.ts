@@ -49,12 +49,14 @@ export class ApiClient {
   setToken(token: string) {
     this.token = token;
     // Optionally store in localStorage
-    localStorage.setItem('auth_token', token);
+    const tokens = typeof window !== 'undefined' ? localStorage.setItem('token', token) : null;
+
   }
 
   clearToken() {
     this.token = null;
-    localStorage.removeItem('auth_token');
+    localStorage.removeItem('token');
+    const token = typeof window !== 'undefined' ? localStorage.removeItem('token') : null;
   }
 
   // GET request
@@ -140,18 +142,18 @@ export const apiUtils = {
   },
 
   getAuthToken: () => {
-    return localStorage.getItem('auth_token');
+    return localStorage.getItem('token');
   },
 
   initializeToken: () => {
-    const token = localStorage.getItem('auth_token');
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
     if (token) {
       apiClient.setToken(token);
     }
   },
 
   isAuthenticated: () => {
-    return !!localStorage.getItem('auth_token');
+    return !!localStorage.getItem('token');
   },
 
   formatApiError: (error: any) => {

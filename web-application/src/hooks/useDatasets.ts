@@ -59,7 +59,7 @@ export const useDatasets = (): UseDatasetsResult => {
   const getAuthHeaders = useCallback(() => {
     const token = localStorage.getItem('token') || 
                   localStorage.getItem('authToken') ||
-                  localStorage.getItem('auth_token');
+                  localStorage.getItem('token');
     
     if (!token) {
       throw new Error('No authentication token found');
