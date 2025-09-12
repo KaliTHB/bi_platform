@@ -56,7 +56,7 @@ class TokenManager {
 
     // Check if token is expired by making a quick test call
     try {
-      const testResponse = await fetch('/api/auth/validate', {
+      const testResponse = await fetch('/api/auth/refresh', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
