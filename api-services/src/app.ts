@@ -10,7 +10,7 @@ import { logger } from './utils/logger';
 // Import ALL routes
 import authRoutes from './routes/auth.routes';
 import workspaceRoutes from './routes/workspace.routes';
-import adminRoutes from './routes/admin.route';           // ✅ ADD THIS - Missing admin routes
+import adminRoutes from './routes/admin.route';         
 import userRoutes from './routes/user.routes';
 import permissionRoutes from './routes/permissions.routes';
 import pluginRoutes from './routes/plugin.routes';
@@ -18,6 +18,7 @@ import datasourceRoutes from './routes/datasource.routes';
 import chartRoutes from './routes/chart.routes';
 import webviewRoutes from './routes/webview.routes';
 import categoryRoutes from './routes/category.routes';
+import dashboardRoutes from './routes/dashboard.routes'; 
 
 // Load environment variables
 config();
@@ -138,6 +139,10 @@ console.log('✅ Plugin routes registered at /api/plugins');
 app.use('/api/datasources', datasourceRoutes);
 console.log('✅ Data source routes registered at /api/datasources');
 
+// ✅ FIX: Dashboard routes (protected)
+app.use('/api/dashboards', dashboardRoutes);
+console.log('✅ Dashboard routes registered at /api/dashboards');
+
 // Chart routes
 app.use('/api/charts', chartRoutes);
 console.log('✅ Chart routes registered at /api/charts');
@@ -170,9 +175,10 @@ app.use('*', (req: Request, res: Response) => {
       '/api/auth',
       '/api/user', 
       '/api/workspaces',
-      '/api/admin',          // ✅ This will now be available
+      '/api/admin',
       '/api/permissions',
       '/api/plugins',
+      '/api/dashboards',
       '/api/datasources',
       '/api/charts',
       '/api/webviews',

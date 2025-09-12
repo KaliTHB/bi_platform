@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
 import { AuthService } from '../services/AuthService';
 import { db } from '../utils/database';
+import { AuthUserData, MaybeAuthenticatedRequest } from '../types/express';
 
 // Create AuthService instance for admin checks
 const authService = new AuthService(db);
@@ -21,19 +22,6 @@ export interface JWTPayload {
   iat?: number;
   exp?: number;
 }
-
-// User data interface
-export interface AuthUserData {
-  user_id: string;
-  email: string;
-  username?: string;
-  workspace_id?: string;
-  workspace_slug?: string;
-  workspace_role?: string;
-  is_admin?: boolean;
-  role_level?: number;
-}
-
 // Extended Request interface - EXPORTED
 export interface AuthenticatedRequest extends Request {
   user?: AuthUserData;
@@ -56,7 +44,7 @@ declare global {
  * Enhanced Authentication middleware with better error handling and refresh recommendations
  */
 export const authenticate = async (
-  req: AuthenticatedRequest,
+  req: MaybeAuthenticatedRequest,
   res: Response,
   next: NextFunction
 ): Promise<void> => {

@@ -15,6 +15,51 @@ export interface AuthUserData {
   permissions?: string[];
 }
 
+// FIXED: Make user property REQUIRED (not optional) for authenticated routes
+export interface AuthenticatedRequest extends Request {
+  user: AuthUserData; // ✅ REQUIRED, not optional
+  workspace?: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+  userPermissions?: string[];
+}
+
+// Optional version for middleware that might not have user
+export interface MaybeAuthenticatedRequest extends Request {
+  user?: AuthUserData; // Optional for middleware
+}
+
+// Extend Express Request globally for compatibility
+declare global {
+  namespace Express {
+    interface Request {
+      user?: AuthUserData; // Keep optional for general Express usage
+      workspace?: {
+        id: string;
+        name: string;
+        slug: string;
+      };
+      userPermissions?: string[];
+    }
+  }
+}
+
+// More specific types for different middleware contexts
+export interface RequiredAuthRequest extends Request {
+  user: AuthUserData; // Required, not optional
+}
+
+export interface WorkspaceAuthRequest extends AuthenticatedRequest {
+  user: AuthUserData & { workspace_id: string }; // Workspace required
+  workspace: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+}
+
 // Primary AuthenticatedRequest interface
 export interface AuthenticatedRequest extends Request {
   user?: AuthUserData;

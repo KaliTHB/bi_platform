@@ -1,8 +1,9 @@
-// File: api-services/src/controllers/DashboardController.ts
+// api-services/src/controllers/DashboardController.ts
 import { Request, Response } from 'express';
 import { DashboardService } from '../services/DashboardService';
 import { ChartService } from '../services/ChartService';
 import { logger } from '../utils/logger';
+import { db } from '../utils/database'; // Import your database connection
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -18,8 +19,16 @@ export class DashboardController {
   private chartService: ChartService;
 
   constructor() {
-    this.dashboardService = new DashboardService();
-    this.chartService = new ChartService();
+    try {
+      // Pass the required dependencies to services
+      this.dashboardService = new DashboardService(db); // Pass database connection
+      this.chartService = new ChartService(db); // Pass database connection
+      
+      logger.info('DashboardController initialized successfully');
+    } catch (error) {
+      logger.error('Failed to initialize DashboardController:', error);
+      throw new Error(`DashboardController initialization failed: ${error.message}`);
+    }
   }
 
   // ✅ EXISTING CORE METHODS
@@ -163,6 +172,7 @@ export class DashboardController {
     }
   }
 
+  // 🚀 ADDITIONAL CRUD OPERATIONS
   async duplicateDashboard(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
@@ -268,31 +278,51 @@ export class DashboardController {
     }
   }
 
-  async applyGlobalFilter(req: AuthenticatedRequest, res: Response): Promise<void> {
+  async getRefreshStatus(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      const { id } = req.params;
-      const { filters } = req.body;
+      const { refreshId } = req.params;
 
-      if (!filters || typeof filters !== 'object') {
-        res.status(400).json({
+      const status = await this.dashboardService.getRefreshStatus(refreshId);
+
+      if (!status) {
+        res.status(404).json({
           success: false,
-          message: 'Filters object is required'
+          message: 'Refresh job not found'
         });
         return;
       }
 
-      const result = await this.dashboardService.applyGlobalFilter(id, filters);
+      res.json({
+        success: true,
+        data: status,
+        message: 'Refresh status retrieved successfully'
+      });
+    } catch (error: any) {
+      logger.error('Error getting refresh status:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to get refresh status'
+      });
+    }
+  }
+
+  async applyFilters(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { filters } = req.body;
+
+      const result = await this.dashboardService.applyFilters(id, filters);
 
       res.json({
         success: true,
         data: result,
-        message: 'Global filter applied successfully'
+        message: 'Filters applied successfully'
       });
     } catch (error: any) {
-      logger.error('Error applying global filter:', error);
+      logger.error('Error applying filters:', error);
       res.status(500).json({
         success: false,
-        message: error.message || 'Failed to apply global filter'
+        message: error.message || 'Failed to apply filters'
       });
     }
   }
@@ -300,21 +330,16 @@ export class DashboardController {
   async exportDashboard(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const exportOptions = req.body;
-      const userId = req.user.id;
+      const { format = 'pdf', options = {} } = req.body;
 
-      const exportResult = await this.dashboardService.exportDashboard(id, exportOptions, userId);
+      const result = await this.dashboardService.exportDashboard(id, format, options);
 
       res.json({
         success: true,
         data: {
-          export_id: exportResult.export_id,
-          format: exportResult.format,
-          file_path: exportResult.file_path,
-          download_url: exportResult.download_url,
-          file_size_bytes: exportResult.file_size_bytes,
-          status: exportResult.status,
-          created_at: exportResult.created_at
+          export_id: result.export_id,
+          status: result.status,
+          estimated_completion_time: result.estimated_completion_time
         },
         message: 'Dashboard export initiated successfully'
       });
@@ -327,103 +352,43 @@ export class DashboardController {
     }
   }
 
-  // 🔧 ADDITIONAL UTILITY METHODS
-  async updateDashboardLayout(req: AuthenticatedRequest, res: Response): Promise<void> {
+  async getExportStatus(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      const { id } = req.params;
-      const { layout } = req.body;
+      const { exportId } = req.params;
 
-      if (!layout) {
-        res.status(400).json({
+      const status = await this.dashboardService.getExportStatus(exportId);
+
+      if (!status) {
+        res.status(404).json({
           success: false,
-          message: 'Layout data is required'
+          message: 'Export job not found'
         });
         return;
       }
 
-      const updatedLayout = await this.dashboardService.updateDashboardLayout(id, layout);
-
       res.json({
         success: true,
-        data: updatedLayout,
-        message: 'Dashboard layout updated successfully'
+        data: status,
+        message: 'Export status retrieved successfully'
       });
     } catch (error: any) {
-      logger.error('Error updating dashboard layout:', error);
+      logger.error('Error getting export status:', error);
       res.status(500).json({
         success: false,
-        message: error.message || 'Failed to update dashboard layout'
+        message: error.message || 'Failed to get export status'
       });
     }
   }
 
-  async updateDashboardFilters(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { filters } = req.body;
-
-      if (!Array.isArray(filters)) {
-        res.status(400).json({
-          success: false,
-          message: 'Filters must be an array'
-        });
-        return;
-      }
-
-      const updatedFilters = await this.dashboardService.updateDashboardFilters(id, filters);
-
-      res.json({
-        success: true,
-        data: updatedFilters,
-        message: 'Dashboard filters updated successfully'
-      });
-    } catch (error: any) {
-      logger.error('Error updating dashboard filters:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to update dashboard filters'
-      });
-    }
-  }
-
-  async clearDashboardCache(req: AuthenticatedRequest, res: Response): Promise<void> {
+  async getCacheStatus(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
-      const result = await this.dashboardService.clearDashboardCache(id);
+      const cacheStatus = await this.dashboardService.getCacheStatus(id);
 
       res.json({
         success: true,
-        data: {
-          cache_cleared: result.cache_cleared,
-          affected_charts: result.affected_charts
-        },
-        message: 'Dashboard cache cleared successfully'
-      });
-    } catch (error: any) {
-      logger.error('Error clearing dashboard cache:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to clear dashboard cache'
-      });
-    }
-  }
-
-  async getDashboardCacheStatus(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-
-      const cacheStatus = await this.dashboardService.getDashboardCacheStatus(id);
-
-      res.json({
-        success: true,
-        data: {
-          dashboard_cached: cacheStatus.dashboard_cached,
-          charts_cached: cacheStatus.charts_cached,
-          total_charts: cacheStatus.total_charts,
-          last_cache_update: cacheStatus.last_cache_update,
-          cache_size_mb: cacheStatus.cache_size_mb
-        },
+        data: cacheStatus,
         message: 'Dashboard cache status retrieved successfully'
       });
     } catch (error: any) {
@@ -435,7 +400,26 @@ export class DashboardController {
     }
   }
 
-  // ✅ EXISTING ROUTES (SHARING & ANALYTICS)
+  async clearCache(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      await this.dashboardService.clearCache(id);
+
+      res.json({
+        success: true,
+        message: 'Dashboard cache cleared successfully'
+      });
+    } catch (error: any) {
+      logger.error('Error clearing dashboard cache:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to clear dashboard cache'
+      });
+    }
+  }
+
+  // ✅ SHARING & ANALYTICS METHODS
   async shareDashboard(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
@@ -507,6 +491,53 @@ export class DashboardController {
       res.status(500).json({
         success: false,
         message: error.message || 'Failed to get dashboard analytics'
+      });
+    }
+  }
+
+  async getSharingSettings(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      const sharingConfig = await this.dashboardService.getSharingSettings(id);
+
+      if (!sharingConfig) {
+        res.status(404).json({
+          success: false,
+          message: 'Sharing configuration not found'
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: sharingConfig,
+        message: 'Sharing settings retrieved successfully'
+      });
+    } catch (error: any) {
+      logger.error('Error getting sharing settings:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to get sharing settings'
+      });
+    }
+  }
+
+  async revokeDashboardSharing(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      await this.dashboardService.revokeDashboardSharing(id);
+
+      res.json({
+        success: true,
+        message: 'Dashboard sharing revoked successfully'
+      });
+    } catch (error: any) {
+      logger.error('Error revoking dashboard sharing:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to revoke dashboard sharing'
       });
     }
   }

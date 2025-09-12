@@ -1,42 +1,14 @@
-// File: api-services/src/middleware/errorHandler.ts
+// api-services/src/middleware/errorHandler.ts - ENHANCED WITH TYPE SAFETY
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger';
-
-// Interface for authenticated requests
-export interface AuthenticatedRequest extends Request {
-  user?: {
-    user_id?: string;
-    id?: string;
-    workspace_id?: string;
-    roles?: string[];
-    email?: string;
-  };
-}
-
-interface ApiError {
-  code: string;
-  message: string;
-  details?: any;
-  field?: string;
-  path?: string;
-}
-
-interface ErrorResponse {
-  success: false;
-  message: string;
-  errors: ApiError[];
-  request_id?: string;
-  timestamp: string;
-  path: string;
-  method: string;
-}
+import { AuthenticatedRequest } from '../types/express';
 
 // Custom error classes
 export class AppError extends Error {
-  public statusCode: number;
-  public code: string;
-  public isOperational: boolean;
-  public details?: any;
+  statusCode: number;
+  code: string;
+  isOperational: boolean;
+  details?: any;
 
   constructor(
     message: string,
@@ -45,7 +17,6 @@ export class AppError extends Error {
     details?: any
   ) {
     super(message);
-    
     this.statusCode = statusCode;
     this.code = code;
     this.isOperational = true;
@@ -56,11 +27,8 @@ export class AppError extends Error {
 }
 
 export class ValidationError extends AppError {
-  public field?: string;
-
-  constructor(message: string, field?: string, details?: any) {
+  constructor(message: string = 'Invalid input data', details?: any) {
     super(message, 400, 'VALIDATION_ERROR', details);
-    this.field = field;
   }
 }
 
@@ -95,13 +63,46 @@ export class RateLimitError extends AppError {
 }
 
 /**
- * Async handler wrapper to catch async errors in route handlers
+ * Standard async handler wrapper for regular Express requests
  */
 export function asyncHandler(
   fn: (req: Request, res: Response, next: NextFunction) => Promise<any>
 ) {
   return (req: Request, res: Response, next: NextFunction) => {
     Promise.resolve(fn(req, res, next)).catch(next);
+  };
+}
+
+/**
+ * ✅ NEW: Type-safe async handler for AuthenticatedRequest
+ */
+export function authAsyncHandler(
+  fn: (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>
+) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req as AuthenticatedRequest, res, next)).catch(next);
+  };
+}
+
+/**
+ * ✅ NEW: Type-safe async handler that ensures user is authenticated
+ */
+export function requireAuthAsyncHandler(
+  fn: (req: AuthenticatedRequest & { user: NonNullable<AuthenticatedRequest['user']> }, res: Response, next: NextFunction) => Promise<any>
+) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const authReq = req as AuthenticatedRequest;
+    
+    if (!authReq.user) {
+      res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+        error: 'AUTHENTICATION_REQUIRED'
+      });
+      return;
+    }
+
+    Promise.resolve(fn(authReq as any, res, next)).catch(next);
   };
 }
 
@@ -139,7 +140,7 @@ function sanitizeBody(body: any): any {
       
       if (sensitiveFields.some(field => lowerKey.includes(field))) {
         result[key] = '[REDACTED]';
-      } else if (typeof value === 'object' && value !== null) {
+      } else if (typeof value === 'object') {
         result[key] = sanitizeObject(value);
       } else {
         result[key] = value;
@@ -153,176 +154,151 @@ function sanitizeBody(body: any): any {
 }
 
 /**
- * Global error handling middleware
- * Must be placed after all routes and other middleware
+ * Request logging middleware
  */
-export function globalErrorHandler(
-  error: any,
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-): void {
-  // Generate request ID if not present
-  const requestId = req.headers['x-request-id'] as string || 
-                   generateRequestId();
+export function requestLogger(req: Request, res: Response, next: NextFunction): void {
+  const requestId = generateRequestId();
+  req.headers['x-request-id'] = requestId;
 
-  // Log the error with context
-  const errorContext = {
-    request_id: requestId,
-    user_id: req.user?.user_id || req.user?.id,
+  const startTime = Date.now();
+  
+  // Log incoming request
+  logger.info('Incoming request', {
+    requestId,
     method: req.method,
-    path: req.path,
-    query: req.query,
-    body: sanitizeBody(req.body),
+    url: req.url,
     ip: req.ip,
-    user_agent: req.get('User-Agent'),
-    workspace_id: req.headers['x-workspace-id']
+    userAgent: req.get('User-Agent'),
+    body: sanitizeBody(req.body),
+    query: req.query,
+    params: req.params
+  });
+
+  // Override res.json to log response
+  const originalJson = res.json;
+  res.json = function(body) {
+    const duration = Date.now() - startTime;
+    
+    logger.info('Request completed', {
+      requestId,
+      method: req.method,
+      url: req.url,
+      statusCode: res.statusCode,
+      duration: `${duration}ms`,
+      responseSize: JSON.stringify(body).length
+    });
+
+    return originalJson.call(this, body);
   };
 
-  // Different logging levels based on error type
-  if (error instanceof AppError && error.isOperational) {
-    if (error.statusCode >= 500) {
-      logger.error('💥 Operational error occurred', {
-        ...errorContext,
-        error: {
-          name: error.name,
-          message: error.message,
-          code: error.code,
-          statusCode: error.statusCode,
-          stack: error.stack
-        }
-      });
-    } else {
-      logger.warn('⚠️  Client error occurred', {
-        ...errorContext,
-        error: {
-          name: error.name,
-          message: error.message,
-          code: error.code,
-          statusCode: error.statusCode
-        }
-      });
-    }
-  } else {
-    // Programming errors or unexpected errors
-    logger.error('💀 Unexpected error occurred', {
-      ...errorContext,
-      error: {
-        name: error.name || 'UnknownError',
-        message: error.message || 'An unexpected error occurred',
-        stack: error.stack
-      }
-    });
-  }
-
-  // Don't send error details in production
-  const isDevelopment = process.env.NODE_ENV === 'development';
-
-  // Prepare error response
-  let errorResponse: ErrorResponse;
-
-  if (error instanceof AppError && error.isOperational) {
-    // Known operational errors
-    errorResponse = {
-      success: false,
-      message: error.message,
-      errors: [{
-        code: error.code,
-        message: error.message,
-        details: isDevelopment ? error.details : undefined,
-        field: error instanceof ValidationError ? error.field : undefined
-      }],
-      request_id: requestId,
-      timestamp: new Date().toISOString(),
-      path: req.path,
-      method: req.method
-    };
-
-    res.status(error.statusCode).json(errorResponse);
-  } else {
-    // Unknown errors - don't leak information
-    errorResponse = {
-      success: false,
-      message: isDevelopment ? error.message : 'Internal server error',
-      errors: [{
-        code: 'INTERNAL_SERVER_ERROR',
-        message: isDevelopment ? error.message : 'An internal error occurred',
-        details: isDevelopment ? error.stack : undefined
-      }],
-      request_id: requestId,
-      timestamp: new Date().toISOString(),
-      path: req.path,
-      method: req.method
-    };
-
-    res.status(500).json(errorResponse);
-  }
+  next();
 }
 
 /**
- * Handle 404 errors for routes that don't exist
+ * Global error handler middleware
  */
-export function notFoundHandler(req: Request, res: Response): void {
-  const requestId = req.headers['x-request-id'] as string || generateRequestId();
+export function errorHandler(
+  error: AppError | Error,
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  const requestId = req.headers['x-request-id'] as string;
 
-  logger.warn('🔍 Route not found', {
-    request_id: requestId,
-    method: req.method,
-    path: req.path,
-    ip: req.ip,
-    user_agent: req.get('User-Agent')
+  // Default error response
+  let statusCode = 500;
+  let code = 'INTERNAL_ERROR';
+  let message = 'Internal server error';
+  let details = undefined;
+
+  if (error instanceof AppError) {
+    statusCode = error.statusCode;
+    code = error.code;
+    message = error.message;
+    details = error.details;
+  } else if (error.name === 'ValidationError') {
+    statusCode = 400;
+    code = 'VALIDATION_ERROR';
+    message = error.message;
+  } else if (error.name === 'CastError') {
+    statusCode = 400;
+    code = 'INVALID_ID_FORMAT';
+    message = 'Invalid ID format';
+  } else if (error.name === 'MongoNetworkError') {
+    statusCode = 503;
+    code = 'DATABASE_CONNECTION_ERROR';
+    message = 'Database connection error';
+  }
+
+  // Log error
+  logger.error('Request error', {
+    requestId,
+    error: {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      statusCode,
+      code
+    },
+    request: {
+      method: req.method,
+      url: req.url,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      body: sanitizeBody(req.body)
+    }
   });
 
-  const errorResponse: ErrorResponse = {
+  // Send error response
+  const errorResponse: any = {
     success: false,
-    message: `Route ${req.method} ${req.path} not found`,
-    errors: [{
-      code: 'ROUTE_NOT_FOUND',
-      message: `The requested route ${req.method} ${req.path} does not exist`
-    }],
-    request_id: requestId,
-    timestamp: new Date().toISOString(),
-    path: req.path,
-    method: req.method
+    message,
+    error: code,
+    requestId
   };
 
-  res.status(404).json(errorResponse);
-}
-
-// Additional error handling utilities
-export function createValidationErrors(errors: Array<{ field: string; message: string; code?: string }>): ValidationError[] {
-  return errors.map(error => new ValidationError(error.message, error.field));
-}
-
-export function handleDatabaseError(error: any): AppError {
-  // Handle common database errors
-  if (error.code === '23505') { // Unique constraint violation
-    return new ConflictError('Resource already exists');
-  }
-  
-  if (error.code === '23503') { // Foreign key constraint violation
-    return new ValidationError('Invalid reference to related resource');
-  }
-  
-  if (error.code === '23502') { // Not null constraint violation
-    return new ValidationError('Required field is missing');
+  if (details && process.env.NODE_ENV !== 'production') {
+    errorResponse.details = details;
   }
 
-  // Generic database error
-  return new AppError('Database error occurred', 500, 'DATABASE_ERROR');
+  if (process.env.NODE_ENV === 'development') {
+    errorResponse.stack = error.stack;
+  }
+
+  res.status(statusCode).json(errorResponse);
 }
 
-export default {
-  globalErrorHandler,
-  notFoundHandler,
-  asyncHandler,
-  AppError,
-  ValidationError,
-  NotFoundError,
-  UnauthorizedError,
-  ForbiddenError,
-  ConflictError,
-  RateLimitError,
-  createValidationErrors,
-  handleDatabaseError
-};
+/**
+ * 404 handler for unmatched routes
+ */
+export function notFoundHandler(req: Request, res: Response): void {
+  const requestId = req.headers['x-request-id'] as string;
+
+  logger.warn('Route not found', {
+    requestId,
+    method: req.method,
+    url: req.url,
+    ip: req.ip
+  });
+
+  res.status(404).json({
+    success: false,
+    message: `Route ${req.method} ${req.originalUrl} not found`,
+    error: 'ROUTE_NOT_FOUND',
+    requestId,
+    availableRoutes: [
+      '/api/auth',
+      '/api/user', 
+      '/api/workspaces',
+      '/api/admin',
+      '/api/permissions',
+      '/api/plugins',
+      '/api/dashboards',
+      '/api/charts',
+      '/api/datasets',
+      '/api/datasources',
+      '/api/categories',
+      '/api/webviews'
+    ]
+  });
+}
