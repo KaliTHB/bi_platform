@@ -600,6 +600,429 @@ async getUserPermissions(userId: string, workspaceId: string): Promise<{
 }
 
 /**
+ * Get user by ID - MISSING METHOD
+ */
+async getUserById(userId: string): Promise<AuthenticatedUser | null> {
+  try {
+    logger.debug('Getting user by ID', { userId, service: 'bi-platform-api' });
+
+    const query = `
+      SELECT 
+        u.id,
+        u.username,
+        u.email,
+        u.first_name,
+        u.last_name,
+        u.avatar_url,
+        u.is_active,
+        u.last_login,
+        u.created_at,
+        u.updated_at
+      FROM users u
+      WHERE u.id = $1 AND u.is_active = true
+    `;
+
+    const result = await this.database.query(query, [userId]);
+
+    if (result.rows.length === 0) {
+      logger.warn('User not found by ID', { userId, service: 'bi-platform-api' });
+      return null;
+    }
+
+    const userData = result.rows[0];
+    
+    logger.debug('User retrieved successfully by ID', { 
+      userId: userData.id,
+      email: userData.email,
+      service: 'bi-platform-api' 
+    });
+
+    return {
+      id: userData.id,
+      username: userData.username,
+      email: userData.email,
+      first_name: userData.first_name,
+      last_name: userData.last_name,
+      avatar_url: userData.avatar_url,
+      is_active: userData.is_active,
+      last_login: userData.last_login,
+      created_at: userData.created_at,
+      updated_at: userData.updated_at
+    };
+
+  } catch (error: any) {
+    logger.error('Error getting user by ID:', {
+      error: error.message,
+      userId,
+      service: 'bi-platform-api'
+    });
+    throw new Error(`Failed to get user by ID: ${error.message}`);
+  }
+}
+
+/**
+ * Get user permissions for workspace
+ */
+async getUserPermissions(userId: string, workspaceId: string): Promise<{ permissions: string[] }> {
+  try {
+    logger.debug('Getting user permissions', { 
+      userId, 
+      workspaceId, 
+      service: 'bi-platform-api' 
+    });
+
+    const query = `
+      SELECT DISTINCT rp.permission_name
+      FROM user_role_assignments ura
+      JOIN roles r ON ura.role_id = r.id
+      JOIN role_permissions rp ON r.id = rp.role_id
+      WHERE ura.user_id = $1 
+        AND ura.workspace_id = $2 
+        AND ura.is_active = true 
+        AND r.is_active = true
+        AND rp.is_active = true
+      ORDER BY rp.permission_name
+    `;
+
+    const result = await this.database.query(query, [userId, workspaceId]);
+
+    const permissions = result.rows.map(row => row.permission_name);
+
+    logger.debug('User permissions retrieved', { 
+      userId,
+      workspaceId,
+      permissionCount: permissions.length,
+      service: 'bi-platform-api' 
+    });
+
+    return { permissions };
+
+  } catch (error: any) {
+    logger.error('Error getting user permissions:', {
+      error: error.message,
+      userId,
+      workspaceId,
+      service: 'bi-platform-api'
+    });
+    
+    // Return empty permissions instead of throwing to allow graceful degradation
+    return { permissions: [] };
+  }
+}
+
+/**
+ * Get workspace by slug for a user
+ */
+async getWorkspaceBySlug(workspaceSlug: string, userId: string): Promise<WorkspaceInfo | null> {
+  try {
+    logger.debug('Getting workspace by slug', { 
+      workspaceSlug, 
+      userId, 
+      service: 'bi-platform-api' 
+    });
+
+    const query = `
+      SELECT 
+        w.id,
+        w.name,
+        w.slug,
+        w.description,
+        w.is_active,
+        w.created_at,
+        w.updated_at,
+        r.name as role,
+        r.level as role_level,
+        r.id as role_id,
+        ura.joined_at,
+        (SELECT COUNT(*) FROM user_role_assignments ura2 WHERE ura2.workspace_id = w.id AND ura2.is_active = true) as member_count,
+        (SELECT COUNT(*) FROM dashboards d WHERE d.workspace_id = w.id AND d.status != 'archived') as dashboard_count,
+        (SELECT COUNT(*) FROM datasets ds WHERE ds.workspace_id = w.id AND ds.is_active = true) as dataset_count
+      FROM workspaces w
+      JOIN user_role_assignments ura ON w.id = ura.workspace_id
+      JOIN roles r ON ura.role_id = r.id
+      WHERE w.slug = $1 
+        AND ura.user_id = $2 
+        AND ura.is_active = true 
+        AND w.is_active = true
+        AND r.is_active = true
+      LIMIT 1
+    `;
+
+    const result = await this.database.query(query, [workspaceSlug, userId]);
+
+    if (result.rows.length === 0) {
+      logger.warn('Workspace not found by slug for user', { 
+        workspaceSlug, 
+        userId, 
+        service: 'bi-platform-api' 
+      });
+      return null;
+    }
+
+    const workspaceData = result.rows[0];
+    
+    logger.debug('Workspace retrieved successfully by slug', { 
+      workspaceId: workspaceData.id,
+      workspaceSlug: workspaceData.slug,
+      userId,
+      service: 'bi-platform-api' 
+    });
+
+    return {
+      id: workspaceData.id,
+      name: workspaceData.name,
+      slug: workspaceData.slug,
+      description: workspaceData.description,
+      is_active: workspaceData.is_active,
+      created_at: workspaceData.created_at,
+      updated_at: workspaceData.updated_at,
+      role: workspaceData.role,
+      role_level: workspaceData.role_level,
+      role_id: workspaceData.role_id,
+      member_count: workspaceData.member_count,
+      dashboard_count: workspaceData.dashboard_count,
+      dataset_count: workspaceData.dataset_count,
+      joined_at: workspaceData.joined_at
+    };
+
+  } catch (error: any) {
+    logger.error('Error getting workspace by slug:', {
+      error: error.message,
+      workspaceSlug,
+      userId,
+      service: 'bi-platform-api'
+    });
+    throw new Error(`Failed to get workspace by slug: ${error.message}`);
+  }
+}
+
+/**
+ * Get workspace by ID for a user
+ */
+async getWorkspaceById(workspaceId: string, userId?: string): Promise<WorkspaceInfo | null> {
+  try {
+    logger.debug('Getting workspace by ID', { 
+      workspaceId, 
+      userId, 
+      service: 'bi-platform-api' 
+    });
+
+    let query: string;
+    let params: any[];
+
+    if (userId) {
+      // Get workspace with user's role information
+      query = `
+        SELECT 
+          w.id,
+          w.name,
+          w.slug,
+          w.description,
+          w.is_active,
+          w.created_at,
+          w.updated_at,
+          r.name as role,
+          r.level as role_level,
+          r.id as role_id,
+          ura.joined_at,
+          (SELECT COUNT(*) FROM user_role_assignments ura2 WHERE ura2.workspace_id = w.id AND ura2.is_active = true) as member_count,
+          (SELECT COUNT(*) FROM dashboards d WHERE d.workspace_id = w.id AND d.status != 'archived') as dashboard_count,
+          (SELECT COUNT(*) FROM datasets ds WHERE ds.workspace_id = w.id AND ds.is_active = true) as dataset_count
+        FROM workspaces w
+        JOIN user_role_assignments ura ON w.id = ura.workspace_id
+        JOIN roles r ON ura.role_id = r.id
+        WHERE w.id = $1 
+          AND ura.user_id = $2 
+          AND ura.is_active = true 
+          AND w.is_active = true
+          AND r.is_active = true
+        LIMIT 1
+      `;
+      params = [workspaceId, userId];
+    } else {
+      // Get workspace without user role information
+      query = `
+        SELECT 
+          w.id,
+          w.name,
+          w.slug,
+          w.description,
+          w.is_active,
+          w.created_at,
+          w.updated_at,
+          (SELECT COUNT(*) FROM user_role_assignments ura WHERE ura.workspace_id = w.id AND ura.is_active = true) as member_count,
+          (SELECT COUNT(*) FROM dashboards d WHERE d.workspace_id = w.id AND d.status != 'archived') as dashboard_count,
+          (SELECT COUNT(*) FROM datasets ds WHERE ds.workspace_id = w.id AND ds.is_active = true) as dataset_count
+        FROM workspaces w
+        WHERE w.id = $1 AND w.is_active = true
+        LIMIT 1
+      `;
+      params = [workspaceId];
+    }
+
+    const result = await this.database.query(query, params);
+
+    if (result.rows.length === 0) {
+      logger.warn('Workspace not found by ID', { 
+        workspaceId, 
+        userId, 
+        service: 'bi-platform-api' 
+      });
+      return null;
+    }
+
+    const workspaceData = result.rows[0];
+    
+    logger.debug('Workspace retrieved successfully by ID', { 
+      workspaceId: workspaceData.id,
+      workspaceSlug: workspaceData.slug,
+      userId,
+      service: 'bi-platform-api' 
+    });
+
+    return {
+      id: workspaceData.id,
+      name: workspaceData.name,
+      slug: workspaceData.slug,
+      description: workspaceData.description,
+      is_active: workspaceData.is_active,
+      created_at: workspaceData.created_at,
+      updated_at: workspaceData.updated_at,
+      role: workspaceData.role || 'viewer', // default role if not specified
+      role_level: workspaceData.role_level || 10, // default level
+      role_id: workspaceData.role_id || '',
+      member_count: workspaceData.member_count,
+      dashboard_count: workspaceData.dashboard_count,
+      dataset_count: workspaceData.dataset_count,
+      joined_at: workspaceData.joined_at || new Date()
+    };
+
+  } catch (error: any) {
+    logger.error('Error getting workspace by ID:', {
+      error: error.message,
+      workspaceId,
+      userId,
+      service: 'bi-platform-api'
+    });
+    throw new Error(`Failed to get workspace by ID: ${error.message}`);
+  }
+}
+
+/**
+ * Generate authentication token
+ */
+generateAuthToken(user: AuthenticatedUser, workspace?: any): string {
+  try {
+    const payload: any = {
+      user_id: user.id,
+      email: user.email,
+      username: user.username,
+      workspace_id: workspace?.id,
+      workspace_slug: workspace?.slug,
+      workspace_role: workspace?.role || workspace?.user_role,
+      is_admin: user.email?.includes('admin') || false, // Basic admin check
+      role_level: workspace?.role_level || 10
+    };
+
+    const token = jwt.sign(
+      payload,
+      process.env.JWT_SECRET || 'your-jwt-secret',
+      { 
+        expiresIn: process.env.JWT_EXPIRES_IN || '24h',
+        issuer: 'bi-platform-api'
+      }
+    );
+
+    logger.debug('Authentication token generated', {
+      userId: user.id,
+      email: user.email,
+      workspaceId: workspace?.id,
+      service: 'bi-platform-api'
+    });
+
+    return token;
+
+  } catch (error: any) {
+    logger.error('Error generating authentication token:', {
+      error: error.message,
+      userId: user.id,
+      service: 'bi-platform-api'
+    });
+    throw new Error(`Failed to generate authentication token: ${error.message}`);
+  }
+}
+
+/**
+ * Get user's workspaces
+ */
+async getUserWorkspaces(userId: string): Promise<WorkspaceInfo[]> {
+  try {
+    logger.debug('Getting user workspaces', { userId, service: 'bi-platform-api' });
+
+    const query = `
+      SELECT 
+        w.id,
+        w.name,
+        w.slug,
+        w.description,
+        w.is_active,
+        w.created_at,
+        w.updated_at,
+        r.name as role,
+        r.level as role_level,
+        r.id as role_id,
+        ura.joined_at,
+        (SELECT COUNT(*) FROM user_role_assignments ura2 WHERE ura2.workspace_id = w.id AND ura2.is_active = true) as member_count,
+        (SELECT COUNT(*) FROM dashboards d WHERE d.workspace_id = w.id AND d.status != 'archived') as dashboard_count,
+        (SELECT COUNT(*) FROM datasets ds WHERE ds.workspace_id = w.id AND ds.is_active = true) as dataset_count
+      FROM workspaces w
+      JOIN user_role_assignments ura ON w.id = ura.workspace_id
+      JOIN roles r ON ura.role_id = r.id
+      WHERE ura.user_id = $1 
+        AND ura.is_active = true 
+        AND w.is_active = true
+        AND r.is_active = true
+      ORDER BY ura.joined_at ASC
+    `;
+
+    const result = await this.database.query(query, [userId]);
+
+    const workspaces = result.rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      description: row.description,
+      is_active: row.is_active,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      role: row.role,
+      role_level: row.role_level,
+      role_id: row.role_id,
+      member_count: row.member_count,
+      dashboard_count: row.dashboard_count,
+      dataset_count: row.dataset_count,
+      joined_at: row.joined_at
+    }));
+
+    logger.debug('User workspaces retrieved', { 
+      userId,
+      workspaceCount: workspaces.length,
+      service: 'bi-platform-api' 
+    });
+
+    return workspaces;
+
+  } catch (error: any) {
+    logger.error('Error getting user workspaces:', {
+      error: error.message,
+      userId,
+      service: 'bi-platform-api'
+    });
+    throw new Error(`Failed to get user workspaces: ${error.message}`);
+  }
+}
+
+/**
  * Check if user has specific permission in workspace
  */
 async hasPermission(userId: string, workspaceId: string, permission: string): Promise<boolean> {

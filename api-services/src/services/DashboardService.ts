@@ -742,6 +742,97 @@ export class DashboardService {
     }
   }
 
+  async refreshCache(dashboardId: string, force: boolean = false): Promise<{
+  refresh_id: string;
+  status: string;
+  started_at: Date;
+  estimated_completion_time?: Date;
+  affected_charts: number;
+}> {
+  try {
+    const dashboard = this.dashboards.get(dashboardId);
+    if (!dashboard) {
+      throw new Error('Dashboard not found');
+    }
+
+    // Generate a refresh ID
+    const refreshId = uuidv4();
+    
+    // Get charts associated with this dashboard
+    const charts = this.dashboardCharts.get(dashboardId) || [];
+    const affectedChartsCount = charts.length;
+
+    // Create refresh result
+    const refreshResult = {
+      refresh_id: refreshId,
+      status: 'initiated',
+      started_at: new Date(),
+      estimated_completion_time: new Date(Date.now() + (affectedChartsCount * 5000)), // 5 seconds per chart
+      affected_charts: affectedChartsCount
+    };
+
+    // Store the refresh job (in a real implementation, this would be in a job queue)
+    this.refreshJobs.set(refreshId, refreshResult);
+
+    // Simulate cache refresh process (in a real implementation, this would be async)
+    setTimeout(async () => {
+      try {
+        // Mock refresh process for each chart
+        for (const chart of charts) {
+          // Simulate chart data refresh
+          logger.info(`Refreshing chart cache: ${chart.id}`);
+          
+          // In a real implementation, you would:
+          // 1. Clear existing cache
+          // 2. Re-execute queries
+          // 3. Update cache with new data
+        }
+
+        // Update refresh job status to completed
+        const updatedResult = {
+          ...refreshResult,
+          status: 'completed',
+          completed_at: new Date()
+        };
+        this.refreshJobs.set(refreshId, updatedResult);
+
+        logger.info('Dashboard cache refresh completed', { 
+          dashboardId, 
+          refreshId, 
+          affectedCharts: affectedChartsCount 
+        });
+      } catch (error) {
+        // Update refresh job status to failed
+        const failedResult = {
+          ...refreshResult,
+          status: 'failed',
+          error_message: error.message,
+          completed_at: new Date()
+        };
+        this.refreshJobs.set(refreshId, failedResult);
+
+        logger.error('Dashboard cache refresh failed', { 
+          dashboardId, 
+          refreshId, 
+          error: error.message 
+        });
+      }
+    }, 1000); // Start processing after 1 second
+
+    logger.info('Dashboard cache refresh initiated', { 
+      dashboardId, 
+      refreshId, 
+      force, 
+      affectedCharts: affectedChartsCount 
+    });
+
+    return refreshResult;
+  } catch (error: any) {
+    logger.error('Error initiating dashboard cache refresh:', error);
+    throw new Error(`Failed to refresh dashboard cache: ${error.message}`);
+  }
+}
+
   async getDashboardAnalytics(dashboardId: string, params: any): Promise<any> {
     try {
       const dashboard = this.dashboards.get(dashboardId);
