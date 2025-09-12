@@ -1,17 +1,17 @@
 // File: ./src/types/workspace.ts
 
-export interface Workspace {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string;
-  logo_url?: string;
-  settings: WorkspaceSettings;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-  user_roles?: WorkspaceRole[];
-  highest_role_level?: number;
+export interface WorkspaceSettings {
+  timezone?: string;
+  date_format?: string;
+  currency?: string;
+  theme?: 'light' | 'dark' | 'auto';
+}
+
+export interface WorkspaceStats {
+  user_count: number;
+  dashboard_count: number;
+  dataset_count: number;
+  chart_count: number;
 }
 export interface Workspace {
   id: string;

@@ -351,87 +351,127 @@ export class AuthController {
   };
 
   /**
-   * Refresh authentication token
-   * POST /api/auth/refresh
-   */
-  public refreshToken = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const userId = req.user?.user_id;
-      const workspaceId = req.user?.workspace_id;
+ * Refresh authentication token
+ * POST /api/auth/refresh
+ */
+public refreshToken = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.user_id;
+    const workspaceId = req.user?.workspace_id;
 
-      if (!userId) {
-        res.status(401).json({
-          success: false,
-          message: 'Authentication required to refresh token',
-          error: 'AUTHENTICATION_REQUIRED'
-        });
-        return;
-      }
-
-      // Get fresh user data
-      const user = await this.authService.getUserById(userId);
-      if (!user) {
-        res.status(404).json({
-          success: false,
-          message: 'User not found',
-          error: 'USER_NOT_FOUND'
-        });
-        return;
-      }
-
-      // Get workspace info if available
-      let workspaceInfo = null;
-      let permissions: string[] = [];
-      if (workspaceId) {
-        // Note: We would need a getWorkspaceById method for this
-        // For now, we'll skip workspace info in token refresh
-        // Get permissions
-        const permissions = await this.authService.getUserPermissions(userId, workspaceId);
-      }
-
-      // Generate new token
-      const token = this.authService.generateAuthToken(user, workspaceInfo, permissions);
-
-      res.status(200).json({
-        success: true,
-        message: 'Token refreshed successfully',
-        data: {
-          token,
-          user: {
-            user_id: user.id,
-            username: user.username,
-            email: user.email,
-            first_name: user.first_name,
-            last_name: user.last_name,
-            avatar_url: user.avatar_url,
-            display_name: user.first_name && user.last_name 
-              ? `${user.first_name} ${user.last_name}` 
-              : user.username
-          },
-          workspace: workspaceInfo ? {
-            id: workspaceInfo.id,
-            name: workspaceInfo.name,
-            slug: workspaceInfo.slug,
-            display_name: workspaceInfo.display_name,
-            user_role: workspaceInfo.user_role
-          } : null,
-          permissions: permissions?.permissions || [],
-          refreshed_at: new Date().toISOString()
-        }
-      });
-
-    } catch (error: any) {
-      logger.error('Refresh token controller error:', {
-        error: error.message,
-        userId: req.user?.user_id,
-        service: 'bi-platform-api'
-      });
-      
-      res.status(500).json({
+    if (!userId) {
+      res.status(401).json({
         success: false,
-        message: 'Internal server error during token refresh',
-        error: 'INTERNAL_SERVER_ERROR'
+        message: 'Authentication required to refresh token',
+        error: 'AUTHENTICATION_REQUIRED'
       });
+      return;
     }
-  };
+
+    // Get fresh user data
+    const user = await this.authService.getUserById(userId);
+    if (!user) {
+      res.status(404).json({
+        success: false,
+        message: 'User not found',
+        error: 'USER_NOT_FOUND'
+      });
+      return;
+    }
+
+    // Check if user is still active
+    if (!user.is_active) {
+      res.status(403).json({
+        success: false,
+        message: 'User account is inactive',
+        error: 'USER_INACTIVE'
+      });
+      return;
+    }
+
+    // Get workspace info if available
+    let workspaceInfo = null;
+    let userPermissions: { permissions: string[] } = { permissions: [] };
+    
+    if (workspaceId) {
+      try {
+        // Get workspace information (you'll need to implement this method or adjust based on your workspace service)
+        // workspaceInfo = await this.authService.getWorkspaceById(workspaceId);
+        
+        // For now, we'll get permissions and reconstruct basic workspace info from the user data
+        userPermissions = await this.authService.getUserPermissions(userId, workspaceId);
+        
+        // If you have workspace data available in the token, you can use it
+        workspaceInfo = {
+          id: workspaceId,
+          slug: req.user?.workspace_slug,
+          name: req.user?.workspace_slug, // fallback
+          display_name: req.user?.workspace_slug,
+          user_role: req.user?.workspace_role
+        };
+      } catch (error: any) {
+        logger.warn('Failed to get workspace info during token refresh:', {
+          error: error.message,
+          userId,
+          workspaceId,
+          service: 'bi-platform-api'
+        });
+        // Continue without workspace info rather than failing
+      }
+    }
+
+    // Generate new token with fresh permissions
+    const token = this.authService.generateAuthToken(user, workspaceInfo);
+
+    logger.info('Token refreshed successfully', {
+      userId: user.id,
+      email: user.email,
+      workspaceId,
+      permissionCount: userPermissions.permissions.length,
+      service: 'bi-platform-api'
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Token refreshed successfully',
+      data: {
+        token,
+        user: {
+          user_id: user.id,
+          username: user.username,
+          email: user.email,
+          first_name: user.first_name,
+          last_name: user.last_name,
+          avatar_url: user.avatar_url,
+          display_name: user.first_name && user.last_name 
+            ? `${user.first_name} ${user.last_name}` 
+            : user.username
+        },
+        workspace: workspaceInfo ? {
+          id: workspaceInfo.id,
+          name: workspaceInfo.name,
+          slug: workspaceInfo.slug,
+          display_name: workspaceInfo.display_name,
+          user_role: workspaceInfo.user_role
+        } : null,
+        permissions: userPermissions.permissions || [],
+        refreshed_at: new Date().toISOString()
+      }
+    });
+
+  } catch (error: any) {
+    logger.error('Refresh token controller error:', {
+      error: error.message,
+      stack: error.stack,
+      userId: req.user?.user_id,
+      service: 'bi-platform-api'
+    });
+    
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error during token refresh',
+      error: 'INTERNAL_SERVER_ERROR'
+    });
+  }
+};
 }

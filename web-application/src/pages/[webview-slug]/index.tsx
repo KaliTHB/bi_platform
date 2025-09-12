@@ -254,11 +254,11 @@ const WebviewPage: React.FC<WebviewPageProps> = ({ webviewName }) => {
 };
 
 export const getServerSideProps: GetServerSideProps = async (context) => {
-  const { 'webview-name': webviewName } = context.params!;
+   const { 'webview-slug': webviewSlug } = context.params!;
 
   return {
     props: {
-      webviewName: webviewName as string,
+      webviewName: webviewSlug as string,
       layout: 'webview',
     },
   };

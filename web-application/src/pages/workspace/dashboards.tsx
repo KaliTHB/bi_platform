@@ -491,7 +491,8 @@ const DashboardsPage: NextPage = () => {
       label: 'View Dashboard',
       icon: <ViewIcon fontSize="small" />,
       onClick: (dashboard) => {
-        router.push(`/workspace/${workspace?.slug}/dashboard/${dashboard.slug}`);
+        console.log(`🔗 Navigating to dashboard: /workspace/dashboard/dashboard-${dashboard.id}`);
+        router.push(`/workspace/dashboard/${dashboard.id}`);
       },
       color: 'primary'
     },

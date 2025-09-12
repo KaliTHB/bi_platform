@@ -562,3 +562,4 @@ const CommonTableLayout = <T extends BaseListItem = BaseListItem>({
 };
 
 export default CommonTableLayout;
+export {CommonTableLayout};

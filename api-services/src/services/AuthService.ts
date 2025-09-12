@@ -417,7 +417,7 @@ export class AuthService {
         SELECT 
           w.id, w.name, w.slug, w.description, w.is_active, 
           w.created_at, w.updated_at,
-          r.name as role, r.level as role_level, r.id as role_id,
+          r.name as role, r.role_level as role_level, r.id as role_id,
           (SELECT COUNT(*) FROM user_role_assignments ura2 
            WHERE ura2.workspace_id = w.id AND ura2.is_active = true) as member_count,
           (SELECT COUNT(*) FROM dashboards d WHERE d.workspace_id = w.id) as dashboard_count,
@@ -491,7 +491,7 @@ export class AuthService {
  */
 /**
  * Get user permissions and roles for workspace
- * Compatible with actual database schema (no is_admin column)
+ * Uses existing database function and proper joins
  */
 async getUserPermissions(userId: string, workspaceId: string): Promise<{
   permissions: string[];
@@ -502,99 +502,79 @@ async getUserPermissions(userId: string, workspaceId: string): Promise<{
   try {
     console.log('🔍 AuthService: Getting user permissions:', { userId, workspaceId });
 
-    // Get user roles and permissions for workspace using the actual schema
-    const query = `
+    // Use the existing database function to get effective permissions
+    const permissionsQuery = `
+      SELECT get_user_effective_permissions($1, $2) as user_permissions
+    `;
+    
+    const permissionsResult = await this.database.query(permissionsQuery, [userId, workspaceId]);
+    
+    // Get user roles information
+    const rolesQuery = `
       SELECT 
         r.id as role_id,
         r.name as role_name,
-        r.permissions,
-        ura.is_active as assignment_active,
-        COALESCE(
-          ARRAY(
-            SELECT p.name 
-            FROM role_permissions rp 
-            JOIN permissions p ON rp.permission_id = p.id 
-            WHERE rp.role_id = r.id
-          ), 
-          ARRAY[]::text[]
-        ) as individual_permissions
+        r.role_level as role_level,
+        ura.is_active as assignment_active
       FROM user_role_assignments ura
       JOIN roles r ON ura.role_id = r.id
       WHERE ura.user_id = $1 
         AND ura.workspace_id = $2 
         AND ura.is_active = true
         AND r.is_active = true
+        AND (ura.expires_at IS NULL OR ura.expires_at > NOW())
     `;
 
-    const result = await this.database.query(query, [userId, workspaceId]);
+    const rolesResult = await this.database.query(rolesQuery, [userId, workspaceId]);
 
-    // Collect all permissions and roles
-    const allPermissions = new Set<string>();
+    // Extract permissions from the function result
+    const userPermissions = permissionsResult.rows[0]?.user_permissions || [];
+    const allPermissions = new Set<string>(Array.isArray(userPermissions) ? userPermissions : []);
+    
+    // Process roles
     const roles: string[] = [];
     let isAdmin = false;
     let maxRoleLevel = 0;
 
-    result.rows.forEach(row => {
+    rolesResult.rows.forEach(row => {
       roles.push(row.role_name);
+      maxRoleLevel = Math.max(maxRoleLevel, row.role_level || 0);
       
       // Check if this is an admin role
       if (row.role_name.toLowerCase().includes('admin') || 
           row.role_name.toLowerCase().includes('owner')) {
         isAdmin = true;
-        maxRoleLevel = Math.max(maxRoleLevel, 90); // Admin level
-      }
-
-      // Add permissions from role.permissions JSONB field
-      if (row.permissions && Array.isArray(row.permissions)) {
-        row.permissions.forEach((perm: string) => allPermissions.add(perm));
-      }
-
-      // Add permissions from role_permissions junction table
-      if (row.individual_permissions && Array.isArray(row.individual_permissions)) {
-        row.individual_permissions.forEach((perm: string) => allPermissions.add(perm));
-      }
-
-      // Assign role levels based on role names
-      if (row.role_name.toLowerCase().includes('owner')) {
-        maxRoleLevel = Math.max(maxRoleLevel, 100);
-      } else if (row.role_name.toLowerCase().includes('admin')) {
-        maxRoleLevel = Math.max(maxRoleLevel, 90);
-      } else if (row.role_name.toLowerCase().includes('editor')) {
-        maxRoleLevel = Math.max(maxRoleLevel, 60);
-      } else if (row.role_name.toLowerCase().includes('analyst')) {
-        maxRoleLevel = Math.max(maxRoleLevel, 40);
-      } else if (row.role_name.toLowerCase().includes('viewer')) {
-        maxRoleLevel = Math.max(maxRoleLevel, 20);
       }
     });
-
-    const permissions = Array.from(allPermissions);
 
     // If user has admin/owner role, give them all basic permissions
     if (isAdmin) {
       const adminPermissions = [
-        'workspace.read', 'workspace.write', 'workspace.admin',
-        'dashboard.read', 'dashboard.write', 'dashboard.create', 'dashboard.delete',
-        'chart.read', 'chart.write', 'chart.create', 'chart.delete',
-        'dataset.read', 'dataset.write', 'dataset.create', 'dataset.delete',
-        'user.read', 'user.write', 'user.create', 'user.delete',
-        'role.read', 'role.write', 'role.create', 'role.delete'
+        'workspace.read', 'workspace.update', 'workspace.admin',
+        'dashboard.read', 'dashboard.create', 'dashboard.update', 'dashboard.delete',
+        'dashboard.publish', 'dashboard.share',
+        'chart.read', 'chart.create', 'chart.update', 'chart.delete',
+        'dataset.read', 'dataset.create', 'dataset.update', 'dataset.delete',
+        'user.read', 'user.create', 'user.update', 'user.delete',
+        'role.read', 'role.create', 'role.update', 'role.delete'
       ];
       adminPermissions.forEach(perm => allPermissions.add(perm));
     }
 
-    const permission_json= {
+    const permissionArray = Array.from(allPermissions);
+    
+    const permissionJson = {
       userId,
       workspaceId,
-      permissionCount: permissions.length,
+      permissionCount: permissionArray.length,
       roleCount: roles.length,
       isAdmin,
       roleLevel: maxRoleLevel
-    }
-    console.log('✅ AuthService: User permissions retrieved:', permission_json);
+    };
+    console.log('✅ AuthService: User permissions retrieved:', permissionJson);
 
     return {
-      permissions: Array.from(allPermissions),
+      permissions: permissionArray,
       roles,
       is_admin: isAdmin,
       role_level: maxRoleLevel

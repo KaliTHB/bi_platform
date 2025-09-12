@@ -13,31 +13,73 @@ import {
   CircularProgress,
   Alert,
   Button,
-  Skeleton
+  Skeleton,
+  Paper
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
   Fullscreen as FullscreenIcon,
   FullscreenExit as FullscreenExitIcon,
-  Visibility as VisibilityIcon,
-  Error as ErrorIcon
+  Dashboard as DashboardIcon,
+  BarChart as ChartIcon,
+  Settings as SettingsIcon
 } from '@mui/icons-material';
 
-// Components
-import { FilterPanel } from './FilterPanel';
-import ChartContainer from './ChartContainer';
-
-// Types
-import { 
-  Dashboard, 
-  DashboardChart, 
-  GlobalFilter,
-  ChartInteractionEvent 
-} from '@/types/dashboard.types';
-
 // ============================================================================
-// INTERFACES
+// TYPES
 // ============================================================================
+
+interface DashboardChart {
+  id: string;
+  chart_id: string;
+  dashboard_id: string;
+  position: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  title: string;
+  order_index: number;
+  is_visible: boolean;
+  chart: {
+    id: string;
+    name: string;
+    display_name: string;
+    chart_type: string;
+    config_json: any;
+    dataset_ids: string[];
+    is_active: boolean;
+    version: number;
+    created_by: string;
+    created_at: string;
+    updated_at: string;
+  };
+}
+
+interface Dashboard {
+  id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  config_json: {
+    auto_refresh?: {
+      enabled: boolean;
+      interval: number;
+    };
+  };
+  theme_config: {
+    primary_color?: string;
+    background_color?: string;
+  };
+  charts?: DashboardChart[];
+  tabs: any[];
+  global_filters: any[];
+  is_public: boolean;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
 
 interface DashboardContainerProps {
   dashboardId: string;
@@ -47,7 +89,7 @@ interface DashboardContainerProps {
   autoRefresh?: boolean;
   refreshInterval?: number;
   onFullscreenChange?: (fullscreen: boolean) => void;
-  onChartInteraction?: (event: ChartInteractionEvent) => void;
+  onChartInteraction?: (event: any) => void;
   onError?: (error: string) => void;
   className?: string;
 }
@@ -60,6 +102,28 @@ interface DashboardContainerState {
   filters: Record<string, any>;
   lastRefresh: Date | null;
 }
+
+// ============================================================================
+// LIVE DATA FUNCTIONS
+// ============================================================================
+
+const fetchLiveDashboard = async (dashboardId: string): Promise<Dashboard> => {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  
+  const response = await fetch(`${apiUrl}/api/v1/dashboards/${dashboardId}`, {
+    headers: {
+      'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch dashboard: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.data;
+};
 
 // ============================================================================
 // MAIN COMPONENT
@@ -90,492 +154,387 @@ export const DashboardContainer: React.FC<DashboardContainerProps> = ({
     lastRefresh: null
   });
 
+  const [autoRefreshActive, setAutoRefreshActive] = useState(autoRefresh);
+
   // ============================================================================
-  // DASHBOARD LOADING
+  // LIVE DASHBOARD LOADING
   // ============================================================================
 
-  const loadDashboard = useCallback(async () => {
+  const loadDashboard = useCallback(async (isRefresh = false) => {
     if (!dashboardId) return;
 
-    setState(prev => ({ ...prev, loading: true, error: null }));
+    setState(prev => ({ 
+      ...prev, 
+      loading: !isRefresh, 
+      refreshing: isRefresh,
+      error: null 
+    }));
 
     try {
-      console.log(`Loading dashboard: ${dashboardId}`);
+      console.log(`🔄 Loading live dashboard data: ${dashboardId}`);
       
-      // Mock API call - replace with actual dashboard API
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const dashboardData = await fetchLiveDashboard(dashboardId);
       
-      // Mock dashboard data
-      const mockDashboard: Dashboard = {
-        id: dashboardId,
-        name: 'sample-dashboard',
-        display_name: 'Sample Dashboard',
-        description: 'A sample dashboard for demonstration',
-        workspace_id: workspaceId || 'default',
-        status: 'published',
-        is_public: true,
-        is_featured: false,
-        view_count: 42,
-        chart_count: 3,
-        created_at: new Date(),
-        updated_at: new Date(),
-        owner_id: 'user-1',
-        version: 1,
-        sort_order: 0,
-        tags: ['demo', 'sample'],
-        slug: 'sample-dashboard',
-        published_at: new Date(),
-        
-        // Mock charts data
-        charts: [
-          {
-            id: 'chart-1',
-            chart_id: 'chart-1',
-            dashboard_id: dashboardId,
-            position: { x: 0, y: 0, width: 6, height: 4 },
-            title: 'Sales Overview',
-            order_index: 0,
-            is_visible: true,
-            chart: {
-              id: 'chart-1',
-              name: 'sales-chart',
-              display_name: 'Sales Overview',
-              chart_type: 'bar',
-              config_json: {
-                library: 'echarts',
-                chartType: 'bar',
-                title: { text: 'Monthly Sales' }
-              },
-              dataset_ids: ['dataset-1'],
-              is_active: true,
-              version: 1,
-              created_by: 'user-1',
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            }
-          },
-          {
-            id: 'chart-2',
-            chart_id: 'chart-2', 
-            dashboard_id: dashboardId,
-            position: { x: 6, y: 0, width: 6, height: 4 },
-            title: 'Revenue Trends',
-            order_index: 1,
-            is_visible: true,
-            chart: {
-              id: 'chart-2',
-              name: 'revenue-chart',
-              display_name: 'Revenue Trends',
-              chart_type: 'line',
-              config_json: {
-                library: 'echarts',
-                chartType: 'line',
-                title: { text: 'Quarterly Revenue' }
-              },
-              dataset_ids: ['dataset-2'],
-              is_active: true,
-              version: 1,
-              created_by: 'user-1',
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            }
-          },
-          {
-            id: 'chart-3',
-            chart_id: 'chart-3',
-            dashboard_id: dashboardId,
-            position: { x: 0, y: 4, width: 12, height: 6 },
-            title: 'User Analytics',
-            order_index: 2,
-            is_visible: true,
-            chart: {
-              id: 'chart-3',
-              name: 'users-chart',
-              display_name: 'User Analytics',
-              chart_type: 'pie',
-              config_json: {
-                library: 'echarts',
-                chartType: 'pie',
-                title: { text: 'User Demographics' }
-              },
-              dataset_ids: ['dataset-3'],
-              is_active: true,
-              version: 1,
-              created_by: 'user-1',
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            }
-          }
-        ],
-
-        // Mock global filters
-        global_filters: [
-          {
-            id: 'filter-1',
-            name: 'date_range',
-            display_name: 'Date Range',
-            type: 'date_range',
-            data_source: {
-              type: 'static',
-              source: '',
-              value_column: 'date',
-              label_column: 'date'
-            },
-            is_required: false,
-            is_visible: true,
-            position: 0
-          }
-        ],
-
-        config_json: {
-          auto_refresh: {
-            enabled: autoRefresh,
-            interval: refreshInterval / 1000
-          },
-          export_settings: {
-            include_filters: true,
-            page_size: 'A4',
-            orientation: 'landscape'
-          },
-          interaction_settings: {
-            enable_cross_filtering: true,
-            enable_drill_through: false,
-            click_behavior: 'filter'
-          },
-          performance_settings: {
-            lazy_loading: true,
-            concurrent_chart_loads: 3,
-            cache_duration: 300
-          },
-          layout: {
-            columns: 12,
-            gap: 16
-          },
-          theme: {
-            primary_color: '#1976d2',
-            background_color: '#ffffff',
-            text_color: '#333333'
-          }
-        }
-      };
-
       setState(prev => ({
         ...prev,
-        dashboard: mockDashboard,
+        dashboard: dashboardData,
         loading: false,
-        lastRefresh: new Date()
+        refreshing: false,
+        lastRefresh: new Date(),
+        error: null
       }));
 
-      console.log('Dashboard loaded successfully:', mockDashboard);
+      console.log('✅ Dashboard loaded:', {
+        charts: dashboardData.charts?.length || 0,
+        autoRefresh: dashboardData.config_json?.auto_refresh?.enabled,
+        interval: dashboardData.config_json?.auto_refresh?.interval
+      });
 
     } catch (error) {
+      console.error('❌ Error loading live dashboard:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to load dashboard';
-      console.error('Error loading dashboard:', error);
       
       setState(prev => ({
         ...prev,
         loading: false,
-        error: errorMessage
+        refreshing: false,
+        error: errorMessage,
+        dashboard: null // Clear dashboard on error
       }));
-      
+
       onError?.(errorMessage);
     }
-  }, [dashboardId, workspaceId, autoRefresh, refreshInterval, onError]);
+  }, [dashboardId, onError]);
 
   // ============================================================================
-  // AUTO REFRESH
+  // EFFECTS - AUTO REFRESH & LIVE DATA
   // ============================================================================
 
   useEffect(() => {
-    loadDashboard();
-  }, [loadDashboard]);
-
-  useEffect(() => {
-    if (!autoRefresh || !refreshInterval) return;
-
-    const interval = setInterval(() => {
-      handleRefresh();
-    }, refreshInterval);
-
-    return () => clearInterval(interval);
-  }, [autoRefresh, refreshInterval]);
-
-  // ============================================================================
-  // EVENT HANDLERS
-  // ============================================================================
-
-  const handleRefresh = useCallback(async () => {
-    setState(prev => ({ ...prev, refreshing: true }));
-    
-    try {
-      await loadDashboard();
-    } finally {
-      setState(prev => ({ ...prev, refreshing: false }));
+    if (dashboardId) {
+      loadDashboard();
     }
+  }, [dashboardId, loadDashboard]);
+
+  // Auto-refresh effect for live data
+  useEffect(() => {
+    if (!autoRefreshActive || !state.dashboard?.config_json?.auto_refresh?.enabled) {
+      return;
+    }
+
+    const interval = state.dashboard.config_json.auto_refresh.interval * 1000;
+    console.log(`🔄 Setting up auto-refresh every ${interval/1000}s`);
+    
+    const timer = setInterval(() => {
+      if (!state.loading && !state.refreshing) {
+        console.log('🔄 Auto-refreshing live dashboard data...');
+        loadDashboard(true);
+      }
+    }, interval);
+
+    return () => {
+      console.log('🛑 Clearing auto-refresh timer');
+      clearInterval(timer);
+    };
+  }, [autoRefreshActive, state.dashboard?.config_json?.auto_refresh, state.loading, state.refreshing, loadDashboard]);
+
+  // ============================================================================
+  // HANDLERS
+  // ============================================================================
+
+  const handleRefresh = useCallback(() => {
+    console.log('🔄 Manual refresh triggered');
+    loadDashboard(true);
   }, [loadDashboard]);
 
-  const handleFilterChange = useCallback((filterId: string, value: any) => {
-    setState(prev => ({
-      ...prev,
-      filters: {
-        ...prev.filters,
-        [filterId]: value
-      }
-    }));
-    
-    console.log('Filter changed:', { filterId, value });
-  }, []);
+  const handleFullscreenToggle = useCallback(() => {
+    onFullscreenChange?.(!fullscreen);
+  }, [fullscreen, onFullscreenChange]);
 
-  const handleChartInteraction = useCallback((event: ChartInteractionEvent) => {
-    console.log('Chart interaction:', event);
-    onChartInteraction?.(event);
+  const handleChartClick = useCallback((chartId: string) => {
+    console.log('📊 Chart clicked:', chartId);
+    onChartInteraction?.({ type: 'click', chartId });
   }, [onChartInteraction]);
 
-  // ============================================================================
-  // COMPUTED VALUES
-  // ============================================================================
-
-  const { dashboard, loading, error, refreshing, filters } = state;
-
-  const visibleCharts = useMemo(() => {
-    return dashboard?.charts?.filter(chart => chart.is_visible) || [];
-  }, [dashboard?.charts]);
+  const toggleAutoRefresh = () => {
+    setAutoRefreshActive(!autoRefreshActive);
+    console.log(`🔄 Auto-refresh ${!autoRefreshActive ? 'enabled' : 'disabled'}`);
+  };
 
   // ============================================================================
-  // RENDER FUNCTIONS
+  // RENDER HELPERS
   // ============================================================================
 
-  // Render loading state
-  if (loading && !refreshing) {
+  const renderChart = (chartLayout: DashboardChart) => {
     return (
-      <Container maxWidth={fullscreen ? false : "xl"} sx={{ py: 2, height: '100%' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200 }}>
-          <Box sx={{ textAlign: 'center' }}>
-            <CircularProgress size={48} />
-            <Typography variant="h6" sx={{ mt: 2 }}>
-              Loading Dashboard...
-            </Typography>
+      <Grid 
+        item 
+        xs={12} 
+        md={chartLayout.position.width === 12 ? 12 : chartLayout.position.width <= 6 ? 6 : 8}
+        key={chartLayout.id}
+      >
+        <Card 
+          sx={{ 
+            height: chartLayout.position.height * 60,
+            minHeight: 200,
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            '&:hover': {
+              boxShadow: 6,
+              transform: 'translateY(-2px)'
+            }
+          }}
+          onClick={() => handleChartClick(chartLayout.chart_id)}
+        >
+          <CardContent sx={{ height: '100%', p: 3, position: 'relative' }}>
+            {/* Chart Header */}
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6" component="h3">
+                {chartLayout.title}
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Chip 
+                  label={chartLayout.chart.chart_type} 
+                  size="small" 
+                  variant="outlined"
+                  color="primary"
+                />
+              </Box>
+            </Box>
+            
+            {/* Chart Content Area */}
+            <Box
+              sx={{
+                height: 'calc(100% - 80px)',
+                bgcolor: 'rgba(25, 118, 210, 0.04)',
+                borderRadius: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                position: 'relative',
+                border: '2px dashed rgba(25, 118, 210, 0.2)'
+              }}
+            >
+              <ChartIcon sx={{ fontSize: 32 }} />
+              <Typography variant="body1" color="primary.main" gutterBottom sx={{ mt: 1 }}>
+                {chartLayout.chart.chart_type.toUpperCase()} Chart
+              </Typography>
+              <Typography variant="body2" color="text.secondary" textAlign="center">
+                Dataset: {chartLayout.chart.dataset_ids[0]}
+              </Typography>
+            </Box>
+          </CardContent>
+        </Card>
+      </Grid>
+    );
+  };
+
+  const renderEmptyDashboard = () => {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: 400,
+          textAlign: 'center',
+          py: 4
+        }}
+      >
+        <DashboardIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+        <Typography variant="h5" gutterBottom>
+          Empty Dashboard
+        </Typography>
+        <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+          This dashboard doesn't have any charts yet.
+        </Typography>
+      </Box>
+    );
+  };
+
+  const renderLoadingState = () => {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+          <Box>
+            <Skeleton variant="text" width={300} height={32} />
+            <Skeleton variant="text" width={200} height={24} />
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Skeleton variant="circular" width={40} height={40} />
+            <Skeleton variant="circular" width={40} height={40} />
           </Box>
         </Box>
         
-        {/* Loading skeleton */}
-        <Grid container spacing={2} sx={{ mt: 2 }}>
-          {Array.from({ length: 6 }).map((_, index) => (
-            <Grid item xs={12} md={6} lg={4} key={index}>
+        <Grid container spacing={3}>
+          {[1, 2, 3, 4].map((i) => (
+            <Grid item xs={12} md={6} key={i}>
               <Card>
                 <CardContent>
-                  <Skeleton variant="text" width="60%" height={32} />
-                  <Skeleton variant="rectangular" width="100%" height={200} sx={{ mt: 1 }} />
+                  <Skeleton variant="text" width="60%" height={24} sx={{ mb: 2 }} />
+                  <Skeleton variant="rectangular" height={200} />
+                  <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between' }}>
+                    <Skeleton variant="text" width="30%" height={16} />
+                    <Skeleton variant="text" width="30%" height={16} />
+                  </Box>
                 </CardContent>
               </Card>
             </Grid>
           ))}
         </Grid>
-      </Container>
+      </Box>
+    );
+  };
+
+  // ============================================================================
+  // COMPUTED VALUES
+  // ============================================================================
+
+  const totalChartsCount = state.dashboard?.charts?.length || 0;
+
+  // ============================================================================
+  // MAIN RENDER
+  // ============================================================================
+
+  if (state.loading) {
+    return (
+      <Box sx={{ height: '100%' }}>
+        {renderLoadingState()}
+      </Box>
     );
   }
 
-  // Render error state
-  if (error) {
+  if (state.error) {
     return (
-      <Container maxWidth={fullscreen ? false : "xl"} sx={{ py: 2 }}>
-        <Alert 
-          severity="error" 
-          sx={{ mb: 2 }}
-          action={
-            <Button color="inherit" size="small" onClick={loadDashboard}>
-              Retry
-            </Button>
-          }
-        >
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
           <Typography variant="h6" gutterBottom>
-            Failed to Load Dashboard
+            Dashboard Error
           </Typography>
-          {error}
+          <Typography variant="body2">
+            {state.error}
+          </Typography>
         </Alert>
-      </Container>
+        <Button variant="outlined" onClick={() => loadDashboard()} startIcon={<RefreshIcon />}>
+          Try Again
+        </Button>
+      </Box>
     );
   }
 
-  // Render empty state
-  if (!dashboard || !visibleCharts.length) {
+  if (!state.dashboard) {
     return (
-      <Container maxWidth={fullscreen ? false : "xl"} sx={{ py: 2 }}>
-        <Box 
-          sx={{ 
-            display: 'flex', 
-            flexDirection: 'column',
-            alignItems: 'center', 
-            justifyContent: 'center', 
-            height: 400,
-            textAlign: 'center' 
-          }}
-        >
-          <VisibilityIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-          <Typography variant="h5" color="text.secondary" gutterBottom>
-            No Charts Found
+      <Box sx={{ p: 3 }}>
+        <Alert severity="warning">
+          <Typography variant="body2">
+            Dashboard not found
           </Typography>
-          <Typography variant="body1" color="text.secondary">
-            This dashboard doesn't have any visible charts.
-          </Typography>
-          <Button 
-            variant="outlined" 
-            sx={{ mt: 2 }}
-            onClick={loadDashboard}
-            startIcon={<RefreshIcon />}
-          >
-            Refresh Dashboard
-          </Button>
-        </Box>
-      </Container>
+        </Alert>
+      </Box>
     );
   }
-
-  // Calculate grid layout
-  const gridColumns = dashboard.config_json?.layout?.columns || 12;
-  const gridGap = dashboard.config_json?.layout?.gap || 16;
 
   return (
     <Box 
-      className={className}
       sx={{ 
-        height: fullscreen ? '100vh' : 'auto',
-        backgroundColor: dashboard.config_json?.theme?.background_color || 'background.default',
-        color: dashboard.config_json?.theme?.text_color || 'text.primary'
+        height: '100%',
+        bgcolor: state.dashboard.theme_config.background_color || 'background.default'
       }}
+      className={className}
     >
-      {/* Toolbar */}
-      <Box 
-        sx={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'space-between',
-          p: 2,
-          borderBottom: '1px solid',
-          borderColor: 'divider',
-          backgroundColor: 'background.paper'
-        }}
-      >
-        <Box>
-          <Typography variant="h6">
-            {dashboard.display_name || dashboard.name}
-          </Typography>
-          {dashboard.description && (
-            <Typography variant="body2" color="text.secondary">
-              {dashboard.description}
-            </Typography>
-          )}
-        </Box>
-        
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {visibleCharts.length > 0 && (
-            <Chip 
-              label={`${visibleCharts.length} chart${visibleCharts.length !== 1 ? 's' : ''}`} 
-              size="small"
-              variant="outlined"
-            />
-          )}
-          
-          <Tooltip title={refreshing ? 'Refreshing...' : 'Refresh Dashboard'}>
-            <span>
+      {/* Dashboard Header */}
+      <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+              <Typography variant="h4" component="h1">
+                {state.dashboard.display_name}
+              </Typography>
+              {state.dashboard.config_json.auto_refresh?.enabled && (
+                <Chip 
+                  label={`Live Dashboard (${state.dashboard.config_json.auto_refresh.interval}s)`}
+                  color="success" 
+                  size="small"
+                />
+              )}
+              {totalChartsCount > 0 && (
+                <Chip 
+                  label={`${totalChartsCount} Charts`}
+                  color="info" 
+                  size="small"
+                  variant="outlined"
+                />
+              )}
+            </Box>
+            {state.dashboard.description && (
+              <Typography variant="body1" color="text.secondary">
+                {state.dashboard.description}
+              </Typography>
+            )}
+            <Box sx={{ mt: 1, display: 'flex', gap: 3 }}>
+              {state.lastRefresh && (
+                <Typography variant="caption" color="text.secondary">
+                  Last refreshed: {state.lastRefresh.toLocaleTimeString()}
+                </Typography>
+              )}
+              <Typography variant="caption" color={autoRefreshActive ? "success.main" : "text.secondary"}>
+                Auto-refresh: {autoRefreshActive ? 'ON' : 'OFF'}
+              </Typography>
+            </Box>
+          </Box>
+
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Tooltip title={autoRefreshActive ? "Disable Auto-refresh" : "Enable Auto-refresh"}>
               <IconButton 
-                onClick={handleRefresh}
-                disabled={refreshing}
-                size="small"
+                onClick={toggleAutoRefresh} 
+                color={autoRefreshActive ? "success" : "default"}
               >
-                <RefreshIcon />
+                <SettingsIcon />
               </IconButton>
-            </span>
-          </Tooltip>
-          
-          {onFullscreenChange && (
-            <Tooltip title={fullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
+            </Tooltip>
+            
+            <Tooltip title="Refresh Dashboard">
               <IconButton 
-                onClick={() => onFullscreenChange(!fullscreen)}
-                size="small"
+                onClick={handleRefresh} 
+                disabled={state.refreshing}
+                color="primary"
               >
+                <RefreshIcon sx={{ animation: state.refreshing ? 'spin 1s linear infinite' : 'none' }} />
+              </IconButton>
+            </Tooltip>
+            
+            <Tooltip title={fullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}>
+              <IconButton onClick={handleFullscreenToggle} color="primary">
                 {fullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
               </IconButton>
             </Tooltip>
-          )}
+          </Box>
         </Box>
+      </Paper>
+
+      {/* Dashboard Content */}
+      <Box sx={{ px: 3, pb: 3 }}>
+        {state.dashboard.charts && state.dashboard.charts.length > 0 ? (
+          <Grid container spacing={3}>
+            {state.dashboard.charts
+              .filter(chart => chart.is_visible)
+              .sort((a, b) => a.order_index - b.order_index)
+              .map(renderChart)}
+          </Grid>
+        ) : (
+          renderEmptyDashboard()
+        )}
       </Box>
 
-      {/* Filters Panel */}
-      {showFilters && dashboard.global_filters && dashboard.global_filters.length > 0 && (
-        <FilterPanel
-          filters={dashboard.global_filters}
-          values={filters}
-          onChange={handleFilterChange}
-        />
-      )}
-
-      {/* Charts Grid */}
-      <Container maxWidth={fullscreen ? false : "xl"} sx={{ py: 2, height: '100%' }}>
-        <Grid container spacing={gridGap / 8}>
-          {visibleCharts.map((dashboardChart) => {
-            if (!dashboardChart.chart) return null;
-            
-            const gridSize = {
-              xs: 12,
-              sm: Math.min(12, Math.max(6, dashboardChart.position.width)),
-              md: Math.min(12, Math.max(4, Math.round(dashboardChart.position.width / 12 * 12))),
-              lg: Math.max(3, Math.round(dashboardChart.position.width / 12 * 12))
-            };
-
-            return (
-              <Grid 
-                item 
-                key={dashboardChart.id}
-                xs={gridSize.xs}
-                sm={gridSize.sm} 
-                md={gridSize.md}
-                lg={gridSize.lg}
-              >
-                <ChartContainer
-                  chart={dashboardChart.chart}
-                  workspaceId={workspaceId}
-                  preview={false}
-                  filters={Object.entries(filters).map(([key, value]) => ({
-                    field: key,
-                    value: value,
-                    operator: 'equals'
-                  }))}
-                  dimensions={{
-                    width: '100%',
-                    height: Math.max(200, dashboardChart.position.height * 50)
-                  }}
-                  theme={dashboard.config_json?.theme}
-                  onChartClick={(chart) => console.log('Chart clicked:', chart.id)}
-                  onChartError={(chartId, error) => console.error('Chart error:', chartId, error)}
-                  onChartLoad={(chartId, metadata) => console.log('Chart loaded:', chartId, metadata)}
-                  onChartInteraction={handleChartInteraction}
-                />
-              </Grid>
-            );
-          })}
-        </Grid>
-
-        {/* Refresh indicator */}
-        {refreshing && (
-          <Box sx={{ 
-            position: 'fixed', 
-            top: 16, 
-            right: 16, 
-            zIndex: 1000,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-            backgroundColor: 'background.paper',
-            padding: 1,
-            borderRadius: 1,
-            boxShadow: 2
-          }}>
-            <CircularProgress size={20} />
-            <Typography variant="body2">Refreshing...</Typography>
-          </Box>
-        )}
-      </Container>
+      {/* CSS for animations */}
+      <style jsx>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </Box>
   );
 };

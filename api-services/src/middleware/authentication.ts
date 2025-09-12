@@ -52,6 +52,9 @@ declare global {
  * Authentication middleware
  * Verifies JWT token and extracts user information
  */
+/**
+ * Enhanced Authentication middleware with better error handling and refresh recommendations
+ */
 export const authenticate = async (
   req: AuthenticatedRequest,
   res: Response,
@@ -71,7 +74,8 @@ export const authenticate = async (
       res.status(401).json({
         success: false,
         message: 'Access token required',
-        error: 'MISSING_TOKEN'
+        error: 'MISSING_TOKEN',
+        can_refresh: false
       });
       return;
     }
@@ -82,7 +86,8 @@ export const authenticate = async (
       res.status(401).json({
         success: false,
         message: 'Invalid token format',
-        error: 'INVALID_TOKEN_FORMAT'
+        error: 'INVALID_TOKEN_FORMAT',
+        can_refresh: false
       });
       return;
     }
@@ -94,10 +99,11 @@ export const authenticate = async (
         process.env.JWT_SECRET || 'your-jwt-secret'
       ) as JWTPayload;
       
-      // Check if token is about to expire (within 5 minutes)
+      // Check token expiration and set refresh headers
       const now = Math.floor(Date.now() / 1000);
       const timeUntilExpiry = decoded.exp! - now;
       
+      // Set refresh recommendation headers
       if (timeUntilExpiry < 300) { // Less than 5 minutes
         logger.info('Token expiring soon', {
           user_id: decoded.user_id,
@@ -105,8 +111,11 @@ export const authenticate = async (
           service: 'bi-platform-api'
         });
         
-        // Add header to indicate token should be refreshed
         res.set('X-Token-Refresh-Required', 'true');
+        res.set('X-Token-Expires-In', timeUntilExpiry.toString());
+      } else if (timeUntilExpiry < 600) { // Less than 10 minutes
+        res.set('X-Token-Refresh-Recommended', 'true');
+        res.set('X-Token-Expires-In', timeUntilExpiry.toString());
       }
       
       // Extract user data from token
@@ -146,23 +155,28 @@ export const authenticate = async (
       // Provide specific error codes for different JWT errors
       let errorCode = 'TOKEN_VERIFICATION_FAILED';
       let message = 'Invalid or expired token';
+      let canRefresh = false;
       
       if (jwtError.name === 'TokenExpiredError') {
         errorCode = 'TOKEN_EXPIRED';
         message = 'Access token has expired. Please refresh your token.';
+        canRefresh = true;
       } else if (jwtError.name === 'JsonWebTokenError') {
         errorCode = 'INVALID_TOKEN';
         message = 'Invalid access token format or signature.';
+        canRefresh = false;
       } else if (jwtError.name === 'NotBeforeError') {
         errorCode = 'TOKEN_NOT_ACTIVE';
         message = 'Token is not yet active.';
+        canRefresh = false;
       }
 
       res.status(401).json({
         success: false,
         message,
         error: errorCode,
-        can_refresh: jwtError.name === 'TokenExpiredError' // Indicate if refresh is possible
+        can_refresh: canRefresh,
+        refresh_endpoint: canRefresh ? '/api/auth/refresh' : undefined
       });
       return;
     }
@@ -179,7 +193,8 @@ export const authenticate = async (
     res.status(500).json({
       success: false,
       message: 'Authentication failed due to server error',
-      error: 'AUTHENTICATION_ERROR'
+      error: 'AUTHENTICATION_ERROR',
+      can_refresh: false
     });
     return;
   }
@@ -224,6 +239,104 @@ export const generateToken = (payload: Omit<JWTPayload, 'iat' | 'exp'>): string 
       issuer: 'bi-platform-api'
     }
   );
+};
+
+/**
+ * Graceful authentication middleware - allows expired tokens for refresh endpoint
+ * Use this for the refresh endpoint to allow expired tokens through
+ */
+export const authenticateForRefresh = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({
+        success: false,
+        message: 'Access token required for refresh',
+        error: 'MISSING_TOKEN'
+      });
+      return;
+    }
+
+    const token = authHeader.substring(7);
+    
+    try {
+      // Try to verify the token normally first
+      const decoded = jwt.verify(
+        token, 
+        process.env.JWT_SECRET || 'your-jwt-secret'
+      ) as JWTPayload;
+      
+      req.user = {
+        user_id: decoded.user_id,
+        email: decoded.email,
+        username: decoded.username,
+        workspace_id: decoded.workspace_id,
+        workspace_slug: decoded.workspace_slug,
+        workspace_role: decoded.workspace_role,
+        is_admin: decoded.is_admin || false,
+        role_level: decoded.role_level || 0
+      };
+      
+      next();
+      
+    } catch (jwtError: any) {
+      // If token is expired, still allow it for refresh
+      if (jwtError.name === 'TokenExpiredError') {
+        try {
+          // Decode without verification to get user info
+          const decoded = jwt.decode(token) as JWTPayload;
+          
+          if (decoded && decoded.user_id) {
+            req.user = {
+              user_id: decoded.user_id,
+              email: decoded.email,
+              username: decoded.username,
+              workspace_id: decoded.workspace_id,
+              workspace_slug: decoded.workspace_slug,
+              workspace_role: decoded.workspace_role,
+              is_admin: decoded.is_admin || false,
+              role_level: decoded.role_level || 0
+            };
+            
+            logger.info('Allowing expired token for refresh', {
+              user_id: decoded.user_id,
+              service: 'bi-platform-api'
+            });
+            
+            next();
+            return;
+          }
+        } catch {
+          // If we can't decode at all, reject
+        }
+      }
+      
+      // For other JWT errors, reject
+      res.status(401).json({
+        success: false,
+        message: 'Invalid token for refresh',
+        error: 'INVALID_REFRESH_TOKEN'
+      });
+      return;
+    }
+    
+  } catch (error: any) {
+    logger.error('Refresh authentication middleware error:', {
+      error: error.message,
+      service: 'bi-platform-api'
+    });
+    
+    res.status(500).json({
+      success: false,
+      message: 'Authentication failed during refresh',
+      error: 'REFRESH_AUTH_ERROR'
+    });
+  }
 };
 
 /**
