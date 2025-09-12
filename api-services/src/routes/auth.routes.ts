@@ -1,10 +1,10 @@
-// api-services/src/routes/auth.routes.ts - Fixed database import
+// api-services/src/routes/auth.routes.ts - FIXED VERSION
 import { Router } from 'express';
 import { AuthController } from '../controllers/AuthController';
 import { AuthService } from '../services/AuthService';
-import { authenticate } from '../middleware/authentication';
+import { authenticate, optionalAuthenticate } from '../middleware/authentication';
 import { asyncHandler } from '../middleware/errorHandler';
-import { db } from '../utils/database'; // ✅ Fixed: Import from utils/database instead of config/database
+import { db } from '../utils/database';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -55,9 +55,9 @@ router.post('/login', asyncHandler(async (req, res) => {
 
 /**
  * POST /api/auth/logout
- * Logout current user
+ * Logout current user (optional auth - if no token, just return success)
  */
-router.post('/logout', asyncHandler(async (req, res) => {
+router.post('/logout', optionalAuthenticate, asyncHandler(async (req, res) => {
   try {
     await authController.logout(req as any, res);
   } catch (error) {
@@ -71,6 +71,94 @@ router.post('/logout', asyncHandler(async (req, res) => {
       res.status(500).json({
         success: false,
         message: 'Server error during logout',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  }
+}));
+
+/**
+ * GET /api/auth/verify
+ * Verify token validity (requires authentication)
+ */
+router.get('/verify', authenticate, asyncHandler(async (req, res) => {
+  try {
+    const user = req.user;
+    
+    if (!user) {
+      res.status(401).json({
+        success: false,
+        valid: false,
+        message: 'Invalid token',
+        error: 'INVALID_TOKEN'
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      valid: true,
+      message: 'Token is valid',
+      user: {
+        user_id: user.user_id,
+        email: user.email,
+        username: user.username,
+        workspace_id: user.workspace_id,
+        workspace_slug: user.workspace_slug,
+        is_admin: user.is_admin
+      },
+      workspace: user.workspace_id ? {
+        id: user.workspace_id,
+        slug: user.workspace_slug
+      } : null,
+      permissions: [] // You can add permission logic here
+    });
+  } catch (error) {
+    logger.error('Route handler error for verify:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      user_id: (req as any).user?.user_id,
+      service: 'bi-platform-api'
+    });
+    
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        valid: false,
+        message: 'Server error during token verification',
+        error: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  }
+}));
+
+/**
+ * GET /api/auth/me
+ * Get current user profile - FIXED: Use optional auth to prevent errors on app startup
+ */
+router.get('/me', optionalAuthenticate, asyncHandler(async (req, res) => {
+  try {
+    // If no user authenticated, return appropriate response
+    if (!req.user?.user_id) {
+      res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+        error: 'AUTHENTICATION_REQUIRED'
+      });
+      return;
+    }
+
+    await authController.getCurrentUser(req as any, res);
+  } catch (error) {
+    logger.error('Route handler error for me:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      user_id: (req as any).user?.user_id,
+      service: 'bi-platform-api'
+    });
+    
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get user profile',
         error: 'INTERNAL_SERVER_ERROR'
       });
     }
@@ -98,30 +186,6 @@ router.post('/switch-workspace', asyncHandler(async (req, res) => {
       res.status(500).json({
         success: false,
         message: 'Server error during workspace switch',
-        error: 'INTERNAL_SERVER_ERROR'
-      });
-    }
-  }
-}));
-
-/**
- * GET /api/auth/me
- * Get current user profile with workspace info using AuthService
- */
-router.get('/me', asyncHandler(async (req, res) => {
-  try {
-    await authController.getCurrentUser(req as any, res);
-  } catch (error) {
-    logger.error('Route handler error for me:', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-      user_id: (req as any).user?.user_id,
-      service: 'bi-platform-api'
-    });
-    
-    if (!res.headersSent) {
-      res.status(500).json({
-        success: false,
-        message: 'Failed to get user profile',
         error: 'INTERNAL_SERVER_ERROR'
       });
     }

@@ -1,7 +1,10 @@
-// web-application/src/pages/login.tsx - FIXED VERSION
+// web-application/src/pages/login.tsx - COMPLETE FIXED VERSION
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { useAuth } from '../hooks/useAuth';
+import { useAppDispatch, useAppSelector } from '../hooks/redux';
+import { useLoginMutation } from '../store/api/authApi';
+import { setCredentials } from '../store/slices/authSlice';
+import { setCurrentWorkspace } from '../store/slices/workspaceSlice';
 import {
   Container,
   Paper,
@@ -26,7 +29,7 @@ import {
   Visibility,
   VisibilityOff,
   Email,
-  Person, // CHANGED: Added Person icon for email/username field
+  Person,
   Lock,
   Login as LoginIcon,
   Business,
@@ -35,9 +38,9 @@ import {
   Analytics,
 } from '@mui/icons-material';
 
-// FIXED: Updated interface to support both email and username
+// Updated interface to support both email and username
 interface LoginForm {
-  emailOrUsername: string; // CHANGED: from 'email' to 'emailOrUsername'
+  emailOrUsername: string;
   password: string;
 }
 
@@ -69,10 +72,14 @@ const getTestCredentials = (): TestCredential[] => {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, isAuthenticated, isLoading, user } = useAuth();
+  const dispatch = useAppDispatch();
+  const { isAuthenticated, isLoading: authLoading, user } = useAppSelector((state) => state.auth);
+  
+  // RTK Query mutation hook
+  const [loginMutation, { isLoading: loginIsLoading }] = useLoginMutation();
   
   const [formData, setFormData] = useState<LoginForm>({
-    emailOrUsername: '', // CHANGED: from 'email' to 'emailOrUsername'
+    emailOrUsername: '',
     password: '',
   });
   const [showPassword, setShowPassword] = useState(false);
@@ -84,20 +91,20 @@ export default function LoginPage() {
 
   // Redirect if already authenticated
   useEffect(() => {
-    if (isAuthenticated && user && !isLoading) {
-      console.log('User already authenticated, redirecting to workspace overview');
+    if (isAuthenticated && user && !authLoading) {
+      console.log('✅ User already authenticated, redirecting to workspace overview');
       const timer = setTimeout(() => {
         router.push('/workspace/overview').catch((error) => {
-          console.error('Redirect from login page failed:', error);
+          console.error('❌ Redirect from login page failed:', error);
           window.location.href = '/workspace/overview';
         });
       }, 100);
       
       return () => clearTimeout(timer);
     }
-  }, [isAuthenticated, user, isLoading, router]);
+  }, [isAuthenticated, user, authLoading, router]);
 
-  // FIXED: More flexible validation that accepts both email and username formats
+  // Form validation
   const validateForm = (): boolean => {
     const errors: Partial<LoginForm> = {};
     
@@ -117,7 +124,7 @@ export default function LoginPage() {
     return Object.keys(errors).length === 0;
   };
 
-  // FIXED: Helper function to determine if input looks like an email
+  // Helper function to determine if input looks like an email
   const isEmailFormat = (input: string): boolean => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
   };
@@ -145,10 +152,10 @@ export default function LoginPage() {
     }
 
     try {
-      console.log('Attempting login with:', formData.emailOrUsername);
+      console.log('🔄 Attempting login with:', formData.emailOrUsername);
       setLoginError('');
       
-      // FIXED: Send the appropriate field based on format detection
+      // Send the appropriate field based on format detection
       const credentials = {
         password: formData.password,
         ...(isEmailFormat(formData.emailOrUsername.trim()) 
@@ -157,17 +164,70 @@ export default function LoginPage() {
         )
       };
       
-      const result = await login(credentials);
+      console.log('📤 Sending credentials:', { ...credentials, password: '[REDACTED]' });
       
-      if (result.success) {
-        console.log('Login successful');
-        // useAuth will handle the redirect automatically
+      // 🔥 CRITICAL FIX: Use RTK Query mutation properly
+      const result = await loginMutation(credentials);
+      
+      console.log('🐛 DEBUG - Full login mutation result:', result);
+      console.log('🐛 DEBUG - Result data:', result.data);
+      console.log('🐛 DEBUG - Result error:', result.error);
+      
+      if (result.data && result.data.success) {
+        const { user, token, workspace, permissions } = result.data;
+        
+        console.log('✅ Login successful!');
+        console.log('🔑 Token received:', result.data ? 'Present' : 'Missing');
+        console.log('👤 User data:', result.data.user);
+        console.log('🏢 Workspace:', result.data.workspace);
+        
+        // ✅ FIXED: Manually store in localStorage AND Redux
+        if (token) {
+          localStorage.setItem('token', token);
+          console.log('💾 Token stored in localStorage');
+        }
+        
+        if (user) {
+          localStorage.setItem('user', JSON.stringify(user));
+          console.log('💾 User data stored in localStorage');
+        }
+        
+        if (workspace) {
+          localStorage.setItem('workspace', JSON.stringify(workspace));
+          console.log('💾 Workspace data stored in localStorage');
+        }
+        
+        // ✅ FIXED: Dispatch to Redux store
+        dispatch(setCredentials({ user, token }));
+        console.log('🔄 Redux credentials updated');
+        
+        if (workspace) {
+          dispatch(setCurrentWorkspace(workspace));
+          console.log('🔄 Redux workspace updated');
+        }
+        
+        console.log('✅ All data stored successfully, redirecting...');
+        
+        // Short delay to ensure state is updated
+        setTimeout(() => {
+          router.push('/workspace/overview').catch((error) => {
+            console.error('❌ Router push failed:', error);
+            window.location.href = '/workspace/overview';
+          });
+        }, 100);
+        
+      } else if (result.error) {
+        console.error('❌ Login failed with error:', result.error);
+        const errorMessage = (result.error as any)?.data?.message || 
+                           (result.error as any)?.message || 
+                           'Login failed. Please check your credentials and try again.';
+        setLoginError(errorMessage);
       } else {
-        console.error('Login failed:', result.error);
-        setLoginError(result.error || 'Login failed. Please check your credentials and try again.');
+        console.error('❌ Login failed - unexpected response:', result);
+        setLoginError('Login failed. Please check your credentials and try again.');
       }
     } catch (err: any) {
-      console.error('Login error:', err);
+      console.error('❌ Login exception:', err);
       setLoginError('An unexpected error occurred. Please try again.');
     }
   };
@@ -184,13 +244,13 @@ export default function LoginPage() {
 
   const handleCredentialClick = async (credential: TestCredential) => {
     setFormData({
-      emailOrUsername: credential.email, // CHANGED: from 'email' to 'emailOrUsername'
+      emailOrUsername: credential.email,
       password: credential.password,
     });
   };
 
   // Show loading screen while checking auth state
-  if (isLoading) {
+  if (authLoading) {
     return (
       <Box 
         display="flex" 
@@ -229,65 +289,62 @@ export default function LoginPage() {
                 <Typography 
                   variant="h2" 
                   component="h1" 
-                  gutterBottom 
                   sx={{ 
-                    color: 'white', 
-                    fontWeight: 700,
-                    fontSize: { xs: '2.5rem', md: '3.5rem' },
-                    mb: 3
+                    color: 'white',
+                    fontWeight: 'bold',
+                    mb: 3,
+                    fontSize: { xs: '2.5rem', md: '3.5rem' }
                   }}
                 >
-                  Business Intelligence
+                  Business Intelligence Platform
                 </Typography>
+                
                 <Typography 
                   variant="h5" 
                   sx={{ 
-                    color: 'rgba(255, 255, 255, 0.9)', 
-                    mb: 4, 
-                    lineHeight: 1.4,
-                    fontSize: { xs: '1.25rem', md: '1.5rem' }
+                    color: 'rgba(255,255,255,0.9)',
+                    mb: 4,
+                    lineHeight: 1.6
                   }}
                 >
-                  Transform your data into actionable insights with our comprehensive analytics platform
+                  Transform your data into actionable insights with our powerful, 
+                  multi-tenant BI platform designed for modern enterprises.
                 </Typography>
 
-                {/* Feature Cards */}
-                <Grid container spacing={2} sx={{ mb: 4 }}>
+                <Grid container spacing={3} sx={{ mb: 4 }}>
                   {[
-                    { icon: <Dashboard />, title: 'Interactive Dashboards', desc: 'Create stunning visualizations' },
-                    { icon: <Analytics />, title: 'Advanced Analytics', desc: 'Deep insights from your data' },
-                    { icon: <Security />, title: 'Enterprise Security', desc: 'Bank-level data protection' },
+                    { icon: <Dashboard />, title: 'Interactive Dashboards', desc: 'Create beautiful, real-time dashboards' },
+                    { icon: <Analytics />, title: 'Advanced Analytics', desc: 'Powerful data analysis and visualization' },
+                    { icon: <Security />, title: 'Enterprise Security', desc: 'Role-based access and data protection' },
+                    { icon: <Business />, title: 'Multi-Tenant', desc: 'Isolated workspaces for teams' }
                   ].map((feature, index) => (
-                    <Grid item xs={12} sm={4} key={index}>
-                      <Slide direction="up" in timeout={1000 + (index * 200)}>
-                        <Card 
-                          elevation={8}
-                          sx={{ 
-                            background: 'rgba(255, 255, 255, 0.1)',
-                            backdropFilter: 'blur(10px)',
-                            border: '1px solid rgba(255, 255, 255, 0.2)',
-                            color: 'white',
-                            textAlign: 'center',
-                            p: 2,
-                            height: '100%'
-                          }}
-                        >
-                          <Avatar sx={{ 
-                            bgcolor: 'rgba(255, 255, 255, 0.2)', 
-                            color: 'white',
-                            width: 48, 
-                            height: 48,
-                            mx: 'auto',
-                            mb: 2 
-                          }}>
-                            {feature.icon}
-                          </Avatar>
-                          <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                            {feature.title}
-                          </Typography>
-                          <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                            {feature.desc}
-                          </Typography>
+                    <Grid item xs={12} sm={6} key={index}>
+                      <Slide in timeout={800 + index * 200} direction="up">
+                        <Card sx={{ 
+                          background: 'rgba(255,255,255,0.1)', 
+                          backdropFilter: 'blur(10px)',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          color: 'white'
+                        }}>
+                          <CardContent>
+                            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                              <Avatar sx={{ 
+                                bgcolor: 'rgba(255,255,255,0.2)', 
+                                color: 'white',
+                                mr: 2,
+                                width: 32,
+                                height: 32
+                              }}>
+                                {feature.icon}
+                              </Avatar>
+                              <Typography variant="h6" fontWeight="bold">
+                                {feature.title}
+                              </Typography>
+                            </Box>
+                            <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                              {feature.desc}
+                            </Typography>
+                          </CardContent>
                         </Card>
                       </Slide>
                     </Grid>
@@ -299,89 +356,105 @@ export default function LoginPage() {
 
           {/* Right Side - Login Form */}
           <Grid item xs={12} md={5}>
-            <Fade in timeout={600}>
-              <Paper elevation={24} sx={{ 
-                p: 4, 
-                borderRadius: 3,
-                background: 'rgba(255, 255, 255, 0.95)',
-                backdropFilter: 'blur(20px)',
-                border: '1px solid rgba(255, 255, 255, 0.3)',
-              }}>
-                {/* Header */}
-                <Box sx={{ textAlign: 'center', mb: 4 }}>
+            <Slide in timeout={1000} direction="left">
+              <Paper 
+                elevation={10}
+                sx={{
+                  p: 4,
+                  borderRadius: 3,
+                  background: 'rgba(255,255,255,0.95)',
+                  backdropFilter: 'blur(10px)',
+                  border: '1px solid rgba(255,255,255,0.3)',
+                  maxWidth: 500,
+                  mx: 'auto'
+                }}
+              >
+                <Box sx={{ textAlign: 'center', mb: 3 }}>
                   <Avatar sx={{ 
                     bgcolor: 'primary.main', 
-                    width: 56, 
-                    height: 56,
-                    mx: 'auto',
-                    mb: 2,
+                    width: 60, 
+                    height: 60, 
+                    mx: 'auto', 
+                    mb: 2 
                   }}>
-                    <Business sx={{ fontSize: 32 }} />
+                    <LoginIcon fontSize="large" />
                   </Avatar>
-                  <Typography variant="h4" component="h1" gutterBottom color="primary" sx={{ fontWeight: 600 }}>
+                  <Typography variant="h4" component="h1" fontWeight="bold" gutterBottom>
                     Welcome Back
                   </Typography>
                   <Typography variant="body1" color="text.secondary">
-                    Sign in to access your analytics dashboard
+                    Sign in to access your dashboard
                   </Typography>
                 </Box>
 
-                {/* Error Alert */}
+                {/* Test Credentials (Development Only) */}
+                {!isProduction && testCredentials.length > 0 && (
+                  <Box sx={{ mb: 3 }}>
+                    <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
+                      Development Test Credentials:
+                    </Typography>
+                    {testCredentials.map((cred, index) => (
+                      <Chip
+                        key={index}
+                        label={`${cred.role}: ${cred.email}`}
+                        color={cred.color}
+                        size="small"
+                        onClick={() => handleCredentialClick(cred)}
+                        sx={{ mr: 1, mb: 1, cursor: 'pointer' }}
+                        clickable
+                      />
+                    ))}
+                    <Divider sx={{ mt: 2, mb: 3 }} />
+                  </Box>
+                )}
+
+                {/* Login Error */}
                 {loginError && (
-                  <Alert 
-                    severity="error" 
-                    sx={{ mb: 3 }} 
-                    onClose={() => setLoginError('')}
-                  >
-                    {loginError}
-                  </Alert>
+                  <Fade in>
+                    <Alert severity="error" sx={{ mb: 3 }} onClose={() => setLoginError('')}>
+                      {loginError}
+                    </Alert>
+                  </Fade>
                 )}
 
                 {/* Login Form */}
                 <Box component="form" onSubmit={handleSubmit} noValidate>
-                  {/* FIXED: Updated email field to support both email and username */}
                   <TextField
                     fullWidth
                     id="emailOrUsername"
+                    label="Email or Username"
                     name="emailOrUsername"
-                    type="text" // CHANGED: from "email" to "text"
-                    label="Email or Username" // CHANGED: Updated label
+                    autoComplete="username"
+                    autoFocus
                     value={formData.emailOrUsername}
                     onChange={handleInputChange('emailOrUsername')}
-                    onKeyPress={handleKeyPress}
                     error={!!formErrors.emailOrUsername}
                     helperText={formErrors.emailOrUsername}
-                    disabled={isLoading}
-                    margin="normal"
-                    required
-                    autoComplete="username" // CHANGED: More appropriate autocomplete
-                    autoFocus
-                    sx={{ mb: 2 }}
+                    disabled={loginIsLoading}
+                    onKeyPress={handleKeyPress}
                     InputProps={{
                       startAdornment: (
                         <InputAdornment position="start">
-                          <Person color="action" /> {/* CHANGED: From Email to Person icon */}
+                          {isEmailFormat(formData.emailOrUsername) ? <Email color="action" /> : <Person color="action" />}
                         </InputAdornment>
                       ),
                     }}
+                    sx={{ mb: 2 }}
                   />
 
                   <TextField
                     fullWidth
                     id="password"
                     name="password"
-                    type={showPassword ? 'text' : 'password'}
                     label="Password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
                     value={formData.password}
                     onChange={handleInputChange('password')}
-                    onKeyPress={handleKeyPress}
                     error={!!formErrors.password}
                     helperText={formErrors.password}
-                    disabled={isLoading}
-                    margin="normal"
-                    required
-                    autoComplete="current-password"
-                    sx={{ mb: 3 }}
+                    disabled={loginIsLoading}
+                    onKeyPress={handleKeyPress}
                     InputProps={{
                       startAdornment: (
                         <InputAdornment position="start">
@@ -393,14 +466,16 @@ export default function LoginPage() {
                           <IconButton
                             aria-label="toggle password visibility"
                             onClick={handleTogglePasswordVisibility}
+                            onMouseDown={(e) => e.preventDefault()}
                             edge="end"
-                            disabled={isLoading}
+                            disabled={loginIsLoading}
                           >
                             {showPassword ? <VisibilityOff /> : <Visibility />}
                           </IconButton>
                         </InputAdornment>
                       ),
                     }}
+                    sx={{ mb: 3 }}
                   />
 
                   <Button
@@ -408,114 +483,51 @@ export default function LoginPage() {
                     fullWidth
                     variant="contained"
                     size="large"
-                    disabled={isLoading || !formData.emailOrUsername || !formData.password} // CHANGED: Updated field name
-                    startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <LoginIcon />}
+                    disabled={loginIsLoading}
                     sx={{ 
-                      mt: 2, 
-                      mb: 3, 
+                      mb: 2, 
                       py: 1.5,
                       fontSize: '1.1rem',
-                      fontWeight: 600,
+                      fontWeight: 'bold',
                       borderRadius: 2,
                       background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)',
-                      boxShadow: '0 3px 10px 2px rgba(102, 126, 234, .3)',
                       '&:hover': {
-                        background: 'linear-gradient(45deg, #5a67d8 30%, #6b46c1 90%)',
-                        boxShadow: '0 6px 20px 4px rgba(102, 126, 234, .4)',
+                        background: 'linear-gradient(45deg, #5a6fd8 30%, #6a4190 90%)',
                       }
                     }}
+                    startIcon={loginIsLoading ? <CircularProgress size={20} color="inherit" /> : <LoginIcon />}
                   >
-                    {isLoading ? 'Signing In...' : 'Sign In to Dashboard'}
+                    {loginIsLoading ? 'Signing In...' : 'Sign In'}
                   </Button>
 
-                  {/* Forgot Password */}
-                  <Box sx={{ textAlign: 'center', mb: 2 }}>
-                    <Typography
-                      component="a"
-                      href="/forgot-password"
-                      variant="body2"
-                      sx={{ 
-                        color: 'primary.main', 
-                        textDecoration: 'none', 
-                        '&:hover': { textDecoration: 'underline' } 
-                      }}
-                    >
-                      Forgot your password?
+                  <Box sx={{ textAlign: 'center' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Don't have an account?{' '}
+                      <Button 
+                        variant="text" 
+                        size="small" 
+                        onClick={() => router.push('/register')}
+                        disabled={loginIsLoading}
+                      >
+                        Sign up
+                      </Button>
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      <Button 
+                        variant="text" 
+                        size="small" 
+                        onClick={() => router.push('/forgot-password')}
+                        disabled={loginIsLoading}
+                      >
+                        Forgot your password?
+                      </Button>
                     </Typography>
                   </Box>
-
-                  {/* Test Credentials Section */}
-                  {!isProduction && testCredentials.length > 0 && (
-                    <>
-                      <Divider sx={{ my: 3 }}>
-                        <Chip 
-                          label={`Development - Click to use test credentials`} 
-                          color="primary" 
-                          variant="outlined" 
-                          size="small"
-                        />
-                      </Divider>
-                      
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                        {testCredentials.map((credential, index) => (
-                          <Button
-                            key={index}
-                            variant="outlined"
-                            size="small"
-                            onClick={() => handleCredentialClick(credential)}
-                            sx={{ 
-                              justifyContent: 'flex-start',
-                              textTransform: 'none',
-                              p: 2
-                            }}
-                          >
-                            <Box sx={{ textAlign: 'left' }}>
-                              <Typography variant="body2" fontWeight={600}>
-                                {credential.role}
-                              </Typography>
-                              <Typography variant="caption" color="textSecondary">
-                                {credential.email} / {credential.password}
-                              </Typography>
-                              <br />
-                              <Typography variant="caption" color="textSecondary">
-                                {credential.description}
-                              </Typography>
-                            </Box>
-                          </Button>
-                        ))}
-                      </Box>
-                    </>
-                  )}
-
-                  {/* Production Contact Info */}
-                  {isProduction && (
-                    <Alert severity="info" sx={{ mt: 2 }}>
-                      <Typography variant="body2">
-                        Need access? Contact your system administrator for account setup.
-                      </Typography>
-                    </Alert>
-                  )}
-                </Box>
-
-                {/* ADDED: Helpful hint for users */}
-                <Box sx={{ mt: 3, textAlign: 'center' }}>
-                  <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.875rem' }}>
-                    💡 You can sign in with either your email address or username
-                  </Typography>
                 </Box>
               </Paper>
-            </Fade>
+            </Slide>
           </Grid>
         </Grid>
-        {/* Footer */}
-        <Box sx={{ mt: 6, textAlign: 'center' }}>
-          <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-            © 2024 BI Platform. Enterprise Business Intelligence Solution.
-          </Typography>
-          <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', mt: 1, display: 'block' }}>
-            Secure • Scalable • Intelligent
-          </Typography>
-        </Box>
       </Container>
     </Box>
   );

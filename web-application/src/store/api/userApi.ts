@@ -48,7 +48,9 @@ interface WorkspaceAssignmentArgs {
 export const userApi = createApi({
   reducerPath: 'userApi',
   baseQuery: fetchBaseQuery({
-    baseUrl: '/api/users',
+    baseUrl: process.env.NEXT_PUBLIC_API_URL 
+      ? `${process.env.NEXT_PUBLIC_API_URL}/api/user`
+      : 'http://localhost:3001/api/user',
     prepareHeaders: (headers, { getState }) => {
       const token = (getState() as RootState).auth.token;
       const workspaceSlug = (getState() as RootState).workspace.currentWorkspace?.slug;

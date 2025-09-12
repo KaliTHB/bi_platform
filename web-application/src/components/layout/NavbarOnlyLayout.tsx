@@ -45,7 +45,7 @@ const NavbarOnlyLayout: React.FC<NavbarOnlyLayoutProps> = ({
   actions
 }) => {
   const router = useRouter();
-  const { user, workspace, signOut } = useAuth();
+  const { user, workspace, logout } = useAuth();
   const [userMenuAnchor, setUserMenuAnchor] = useState<null | HTMLElement>(null);
 
   const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
@@ -57,7 +57,7 @@ const NavbarOnlyLayout: React.FC<NavbarOnlyLayoutProps> = ({
   };
 
   const handleLogout = () => {
-    signOut();
+    logout();
     handleUserMenuClose();
   };
 

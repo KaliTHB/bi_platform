@@ -6,7 +6,7 @@ import { setCurrentWorkspace, clearWorkspace } from '../store/slices/workspaceSl
 interface AuthContextType {
   // Add your auth methods here
   login: (email: string, password: string) => Promise<any>;
-  signOut: () => void;
+  logout: () => void;
   switchWorkspace: (slug: string) => Promise<any>;
   getAvailableWorkspaces: () => Promise<any>;
   getDefaultWorkspace: () => Promise<any>;
@@ -77,7 +77,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const signOut = () => {
+  const logout = () => {
     dispatch(logout());
     dispatch(clearWorkspace());
     
@@ -170,7 +170,7 @@ const switchWorkspace = async (workspaceSlug: string) => {
     workspace: currentWorkspace,
     // Auth methods
     login,
-    signOut,
+    logout,
     switchWorkspace,
     getAvailableWorkspaces,
     getDefaultWorkspace,

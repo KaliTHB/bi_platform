@@ -1,8 +1,9 @@
-// web-application/src/types/auth.types.ts
+// web-application/src/types/auth.types.ts - Updated with Username/Email Support
 
 export interface User {
   id: string;
   email: string;
+  username?: string; // Added username support
   first_name: string;
   last_name: string;
   role?: string;
@@ -28,18 +29,39 @@ export interface User {
   profile_data?: Record<string, any>;
 }
 
+// Updated LoginRequest to support both email and username
 export interface LoginRequest {
+  email?: string;
+  username?: string;
+  password: string;
+  workspace_slug?: string;
+}
+
+// Alternative explicit types for different login methods
+export interface EmailLoginRequest {
   email: string;
   password: string;
   workspace_slug?: string;
 }
 
+export interface UsernameLoginRequest {
+  username: string;
+  password: string;
+  workspace_slug?: string;
+}
+
+// Union type for login credentials
+export type LoginCredentials = EmailLoginRequest | UsernameLoginRequest;
+
 export interface LoginResponse {
+  success: boolean;
   user: User;
   token: string;
   expires_in: number;
   workspaces: Workspace[];
+  workspace?: Workspace; // Current workspace if specified
   permissions?: string[];
+  message?: string;
 }
 
 export interface Workspace {
@@ -69,8 +91,10 @@ export interface WorkspaceSettings {
   [key: string]: any;
 }
 
+// Updated RegisterRequest to include username option
 export interface RegisterRequest {
   email: string;
+  username?: string; // Optional username during registration
   password: string;
   first_name: string;
   last_name: string;
@@ -103,8 +127,10 @@ export interface VerifyTokenResponse {
   expires_in?: number;
 }
 
+// Updated to support both email and username for password reset
 export interface ForgotPasswordRequest {
-  email: string;
+  email?: string;
+  username?: string;
 }
 
 export interface ForgotPasswordResponse {
@@ -135,6 +161,8 @@ export interface ChangePasswordResponse {
 export interface UpdateProfileRequest {
   first_name?: string;
   last_name?: string;
+  username?: string; // Allow username updates
+  email?: string;
   avatar_url?: string;
   phone?: string;
   department?: string;
@@ -159,6 +187,72 @@ export interface AuthState {
   error: string | null;
   lastActivity?: number;
 }
+
+// Utility types for validation
+export interface CredentialValidation {
+  isValid: boolean;
+  type: 'email' | 'username' | 'unknown';
+  errors: string[];
+}
+
+// Helper functions for credential validation
+export const validateEmail = (email: string): boolean => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+};
+
+export const validateUsername = (username: string): boolean => {
+  // Username should be 3-50 characters, alphanumeric + underscore/hyphen
+  const usernameRegex = /^[a-zA-Z0-9_-]{3,50}$/;
+  return usernameRegex.test(username);
+};
+
+export const getCredentialType = (input: string): 'email' | 'username' | 'unknown' => {
+  if (validateEmail(input)) return 'email';
+  if (validateUsername(input)) return 'username';
+  return 'unknown';
+};
+
+export const validateLoginCredentials = (credentials: LoginRequest): CredentialValidation => {
+  const errors: string[] = [];
+  let type: 'email' | 'username' | 'unknown' = 'unknown';
+
+  // Check that either email or username is provided
+  if (!credentials.email && !credentials.username) {
+    errors.push('Either email or username is required');
+  }
+
+  // Validate email if provided
+  if (credentials.email) {
+    if (!validateEmail(credentials.email)) {
+      errors.push('Invalid email format');
+    } else {
+      type = 'email';
+    }
+  }
+
+  // Validate username if provided
+  if (credentials.username) {
+    if (!validateUsername(credentials.username)) {
+      errors.push('Username must be 3-50 characters and contain only letters, numbers, underscore, or hyphen');
+    } else {
+      type = 'username';
+    }
+  }
+
+  // Validate password
+  if (!credentials.password) {
+    errors.push('Password is required');
+  } else if (credentials.password.length < 8) {
+    errors.push('Password must be at least 8 characters long');
+  }
+
+  return {
+    isValid: errors.length === 0,
+    type,
+    errors
+  };
+};
 
 // Permission-related types
 export interface Permission {
@@ -255,6 +349,7 @@ export interface SSOUser {
 export interface JWTPayload {
   user_id: string;
   email: string;
+  username?: string; // Added username support
   workspace_id?: string;
   workspace_slug?: string;
   role?: string;
@@ -294,6 +389,7 @@ export interface AuthAuditLog {
   id: string;
   user_id?: string;
   email?: string;
+  username?: string; // Added username tracking
   action: AuthAuditAction;
   success: boolean;
   ip_address: string;
@@ -331,9 +427,12 @@ export enum AuthErrorCode {
   WORKSPACE_ACCESS_DENIED = 'WORKSPACE_ACCESS_DENIED',
   PERMISSION_DENIED = 'PERMISSION_DENIED',
   EMAIL_ALREADY_EXISTS = 'EMAIL_ALREADY_EXISTS',
+  USERNAME_ALREADY_EXISTS = 'USERNAME_ALREADY_EXISTS', // Added username conflict
   WEAK_PASSWORD = 'WEAK_PASSWORD',
   INVALID_RESET_TOKEN = 'INVALID_RESET_TOKEN',
   OAUTH_ERROR = 'OAUTH_ERROR',
   RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
   INTERNAL_ERROR = 'INTERNAL_ERROR',
+  INVALID_EMAIL_FORMAT = 'INVALID_EMAIL_FORMAT',
+  INVALID_USERNAME_FORMAT = 'INVALID_USERNAME_FORMAT',
 }

@@ -51,7 +51,7 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
   title
 }) => {
   const router = useRouter();
-  const { user, workspace, signOut } = useAuth();
+  const { user, workspace, logout } = useAuth();
   
   // State to track what content to show
   const [currentContent, setCurrentContent] = useState<ContentType>(defaultContent);
@@ -103,7 +103,7 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
   };
 
   const handleLogout = () => {
-    signOut();
+    logout();
     handleUserMenuClose();
   };
 

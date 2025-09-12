@@ -208,6 +208,40 @@ export {
   // Add other dashboard hooks as needed
 } from './api/dashboardApi';
 
+
+// ✅ Export chart API hooks (NEW)
+export {
+  // Chart CRUD hooks
+  useGetChartsQuery,
+  useGetChartQuery,
+  useCreateChartMutation,
+  useUpdateChartMutation,
+  useDeleteChartMutation,
+  useDuplicateChartMutation,
+  
+  // Chart data hooks
+  useGetChartDataQuery,
+  useLazyGetChartDataQuery,
+  useRefreshChartMutation,
+  useApplyChartFilterMutation,
+  
+  // Chart export hooks
+  useExportChartMutation,
+  useGetChartExportStatusQuery,
+  
+  // Chart utility hooks
+  useGetChartQueryQuery,
+  useCheckChartUsageQuery,
+  useGetChartAnalyticsQuery,
+  
+  // Chart status hooks
+  useToggleChartStatusMutation,
+  
+  // Bulk operation hooks
+  useBulkUpdateChartsMutation,
+  useBulkDeleteChartsMutation,
+} from './api/chartApi';
+
 // Export category API hooks (these also come from baseApi via injectEndpoints)
 export {
   useGetCategoriesQuery,

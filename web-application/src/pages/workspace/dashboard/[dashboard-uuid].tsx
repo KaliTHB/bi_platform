@@ -1,4 +1,4 @@
-// web-application/src/pages/workspace/dashboard/[id].tsx
+// web-application/src/pages/workspace/dashboard/[dashboard-uuid].tsx
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { NextPage } from 'next';
@@ -50,9 +50,18 @@ import {
   Download as DownloadIcon
 } from '@mui/icons-material';
 
-// Import API utilities and hooks
-import { apiUtils } from '../../../utils/apiUtils';
-import { dashboardAPI } from '@/store/api/dashboardApi';
+// Import RTK Query hooks instead of dashboardAPI
+import { 
+  useGetDashboardQuery,
+  useUpdateDashboardMutation,
+  useRefreshDashboardMutation,
+  useApplyGlobalFilterMutation,
+  useExportDashboardMutation,
+  useToggleDashboardStatusMutation,
+  useShareDashboardMutation,
+  useToggleDashboardFavoriteMutation,
+} from '@/store/api/dashboardApi';
+
 import { useAuth } from '../../../hooks/useAuth';
 import { usePermissions } from '../../../hooks/usePermissions';
 import WorkspaceLayout from '../../../components/layout/WorkspaceLayout';
@@ -135,692 +144,556 @@ interface Dashboard {
       interval: number; // seconds
     };
     export_settings?: {
-      include_filters: boolean;
-      page_size: string;
-      orientation: string;
+      allowed_formats?: string[];
+      max_resolution?: number;
     };
     interaction_settings?: {
-      enable_cross_filtering: boolean;
-      enable_drill_through: boolean;
-      click_behavior: string;
-    };
-    performance_settings?: {
-      lazy_loading: boolean;
-      concurrent_chart_loads: number;
-      cache_duration: number;
+      allow_drilldown?: boolean;
+      show_tooltips?: boolean;
     };
   };
   theme_config?: {
     primary_color?: string;
     background_color?: string;
-    text_color?: string;
-    accent_color?: string;
+    font_family?: string;
   };
   created_at: string;
   updated_at: string;
-  published_at?: string;
   last_viewed_at?: string;
 }
 
-// Chart component to render individual charts
-const ChartComponent: React.FC<{ 
-  chart: Chart; 
-  onChartClick?: (chart: Chart) => void;
-  filters?: Record<string, any>;
-}> = ({ chart, onChartClick, filters }) => {
-  const [chartData, setChartData] = useState<any>(null);
-  const [chartLoading, setChartLoading] = useState(true);
-  const [chartError, setChartError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const loadChartData = async () => {
-      try {
-        setChartLoading(true);
-        setChartError(null);
-        
-        // Load chart data with filters
-        const response = await apiUtils.post(`/charts/${chart.id}/data`, {
-          filters: filters || {}
-        });
-        
-        if (response.success) {
-          setChartData(response.data);
-        }
-      } catch (error) {
-        console.error(`Error loading chart ${chart.id}:`, error);
-        setChartError(error instanceof Error ? error.message : 'Failed to load chart');
-      } finally {
-        setChartLoading(false);
-      }
-    };
-
-    loadChartData();
-  }, [chart.id, filters]);
-
-  return (
-    <Card 
-      sx={{ 
-        height: '100%',
-        cursor: onChartClick ? 'pointer' : 'default',
-        '&:hover': onChartClick ? {
-          boxShadow: 3,
-          transform: 'translateY(-2px)',
-          transition: 'all 0.2s ease-in-out'
-        } : {}
-      }}
-      onClick={() => onChartClick?.(chart)}
-    >
-      <CardContent sx={{ height: '100%', position: 'relative' }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-          <Typography variant="h6" component="h3" noWrap>
-            {chart.display_name}
-          </Typography>
-          <IconButton size="small">
-            <MoreIcon fontSize="small" />
-          </IconButton>
-        </Box>
-        
-        {chart.description && (
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            {chart.description}
-          </Typography>
-        )}
-
-        <Box sx={{ 
-          height: 'calc(100% - 80px)', 
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}>
-          {chartLoading && (
-            <CircularProgress />
-          )}
-          
-          {chartError && (
-            <Alert severity="error" sx={{ width: '100%' }}>
-              {chartError}
-            </Alert>
-          )}
-          
-          {chartData && !chartLoading && (
-            <Box sx={{ width: '100%', height: '100%' }}>
-              <Typography variant="body2" color="text.secondary" align="center">
-                📊 Chart: {chart.chart_type}
-              </Typography>
-              <Typography variant="caption" display="block" align="center">
-                {JSON.stringify(chartData).length} bytes of data
-              </Typography>
-              {/* Here you would render the actual chart based on chart.chart_type */}
-              {/* For now showing placeholder */}
-            </Box>
-          )}
-        </Box>
-
-        <Chip 
-          label={chart.chart_type}
-          size="small"
-          variant="outlined"
-          sx={{ position: 'absolute', top: 8, right: 8 }}
-        />
-      </CardContent>
-    </Card>
-  );
-};
-
-const DashboardViewPage: NextPage = () => {
+const DashboardPage: NextPage = () => {
   const router = useRouter();
-  const { id: dashboardId } = router.query as { id: string };
-  const { user, workspace } = useAuth();
+  const { 'dashboard-uuid': dashboardId } = router.query;
+  const { user, workspace, logout } = useAuth();
   const { hasPermission } = usePermissions();
 
-  // State
-  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState(0);
-  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState<NodeJS.Timeout | null>(null);
+  // Local state
+  const [activeTab, setActiveTab] = useState<number>(0);
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [globalFilters, setGlobalFilters] = useState<Record<string, any>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Load dashboard data
-  const loadDashboard = useCallback(async () => {
-    if (!dashboardId) return;
+  // RTK Query hooks
+  const { 
+    data: dashboardResponse, 
+    isLoading, 
+    error,
+    refetch: refetchDashboard
+  } = useGetDashboardQuery(dashboardId as string, {
+    skip: !dashboardId,
+  });
 
-    try {
-      setLoading(true);
-      setError(null);
+  const [updateDashboard] = useUpdateDashboardMutation();
+  const [refreshDashboard] = useRefreshDashboardMutation();
+  const [applyGlobalFilter] = useApplyGlobalFilterMutation();
+  const [exportDashboard] = useExportDashboardMutation();
+  const [toggleStatus] = useToggleDashboardStatusMutation();
+  const [shareDashboard] = useShareDashboardMutation();
+  const [toggleFavorite] = useToggleDashboardFavoriteMutation();
 
-      console.log(`🔍 Loading dashboard: ${dashboardId}`);
-      
-      // Use the new API utils - automatically includes workspace ID and auth token
-      const response = await dashboardAPI.getById(dashboardId);
-      
-      if (response.success && response.data) {
-        console.log('✅ Dashboard loaded successfully:', response.data);
-        setDashboard(response.data);
-        
-        // Initialize global filters with default values
-        const initialFilters: Record<string, any> = {};
-        response.data.global_filters?.forEach(filter => {
-          if (filter.default_value !== undefined) {
-            initialFilters[filter.id] = filter.default_value;
-          }
-        });
-        setGlobalFilters(initialFilters);
-        
-        // Set up auto-refresh if enabled
-        if (response.data.config_json?.auto_refresh?.enabled) {
-          const interval = response.data.config_json.auto_refresh.interval * 1000; // Convert to ms
-          const refreshInterval = setInterval(() => {
-            console.log('🔄 Auto-refreshing dashboard...');
-            refreshDashboard();
-          }, interval);
-          setAutoRefreshInterval(refreshInterval);
-        }
-      } else {
-        setError('Dashboard not found');
-      }
-    } catch (error) {
-      console.error('❌ Error loading dashboard:', error);
-      
-      if (error instanceof AuthenticationError) {
-        setError('Please log in to access this dashboard');
-      } else if (error instanceof WorkspaceError) {
-        setError('Please select a workspace to access this dashboard');
-      } else if (error instanceof ApiError) {
-        if (error.status === 403) {
-          setError('You don\'t have permission to access this dashboard');
-        } else if (error.status === 404) {
-          setError('Dashboard not found');
-        } else {
-          setError(`Failed to load dashboard: ${error.message}`);
-        }
-      } else {
-        setError('An unexpected error occurred while loading the dashboard');
-      }
-    } finally {
-      setLoading(false);
+  const dashboard = dashboardResponse?.dashboard;
+
+  // Handle navigation back to workspace
+  const handleBack = useCallback(() => {
+    if (workspace?.slug) {
+      router.push(`/workspace/${workspace.slug}`);
+    } else {
+      router.back();
     }
-  }, [dashboardId]);
-
-  // Refresh dashboard data
-  const refreshDashboard = useCallback(async () => {
-    if (!dashboardId) return;
-
-    try {
-      setRefreshing(true);
-      console.log('🔄 Refreshing dashboard...');
-      
-      const response = await dashboardAPI.getById(dashboardId);
-      if (response.success && response.data) {
-        setDashboard(response.data);
-        console.log('✅ Dashboard refreshed');
-      }
-    } catch (error) {
-      console.error('❌ Error refreshing dashboard:', error);
-      // Don't show error for refresh failures, just log them
-    } finally {
-      setRefreshing(false);
-    }
-  }, [dashboardId]);
-
-  // Load dashboard on mount and when ID changes
-  useEffect(() => {
-    loadDashboard();
-    
-    // Cleanup auto-refresh on unmount
-    return () => {
-      if (autoRefreshInterval) {
-        clearInterval(autoRefreshInterval);
-      }
-    };
-  }, [loadDashboard]);
+  }, [router, workspace]);
 
   // Handle tab change
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+  const handleTabChange = useCallback((event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue);
-  };
-
-  // Handle global filter change
-  const handleFilterChange = (filterId: string, value: any) => {
-    setGlobalFilters(prev => ({
-      ...prev,
-      [filterId]: value
-    }));
-  };
+  }, []);
 
   // Handle menu actions
-  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
-    setMenuAnchor(event.currentTarget);
-  };
+  const handleMenuOpen = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    setMenuAnchorEl(event.currentTarget);
+  }, []);
 
-  const handleMenuClose = () => {
-    setMenuAnchor(null);
-  };
+  const handleMenuClose = useCallback(() => {
+    setMenuAnchorEl(null);
+  }, []);
 
-  const handleEditDashboard = () => {
-    router.push(`/workspace/dashboard-builder?id=${dashboardId}`);
+  // Handle dashboard refresh
+  const handleRefresh = useCallback(async () => {
+    try {
+      if (dashboardId) {
+        await refreshDashboard(dashboardId as string).unwrap();
+        refetchDashboard();
+      }
+    } catch (error) {
+      console.error('Failed to refresh dashboard:', error);
+    }
+  }, [dashboardId, refreshDashboard, refetchDashboard]);
+
+  // Handle global filter application
+  const handleGlobalFilterChange = useCallback(async (filterId: string, filterValue: any) => {
+    try {
+      if (dashboardId) {
+        await applyGlobalFilter({
+          id: dashboardId as string,
+          filterId,
+          filterValue
+        }).unwrap();
+        
+        setGlobalFilters(prev => ({
+          ...prev,
+          [filterId]: filterValue
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to apply global filter:', error);
+    }
+  }, [dashboardId, applyGlobalFilter]);
+
+  // Handle dashboard export
+  const handleExport = useCallback(async (format: 'pdf' | 'png' | 'xlsx') => {
+    try {
+      if (dashboardId) {
+        await exportDashboard({
+          id: dashboardId as string,
+          options: {
+            format,
+            include_filters: true,
+            page_size: 'A4',
+            orientation: 'landscape'
+          }
+        }).unwrap();
+      }
+    } catch (error) {
+      console.error('Failed to export dashboard:', error);
+    }
     handleMenuClose();
-  };
+  }, [dashboardId, exportDashboard]);
 
-  const handleShareDashboard = () => {
-    // Implement share functionality
-    console.log('Share dashboard:', dashboardId);
+  // Handle edit navigation
+  const handleEdit = useCallback(() => {
+    if (workspace?.slug && dashboardId) {
+      router.push(`/workspace/${workspace.slug}/dashboard-builder/${dashboardId}`);
+    }
     handleMenuClose();
-  };
+  }, [router, workspace, dashboardId]);
 
-  const handleExportDashboard = () => {
-    // Implement export functionality
-    console.log('Export dashboard:', dashboardId);
+  // Handle share
+  const handleShare = useCallback(async () => {
+    try {
+      if (dashboardId) {
+        await shareDashboard({
+          id: dashboardId as string,
+          shareData: {
+            share_type: 'public',
+            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+          }
+        }).unwrap();
+      }
+    } catch (error) {
+      console.error('Failed to share dashboard:', error);
+    }
     handleMenuClose();
-  };
+  }, [dashboardId, shareDashboard]);
 
-  const handleChartClick = (chart: Chart) => {
-    // Handle chart interaction
-    console.log('Chart clicked:', chart.id);
-  };
+  // Handle favorite toggle
+  const handleToggleFavorite = useCallback(async () => {
+    try {
+      if (dashboardId && dashboard) {
+        await toggleFavorite({
+          id: dashboardId as string,
+          is_featured: !dashboard.is_featured
+        }).unwrap();
+      }
+    } catch (error) {
+      console.error('Failed to toggle favorite:', error);
+    }
+  }, [dashboardId, dashboard, toggleFavorite]);
 
-  // Render loading state
-  if (loading) {
+  // Handle fullscreen toggle
+  const handleToggleFullscreen = useCallback(() => {
+    setIsFullscreen(prev => !prev);
+  }, []);
+
+  // Show loading state
+  if (isLoading) {
     return (
       <WorkspaceLayout>
-        <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
-          <Box sx={{ mb: 3 }}>
-            <Skeleton variant="text" width={300} height={40} />
-            <Skeleton variant="text" width={200} height={24} />
+        <Container maxWidth="xl">
+          <Box sx={{ py: 3 }}>
+            <Skeleton variant="rectangular" width="100%" height={60} sx={{ mb: 2 }} />
+            <Skeleton variant="rectangular" width="100%" height={400} />
           </Box>
-          <Grid container spacing={3}>
-            {Array.from({ length: 6 }).map((_, index) => (
-              <Grid item xs={12} sm={6} md={4} key={index}>
-                <Skeleton variant="rectangular" height={300} />
-              </Grid>
-            ))}
-          </Grid>
         </Container>
       </WorkspaceLayout>
     );
   }
 
-  // Render error state
-  if (error) {
+  // Show error state
+  if (error || !dashboard) {
     return (
       <WorkspaceLayout>
-        <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
-          <Alert 
-            severity="error" 
-            action={
-              <Button color="inherit" size="small" onClick={loadDashboard}>
-                Retry
-              </Button>
-            }
-          >
-            {error}
-          </Alert>
-          
-          <Box sx={{ mt: 3, display: 'flex', gap: 2 }}>
-            <Button
-              variant="contained"
-              startIcon={<BackIcon />}
-              onClick={() => router.push('/workspace/dashboards')}
+        <Container maxWidth="xl">
+          <Box sx={{ py: 3 }}>
+            <Alert 
+              severity="error" 
+              action={
+                <Button color="inherit" size="small" onClick={handleBack}>
+                  Go Back
+                </Button>
+              }
             >
-              Back to Dashboards
-            </Button>
-            
-            <Button
-              variant="outlined"
-              startIcon={<RefreshIcon />}
-              onClick={loadDashboard}
-            >
-              Try Again
-            </Button>
+              {error ? 'Failed to load dashboard' : 'Dashboard not found'}
+            </Alert>
           </Box>
-        </Container>
-      </WorkspaceLayout>
-    );
-  }
-
-  if (!dashboard) {
-    return (
-      <WorkspaceLayout>
-        <Container maxWidth="xl" sx={{ mt: 4 }}>
-          <Alert severity="warning">
-            Dashboard not found
-          </Alert>
         </Container>
       </WorkspaceLayout>
     );
   }
 
   const currentTab = dashboard.tabs?.[activeTab];
-  const visibleTabs = dashboard.tabs?.filter(tab => tab.is_visible) || [];
 
   return (
     <WorkspaceLayout>
-      <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
-        {/* Header */}
-        <Box sx={{ mb: 3 }}>
-          {/* Breadcrumbs */}
-          <Breadcrumbs sx={{ mb: 2 }}>
-            <Link 
-              color="inherit" 
-              href="/workspace"
-              onClick={(e) => { e.preventDefault(); router.push('/workspace'); }}
-              sx={{ cursor: 'pointer' }}
-            >
-              Workspace
-            </Link>
-            <Link 
-              color="inherit" 
-              href="/workspace/dashboards"
-              onClick={(e) => { e.preventDefault(); router.push('/workspace/dashboards'); }}
-              sx={{ cursor: 'pointer' }}
-            >
-              Dashboards
-            </Link>
-            <Typography color="text.primary">
-              {dashboard.display_name}
-            </Typography>
-          </Breadcrumbs>
-
-          {/* Dashboard Header */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-            <Box sx={{ flex: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <DashboardIcon color="primary" />
-                <Typography variant="h4" component="h1">
-                  {dashboard.display_name}
-                </Typography>
-                
-                {/* Status chips */}
-                <Chip 
-                  label={dashboard.status}
-                  color={dashboard.status === 'published' ? 'success' : 'default'}
-                  size="small"
-                />
-                
-                {dashboard.is_featured && (
-                  <Chip 
-                    icon={<StarIcon />}
-                    label="Featured"
-                    color="warning"
-                    size="small"
-                  />
-                )}
-
-                {/* Visibility indicator */}
-                {dashboard.visibility === 'public' && <PublicIcon color="success" />}
-                {dashboard.visibility === 'private' && <PrivateIcon color="action" />}
-                {dashboard.visibility === 'workspace' && <WorkspaceIcon color="info" />}
-              </Box>
-
-              {dashboard.description && (
-                <Typography variant="body1" color="text.secondary" sx={{ mb: 1 }}>
-                  {dashboard.description}
-                </Typography>
-              )}
-
-              {/* Metadata */}
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <PersonIcon fontSize="small" color="action" />
-                  <Typography variant="body2">
-                    {dashboard.owner.name}
-                  </Typography>
-                </Box>
-                
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <ChartIcon fontSize="small" color="action" />
-                  <Typography variant="body2">
-                    {dashboard.chart_count} charts
-                  </Typography>
-                </Box>
-                
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <ViewIcon fontSize="small" color="action" />
-                  <Typography variant="body2">
-                    {dashboard.view_count} views
-                  </Typography>
-                </Box>
-
-                {dashboard.last_viewed_at && (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <ScheduleIcon fontSize="small" color="action" />
-                    <Typography variant="body2">
-                      Last viewed {new Date(dashboard.last_viewed_at).toLocaleDateString()}
-                    </Typography>
-                  </Box>
-                )}
-              </Box>
-
-              {/* Category and Tags */}
-              <Box sx={{ mt: 1, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-                {dashboard.category && (
-                  <Chip
-                    icon={<CategoryIcon />}
-                    label={dashboard.category.name}
-                    size="small"
-                    sx={{ bgcolor: dashboard.category.color + '20', color: dashboard.category.color }}
-                  />
-                )}
-                
-                {dashboard.tags.map((tag, index) => (
-                  <Chip
-                    key={index}
-                    label={tag}
-                    size="small"
-                    variant="outlined"
-                  />
-                ))}
-              </Box>
-            </Box>
-
-            {/* Action buttons */}
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Tooltip title="Refresh Dashboard">
-                <IconButton
-                  onClick={refreshDashboard}
-                  disabled={refreshing}
-                  color="primary"
-                >
-                  <RefreshIcon sx={{ animation: refreshing ? 'spin 1s linear infinite' : 'none' }} />
-                </IconButton>
-              </Tooltip>
-
-              <PermissionGate permissions={['dashboard.share']}>
-                <Tooltip title="Share Dashboard">
-                  <IconButton onClick={handleShareDashboard} color="primary">
-                    <ShareIcon />
-                  </IconButton>
-                </Tooltip>
-              </PermissionGate>
-
-              <PermissionGate permissions={['dashboard.update']}>
-                <Tooltip title="Edit Dashboard">
-                  <IconButton onClick={handleEditDashboard} color="primary">
-                    <EditIcon />
-                  </IconButton>
-                </Tooltip>
-              </PermissionGate>
-
-              <Tooltip title="More Actions">
-                <IconButton onClick={handleMenuOpen}>
-                  <MoreIcon />
-                </IconButton>
-              </Tooltip>
-
-              {/* Actions Menu */}
-              <Menu
-                anchorEl={menuAnchor}
-                open={Boolean(menuAnchor)}
-                onClose={handleMenuClose}
+      <Container maxWidth={isFullscreen ? false : "xl"} sx={{ 
+        py: isFullscreen ? 0 : 3,
+        px: isFullscreen ? 0 : undefined,
+        height: isFullscreen ? '100vh' : undefined,
+        overflow: isFullscreen ? 'hidden' : undefined
+      }}>
+        {!isFullscreen && (
+          <>
+            {/* Breadcrumbs */}
+            <Breadcrumbs separator="›" sx={{ mb: 2 }}>
+              <Link
+                component="button"
+                variant="body2"
+                onClick={handleBack}
+                sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
               >
-                <PermissionGate permissions={['dashboard.update']}>
-                  <MenuItem onClick={handleEditDashboard}>
-                    <EditIcon sx={{ mr: 1 }} />
-                    Edit Dashboard
-                  </MenuItem>
-                </PermissionGate>
-                
-                <MenuItem onClick={handleExportDashboard}>
-                  <DownloadIcon sx={{ mr: 1 }} />
-                  Export Dashboard
-                </MenuItem>
-                
-                <MenuItem onClick={() => setIsFullscreen(!isFullscreen)}>
-                  <FullscreenIcon sx={{ mr: 1 }} />
-                  {isFullscreen ? 'Exit' : 'Enter'} Fullscreen
-                </MenuItem>
-                
-                <Divider />
-                
-                <MenuItem onClick={handleShareDashboard}>
-                  <ShareIcon sx={{ mr: 1 }} />
-                  Share Dashboard
-                </MenuItem>
-              </Menu>
-            </Box>
-          </Box>
-        </Box>
+                <DashboardIcon fontSize="small" />
+                Dashboards
+              </Link>
+              <Typography variant="body2" color="textPrimary">
+                {dashboard.display_name}
+              </Typography>
+            </Breadcrumbs>
 
-        {/* Global Filters */}
-        {dashboard.global_filters && dashboard.global_filters.length > 0 && (
-          <Paper sx={{ p: 2, mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-              <FilterIcon color="primary" />
-              <Typography variant="h6">Filters</Typography>
-            </Box>
-            
-            <Grid container spacing={2}>
-              {dashboard.global_filters
-                .filter(filter => filter.is_visible)
-                .sort((a, b) => a.position - b.position)
-                .map((filter) => (
-                  <Grid item xs={12} sm={6} md={3} key={filter.id}>
-                    <Box>
-                      <Typography variant="body2" sx={{ mb: 1 }}>
-                        {filter.display_name}
-                        {filter.is_required && <span style={{ color: 'red' }}>*</span>}
+            {/* Header */}
+            <Paper sx={{ p: 3, mb: 3 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <IconButton onClick={handleBack} size="small">
+                    <BackIcon />
+                  </IconButton>
+                  
+                  <Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="h4" component="h1">
+                        {dashboard.display_name}
                       </Typography>
                       
-                      {/* Render filter controls based on type */}
-                      {filter.type === 'text' && (
-                        <input
-                          type="text"
-                          placeholder={`Enter ${filter.display_name.toLowerCase()}`}
-                          value={globalFilters[filter.id] || ''}
-                          onChange={(e) => handleFilterChange(filter.id, e.target.value)}
-                          style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
-                        />
+                      {dashboard.is_featured && (
+                        <StarIcon color="warning" />
                       )}
                       
-                      {/* Add other filter types as needed */}
+                      <Chip
+                        size="small"
+                        label={dashboard.status}
+                        color={
+                          dashboard.status === 'published' ? 'success' :
+                          dashboard.status === 'draft' ? 'warning' : 'default'
+                        }
+                      />
+                      
+                      <Chip
+                        size="small"
+                        icon={dashboard.is_public ? <PublicIcon /> : <PrivateIcon />}
+                        label={dashboard.is_public ? 'Public' : 'Private'}
+                        variant="outlined"
+                      />
                     </Box>
-                  </Grid>
-                ))}
-            </Grid>
-          </Paper>
-        )}
+                    
+                    {dashboard.description && (
+                      <Typography variant="body2" color="textSecondary" sx={{ mt: 0.5 }}>
+                        {dashboard.description}
+                      </Typography>
+                    )}
+                  </Box>
+                </Box>
 
-        {/* Tabs */}
-        {visibleTabs.length > 1 && (
-          <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-            <Tabs value={activeTab} onChange={handleTabChange}>
-              {visibleTabs.map((tab, index) => (
-                <Tab 
-                  key={tab.id} 
-                  label={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {tab.display_name}
-                      <Badge badgeContent={tab.charts.length} color="primary" />
-                    </Box>
-                  }
-                />
-              ))}
-            </Tabs>
-          </Box>
+                {/* Actions */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Tooltip title={dashboard.is_featured ? 'Remove from favorites' : 'Add to favorites'}>
+                    <IconButton onClick={handleToggleFavorite}>
+                      {dashboard.is_featured ? <StarIcon color="warning" /> : <StarIcon />}
+                    </IconButton>
+                  </Tooltip>
+                  
+                  <Tooltip title="Refresh dashboard">
+                    <IconButton onClick={handleRefresh}>
+                      <RefreshIcon />
+                    </IconButton>
+                  </Tooltip>
+                  
+                  <Tooltip title="Toggle fullscreen">
+                    <IconButton onClick={handleToggleFullscreen}>
+                      <FullscreenIcon />
+                    </IconButton>
+                  </Tooltip>
+
+                  <PermissionGate permissions={['dashboard:edit']}>
+                    <Button
+                      variant="contained"
+                      startIcon={<EditIcon />}
+                      onClick={handleEdit}
+                      sx={{ mr: 1 }}
+                    >
+                      Edit
+                    </Button>
+                  </PermissionGate>
+
+                  <IconButton onClick={handleMenuOpen}>
+                    <MoreIcon />
+                  </IconButton>
+
+                  <Menu
+                    anchorEl={menuAnchorEl}
+                    open={Boolean(menuAnchorEl)}
+                    onClose={handleMenuClose}
+                  >
+                    <MenuItem onClick={handleShare}>
+                      <ShareIcon sx={{ mr: 1 }} />
+                      Share
+                    </MenuItem>
+                    <MenuItem onClick={() => handleExport('pdf')}>
+                      <DownloadIcon sx={{ mr: 1 }} />
+                      Export PDF
+                    </MenuItem>
+                    <MenuItem onClick={() => handleExport('png')}>
+                      <DownloadIcon sx={{ mr: 1 }} />
+                      Export PNG
+                    </MenuItem>
+                    <MenuItem onClick={() => handleExport('xlsx')}>
+                      <DownloadIcon sx={{ mr: 1 }} />
+                      Export Excel
+                    </MenuItem>
+                  </Menu>
+                </Box>
+              </Box>
+
+              {/* Dashboard metadata */}
+              <Grid container spacing={2} sx={{ mt: 1 }}>
+                <Grid item xs={12} sm={6} md={3}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <PersonIcon fontSize="small" color="action" />
+                    <Typography variant="body2" color="textSecondary">
+                      Created by {dashboard.owner.name}
+                    </Typography>
+                  </Box>
+                </Grid>
+                
+                <Grid item xs={12} sm={6} md={3}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <ChartIcon fontSize="small" color="action" />
+                    <Typography variant="body2" color="textSecondary">
+                      {dashboard.chart_count} charts
+                    </Typography>
+                  </Box>
+                </Grid>
+                
+                <Grid item xs={12} sm={6} md={3}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <ViewIcon fontSize="small" color="action" />
+                    <Typography variant="body2" color="textSecondary">
+                      {dashboard.view_count} views
+                    </Typography>
+                  </Box>
+                </Grid>
+                
+                <Grid item xs={12} sm={6} md={3}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <ScheduleIcon fontSize="small" color="action" />
+                    <Typography variant="body2" color="textSecondary">
+                      Updated {new Date(dashboard.updated_at).toLocaleDateString()}
+                    </Typography>
+                  </Box>
+                </Grid>
+              </Grid>
+
+              {/* Category and tags */}
+              {(dashboard.category || dashboard.tags.length > 0) && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2 }}>
+                  {dashboard.category && (
+                    <Chip
+                      size="small"
+                      icon={<CategoryIcon />}
+                      label={dashboard.category.name}
+                      sx={{ 
+                        backgroundColor: dashboard.category.color,
+                        color: 'white'
+                      }}
+                    />
+                  )}
+                  
+                  {dashboard.tags.map((tag) => (
+                    <Chip
+                      key={tag}
+                      size="small"
+                      label={tag}
+                      variant="outlined"
+                    />
+                  ))}
+                </Box>
+              )}
+            </Paper>
+
+            {/* Global Filters */}
+            {dashboard.global_filters && dashboard.global_filters.length > 0 && (
+              <Paper sx={{ p: 2, mb: 3 }}>
+                <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <FilterIcon />
+                  Filters
+                </Typography>
+                
+                <Grid container spacing={2}>
+                  {dashboard.global_filters.map((filter) => (
+                    <Grid item xs={12} sm={6} md={4} key={filter.id}>
+                      {/* TODO: Implement actual filter components based on filter.type */}
+                      <Box sx={{ p: 1, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                        <Typography variant="body2" color="textSecondary">
+                          {filter.display_name} ({filter.type})
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  ))}
+                </Grid>
+              </Paper>
+            )}
+
+            {/* Dashboard Tabs */}
+            {dashboard.tabs && dashboard.tabs.length > 1 && (
+              <Paper sx={{ mb: 3 }}>
+                <Tabs
+                  value={activeTab}
+                  onChange={handleTabChange}
+                  variant="scrollable"
+                  scrollButtons="auto"
+                >
+                  {dashboard.tabs.map((tab, index) => (
+                    <Tab
+                      key={tab.id}
+                      label={
+                        <Badge badgeContent={tab.charts.length} color="primary">
+                          {tab.display_name}
+                        </Badge>
+                      }
+                    />
+                  ))}
+                </Tabs>
+              </Paper>
+            )}
+          </>
         )}
 
         {/* Dashboard Content */}
-        {currentTab && (
-          <Box>
-            {/* Tab description */}
-            {currentTab.description && (
-              <Alert severity="info" sx={{ mb: 3 }}>
-                {currentTab.description}
-              </Alert>
-            )}
-
-            {/* Charts Grid */}
-            {currentTab.charts.length > 0 ? (
-              <Grid container spacing={3}>
-                {currentTab.charts
-                  .filter(chart => chart.is_visible)
-                  .sort((a, b) => (a.y - b.y) || (a.x - b.x)) // Sort by position
-                  .map((chart) => (
+        <Paper sx={{ 
+          p: isFullscreen ? 0 : 3,
+          minHeight: isFullscreen ? '100vh' : 400,
+          position: 'relative'
+        }}>
+          {isFullscreen && (
+            <IconButton
+              onClick={handleToggleFullscreen}
+              sx={{ 
+                position: 'absolute', 
+                top: 16, 
+                right: 16, 
+                zIndex: 1000,
+                backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                '&:hover': { backgroundColor: 'rgba(255, 255, 255, 1)' }
+              }}
+            >
+              <FullscreenIcon />
+            </IconButton>
+          )}
+          
+          {currentTab ? (
+            <Box>
+              {currentTab.charts && currentTab.charts.length > 0 ? (
+                <Grid container spacing={2}>
+                  {currentTab.charts.map((chart) => (
                     <Grid 
                       item 
                       xs={12} 
-                      sm={Math.max(6, Math.min(12, chart.width))} 
-                      md={Math.max(4, Math.min(12, chart.width))}
+                      md={chart.width || 6} 
                       key={chart.id}
                     >
-                      <ChartComponent
-                        chart={chart}
-                        onChartClick={handleChartClick}
-                        filters={globalFilters}
-                      />
+                      <Card sx={{ height: chart.height || 400 }}>
+                        <CardContent>
+                          <Typography variant="h6" gutterBottom>
+                            {chart.display_name}
+                          </Typography>
+                          {chart.description && (
+                            <Typography variant="body2" color="textSecondary" gutterBottom>
+                              {chart.description}
+                            </Typography>
+                          )}
+                          
+                          {/* TODO: Render actual chart component based on chart.chart_type */}
+                          <Box sx={{ 
+                            height: '100%', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            backgroundColor: 'grey.50',
+                            borderRadius: 1,
+                            border: '2px dashed',
+                            borderColor: 'grey.300'
+                          }}>
+                            <Typography color="textSecondary">
+                              {chart.chart_type} Chart Placeholder
+                            </Typography>
+                          </Box>
+                        </CardContent>
+                      </Card>
                     </Grid>
                   ))}
-              </Grid>
-            ) : (
-              <Paper sx={{ p: 4, textAlign: 'center' }}>
-                <ChartIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-                <Typography variant="h6" color="text.secondary">
-                  No charts in this tab
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Add some charts to make this dashboard come alive!
-                </Typography>
-                
-                <PermissionGate permissions={['dashboard.update']}>
-                  <Button
-                    variant="contained"
-                    startIcon={<EditIcon />}
-                    onClick={handleEditDashboard}
-                    sx={{ mt: 2 }}
-                  >
-                    Edit Dashboard
-                  </Button>
-                </PermissionGate>
-              </Paper>
-            )}
-          </Box>
-        )}
-
-        {/* Auto-refresh indicator */}
-        {dashboard.config_json?.auto_refresh?.enabled && (
-          <Box sx={{ position: 'fixed', bottom: 16, right: 16 }}>
-            <Chip
-              icon={<ScheduleIcon />}
-              label={`Auto-refresh: ${dashboard.config_json.auto_refresh.interval}s`}
-              color="info"
-              variant="outlined"
-              sx={{ bgcolor: 'background.paper' }}
-            />
-          </Box>
-        )}
+                </Grid>
+              ) : (
+                <Box sx={{ 
+                  textAlign: 'center', 
+                  py: 8,
+                  color: 'text.secondary' 
+                }}>
+                  <ChartIcon sx={{ fontSize: 48, mb: 2 }} />
+                  <Typography variant="h6" gutterBottom>
+                    No charts in this tab
+                  </Typography>
+                  <Typography variant="body2">
+                    Add charts to see them here
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+          ) : (
+            <Box sx={{ 
+              textAlign: 'center', 
+              py: 8,
+              color: 'text.secondary' 
+            }}>
+              <DashboardIcon sx={{ fontSize: 48, mb: 2 }} />
+              <Typography variant="h6" gutterBottom>
+                No content available
+              </Typography>
+              <Typography variant="body2">
+                This dashboard doesn't have any tabs or charts yet
+              </Typography>
+            </Box>
+          )}
+        </Paper>
       </Container>
-
-      <style jsx>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
     </WorkspaceLayout>
   );
 };
 
-export default DashboardViewPage;
+export default DashboardPage;

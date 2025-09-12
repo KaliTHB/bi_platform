@@ -42,7 +42,7 @@ interface NavigationProps {
 
 const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
   const router = useRouter();
-  const { user, workspace, signOut } = useAuth();
+  const { user, workspace, logout } = useAuth();
   const { canAccess } = usePermissions();
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
 
@@ -81,7 +81,7 @@ const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
       }
     } else {
       // Redirect to login to get default workspace
-      signOut();
+      logout();
     }
     handleClose();
   };
@@ -93,7 +93,7 @@ const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
   };
 
   const handleLogout = () => {
-    signOut();
+    logout();
     handleClose();
   };
 

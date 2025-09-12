@@ -1,421 +1,270 @@
-// web-application/src/hooks/useAuth.ts
+// web-application/src/hooks/useAuth.ts - COMPLETE FIXED VERSION
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
-import { apiUtils } from '../utils/apiUtils';
-import { authAPI } from '../api/authAPI';
-import type { User, LoginRequest, LoginResponse } from '../types/auth.types';
+import { useAppDispatch, useAppSelector } from './redux';
+import { useLoginMutation, useLazyVerifyTokenQuery } from '../store/api/authApi';
+import { setCredentials, setLoading, logout, clearError, initializeAuth } from '../store/slices/authSlice';
+import { setCurrentWorkspace, clearWorkspace } from '../store/slices/workspaceSlice';
 
-// Auth state interface
-interface AuthState {
-  user: User | null;
+// Types
+interface LoginRequest {
+  email?: string;
+  username?: string;
+  password: string;
+  workspace_slug?: string;
+}
+
+interface LoginResponse {
+  success: boolean;
+  user?: any;
+  token?: string;
+  workspace?: any;
+  permissions?: string[];
+  message?: string;
+  error?: string;
+}
+
+interface UseAuthReturn {
+  // State
+  user: any | null;
   token: string | null;
-  workspaces: any[];
-  currentWorkspace: any | null;
+  workspace: any | null;
   permissions: string[];
   isAuthenticated: boolean;
   isLoading: boolean;
-  isInitialized: boolean;
   error: string | null;
-}
-
-// Auth actions interface
-interface AuthActions {
+  
+  // Actions
   login: (credentials: LoginRequest) => Promise<LoginResponse>;
   logout: () => Promise<void>;
-  register: (data: {
-    email: string;
-    password: string;
-    first_name: string;
-    last_name: string;
-    invitation_token?: string;
-  }) => Promise<any>;
-  verifyToken: () => Promise<boolean>;
   clearError: () => void;
   refreshAuth: () => Promise<void>;
-  switchWorkspace: (workspaceSlug: string) => Promise<void>;
-  forgotPassword: (email: string) => Promise<any>;
-  resetPassword: (token: string, newPassword: string) => Promise<any>;
+  
+  // Utilities
+  hasPermission: (permission: string) => boolean;
+  hasAnyPermission: (permissions: string[]) => boolean;
+  hasAllPermissions: (permissions: string[]) => boolean;
 }
 
-// Hook return type
-interface UseAuthReturn extends AuthState, AuthActions {}
-
-// Storage keys
-const STORAGE_KEYS = {
-  USER: 'auth_user',
-  WORKSPACE: 'auth_workspace',
-  WORKSPACES: 'auth_workspaces',
-  PERMISSIONS: 'auth_permissions',
-} as const;
-
-// Helper function to safely access localStorage
-const getStorageItem = (key: string): string | null => {
-  if (typeof window === 'undefined') return null;
-  try {
-    return localStorage.getItem(key);
-  } catch (error) {
-    console.warn(`Failed to get ${key} from localStorage:`, error);
-    return null;
-  }
-};
-
-const setStorageItem = (key: string, value: any): void => {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (error) {
-    console.warn(`Failed to set ${key} in localStorage:`, error);
-  }
-};
-
-const removeStorageItem = (key: string): void => {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.removeItem(key);
-  } catch (error) {
-    console.warn(`Failed to remove ${key} from localStorage:`, error);
-  }
-};
-
 export const useAuth = (): UseAuthReturn => {
+  const dispatch = useAppDispatch();
   const router = useRouter();
-  const initializationAttempted = useRef(false);
   
-  // Initial state
-  const [authState, setAuthState] = useState<AuthState>({
-    user: null,
-    token: null,
-    workspaces: [],
-    currentWorkspace: null,
-    permissions: [],
-    isAuthenticated: false,
-    isLoading: true,
-    isInitialized: false,
-    error: null,
-  });
-
-  // Update auth state helper
-  const updateAuthState = useCallback((updates: Partial<AuthState>) => {
-    setAuthState(prev => ({ ...prev, ...updates }));
-  }, []);
-
-  // Clear all auth data
-  const clearAuthData = useCallback(() => {
-    // Clear API client token
-    apiUtils.clearAuthToken();
-    
-    // Clear localStorage
-    removeStorageItem(STORAGE_KEYS.USER);
-    removeStorageItem(STORAGE_KEYS.WORKSPACE);
-    removeStorageItem(STORAGE_KEYS.WORKSPACES);
-    removeStorageItem(STORAGE_KEYS.PERMISSIONS);
-    
-    // Reset state
-    updateAuthState({
-      user: null,
-      token: null,
-      workspaces: [],
-      currentWorkspace: null,
-      permissions: [],
-      isAuthenticated: false,
-      error: null,
-    });
-  }, [updateAuthState]);
-
-  // Store auth data
-  const storeAuthData = useCallback((loginResponse: LoginResponse) => {
-    // Set API client token
-    apiUtils.setAuthToken(loginResponse.token);
-    
-    // Store in localStorage
-    setStorageItem(STORAGE_KEYS.USER, loginResponse.user);
-    setStorageItem(STORAGE_KEYS.WORKSPACES, loginResponse.workspaces);
-    setStorageItem(STORAGE_KEYS.PERMISSIONS, loginResponse.permissions || []);
-    
-    // Store current workspace if available
-    if (loginResponse.workspaces && loginResponse.workspaces.length > 0) {
-      const currentWorkspace = loginResponse.workspaces[0]; // Default to first workspace
-      setStorageItem(STORAGE_KEYS.WORKSPACE, currentWorkspace);
-      
-      updateAuthState({
-        currentWorkspace,
-      });
-    }
-    
-    // Update state
-    updateAuthState({
-      user: loginResponse.user,
-      token: loginResponse.token,
-      workspaces: loginResponse.workspaces || [],
-      permissions: loginResponse.permissions || [],
-      isAuthenticated: true,
-      error: null,
-    });
-  }, [updateAuthState]);
-
-  // Initialize auth on app start
-  const initializeAuth = useCallback(async () => {
-    if (initializationAttempted.current) return;
-    initializationAttempted.current = true;
-
-    updateAuthState({ isLoading: true });
-
-    try {
-      // Initialize API client token
-      apiUtils.initializeToken();
-      
-      const token = apiUtils.getAuthToken();
-      
-      if (!token) {
-        updateAuthState({ 
-          isLoading: false, 
-          isInitialized: true,
-          isAuthenticated: false 
-        });
-        return;
-      }
-
-      // Try to get stored user data
-      const storedUser = getStorageItem(STORAGE_KEYS.USER);
-      const storedWorkspace = getStorageItem(STORAGE_KEYS.WORKSPACE);
-      const storedWorkspaces = getStorageItem(STORAGE_KEYS.WORKSPACES);
-      const storedPermissions = getStorageItem(STORAGE_KEYS.PERMISSIONS);
-
-      if (storedUser) {
-        // Restore from localStorage
-        updateAuthState({
-          user: JSON.parse(storedUser),
-          token,
-          currentWorkspace: storedWorkspace ? JSON.parse(storedWorkspace) : null,
-          workspaces: storedWorkspaces ? JSON.parse(storedWorkspaces) : [],
-          permissions: storedPermissions ? JSON.parse(storedPermissions) : [],
-          isAuthenticated: true,
-          isLoading: false,
-          isInitialized: true,
-        });
-
-        // Verify token in background
-        verifyToken().catch(() => {
-          // Token verification failed, but don't interrupt user experience
-          console.warn('Token verification failed during initialization');
-        });
-      } else {
-        // No stored user, verify token with API
-        const isValid = await verifyToken();
-        if (!isValid) {
-          clearAuthData();
-        }
-        updateAuthState({ isLoading: false, isInitialized: true });
-      }
-    } catch (error) {
-      console.error('Auth initialization error:', error);
-      clearAuthData();
-      updateAuthState({ 
-        isLoading: false, 
-        isInitialized: true,
-        error: 'Failed to initialize authentication' 
-      });
-    }
-  }, [updateAuthState, clearAuthData]);
-
-  // Login function
-  const login = useCallback(async (credentials: LoginRequest): Promise<LoginResponse> => {
-    updateAuthState({ isLoading: true, error: null });
-    
-    try {
-      const response = await authAPI.login(credentials);
-      storeAuthData(response);
-      updateAuthState({ isLoading: false });
-      return response;
-    } catch (error: any) {
-      const errorMessage = error.message || 'Login failed';
-      updateAuthState({ 
-        isLoading: false, 
-        error: errorMessage,
-        isAuthenticated: false 
-      });
-      throw error;
-    }
-  }, [storeAuthData, updateAuthState]);
-
-  // Logout function
-  const logout = useCallback(async (): Promise<void> => {
-    updateAuthState({ isLoading: true });
-    
-    try {
-      await authAPI.logout();
-    } catch (error) {
-      console.warn('Logout API call failed:', error);
-    } finally {
-      clearAuthData();
-      updateAuthState({ isLoading: false, isInitialized: true });
-      
-      // Redirect to login page
-      if (typeof window !== 'undefined') {
-        router.push('/login');
-      }
-    }
-  }, [clearAuthData, updateAuthState, router]);
-
-  // Register function
-  const register = useCallback(async (data: {
-    email: string;
-    password: string;
-    first_name: string;
-    last_name: string;
-    invitation_token?: string;
-  }) => {
-    updateAuthState({ isLoading: true, error: null });
-    
-    try {
-      const response = await authAPI.register(data);
-      updateAuthState({ isLoading: false });
-      return response;
-    } catch (error: any) {
-      const errorMessage = error.message || 'Registration failed';
-      updateAuthState({ 
-        isLoading: false, 
-        error: errorMessage 
-      });
-      throw error;
-    }
-  }, [updateAuthState]);
-
-  // Verify token function
-  const verifyToken = useCallback(async (): Promise<boolean> => {
-    try {
-      const result = await authAPI.verifyToken();
-      
-      if (result.valid && result.user) {
-        updateAuthState({
-          user: result.user,
-          isAuthenticated: true,
-          error: null,
-        });
-        return true;
-      } else {
-        clearAuthData();
-        return false;
-      }
-    } catch (error) {
-      console.error('Token verification error:', error);
-      clearAuthData();
-      return false;
-    }
-  }, [updateAuthState, clearAuthData]);
-
-  // Refresh auth data
-  const refreshAuth = useCallback(async (): Promise<void> => {
-    await verifyToken();
-  }, [verifyToken]);
-
-  // Switch workspace function
-  const switchWorkspace = useCallback(async (workspaceSlug: string): Promise<void> => {
-    updateAuthState({ isLoading: true, error: null });
-    
-    try {
-      // Find workspace in current workspaces
-      const workspace = authState.workspaces.find(w => w.slug === workspaceSlug);
-      
-      if (!workspace) {
-        throw new Error('Workspace not found');
-      }
-
-      // Update current workspace
-      setStorageItem(STORAGE_KEYS.WORKSPACE, workspace);
-      updateAuthState({ 
-        currentWorkspace: workspace,
-        isLoading: false 
-      });
-
-      // You might want to call an API endpoint to switch workspace context
-      // const response = await authAPI.switchWorkspace(workspaceSlug);
-      
-    } catch (error: any) {
-      const errorMessage = error.message || 'Failed to switch workspace';
-      updateAuthState({ 
-        isLoading: false, 
-        error: errorMessage 
-      });
-      throw error;
-    }
-  }, [authState.workspaces, updateAuthState]);
-
-  // Forgot password function
-  const forgotPassword = useCallback(async (email: string) => {
-    updateAuthState({ isLoading: true, error: null });
-    
-    try {
-      const response = await authAPI.forgotPassword(email);
-      updateAuthState({ isLoading: false });
-      return response;
-    } catch (error: any) {
-      const errorMessage = error.message || 'Password reset request failed';
-      updateAuthState({ 
-        isLoading: false, 
-        error: errorMessage 
-      });
-      throw error;
-    }
-  }, [updateAuthState]);
-
-  // Reset password function
-  const resetPassword = useCallback(async (token: string, newPassword: string) => {
-    updateAuthState({ isLoading: true, error: null });
-    
-    try {
-      const response = await authAPI.resetPassword(token, newPassword);
-      updateAuthState({ isLoading: false });
-      return response;
-    } catch (error: any) {
-      const errorMessage = error.message || 'Password reset failed';
-      updateAuthState({ 
-        isLoading: false, 
-        error: errorMessage 
-      });
-      throw error;
-    }
-  }, [updateAuthState]);
-
-  // Clear error function
-  const clearError = useCallback(() => {
-    updateAuthState({ error: null });
-  }, [updateAuthState]);
+  // Redux state selectors
+  const auth = useAppSelector((state) => state.auth);
+  const workspace = useAppSelector((state) => state.workspace.currentWorkspace);
+  
+  // RTK Query hooks
+  const [loginMutation, { isLoading: loginLoading }] = useLoginMutation();
+  const [verifyToken, { isLoading: verifyLoading }] = useLazyVerifyTokenQuery();
+  
+  // Local state
+  const [isInitialized, setIsInitialized] = useState(false);
+  const initializationAttempted = useRef(false);
 
   // Initialize auth on mount
   useEffect(() => {
-    initializeAuth();
-  }, [initializeAuth]);
+    if (!initializationAttempted.current) {
+      initializationAttempted.current = true;
+      console.log('🚀 useAuth: Initializing authentication');
+      dispatch(initializeAuth());
+      setIsInitialized(true);
+    }
+  }, [dispatch]);
 
-  // Auto-logout on token expiration (optional)
-  useEffect(() => {
-    if (!authState.isAuthenticated || !authState.token) return;
+  // Login function
+  const login = useCallback(async (credentials: LoginRequest): Promise<LoginResponse> => {
+    try {
+      console.log('🔄 useAuth: Starting login process');
+      dispatch(setLoading(true));
+      dispatch(clearError());
 
-    // Check token every 5 minutes
-    const interval = setInterval(async () => {
-      const isValid = await verifyToken();
-      if (!isValid) {
-        clearInterval(interval);
-        logout();
+      const result = await loginMutation(credentials);
+      
+      console.log('🐛 useAuth: Login mutation result:', result);
+      
+      if (result.data && result.data.success) {
+        const { user, token, workspace, permissions } = result.data;
+        
+        console.log('✅ useAuth: Login successful', {
+          hasUser: !!user,
+          hasToken: !!token,
+          hasWorkspace: !!workspace,
+          permissionCount: permissions?.length || 0
+        });
+
+        // Store in localStorage
+        if (token) {
+          localStorage.setItem('token', token);
+          console.log('💾 useAuth: Token stored in localStorage');
+        }
+        
+        if (user) {
+          localStorage.setItem('user', JSON.stringify(user));
+          console.log('💾 useAuth: User data stored in localStorage');
+        }
+        
+        if (workspace) {
+          localStorage.setItem('workspace', JSON.stringify(workspace));
+          console.log('💾 useAuth: Workspace data stored in localStorage');
+        }
+
+        // Update Redux state
+        dispatch(setCredentials({ user, token, permissions }));
+        
+        if (workspace) {
+          dispatch(setCurrentWorkspace(workspace));
+        }
+
+        console.log('✅ useAuth: All data stored, login complete');
+        
+        return {
+          success: true,
+          user,
+          token,
+          workspace,
+          permissions,
+          message: result.data.message || 'Login successful'
+        };
+        
+      } else if (result.error) {
+        console.error('❌ useAuth: Login failed with error:', result.error);
+        
+        const errorData = result.error as any;
+        const errorMessage = errorData?.data?.message || errorData?.message || 'Login failed';
+        
+        dispatch(setLoading(false));
+        
+        return {
+          success: false,
+          error: errorMessage,
+          message: errorMessage
+        };
+      } else {
+        console.error('❌ useAuth: Login failed - unexpected response:', result);
+        dispatch(setLoading(false));
+        
+        return {
+          success: false,
+          error: 'Unexpected login response',
+          message: 'Login failed due to unexpected response'
+        };
       }
-    }, 5 * 60 * 1000); // 5 minutes
+    } catch (error: any) {
+      console.error('❌ useAuth: Login exception:', error);
+      dispatch(setLoading(false));
+      
+      return {
+        success: false,
+        error: error.message || 'Login failed',
+        message: error.message || 'An unexpected error occurred during login'
+      };
+    }
+  }, [dispatch, loginMutation]);
 
-    return () => clearInterval(interval);
-  }, [authState.isAuthenticated, authState.token, verifyToken, logout]);
+  // Logout function
+  const logoutUser = useCallback(async (): Promise<void> => {
+    try {
+      console.log('🚪 useAuth: Starting logout process');
+      
+      // Clear Redux state and localStorage
+      dispatch(logout());
+      dispatch(clearWorkspace());
+      
+      console.log('✅ useAuth: Logout complete, redirecting to login');
+      
+      // Redirect to login
+      await router.push('/login');
+    } catch (error) {
+      console.error('❌ useAuth: Logout error:', error);
+      
+      // Force redirect even on error
+      window.location.href = '/login';
+    }
+  }, [dispatch, router]);
+
+  // Clear error function
+  const clearAuthError = useCallback(() => {
+    dispatch(clearError());
+  }, [dispatch]);
+
+  // Refresh auth function
+  const refreshAuth = useCallback(async (): Promise<void> => {
+    try {
+      console.log('🔄 useAuth: Refreshing authentication');
+      
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No token available for refresh');
+      }
+
+      const result = await verifyToken();
+      
+      if (result.data && result.data.success && result.data.valid) {
+        console.log('✅ useAuth: Token verification successful');
+        
+        const { user, workspace, permissions } = result.data;
+        
+        // Update Redux state
+        dispatch(setCredentials({ user, token, permissions }));
+        
+        if (workspace) {
+          dispatch(setCurrentWorkspace(workspace));
+        }
+        
+        console.log('✅ useAuth: Auth refresh complete');
+      } else {
+        throw new Error('Token verification failed');
+      }
+    } catch (error: any) {
+      console.error('❌ useAuth: Auth refresh failed:', error);
+      
+      // Clear invalid auth state
+      dispatch(logout());
+      dispatch(clearWorkspace());
+      
+      throw error;
+    }
+  }, [dispatch, verifyToken]);
+
+  // Permission utilities
+  const hasPermission = useCallback((permission: string): boolean => {
+    if (!auth.permissions) return false;
+    return auth.permissions.includes(permission);
+  }, [auth.permissions]);
+
+  const hasAnyPermission = useCallback((permissions: string[]): boolean => {
+    if (!auth.permissions) return false;
+    return permissions.some(permission => auth.permissions.includes(permission));
+  }, [auth.permissions]);
+
+  const hasAllPermissions = useCallback((permissions: string[]): boolean => {
+    if (!auth.permissions) return false;
+    return permissions.every(permission => auth.permissions.includes(permission));
+  }, [auth.permissions]);
+
+  // Calculate loading state
+  const isLoading = auth.isLoading || loginLoading || verifyLoading || !isInitialized;
 
   return {
     // State
-    ...authState,
+    user: auth.user,
+    token: auth.token,
+    workspace: workspace,
+    permissions: auth.permissions,
+    isAuthenticated: auth.isAuthenticated,
+    isLoading,
+    error: auth.error,
     
     // Actions
     login,
-    logout,
-    register,
-    verifyToken,
+    logout: logoutUser,
+    clearError: clearAuthError,
     refreshAuth,
-    switchWorkspace,
-    forgotPassword,
-    resetPassword,
-    clearError,
+    
+    // Utilities
+    hasPermission,
+    hasAnyPermission,
+    hasAllPermissions,
   };
 };

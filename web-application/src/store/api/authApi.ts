@@ -1,19 +1,55 @@
-// web-application/src/store/api/authApi.ts - UPDATED WITH SHARED BASE CONFIG
+// web-application/src/store/api/authApi.ts - COMPLETE UPDATED VERSION
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { RootState } from '../index';
 
-// Separate auth API with its own base query since it doesn't need workspace context
+// Define response types
+interface LoginResponse {
+  success: boolean;
+  user: any;
+  token: string;
+  workspace?: any;
+  permissions?: string[];
+  message: string;
+}
+
+interface LoginRequest {
+  email?: string;
+  username?: string;
+  password: string;
+  workspace_slug?: string;
+}
+
+interface VerifyTokenResponse {
+  success: boolean;
+  user: any;
+  workspace?: any;
+  permissions?: string[];
+  valid: boolean;
+  message?: string;
+}
+
+// Enhanced auth base query with better error handling
 const authBaseQuery = fetchBaseQuery({
-  baseUrl: process.env.NEXT_PUBLIC_API_URL ? `${process.env.NEXT_PUBLIC_API_URL}/auth` : 'http://localhost:3001/api/v1/auth',
+  baseUrl: process.env.NEXT_PUBLIC_API_URL 
+    ? `${process.env.NEXT_PUBLIC_API_URL}/api/auth` 
+    : 'http://localhost:3001/api/auth',
   prepareHeaders: (headers, { getState }) => {
     const state = getState() as RootState;
     const token = state.auth.token;
     
     if (token) {
       headers.set('authorization', `Bearer ${token}`);
+      console.log('🔑 Auth API: Token added to headers');
     }
     
     headers.set('Content-Type', 'application/json');
+    
+    // Add debug info
+    console.log('📡 Auth API: Preparing request headers', {
+      hasToken: !!token,
+      baseUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/auth'
+    });
+    
     return headers;
   },
 });
@@ -23,68 +59,112 @@ export const authApi = createApi({
   baseQuery: authBaseQuery,
   tagTypes: ['Auth', 'User'],
   endpoints: (builder) => ({
-    login: builder.mutation<
-      { 
-        success: boolean; 
-        user: any; 
-        token: string; 
-        workspace?: any; 
-        permissions?: string[]; 
-        message: string 
+    // Login endpoint with enhanced error handling
+    login: builder.mutation<LoginResponse, LoginRequest>({
+      query: (credentials) => {
+        console.log('📤 Auth API: Sending login request', { 
+          ...credentials, 
+          password: '[REDACTED]' 
+        });
+        
+        return {
+          url: '/login',
+          method: 'POST',
+          body: credentials,
+        };
       },
-      { email: string; password: string; workspace_slug?: string }
-    >({
-      query: (credentials) => ({
-        url: '/login',
-        method: 'POST',
-        body: credentials,
-      }),
+      transformResponse: (response: LoginResponse) => {
+        console.log('📥 Auth API: Login response received', {
+          success: response.success,
+          hasUser: !!response.user,
+          hasToken: !!response.token,
+          hasWorkspace: !!response.workspace,
+          permissionCount: response.permissions?.length || 0
+        });
+        
+        return response;
+      },
+      transformErrorResponse: (response: any) => {
+        console.error('❌ Auth API: Login error response', response);
+        
+        const errorData = response.data || {};
+        return {
+          status: response.status,
+          message: errorData.message || errorData.error || 'Login failed',
+          error: errorData.error || 'UNKNOWN_ERROR'
+        };
+      },
       invalidatesTags: ['Auth', 'User'],
     }),
     
-    logout: builder.mutation<
-      { success: boolean; message: string },
-      void
-    >({
-      query: () => ({
-        url: '/logout',
-        method: 'POST',
-      }),
+    // Logout endpoint
+    logout: builder.mutation<{ success: boolean; message: string }, void>({
+      query: () => {
+        console.log('📤 Auth API: Sending logout request');
+        
+        return {
+          url: '/logout',
+          method: 'POST',
+        };
+      },
+      transformResponse: (response: any) => {
+        console.log('📥 Auth API: Logout response received', response);
+        return response;
+      },
       invalidatesTags: ['Auth', 'User'],
     }),
     
-    verifyToken: builder.query<
-      { 
-        success: boolean; 
-        user: any; 
-        workspace?: any; 
-        permissions?: string[]; 
-        valid: boolean;
-        message?: string 
+    // Token verification endpoint
+    verifyToken: builder.query<VerifyTokenResponse, void>({
+      query: () => {
+        console.log('📤 Auth API: Sending token verification request');
+        
+        return {
+          url: '/verify',
+          method: 'GET',
+        };
       },
-      void
-    >({
-      query: () => ({
-        url: '/verify',
-        method: 'GET',
-      }),
+      transformResponse: (response: VerifyTokenResponse) => {
+        console.log('📥 Auth API: Token verification response', {
+          success: response.success,
+          valid: response.valid,
+          hasUser: !!response.user,
+          hasWorkspace: !!response.workspace,
+          permissionCount: response.permissions?.length || 0
+        });
+        
+        return response;
+      },
+      transformErrorResponse: (response: any) => {
+        console.error('❌ Auth API: Token verification error', response);
+        return response;
+      },
       providesTags: ['Auth'],
     }),
     
+    // Token refresh endpoint
     refreshToken: builder.mutation<
-      { 
-        success: boolean; 
-        token: string; 
-        user: any; 
-        message: string 
-      },
+      { success: boolean; token: string; user: any; message: string },
       { refresh_token: string }
     >({
-      query: ({ refresh_token }) => ({
-        url: '/refresh',
-        method: 'POST',
-        body: { refresh_token },
-      }),
+      query: ({ refresh_token }) => {
+        console.log('📤 Auth API: Sending token refresh request');
+        
+        return {
+          url: '/refresh',
+          method: 'POST',
+          body: { refresh_token },
+        };
+      },
+      transformResponse: (response: any) => {
+        console.log('📥 Auth API: Token refresh response', {
+          success: response.success,
+          hasNewToken: !!response.token,
+          hasUser: !!response.user
+        });
+        
+        return response;
+      },
       invalidatesTags: ['Auth'],
     }),
 
@@ -99,10 +179,24 @@ export const authApi = createApi({
       },
       void
     >({
-      query: () => ({
-        url: '/me',
-        method: 'GET',
-      }),
+      query: () => {
+        console.log('📤 Auth API: Sending get current user request');
+        
+        return {
+          url: '/me',
+          method: 'GET',
+        };
+      },
+      transformResponse: (response: any) => {
+        console.log('📥 Auth API: Get current user response', {
+          success: response.success,
+          hasUser: !!response.user,
+          permissionCount: response.permissions?.length || 0,
+          workspaceCount: response.workspaces?.length || 0
+        });
+        
+        return response;
+      },
       providesTags: ['User'],
     }),
 
@@ -115,11 +209,19 @@ export const authApi = createApi({
       },
       { name?: string; email?: string; avatar?: string }
     >({
-      query: (data) => ({
-        url: '/me',
-        method: 'PUT',
-        body: data,
-      }),
+      query: (data) => {
+        console.log('📤 Auth API: Sending update profile request');
+        
+        return {
+          url: '/me',
+          method: 'PUT',
+          body: data,
+        };
+      },
+      transformResponse: (response: any) => {
+        console.log('📥 Auth API: Update profile response', response);
+        return response;
+      },
       invalidatesTags: ['User'],
     }),
 
@@ -131,11 +233,22 @@ export const authApi = createApi({
       },
       { current_password: string; new_password: string }
     >({
-      query: (data) => ({
-        url: '/change-password',
-        method: 'POST',
-        body: data,
-      }),
+      query: (data) => {
+        console.log('📤 Auth API: Sending change password request');
+        
+        return {
+          url: '/change-password',
+          method: 'POST',
+          body: data,
+        };
+      },
+      transformResponse: (response: any) => {
+        console.log('📥 Auth API: Change password response', {
+          success: response.success
+        });
+        
+        return response;
+      },
     }),
 
     // Request password reset
@@ -146,11 +259,19 @@ export const authApi = createApi({
       },
       { email: string }
     >({
-      query: (data) => ({
-        url: '/forgot-password',
-        method: 'POST',
-        body: data,
-      }),
+      query: (data) => {
+        console.log('📤 Auth API: Sending password reset request');
+        
+        return {
+          url: '/forgot-password',
+          method: 'POST',
+          body: data,
+        };
+      },
+      transformResponse: (response: any) => {
+        console.log('📥 Auth API: Password reset request response', response);
+        return response;
+      },
     }),
 
     // Reset password with token
@@ -161,11 +282,19 @@ export const authApi = createApi({
       },
       { token: string; new_password: string }
     >({
-      query: (data) => ({
-        url: '/reset-password',
-        method: 'POST',
-        body: data,
-      }),
+      query: (data) => {
+        console.log('📤 Auth API: Sending password reset');
+        
+        return {
+          url: '/reset-password',
+          method: 'POST',
+          body: data,
+        };
+      },
+      transformResponse: (response: any) => {
+        console.log('📥 Auth API: Password reset response', response);
+        return response;
+      },
     }),
   }),
 });
@@ -174,8 +303,10 @@ export const {
   useLoginMutation,
   useLogoutMutation,
   useVerifyTokenQuery,
+  useLazyVerifyTokenQuery,
   useRefreshTokenMutation,
   useGetCurrentUserQuery,
+  useLazyGetCurrentUserQuery,
   useUpdateProfileMutation,
   useChangePasswordMutation,
   useRequestPasswordResetMutation,
