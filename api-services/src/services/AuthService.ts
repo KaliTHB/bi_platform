@@ -968,7 +968,7 @@ generateAuthToken(user: AuthenticatedUser, workspace?: any): string {
  * Switch user to a different workspace
  * This method is used by AuthController for workspace switching
  */
-async switchWorkspace(userId: string, workspaceSlug: string): Promise<{
+async switchWorkspace(userId: string, workspaceId: string): Promise<{
   success: boolean;
   user?: AuthenticatedUser;
   workspace?: any;
@@ -977,10 +977,10 @@ async switchWorkspace(userId: string, workspaceSlug: string): Promise<{
   error?: string;
 }> {
   try {
-    console.log('🔄 AuthService: Starting workspace switch:', { userId, workspaceSlug });
+    console.log('🔄 AuthService: Starting workspace switch:', { userId, workspaceId });
 
     // Validate inputs
-    if (!userId || !workspaceSlug) {
+    if (!userId || !workspaceId) {
       return {
         success: false,
         error: 'User ID and workspace slug are required'
@@ -1034,13 +1034,13 @@ async switchWorkspace(userId: string, workspaceSlug: string): Promise<{
       FROM workspaces w
       INNER JOIN user_role_assignments ura ON w.id = ura.workspace_id
       INNER JOIN roles r ON ura.role_id = r.id
-      WHERE w.slug = $1 AND ura.user_id = $2 
+      WHERE w.id = $1 AND ura.user_id = $2 
         AND ura.is_active = true AND w.is_active = true
         AND (ura.expires_at IS NULL OR ura.expires_at > NOW())
       LIMIT 1
     `;
 
-    const workspaceResult = await this.database.query(workspaceAccessQuery, [workspaceSlug, userId]);
+    const workspaceResult = await this.database.query(workspaceAccessQuery, [workspaceId, userId]);
 
     if (workspaceResult.rows.length === 0) {
       return {

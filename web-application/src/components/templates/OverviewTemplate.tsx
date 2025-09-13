@@ -150,14 +150,12 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
   };
 
   const handleWorkspaceSelect = async (selectedWorkspace: any) => {
-    try {
-      await switchWorkspace(selectedWorkspace.slug);
-      setShowWorkspaceSelector(false);
-      // Stats will reload automatically due to useEffect dependency on workspace.id
-    } catch (error) {
-      console.error('Failed to switch workspace:', error);
-    }
-  };
+  try {
+    await switchWorkspace(selectedWorkspace.id); // ✅ Correct
+  } catch (error) {
+    console.error('Failed to switch workspace:', error);
+  }
+};
 
   const handleNavigation = (path: string) => {
     router.push(`/workspace/${path}`);

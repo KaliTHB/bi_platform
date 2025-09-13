@@ -133,7 +133,8 @@ export class AuthController {
       console.log('🔄 AuthController: Switch workspace request received');
       const userId = req.user?.user_id;
       const userEmail = req.user?.email;
-      const { workspace_slug } = req.body;
+      const { workspace_id } = req.body;
+
 
       // Validate authentication
       if (!userId || !userEmail) {
@@ -153,7 +154,7 @@ export class AuthController {
       }
 
       // Validate workspace_slug
-      if (!workspace_slug || typeof workspace_slug !== 'string') {
+      if (!workspace_id || typeof workspace_id !== 'string') {
         console.log('⚠️ AuthController: Missing workspace slug');
         res.status(400).json({
           success: false,
@@ -166,20 +167,20 @@ export class AuthController {
       logger.info('Workspace switch attempt', {
         userId,
         userEmail,
-        workspaceSlug: workspace_slug,
+        workspaceId: workspace_id,
         ip: req.ip,
         service: 'bi-platform-api'
       });
 
       // Use AuthService to handle workspace switch
-      const result = await this.authService.switchWorkspace(userId, workspace_slug);
+      const result = await this.authService.switchWorkspace(userId, workspace_id);
 
       if (!result.success) {
         console.log('⚠️ AuthController: Workspace switch failed -', result.error);
         logger.warn('Workspace switch failed', {
           userId,
           userEmail,
-          workspaceSlug: workspace_slug,
+          workspaceId: workspace_id,
           error: result.error,
           service: 'bi-platform-api'
         });

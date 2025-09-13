@@ -1,9 +1,15 @@
-// web-application/src/components/providers/AuthProvider.tsx - UPDATED WITH WORKSPACE INIT
+// web-application/src/components/providers/AuthProvider.tsx - FIXED WITH PROPER WORKSPACE INIT
 import React, { createContext, useContext, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import { useAppDispatch, useAppSelector } from '../../hooks/redux';
-import { initializeAuth, logout, validateToken } from '../../store/slices/authSlice';
-import { initializeWorkspace, clearWorkspaces } from '../../store/slices/workspaceSlice';
+import { initializeAuth, validateToken } from '../../store/slices/authSlice';
+import { 
+  initializeWorkspace, 
+  clearWorkspaces,
+  fetchUserWorkspaces,
+  selectCurrentWorkspace,
+  selectWorkspaceInitialized 
+} from '../../store/slices/workspaceSlice';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -12,11 +18,13 @@ interface AuthContextType {
   permissions: string[];
   loading: boolean;
   isInitialized: boolean;
+  workspaceInitialized: boolean;
   hasPermission: (permission: string) => boolean;
   hasAnyPermission: (permissions: string[]) => boolean;
   hasAllPermissions: (permissions: string[]) => boolean;
   signOut: () => Promise<void>;
   refreshAuth: () => Promise<void>;
+  loadWorkspaces: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -28,152 +36,121 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const dispatch = useAppDispatch();
   const router = useRouter();
+  
+  // Auth state
   const auth = useAppSelector((state) => state.auth);
-  const workspace = useAppSelector((state) => state.workspace.currentWorkspace);
+  
+  // Workspace state
+  const workspace = useAppSelector(selectCurrentWorkspace);
+  const workspaceInitialized = useAppSelector(selectWorkspaceInitialized);
 
-  // Initialize auth and workspace state on app startup
+  // STEP 1: Initialize auth state first
   useEffect(() => {
-    console.log('🚀 AuthProvider: Initializing auth and workspace state');
+    console.log('🚀 AuthProvider: Initializing auth state');
     dispatch(initializeAuth());
-    dispatch(initializeWorkspace());
   }, [dispatch]);
 
-  // Only validate token if we have one but haven't validated it yet AND auth is initialized
+  // STEP 2: Initialize workspace ONLY after auth is initialized and authenticated
+  useEffect(() => {
+    if (auth.isInitialized && auth.isAuthenticated) {
+      console.log('🏢 AuthProvider: Auth is ready, initializing workspace');
+      dispatch(initializeWorkspace());
+    } else if (auth.isInitialized && !auth.isAuthenticated) {
+      console.log('🧹 AuthProvider: Not authenticated, clearing workspace data');
+      dispatch(clearWorkspaces());
+    }
+  }, [auth.isInitialized, auth.isAuthenticated, dispatch]);
+
+  // STEP 3: Fetch workspaces from API if no workspace is loaded but user is authenticated
+  useEffect(() => {
+    const shouldFetchWorkspaces = 
+      auth.isAuthenticated && 
+      workspaceInitialized && 
+      !workspace && 
+      !auth.isLoading;
+
+    if (shouldFetchWorkspaces) {
+      console.log('🔄 AuthProvider: No workspace found, fetching from API');
+      dispatch(fetchUserWorkspaces());
+    }
+  }, [auth.isAuthenticated, workspaceInitialized, workspace, auth.isLoading, dispatch]);
+
+  // STEP 4: Validate token if needed
   useEffect(() => {
     const token = localStorage.getItem('token');
     
-    // Only validate if:
-    // 1. We have a token
-    // 2. We're not currently authenticated
-    // 3. We're not currently loading
-    // 4. We don't have an error
-    // 5. Auth is initialized
-    if (token && !auth.isAuthenticated && !auth.isLoading && !auth.error && auth.isInitialized) {
-      console.log('🔍 AuthProvider: Found token but not authenticated, validating...');
+    const shouldValidateToken = 
+      token && 
+      auth.isInitialized && 
+      !auth.isAuthenticated && 
+      !auth.isLoading && 
+      !auth.error;
+
+    if (shouldValidateToken) {
+      console.log('🔒 AuthProvider: Validating stored token');
       dispatch(validateToken());
     }
-  }, [dispatch, auth.isAuthenticated, auth.isLoading, auth.error, auth.isInitialized]);
+  }, [auth.isInitialized, auth.isAuthenticated, auth.isLoading, auth.error, dispatch]);
 
-  // Handle authentication-based redirects - only after initialization
+  // STEP 5: Handle authentication failures and redirects
   useEffect(() => {
-    // Don't do anything until auth is initialized
-    if (!auth.isInitialized) {
-      console.log('🔄 AuthProvider: Waiting for auth initialization...');
-      return;
-    }
-
-    const publicPaths = [
-      '/login', 
-      '/register', 
-      '/forgot-password', 
-      '/reset-password',
-      '/_error',
-      '/404',
-      '/500'
-    ];
-    
-    const isPublicPath = publicPaths.some(path => 
-      router.pathname.startsWith(path)
-    );
-    
-    const isRootPath = router.pathname === '/';
-    
-    console.log('🛣️ AuthProvider: Route check', {
-      pathname: router.pathname,
-      isPublicPath,
-      isRootPath,
-      isAuthenticated: auth.isAuthenticated,
-      isLoading: auth.isLoading,
-      isInitialized: auth.isInitialized,
-      hasToken: !!localStorage.getItem('token')
-    });
-
-    // Don't redirect during loading or on public paths
-    if (auth.isLoading || isPublicPath) {
-      return;
-    }
-
-    // Handle root path redirect
-    if (isRootPath) {
-      if (auth.isAuthenticated) {
-        console.log('✅ AuthProvider: Authenticated user on root, redirecting to workspace');
-        router.replace('/workspace/overview');
-      } else {
-        console.log('❌ AuthProvider: Unauthenticated user on root, redirecting to login');
-        router.replace('/login');
+    // Only redirect if we're fully initialized and definitely not authenticated
+    if (auth.isInitialized && !auth.isAuthenticated && !auth.isLoading) {
+      const publicRoutes = ['/login', '/register', '/forgot-password', '/reset-password'];
+      const currentPath = router.asPath;
+      
+      // Don't redirect if already on a public route
+      if (!publicRoutes.some(route => currentPath.startsWith(route))) {
+        console.log('🚫 AuthProvider: Not authenticated, redirecting to login');
+        router.push('/login');
       }
-      return;
     }
+  }, [auth.isInitialized, auth.isAuthenticated, auth.isLoading, router]);
 
-    // Redirect unauthenticated users to login
-    if (!auth.isAuthenticated && !isPublicPath) {
-      console.log('🚪 AuthProvider: Redirecting unauthenticated user to login');
-      router.replace('/login');
-    }
-  }, [auth.isAuthenticated, auth.isLoading, auth.isInitialized, router]);
-
+  // Permission helper functions
   const hasPermission = (permission: string): boolean => {
-    if (!auth.permissions) {
-      console.log('⚠️ AuthProvider: No permissions available');
-      return false;
-    }
-    
-    const hasAccess = auth.permissions.includes(permission);
-    console.log(`🔐 AuthProvider: Permission check for "${permission}":`, hasAccess);
-    return hasAccess;
+    return auth.permissions?.includes(permission) || false;
   };
 
   const hasAnyPermission = (permissions: string[]): boolean => {
-    if (!auth.permissions) {
-      console.log('⚠️ AuthProvider: No permissions available for any check');
-      return false;
-    }
-    
-    const hasAccess = permissions.some(permission => auth.permissions.includes(permission));
-    console.log(`🔐 AuthProvider: Any permission check for [${permissions.join(', ')}]:`, hasAccess);
-    return hasAccess;
+    return permissions.some(permission => hasPermission(permission));
   };
 
   const hasAllPermissions = (permissions: string[]): boolean => {
-    if (!auth.permissions) {
-      console.log('⚠️ AuthProvider: No permissions available for all check');
-      return false;
-    }
-    
-    const hasAccess = permissions.every(permission => auth.permissions.includes(permission));
-    console.log(`🔐 AuthProvider: All permissions check for [${permissions.join(', ')}]:`, hasAccess);
-    return hasAccess;
+    return permissions.every(permission => hasPermission(permission));
   };
 
+  // Sign out function
   const signOut = async (): Promise<void> => {
-    try {
-      console.log('🚪 AuthProvider: Signing out user');
-      
-      // Clear Redux state and localStorage
-      dispatch(logout());
-      dispatch(clearWorkspaces());
-      
-      // Redirect to login
-      await router.replace('/login');
-      
-      console.log('✅ AuthProvider: Logout successful');
-    } catch (error) {
-      console.error('❌ AuthProvider: Logout error:', error);
-      
-      // Force redirect even if there's an error
-      window.location.href = '/login';
+    console.log('👋 AuthProvider: Signing out');
+    
+    // Clear localStorage
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('workspace');
+    localStorage.removeItem('selected_workspace_id');
+    
+    // Clear Redux state
+    dispatch(clearWorkspaces());
+    // Note: logout action should be imported and dispatched from authSlice
+    
+    // Redirect to login
+    router.push('/login');
+  };
+
+  // Refresh auth function
+  const refreshAuth = async (): Promise<void> => {
+    console.log('🔄 AuthProvider: Refreshing auth');
+    if (auth.token) {
+      dispatch(validateToken());
     }
   };
 
-  const refreshAuth = async (): Promise<void> => {
-    try {
-      console.log('🔄 AuthProvider: Refreshing authentication');
-      await dispatch(validateToken()).unwrap();
-      console.log('✅ AuthProvider: Auth refresh successful');
-    } catch (error) {
-      console.error('❌ AuthProvider: Auth refresh failed:', error);
-      // Don't automatically logout here, let the component handle it
-      throw error;
+  // Load workspaces function
+  const loadWorkspaces = async (): Promise<void> => {
+    console.log('📁 AuthProvider: Loading workspaces');
+    if (auth.isAuthenticated) {
+      dispatch(fetchUserWorkspaces());
     }
   };
 
@@ -181,15 +158,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     isAuthenticated: auth.isAuthenticated,
     user: auth.user,
     workspace: workspace,
-    permissions: auth.permissions,
+    permissions: auth.permissions || [],
     loading: auth.isLoading,
     isInitialized: auth.isInitialized,
+    workspaceInitialized: workspaceInitialized,
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,
     signOut,
     refreshAuth,
+    loadWorkspaces,
   };
+
+  // Debug logging in development
+  if (process.env.NODE_ENV === 'development') {
+    console.log('AuthProvider state:', {
+      isAuthenticated: auth.isAuthenticated,
+      authInitialized: auth.isInitialized,
+      workspaceInitialized: workspaceInitialized,
+      hasUser: !!auth.user,
+      hasWorkspace: !!workspace,
+      loading: auth.isLoading,
+    });
+  }
 
   return (
     <AuthContext.Provider value={contextValue}>
@@ -198,13 +189,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   );
 };
 
-export const useAuthContext = (): AuthContextType => {
+export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuthContext must be used within an AuthProvider');
+    throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
 };
 
-// Export both the hook and the provider for convenience
 export default AuthProvider;
