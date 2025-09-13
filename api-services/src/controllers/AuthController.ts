@@ -128,121 +128,115 @@ export class AuthController {
    * Switch user workspace
    * POST /api/auth/switch-workspace
    */
-  public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      console.log('🔄 AuthController: Switch workspace request received');
-      const userId = req.user?.user_id;
-      const userEmail = req.user?.email;
-      const { workspace_id } = req.body;
+  // api-services/src/controllers/AuthController.ts
+// Update the switchWorkspace method to use workspace_id instead of workspace_slug
 
+public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.user_id;
+    const userEmail = req.user?.email;
 
-      // Validate authentication
-      if (!userId || !userEmail) {
-        console.log('⚠️ AuthController: Missing authentication');
-        logger.warn('Workspace switch requested without proper authentication', {
-          userId: userId || 'undefined',
-          userEmail: userEmail || 'undefined',
-          service: 'bi-platform-api'
-        });
-
-        res.status(401).json({
-          success: false,
-          message: 'Authentication required to switch workspace',
-          error: 'AUTHENTICATION_REQUIRED'
-        });
-        return;
-      }
-
-      // Validate workspace_slug
-      if (!workspace_id || typeof workspace_id !== 'string') {
-        console.log('⚠️ AuthController: Missing workspace slug');
-        res.status(400).json({
-          success: false,
-          message: 'Workspace slug is required',
-          error: 'MISSING_WORKSPACE_SLUG'
-        });
-        return;
-      }
-
-      logger.info('Workspace switch attempt', {
-        userId,
-        userEmail,
-        workspaceId: workspace_id,
-        ip: req.ip,
-        service: 'bi-platform-api'
-      });
-
-      // Use AuthService to handle workspace switch
-      const result = await this.authService.switchWorkspace(userId, workspace_id);
-
-      if (!result.success) {
-        console.log('⚠️ AuthController: Workspace switch failed -', result.error);
-        logger.warn('Workspace switch failed', {
-          userId,
-          userEmail,
-          workspaceId: workspace_id,
-          error: result.error,
-          service: 'bi-platform-api'
-        });
-
-        const statusCode = result.error?.includes('not found') ? 404 : 
-                          result.error?.includes('denied') ? 403 : 400;
-
-        res.status(statusCode).json({
-          success: false,
-          message: result.error || 'Workspace switch failed',
-          error: 'WORKSPACE_SWITCH_FAILED'
-        });
-        return;
-      }
-
-      console.log('✅ AuthController: Workspace switch successful');
-      logger.info('Workspace switch successful', {
-        userId,
-        userEmail,
-        workspaceId: result.workspace?.id,
-        workspaceName: result.workspace?.name,
-        service: 'bi-platform-api'
-      });
-
-      res.status(200).json({
-        success: true,
-        message: 'Workspace switched successfully',
-        data: {
-          token: result.token,
-          workspace: result.workspace ? {
-            id: result.workspace.id,
-            name: result.workspace.name,
-            slug: result.workspace.slug,
-            display_name: result.workspace.display_name,
-            description: result.workspace.description,
-            logo_url: result.workspace.logo_url,
-            user_role: result.workspace.user_role,
-            member_count: result.workspace.member_count,
-            dashboard_count: result.workspace.dashboard_count,
-            dataset_count: result.workspace.dataset_count
-          } : undefined ,
-          permissions: result.permissions || [],
-          switched_at: new Date().toISOString()
-        }
-      });
-
-    } catch (error: any) {
-      console.error('❌ AuthController: Switch workspace error:', error);
-      logger.error('Switch workspace controller error:', {
-        error: error.message,
-        stack: error.stack,
-        userId: req.user?.user_id,
-        service: 'bi-platform-api'
-      });
-
-      res.status(500).json({
+    if (!userId || !userEmail) {
+      res.status(401).json({
         success: false,
-        message: 'Internal server error during workspace switch',
-        error: 'INTERNAL_SERVER_ERROR'
+        message: 'Authentication required',
+        error: 'AUTHENTICATION_REQUIRED'
       });
+      return;
     }
-  };
+
+    // ✅ CHANGE: Extract workspace_id instead of workspace_slug
+    const { workspace_id } = req.body;
+    
+    if (!workspace_id || typeof workspace_id !== 'string') {
+      console.log('⚠️ AuthController: Missing workspace ID');
+      res.status(400).json({
+        success: false,
+        message: 'Workspace ID is required',
+        error: 'MISSING_WORKSPACE_ID'
+      });
+      return;
+    }
+
+    logger.info('Workspace switch attempt', {
+      userId,
+      userEmail,
+      workspaceId: workspace_id, // ✅ CHANGE: Log workspace ID
+      ip: req.ip,
+      service: 'bi-platform-api'
+    });
+
+    // ✅ CHANGE: Use AuthService with workspace ID
+    const result = await this.authService.switchWorkspace(userId, workspace_id);
+
+    if (!result.success) {
+      console.log('⚠️ AuthController: Workspace switch failed -', result.error);
+      logger.warn('Workspace switch failed', {
+        userId,
+        userEmail,
+        workspaceId: workspace_id, // ✅ CHANGE: Log workspace ID
+        error: result.error,
+        service: 'bi-platform-api'
+      });
+
+      const statusCode = result.error?.includes('not found') ? 404 : 
+                        result.error?.includes('denied') ? 403 : 400;
+
+      res.status(statusCode).json({
+        success: false,
+        message: result.error || 'Workspace switch failed',
+        error: 'WORKSPACE_SWITCH_FAILED'
+      });
+      return;
+    }
+
+    console.log('✅ AuthController: Workspace switch successful');
+    logger.info('Workspace switch successful', {
+      userId,
+      userEmail,
+      workspaceId: result.workspace?.id,
+      workspaceName: result.workspace?.name,
+      service: 'bi-platform-api'
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Workspace switched successfully',
+      data: {
+        token: result.token,
+        workspace: result.workspace ? {
+          id: result.workspace.id,
+          name: result.workspace.name,
+          slug: result.workspace.slug,
+          display_name: result.workspace.display_name,
+          description: result.workspace.description,
+          logo_url: result.workspace.logo_url,
+          user_role: result.workspace.user_role,
+          member_count: result.workspace.member_count,
+          dashboard_count: result.workspace.dashboard_count,
+          dataset_count: result.workspace.dataset_count
+        } : undefined,
+        permissions: result.permissions || [],
+        switched_at: new Date().toISOString()
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ AuthController: Switch workspace error:', error);
+    logger.error('Switch workspace controller error:', {
+      error: error.message,
+      stack: error.stack,
+      userId: req.user?.user_id,
+      service: 'bi-platform-api'
+    });
+
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error during workspace switch',
+      error: 'INTERNAL_SERVER_ERROR'
+    });
+  }
+};
 
   /**
    * Logout user

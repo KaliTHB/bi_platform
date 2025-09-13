@@ -1,7 +1,9 @@
-// web-application/src/components/providers/WorkspaceProvider.tsx - IMPROVED VERSION
-import React, { createContext, useContext, ReactNode } from 'react';
-import { useSelector } from 'react-redux';
+// web-application/src/components/providers/WorkspaceProvider.tsx - ENHANCED VERSION
+import React, { createContext, useContext, ReactNode, useEffect } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../store';
+import { setCurrentWorkspace } from '../../store/slices/workspaceSlice';
+import { useRouter } from 'next/router';
 
 // Types
 interface Workspace {
@@ -28,6 +30,7 @@ interface WorkspaceContextType {
   workspaces: Workspace[];
   isLoading?: boolean;
   error?: string | null;
+  switchToFirstWorkspace: () => void;
 }
 
 // Context creation with default values
@@ -36,6 +39,7 @@ const WorkspaceContext = createContext<WorkspaceContextType>({
   workspaces: [],
   isLoading: false,
   error: null,
+  switchToFirstWorkspace: () => {},
 });
 
 // Provider Props
@@ -45,9 +49,11 @@ interface WorkspaceProviderProps {
 
 // Provider Component
 export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }) => {
+  const dispatch = useDispatch();
+  const router = useRouter();
+  
   // Get workspace state from Redux store
   const workspaceState = useSelector((state: RootState) => {
-    // Handle case where workspace slice might not exist
     if (!state.workspace) {
       console.warn('WorkspaceProvider: workspace slice not found in Redux store');
       return {
@@ -60,12 +66,103 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
     return state.workspace;
   });
 
+  // Get auth state to check if user is authenticated
+  const authState = useSelector((state: RootState) => state.auth);
+
+  // Function to switch to first available workspace
+  const switchToFirstWorkspace = React.useCallback(async () => {
+    const workspaces = workspaceState?.workspaces || [];
+    const currentWorkspace = workspaceState?.currentWorkspace;
+    
+    if (!currentWorkspace && workspaces.length > 0 && authState.isAuthenticated) {
+      console.log('🔄 Auto-selecting first workspace:', workspaces[0].name);
+      
+      try {
+        // Find the default workspace or use the first one
+        const defaultWorkspace = workspaces.find(ws => ws.is_default) || workspaces[0];
+        
+        // Update Redux state
+        dispatch(setCurrentWorkspace(defaultWorkspace));
+        
+        // Store in localStorage for persistence
+        localStorage.setItem('currentWorkspace', JSON.stringify(defaultWorkspace));
+        
+        // If we're on the overview page with no workspace selected, redirect
+        if (router.pathname === '/workspace/overview' && router.query.slug === undefined) {
+          await router.push(`/workspace/${defaultWorkspace.slug}`);
+        }
+        
+        console.log('✅ Auto-selected workspace:', defaultWorkspace.name);
+        
+      } catch (error) {
+        console.error('❌ Failed to auto-select workspace:', error);
+      }
+    }
+  }, [workspaceState, authState.isAuthenticated, dispatch, router]);
+
+  // Auto-select first workspace when:
+  // 1. User is authenticated
+  // 2. We have workspaces available  
+  // 3. No current workspace is selected
+  useEffect(() => {
+    const workspaces = workspaceState?.workspaces || [];
+    const currentWorkspace = workspaceState?.currentWorkspace;
+    
+    if (authState.isAuthenticated && 
+        workspaces.length > 0 && 
+        !currentWorkspace &&
+        !workspaceState.isLoading) {
+      
+      console.log('🔄 WorkspaceProvider: Triggering auto-select for first workspace');
+      switchToFirstWorkspace();
+    }
+  }, [
+    authState.isAuthenticated, 
+    workspaceState?.workspaces, 
+    workspaceState?.currentWorkspace,
+    workspaceState?.isLoading,
+    switchToFirstWorkspace
+  ]);
+
+  // Also try to restore workspace from localStorage on mount
+  useEffect(() => {
+    if (authState.isAuthenticated && !workspaceState?.currentWorkspace && !workspaceState?.isLoading) {
+      try {
+        const savedWorkspace = localStorage.getItem('currentWorkspace');
+        if (savedWorkspace) {
+          const workspace = JSON.parse(savedWorkspace);
+          
+          // Verify this workspace still exists in the available workspaces
+          const workspaces = workspaceState?.workspaces || [];
+          const workspaceExists = workspaces.find(ws => ws.id === workspace.id);
+          
+          if (workspaceExists) {
+            console.log('🔄 Restoring workspace from localStorage:', workspace.name);
+            dispatch(setCurrentWorkspace(workspace));
+          } else {
+            // Saved workspace no longer exists, clear it and auto-select first
+            localStorage.removeItem('currentWorkspace');
+            switchToFirstWorkspace();
+          }
+        } else if (workspaceState?.workspaces?.length > 0) {
+          // No saved workspace, auto-select first
+          switchToFirstWorkspace();
+        }
+      } catch (error) {
+        console.error('❌ Error restoring workspace from localStorage:', error);
+        localStorage.removeItem('currentWorkspace');
+        switchToFirstWorkspace();
+      }
+    }
+  }, [authState.isAuthenticated, workspaceState?.currentWorkspace, workspaceState?.workspaces, workspaceState?.isLoading, dispatch, switchToFirstWorkspace]);
+
   // Prepare context value with fallbacks
   const value: WorkspaceContextType = {
     currentWorkspace: workspaceState?.currentWorkspace || null,
     workspaces: workspaceState?.workspaces || [],
     isLoading: workspaceState?.isLoading || false,
     error: workspaceState?.error || null,
+    switchToFirstWorkspace,
   };
 
   // Debug logging in development
@@ -75,6 +172,7 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
       workspacesCount: value.workspaces?.length || 0,
       isLoading: value.isLoading,
       hasError: !!value.error,
+      isAuthenticated: authState.isAuthenticated
     });
   }
 

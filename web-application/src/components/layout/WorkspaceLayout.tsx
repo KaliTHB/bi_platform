@@ -313,3 +313,5 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
 };
 
 export default WorkspaceLayout;
+
+export {WorkspaceLayout};

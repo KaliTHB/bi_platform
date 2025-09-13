@@ -485,120 +485,6 @@ export class AuthService {
     return jwt.sign(payload, secret, { expiresIn });
   }
 
-  /**
- * Get user permissions and roles for workspace
- * This method is called by UserController
- */
-/**
- * Get user permissions and roles for workspace
- * Uses existing database function and proper joins
- */
-async getUserPermissions(userId: string, workspaceId: string): Promise<{
-  permissions: string[];
-  roles: string[];
-  is_admin: boolean;
-  role_level: number;
-}> {
-  try {
-    console.log('🔍 AuthService: Getting user permissions:', { userId, workspaceId });
-
-    // Use the existing database function to get effective permissions
-    const permissionsQuery = `
-      SELECT get_user_effective_permissions($1, $2) as user_permissions
-    `;
-    
-    const permissionsResult = await this.database.query(permissionsQuery, [userId, workspaceId]);
-    
-    // Get user roles information
-    const rolesQuery = `
-      SELECT 
-        r.id as role_id,
-        r.name as role_name,
-        r.role_level as role_level,
-        ura.is_active as assignment_active
-      FROM user_role_assignments ura
-      JOIN roles r ON ura.role_id = r.id
-      WHERE ura.user_id = $1 
-        AND ura.workspace_id = $2 
-        AND ura.is_active = true
-        AND r.is_active = true
-        AND (ura.expires_at IS NULL OR ura.expires_at > NOW())
-    `;
-
-    const rolesResult = await this.database.query(rolesQuery, [userId, workspaceId]);
-
-    // Extract permissions from the function result
-    const userPermissions = permissionsResult.rows[0]?.user_permissions || [];
-    const allPermissions = new Set<string>(Array.isArray(userPermissions) ? userPermissions : []);
-    
-    // Process roles
-    const roles: string[] = [];
-    let isAdmin = false;
-    let maxRoleLevel = 0;
-
-    rolesResult.rows.forEach(row => {
-      roles.push(row.role_name);
-      maxRoleLevel = Math.max(maxRoleLevel, row.role_level || 0);
-      
-      // Check if this is an admin role
-      if (row.role_name.toLowerCase().includes('admin') || 
-          row.role_name.toLowerCase().includes('owner')) {
-        isAdmin = true;
-      }
-    });
-
-    // If user has admin/owner role, give them all basic permissions
-    if (isAdmin) {
-      const adminPermissions = [
-        'workspace.read', 'workspace.update', 'workspace.admin',
-        'dashboard.read', 'dashboard.create', 'dashboard.update', 'dashboard.delete',
-        'dashboard.publish', 'dashboard.share',
-        'chart.read', 'chart.create', 'chart.update', 'chart.delete',
-        'dataset.read', 'dataset.create', 'dataset.update', 'dataset.delete',
-        'user.read', 'user.create', 'user.update', 'user.delete',
-        'role.read', 'role.create', 'role.update', 'role.delete'
-      ];
-      adminPermissions.forEach(perm => allPermissions.add(perm));
-    }
-
-    const permissionArray = Array.from(allPermissions);
-    
-    const permissionJson = {
-      userId,
-      workspaceId,
-      permissionCount: permissionArray.length,
-      roleCount: roles.length,
-      isAdmin,
-      roleLevel: maxRoleLevel
-    };
-    console.log('✅ AuthService: User permissions retrieved:', permissionJson);
-
-    return {
-      permissions: permissionArray,
-      roles,
-      is_admin: isAdmin,
-      role_level: maxRoleLevel
-    };
-
-  } catch (error: any) {
-    console.error('❌ AuthService: Get user permissions error:', error);
-    logger.error('AuthService getUserPermissions error:', {
-      error: error.message,
-      userId,
-      workspaceId,
-      service: 'bi-platform-api'
-    });
-
-    // Return empty permissions on error
-    return {
-      permissions: [],
-      roles: [],
-      is_admin: false,
-      role_level: 0
-    };
-  }
-}
-
 /**
  * Get user by ID - MISSING METHOD
  */
@@ -968,183 +854,194 @@ generateAuthToken(user: AuthenticatedUser, workspace?: any): string {
  * Switch user to a different workspace
  * This method is used by AuthController for workspace switching
  */
-async switchWorkspace(userId: string, workspaceId: string): Promise<{
-  success: boolean;
-  user?: AuthenticatedUser;
-  workspace?: any;
-  token?: string;
-  permissions?: string[];
-  error?: string;
-}> {
+// api-services/src/services/AuthService.ts
+// Update switchWorkspace method to use workspace ID instead of slug
+
+/**
+ * Switch user workspace by workspace ID
+ * ✅ CHANGE: Method now accepts workspaceId instead of workspaceSlug
+ */
+async switchWorkspace(userId: string, workspaceId: string): Promise<AuthResult> {
   try {
-    console.log('🔄 AuthService: Starting workspace switch:', { userId, workspaceId });
+    logger.info('Switching workspace by ID', {
+      userId,
+      workspaceId, // ✅ CHANGE: Log workspace ID
+      service: 'bi-platform-api'
+    });
 
-    // Validate inputs
-    if (!userId || !workspaceId) {
+    // ✅ CHANGE: Get workspace by ID instead of slug
+    const workspace = await this.getWorkspaceById(workspaceId, userId);
+
+    if (!workspace) {
       return {
         success: false,
-        error: 'User ID and workspace slug are required'
+        error: `Workspace with ID '${workspaceId}' not found or access denied`,
+        errorCode: 'WORKSPACE_NOT_FOUND'
       };
     }
 
-    // Test database connection first
-    const isDatabaseHealthy = await this.testDatabaseConnection();
-    if (!isDatabaseHealthy) {
+    // Verify user has access to this workspace
+    const hasAccess = await this.verifyWorkspaceAccess(userId, workspaceId);
+    if (!hasAccess) {
       return {
         success: false,
-        error: 'Database connection unavailable'
+        error: 'Access denied to workspace',
+        errorCode: 'ACCESS_DENIED'
       };
     }
 
-    // Step 1: Get user information
-    const userQuery = `
-      SELECT id, username, email, first_name, last_name, avatar_url, 
-             is_active, last_login, created_at, updated_at
-      FROM users 
-      WHERE id = $1 AND is_active = true
-    `;
-
-    const userResult = await this.database.query(userQuery, [userId]);
-
-    if (userResult.rows.length === 0) {
+    // Get user information
+    const user = await this.getUserById(userId);
+    if (!user) {
       return {
         success: false,
-        error: 'User not found or inactive'
+        error: 'User not found',
+        errorCode: 'USER_NOT_FOUND'
       };
     }
 
-    const user: AuthenticatedUser = userResult.rows[0];
+    // Generate new token with workspace context
+    const token = this.generateAuthToken(user, workspace);
 
-    // Step 2: Check if user has access to the workspace
-    const workspaceAccessQuery = `
-      SELECT 
-        w.id, w.name, w.slug, w.display_name, w.description, w.logo_url,
-        w.settings, w.is_active, w.created_at, w.updated_at,
-        r.name as role, r.role_level as role_level, r.id as role_id,
-        ura.assigned_at,
-        (SELECT COUNT(DISTINCT ura2.user_id) 
-         FROM user_role_assignments ura2 
-         WHERE ura2.workspace_id = w.id AND ura2.is_active = true) as member_count,
-        (SELECT COUNT(*) 
-         FROM dashboards d 
-         WHERE d.workspace_id = w.id AND d.is_active = true) as dashboard_count,
-        (SELECT COUNT(*) 
-         FROM datasets ds 
-         WHERE ds.workspace_id = w.id AND ds.is_active = true) as dataset_count
-      FROM workspaces w
-      INNER JOIN user_role_assignments ura ON w.id = ura.workspace_id
-      INNER JOIN roles r ON ura.role_id = r.id
-      WHERE w.id = $1 AND ura.user_id = $2 
-        AND ura.is_active = true AND w.is_active = true
-        AND (ura.expires_at IS NULL OR ura.expires_at > NOW())
-      LIMIT 1
-    `;
+    // Get user permissions in this workspace
+    const permissions = await this.getUserPermissions(userId, workspaceId);
 
-    const workspaceResult = await this.database.query(workspaceAccessQuery, [workspaceId, userId]);
-
-    if (workspaceResult.rows.length === 0) {
-      return {
-        success: false,
-        error: 'Workspace not found or access denied'
-      };
-    }
-
-    const workspaceRow = workspaceResult.rows[0];
-
-    // Step 3: Build workspace object
-    const workspace = {
-      id: workspaceRow.id,
-      name: workspaceRow.name,
-      slug: workspaceRow.slug,
-      display_name: workspaceRow.display_name || workspaceRow.name,
-      description: workspaceRow.description,
-      logo_url: workspaceRow.logo_url,
-      settings: workspaceRow.settings || {},
-      user_role: workspaceRow.role,
-      member_count: parseInt(workspaceRow.member_count) || 0,
-      dashboard_count: parseInt(workspaceRow.dashboard_count) || 0,
-      dataset_count: parseInt(workspaceRow.dataset_count) || 0,
-      assigned_at: workspaceRow.assigned_at,
-      created_at: workspaceRow.created_at,
-      updated_at: workspaceRow.updated_at,
-      is_active: workspaceRow.is_active
-    };
-
-    // Step 4: Get user permissions for this workspace
-    let permissions: string[] = [];
-    try {
-      const userPermissions = await this.getUserPermissions(userId, workspace.id);
-      permissions = userPermissions.permissions;
-    } catch (permError: any) {
-      console.warn('⚠️ Could not get permissions during workspace switch:', permError.message);
-      // Continue without permissions - they can be fetched later
-      permissions = [];
-    }
-
-    // Step 5: Generate new JWT token with workspace context
-    const workspaceInfo: WorkspaceInfo = {
-      id: workspace.id,
-      name: workspace.name,
-      slug: workspace.slug,
-      description: workspace.description,
-      is_active: workspace.is_active,
-      created_at: workspace.created_at,
-      updated_at: workspace.updated_at,
-      role: workspaceRow.role,
-      role_level: parseInt(workspaceRow.role_level) || 0,
-      role_id: workspaceRow.role_id,
-      member_count: workspace.member_count,
-      dashboard_count: workspace.dashboard_count,
-      dataset_count: workspace.dataset_count,
-      joined_at: workspaceRow.assigned_at
-    };
-
-    const token = await this.generateAuthToken(user, workspaceInfo);
-
-    // Step 6: Update user's last login time
-    await this.database.query(
-      'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
-      [userId]
-    );
-
-    console.log('✅ AuthService: Workspace switch successful:', { 
-      userId, 
-      workspaceId: workspace.id, 
+    logger.info('Workspace switch successful', {
+      userId,
+      workspaceId: workspace.id,
       workspaceName: workspace.name,
-      userRole: workspace.user_role 
+      service: 'bi-platform-api'
     });
 
     return {
       success: true,
       user,
-      workspace,
+      workspace: {
+        id: workspace.id,
+        name: workspace.name,
+        slug: workspace.slug,
+        display_name: workspace.display_name,
+        description: workspace.description,
+        logo_url: workspace.logo_url,
+        user_role: workspace.role,
+        member_count: workspace.member_count,
+        dashboard_count: workspace.dashboard_count,
+        dataset_count: workspace.dataset_count
+      },
       token,
       permissions
     };
 
   } catch (error: any) {
-    console.error('❌ AuthService: Workspace switch error:', error);
-    
-    // Handle specific database errors
-    if (error.code === 'ECONNREFUSED' || error.code === '28P01') {
+    logger.error('Error switching workspace by ID:', {
+      userId,
+      workspaceId, // ✅ CHANGE: Log workspace ID
+      error: error.message,
+      service: 'bi-platform-api'
+    });
+
+    if (error.code || error.name === 'AggregateError') {
       return {
         success: false,
-        error: 'Database connection failed. Please try again later.'
+        error: 'Database error occurred during workspace switch. Please try again later.',
+        errorCode: 'DATABASE_UNAVAILABLE'
       };
     }
 
-    if (error.code === '42P01') { // relation does not exist
-      return {
-        success: false,
-        error: 'Database schema error. Please contact support.'
-      };
-    }
-
-    // Generic error
     return {
       success: false,
-      error: 'Workspace switch failed due to internal error'
+      error: 'Workspace switch failed due to internal error. Please try again later.',
+      errorCode: 'INTERNAL_ERROR'
     };
+  }
+}
+
+/**
+ * Verify user has access to workspace by ID
+ * ✅ NEW METHOD: Verify access using workspace ID
+ */
+private async verifyWorkspaceAccess(userId: string, workspaceId: string): Promise<boolean> {
+  try {
+    const query = `
+      SELECT 1 
+      FROM user_role_assignments ura
+      INNER JOIN workspaces w ON ura.workspace_id = w.id
+      WHERE ura.user_id = $1 
+        AND w.id = $2
+        AND ura.is_active = true
+        AND w.is_active = true
+      LIMIT 1
+    `;
+    
+    const result = await this.database.query(query, [userId, workspaceId]);
+    return result.rows.length > 0;
+  } catch (error: any) {
+    logger.error('Error verifying workspace access:', {
+      userId,
+      workspaceId,
+      error: error.message
+    });
+    return false;
+  }
+}
+
+/**
+ * Get workspace by ID (if not already implemented)
+ * ✅ ENSURE THIS METHOD EXISTS
+ */
+async getWorkspaceById(workspaceId: string, userId: string): Promise<WorkspaceInfo | undefined> {
+  try {
+    const query = `
+      SELECT 
+        w.id, w.name, w.slug, w.display_name, w.description, w.logo_url,
+        w.is_active, w.created_at, w.updated_at,
+        r.name as role, r.role_level as role_level, r.id as role_id,
+        (SELECT COUNT(*) FROM user_role_assignments ura2 
+         WHERE ura2.workspace_id = w.id AND ura2.is_active = true) as member_count,
+        (SELECT COUNT(*) FROM dashboards d WHERE d.workspace_id = w.id) as dashboard_count,
+        (SELECT COUNT(*) FROM datasets ds WHERE ds.workspace_id = w.id) as dataset_count,
+        ura.created_at as joined_at
+      FROM workspaces w
+      INNER JOIN user_role_assignments ura ON w.id = ura.workspace_id
+      INNER JOIN roles r ON ura.role_id = r.id
+      WHERE w.id = $1 AND ura.user_id = $2 
+        AND ura.is_active = true AND w.is_active = true
+    `;
+
+    const result = await this.database.query(query, [workspaceId, userId]);
+    
+    if (result.rows.length === 0) {
+      return undefined;
+    }
+
+    const row = result.rows[0];
+    
+    return {
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      display_name: row.display_name,
+      description: row.description,
+      logo_url: row.logo_url,
+      is_active: row.is_active,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      role: row.role,
+      role_level: parseInt(row.role_level) || 0,
+      role_id: row.role_id,
+      member_count: parseInt(row.member_count) || 0,
+      dashboard_count: parseInt(row.dashboard_count) || 0,
+      dataset_count: parseInt(row.dataset_count) || 0,
+      joined_at: row.joined_at
+    };
+
+  } catch (error: any) {
+    logger.error('Error getting workspace by ID:', {
+      workspaceId,
+      userId,
+      error: error.message
+    });
+    throw error;
   }
 }
 
