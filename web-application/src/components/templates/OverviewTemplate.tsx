@@ -64,7 +64,7 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
   title = "Overview"
 }) => {
   const router = useRouter();
-  const { user, workspace, switchWorkspace, getAvailableWorkspaces, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, workspace, getAvailableWorkspaces, switchWorkspace, isAuthenticated, isLoading: authLoading } = useAuth();
   const { hasPermission, loading: permissionsLoading } = usePermissions();
   
   // Local state

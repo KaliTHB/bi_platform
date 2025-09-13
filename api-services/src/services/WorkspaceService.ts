@@ -594,9 +594,10 @@ export class WorkspaceService {
   }
 
   /**
-   * Get all workspaces accessible to a user
-   */
-  async getUserWorkspaces(userId: string): Promise<Workspace[]> {
+ * Get all workspaces accessible to a user
+ * Fixed version to resolve PostgreSQL DISTINCT/ORDER BY error
+ */
+async getUserWorkspaces(userId: string): Promise<Workspace[]> {
   if (!userId) {
     logger.error('getUserWorkspaces called without userId');
     throw new Error('User ID is required');
@@ -605,9 +606,9 @@ export class WorkspaceService {
   try {
     logger.info('Getting workspaces for user', { userId });
 
-    // Main query to get user workspaces with role information
+    // Fixed query - removed SELECT DISTINCT and corrected GROUP BY
     const workspaceQuery = `
-      SELECT DISTINCT 
+      SELECT 
         w.id,
         w.name,
         w.slug,
@@ -618,9 +619,17 @@ export class WorkspaceService {
         w.is_active,
         w.created_at,
         w.updated_at,
-        ura.assigned_at,
-        -- Get the role name from roles table only
-        r.name as user_role,
+        MIN(ura.assigned_at) as assigned_at,
+        -- Get the highest priority role as primary role
+        (array_agg(r.name ORDER BY 
+          CASE r.name 
+            WHEN 'owner' THEN 1
+            WHEN 'admin' THEN 2  
+            WHEN 'editor' THEN 3
+            WHEN 'viewer' THEN 4
+            WHEN 'guest' THEN 5
+            ELSE 6 
+          END))[1] as user_role,
         -- Collect all roles for this user in this workspace
         array_agg(DISTINCT r.name) as user_roles
       FROM workspaces w
@@ -631,7 +640,7 @@ export class WorkspaceService {
         AND w.is_active = true
       GROUP BY w.id, w.name, w.slug, w.display_name, w.description, 
                w.logo_url, w.settings, w.is_active, w.created_at, 
-               w.updated_at, ura.assigned_at, r.name
+               w.updated_at
       ORDER BY w.name ASC
     `;
 
@@ -645,36 +654,28 @@ export class WorkspaceService {
     // Get workspace statistics for each workspace
     const workspaceIds = workspaceResult.rows.map(row => row.id);
     const statsQuery = `
-     SELECT 
-   id as workspace_id,
-  -- Count of active members
-  (SELECT COUNT(DISTINCT ura.user_id) 
-   FROM user_role_assignments ura 
-   WHERE ura.workspace_id = w.id AND ura.is_active = true) as member_count,
-  -- Count of dashboards
-  (SELECT COUNT(*) 
-   FROM dashboards d 
-   WHERE d.workspace_id = w.id AND d.is_active = true) as dashboard_count,
-  -- Count of datasets
-  (SELECT COUNT(*) 
-   FROM datasets ds 
-   WHERE ds.workspace_id = w.id AND ds.is_active = true) as dataset_count
-FROM workspaces w
-WHERE w.id = ANY($1::uuid[])
+      SELECT 
+        id as workspace_id,
+        -- Count of active members
+        (SELECT COUNT(DISTINCT ura.user_id) 
+         FROM user_role_assignments ura 
+         WHERE ura.workspace_id = w.id AND ura.is_active = true) as member_count,
+        -- Count of dashboards
+        (SELECT COUNT(*) 
+         FROM dashboards d 
+         WHERE d.workspace_id = w.id AND d.is_active = true) as dashboard_count,
+        -- Count of datasets
+        (SELECT COUNT(*) 
+         FROM datasets ds 
+         WHERE ds.workspace_id = w.id AND ds.is_active = true) as dataset_count
+      FROM workspaces w
+      WHERE w.id = ANY($1::uuid[])
     `;
 
     const statsResult = await this.db.query(statsQuery, [workspaceIds]);
     const statsMap = new Map(statsResult.rows.map(row => [row.workspace_id, row]));
 
-    // Determine the highest role priority for each workspace
-    const roleHierarchy: Record<string, number> = {
-      'owner': 100,
-      'admin': 80,
-      'editor': 60,
-      'viewer': 40,
-      'guest': 20
-    };
-
+    // Build workspace objects
     const workspaces: Workspace[] = workspaceResult.rows.map(row => {
       const stats = statsMap.get(row.id) || { 
         member_count: 0, 
@@ -682,74 +683,59 @@ WHERE w.id = ANY($1::uuid[])
         dataset_count: 0 
       };
 
-      // Determine highest role
-      const roles = row.user_roles || [];
-      const highestRole = roles.reduce((highest, role) => {
-        const currentPriority = roleHierarchy[role] || 0;
-        const highestPriority = roleHierarchy[highest] || 0;
-        return currentPriority > highestPriority ? role : highest;
-      }, roles[0] || 'guest');
-
-      const workspace: Workspace = {
+      return {
         id: row.id,
         name: row.name,
         slug: row.slug,
-        display_name: row.display_name,
+        display_name: row.display_name || row.name,
         description: row.description,
         logo_url: row.logo_url,
         settings: row.settings || {},
         is_active: row.is_active,
-        created_at: row.created_at?.toISOString(),
-        updated_at: row.updated_at?.toISOString(),
-        joined_at: row.assigned_at?.toISOString(),
-        user_role: row.user_role,
-        user_roles: row.user_roles || [],
-        highest_role: highestRole,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        user_role: row.user_role, // Primary role (highest priority)
+        user_roles: row.user_roles || [], // All roles as array
         member_count: parseInt(stats.member_count) || 0,
         dashboard_count: parseInt(stats.dashboard_count) || 0,
-        dataset_count: parseInt(stats.dataset_count) || 0
+        dataset_count: parseInt(stats.dataset_count) || 0,
+        assigned_at: row.assigned_at
       };
-
-      return workspace;
     });
 
-    logger.info(`Successfully retrieved ${workspaces.length} workspaces for user`, { userId });
+    logger.info(`Found ${workspaces.length} workspaces for user`, { 
+      userId, 
+      workspaceCount: workspaces.length,
+      workspaceIds: workspaces.map(w => w.id)
+    });
+
     return workspaces;
 
   } catch (error: any) {
-    logger.error('Error getting user workspaces:', {
-      userId,
+    logger.error('Get user workspaces error:', {
+      service: 'bi-platform-api',
       error: error.message,
-      stack: error.stack,
-      code: error.code
+      userId
     });
-
-    // Specific error handling
-    if (error.code === '22P02') {
-      throw new Error('Invalid user ID format provided');
-    } else if (error.code === '42P01') {
-      throw new Error('Database schema error: Required tables not found');
-    }
-
-    throw new Error(`Failed to retrieve workspaces: ${error.message}`);
+    throw error;
   }
 }
 
   /**
-   * Get workspace by ID or slug
-   */
-  async getWorkspaceById(workspaceId: string, userId: string): Promise<Workspace | null> {
+ * Get a workspace by ID or slug for a specific user
+ * Fixed version to resolve PostgreSQL DISTINCT/ORDER BY error
+ */
+async getWorkspaceById(workspaceId: string, userId: string): Promise<Workspace | null> {
   if (!workspaceId || !userId) {
-    logger.error('getWorkspaceById called with missing parameters', { workspaceId, userId });
     throw new Error('Workspace ID and User ID are required');
   }
 
   try {
     logger.info('Getting workspace by ID', { workspaceId, userId });
 
-    // Query to get a specific workspace by ID or slug for a user
+    // Fixed query - removed SELECT DISTINCT and corrected GROUP BY
     const workspaceQuery = `
-      SELECT DISTINCT 
+      SELECT 
         w.id,
         w.name,
         w.slug,
@@ -760,8 +746,18 @@ WHERE w.id = ANY($1::uuid[])
         w.is_active,
         w.created_at,
         w.updated_at,
-        ura.assigned_at,
-        r.name as user_role,
+        MIN(ura.assigned_at) as assigned_at,
+        -- Get the highest priority role as primary role
+        (array_agg(r.name ORDER BY 
+          CASE r.name 
+            WHEN 'owner' THEN 1
+            WHEN 'admin' THEN 2  
+            WHEN 'editor' THEN 3
+            WHEN 'viewer' THEN 4
+            WHEN 'guest' THEN 5
+            ELSE 6 
+          END))[1] as user_role,
+        -- Collect all roles for this user in this workspace
         array_agg(DISTINCT r.name) as user_roles
       FROM workspaces w
       INNER JOIN user_role_assignments ura ON w.id = ura.workspace_id
@@ -772,7 +768,7 @@ WHERE w.id = ANY($1::uuid[])
         AND w.is_active = true
       GROUP BY w.id, w.name, w.slug, w.display_name, w.description, 
                w.logo_url, w.settings, w.is_active, w.created_at, 
-               w.updated_at, ura.assigned_at, r.name
+               w.updated_at
       LIMIT 1
     `;
 
@@ -800,47 +796,49 @@ WHERE w.id = ANY($1::uuid[])
     `;
 
     const statsResult = await this.db.query(statsQuery, [row.id]);
-    const stats = statsResult.rows[0] || { member_count: 0, dashboard_count: 0, dataset_count: 0 };
+    const stats = statsResult.rows[0] || { 
+      member_count: 0, 
+      dashboard_count: 0, 
+      dataset_count: 0 
+    };
 
+    // Build workspace object
     const workspace: Workspace = {
       id: row.id,
       name: row.name,
       slug: row.slug,
-      display_name: row.display_name,
+      display_name: row.display_name || row.name,
       description: row.description,
       logo_url: row.logo_url,
       settings: row.settings || {},
       is_active: row.is_active,
-      created_at: row.created_at?.toISOString(),
-      updated_at: row.updated_at?.toISOString(),
-      joined_at: row.assigned_at?.toISOString(),
+      created_at: row.created_at,
+      updated_at: row.updated_at,
       user_role: row.user_role,
       user_roles: row.user_roles || [],
       member_count: parseInt(stats.member_count) || 0,
       dashboard_count: parseInt(stats.dashboard_count) || 0,
-      dataset_count: parseInt(stats.dataset_count) || 0
+      dataset_count: parseInt(stats.dataset_count) || 0,
+      assigned_at: row.assigned_at
     };
 
-    logger.info('Workspace retrieved successfully', { workspaceId: workspace.id, userId });
+    logger.info('Workspace retrieved successfully', { 
+      workspaceId, 
+      userId, 
+      workspaceName: workspace.name,
+      userRole: workspace.user_role
+    });
+
     return workspace;
 
   } catch (error: any) {
-    logger.error('Error getting workspace by ID:', {
-      workspaceId,
-      userId,
+    logger.error('Get workspace by ID error:', {
+      service: 'bi-platform-api',
       error: error.message,
-      stack: error.stack,
-      code: error.code
+      workspaceId,
+      userId
     });
-
-    // Specific error handling
-    if (error.code === '22P02') {
-      throw new Error('Invalid workspace ID or user ID format provided');
-    } else if (error.code === '42P01') {
-      throw new Error('Database schema error: Required tables not found');
-    }
-
-    throw new Error(`Failed to retrieve workspace: ${error.message}`);
+    throw error;
   }
 }
 

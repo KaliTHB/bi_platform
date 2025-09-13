@@ -241,11 +241,9 @@ export default function LoginPage() {
         
         console.log('✅ All data stored successfully, redirecting...');
         
-        // Redirect with small delay
-        setTimeout(() => {
-          router.push('/workspace/overview').catch(() => {
-            window.location.href = '/workspace/overview';
-          });
+         setTimeout(() => {
+          console.log('⚡ EMERGENCY: Force redirect after delay');
+          window.location.replace('/workspace/overview');
         }, 100);
         
       } else if (result.error) {
