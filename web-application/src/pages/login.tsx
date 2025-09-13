@@ -1,4 +1,4 @@
-// web-application/src/pages/login.tsx - COMPLETE FIXED VERSION
+// web-application/src/pages/login.tsx - COMPLETE FIXED VERSION (SAME UI)
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
@@ -52,6 +52,27 @@ interface TestCredential {
   color: 'primary' | 'secondary' | 'success' | 'warning' | 'info';
 }
 
+// ✅ FIXED: Proper types matching backend response
+interface LoginMutationResult {
+  data?: {
+    success: boolean;
+    message: string;
+    data?: {
+      token: string;
+      user: any;
+      workspace?: any;
+      permissions?: string[];
+    };
+  };
+  error?: {
+    status: number;
+    data: {
+      message?: string;
+      error?: string;
+    };
+  };
+}
+
 const getTestCredentials = (): TestCredential[] => {
   const env = process.env.NODE_ENV;
   
@@ -75,7 +96,7 @@ export default function LoginPage() {
   const dispatch = useAppDispatch();
   const { isAuthenticated, isLoading: authLoading, user } = useAppSelector((state) => state.auth);
   
-  // RTK Query mutation hook
+  // RTK Query mutation hook with proper typing
   const [loginMutation, { isLoading: loginIsLoading }] = useLoginMutation();
   
   const [formData, setFormData] = useState<LoginForm>({
@@ -92,17 +113,25 @@ export default function LoginPage() {
   // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated && user && !authLoading) {
-      console.log('✅ User already authenticated, redirecting to workspace overview');
-      const timer = setTimeout(() => {
-        router.push('/workspace/overview').catch((error) => {
-          console.error('❌ Redirect from login page failed:', error);
-          window.location.href = '/workspace/overview';
-        });
-      }, 100);
-      
-      return () => clearTimeout(timer);
+      console.log('✅ Login Page: User already authenticated, redirecting...');
+      router.push('/workspace/overview').catch((error) => {
+        console.error('❌ Login Page: Redirect failed:', error);
+        window.location.href = '/workspace/overview';
+      });
     }
   }, [isAuthenticated, user, authLoading, router]);
+
+  // Clear errors when form changes
+  useEffect(() => {
+    if (loginError) {
+      setLoginError('');
+    }
+  }, [formData, loginError]);
+
+  // Helper function to determine if input looks like an email
+  const isEmailFormat = (input: string): boolean => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
+  };
 
   // Form validation
   const validateForm = (): boolean => {
@@ -124,26 +153,19 @@ export default function LoginPage() {
     return Object.keys(errors).length === 0;
   };
 
-  // Helper function to determine if input looks like an email
-  const isEmailFormat = (input: string): boolean => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
-  };
-
   const handleInputChange = (field: keyof LoginForm) => (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const value = event.target.value;
     setFormData(prev => ({ ...prev, [field]: value }));
     
+    // Clear field error
     if (formErrors[field]) {
       setFormErrors(prev => ({ ...prev, [field]: undefined }));
     }
-    
-    if (loginError) {
-      setLoginError('');
-    }
   };
 
+  // ✅ FIXED: Complete handleSubmit with proper typing and data access
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -151,11 +173,12 @@ export default function LoginPage() {
       return;
     }
 
+    setLoginError('');
+
     try {
-      console.log('🔄 Attempting login with:', formData.emailOrUsername);
-      setLoginError('');
+      console.log('🔄 Login Page: Attempting login with:', formData.emailOrUsername);
       
-      // Send the appropriate field based on format detection
+      // Prepare credentials based on input format
       const credentials = {
         password: formData.password,
         ...(isEmailFormat(formData.emailOrUsername.trim()) 
@@ -164,41 +187,51 @@ export default function LoginPage() {
         )
       };
       
-      console.log('📤 Sending credentials:', { ...credentials, password: '[REDACTED]' });
+      console.log('📤 Login Page: Sending credentials:', { 
+        ...credentials, 
+        password: '[REDACTED]' 
+      });
       
-      // 🔥 CRITICAL FIX: Use RTK Query mutation properly
-      const result = await loginMutation(credentials);
+      // ✅ FIXED: Use RTK Query mutation with proper typing
+      const result = await loginMutation(credentials) as LoginMutationResult;
       
       console.log('🐛 DEBUG - Full login mutation result:', result);
       console.log('🐛 DEBUG - Result data:', result.data);
       console.log('🐛 DEBUG - Result error:', result.error);
       
-      if (result.data && result.data.success) {
-        const { user, token, workspace, permissions } = result.data;
+      // ✅ FIXED: Handle RTK Query response structure correctly
+      if (result.data && result.data.success && result.data.data) {
+        const { user, token, workspace, permissions } = result.data.data;
         
         console.log('✅ Login successful!');
-        console.log('🔑 Token received:', result.data ? 'Present' : 'Missing');
-        console.log('👤 User data:', result.data.user);
-        console.log('🏢 Workspace:', result.data.workspace);
+        console.log('🔑 Token received:', token ? 'Present' : 'Missing');
+        console.log('👤 User data:', user);
+        console.log('🏢 Workspace:', workspace);
+        console.log('🔐 Permissions:', permissions);
         
-        // ✅ FIXED: Manually store in localStorage AND Redux
-        if (token) {
-          localStorage.setItem('token', token);
-          console.log('💾 Token stored in localStorage');
+        // Validate we have required data
+        if (!token) {
+          throw new Error('No authentication token received from server');
         }
         
-        if (user) {
-          localStorage.setItem('user', JSON.stringify(user));
-          console.log('💾 User data stored in localStorage');
+        if (!user) {
+          throw new Error('No user data received from server');
         }
+        
+        // ✅ Store in localStorage
+        localStorage.setItem('token', token);
+        console.log('💾 Token stored in localStorage:', token.substring(0, 20) + '...');
+        
+        localStorage.setItem('user', JSON.stringify(user));
+        console.log('💾 User data stored in localStorage');
         
         if (workspace) {
           localStorage.setItem('workspace', JSON.stringify(workspace));
           console.log('💾 Workspace data stored in localStorage');
         }
         
-        // ✅ FIXED: Dispatch to Redux store
-        dispatch(setCredentials({ user, token }));
+        // ✅ Update Redux store
+        dispatch(setCredentials({ user, token, permissions }));
         console.log('🔄 Redux credentials updated');
         
         if (workspace) {
@@ -208,27 +241,31 @@ export default function LoginPage() {
         
         console.log('✅ All data stored successfully, redirecting...');
         
-        // Short delay to ensure state is updated
+        // Redirect with small delay
         setTimeout(() => {
-          router.push('/workspace/overview').catch((error) => {
-            console.error('❌ Router push failed:', error);
+          router.push('/workspace/overview').catch(() => {
             window.location.href = '/workspace/overview';
           });
         }, 100);
         
       } else if (result.error) {
-        console.error('❌ Login failed with error:', result.error);
-        const errorMessage = (result.error as any)?.data?.message || 
-                           (result.error as any)?.message || 
-                           'Login failed. Please check your credentials and try again.';
+        // Handle RTK Query error
+        console.error('❌ Login Page: RTK Query error:', result.error);
+        
+        const errorMessage = result.error.data?.message || 
+                           result.error.data?.error || 
+                           'Login failed. Please check your credentials.';
         setLoginError(errorMessage);
+        
       } else {
-        console.error('❌ Login failed - unexpected response:', result);
-        setLoginError('Login failed. Please check your credentials and try again.');
+        // Handle unexpected response structure
+        console.error('❌ Login Page: Unexpected response structure:', result);
+        setLoginError('Unexpected login response. Please try again.');
       }
+      
     } catch (err: any) {
-      console.error('❌ Login exception:', err);
-      setLoginError('An unexpected error occurred. Please try again.');
+      console.error('❌ Login Page: Login exception:', err);
+      setLoginError(err.message || 'An unexpected error occurred. Please try again.');
     }
   };
 
@@ -250,7 +287,7 @@ export default function LoginPage() {
   };
 
   // Show loading screen while checking auth state
-  if (authLoading) {
+  if (authLoading && !loginIsLoading) {
     return (
       <Box 
         display="flex" 

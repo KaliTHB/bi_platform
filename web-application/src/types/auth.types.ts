@@ -174,6 +174,128 @@ export interface UpdateProfileResponse {
   message: string;
 }
 
+export interface Workspace {
+  id: string;
+  name: string;
+  slug: string;
+  display_name?: string;
+  description?: string;
+  logo_url?: string;
+  settings?: any;
+  user_role?: string;
+  role_level?: number;
+  member_count?: number;
+  dashboard_count?: number;
+  dataset_count?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface LoginRequest {
+  email?: string;
+  username?: string;
+  password: string;
+  workspace_slug?: string;
+}
+
+// ✅ FIXED: Backend response structure
+export interface LoginResponse {
+  success: boolean;
+  message: string;
+  data?: {
+    token: string;
+    user: User;
+    workspace?: Workspace;
+    permissions?: string[];
+  };
+  error?: string;
+}
+
+// Error response structure
+export interface LoginErrorResponse {
+  success: boolean;
+  message: string;
+  error: string;
+}
+
+// RTK Query mutation result
+export interface LoginMutationResult {
+  data?: LoginResponse;
+  error?: {
+    status: number;
+    data: LoginErrorResponse;
+    message?: string;
+  };
+}
+
+// Token verification response
+export interface VerifyTokenResponse {
+  success: boolean;
+  valid: boolean;
+  user?: User;
+  workspace?: Workspace;
+  permissions?: string[];
+  message?: string;
+  error?: string;
+}
+
+// Auth state interface
+export interface AuthState {
+  user: User | null;
+  token: string | null;
+  permissions: string[];
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  error: string | null;
+  lastLoginAt: string | null;
+  isInitialized: boolean;
+}
+
+// Permission-related types
+export interface UserPermissions {
+  permissions: string[];
+  roles: string[];
+  is_admin: boolean;
+  role_level: number;
+}
+
+// API Error interface
+export interface ApiError {
+  code: string;
+  message: string;
+  status?: number;
+  details?: any;
+}
+
+// JWT payload interface
+export interface JWTPayload {
+  user_id: string;
+  email: string;
+  username?: string;
+  workspace_id?: string;
+  workspace_slug?: string;
+  workspace_role?: string;
+  is_admin?: boolean;
+  role_level?: number;
+  iat?: number;
+  exp?: number;
+}
+
+// Auth context type
+export interface AuthContextType {
+  isAuthenticated: boolean;
+  user: User | null;
+  workspace: Workspace | null;
+  permissions: string[];
+  loading: boolean;
+  isInitialized: boolean;
+  hasPermission: (permission: string) => boolean;
+  hasAnyPermission: (permissions: string[]) => boolean;
+  hasAllPermissions: (permissions: string[]) => boolean;
+  signOut: () => Promise<void>;
+  refreshAuth: () => Promise<void>;
+}
+
 // Auth state for Redux/Context
 export interface AuthState {
   user: User | null;

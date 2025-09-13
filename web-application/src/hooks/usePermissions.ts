@@ -1,4 +1,4 @@
-// web-application/src/hooks/usePermissions.ts - FIXED VERSION
+// web-application/src/hooks/usePermissions.ts - FINAL FIXED VERSION
 import { useState, useEffect, useCallback } from 'react';
 import { useAppSelector } from './redux';
 
@@ -48,11 +48,12 @@ export const usePermissions = (): UsePermissionsResult => {
 
     try {
       console.log('🔐 usePermissions: Fetching permissions', {
-        userId: auth.user.id,
+        userId: auth.user.user_id || auth.user.id,
         workspaceId: workspace.id
       });
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'}/users/${auth.user.id}/permissions?workspace=${workspace.id}`, {
+      // ✅ FIXED: Use only the user route endpoint
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'}/user/permissions?workspace=${workspace.id}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${auth.token}`,
@@ -67,7 +68,7 @@ export const usePermissions = (): UsePermissionsResult => {
         } else if (response.status === 403) {
           throw new Error('Access denied - insufficient permissions');
         } else if (response.status === 404) {
-          throw new Error('Permissions endpoint not found');
+          throw new Error('Permissions endpoint not found - check backend routes');
         } else {
           throw new Error(`Failed to fetch permissions: ${response.status} ${response.statusText}`);
         }
@@ -98,7 +99,7 @@ export const usePermissions = (): UsePermissionsResult => {
       console.error('❌ usePermissions: Error fetching permissions:', err);
       setError(err.message || 'Failed to fetch permissions');
       
-      // Don't clear permissions on error - keep previous ones
+      // Don't clear permissions on error - keep previous ones if available
     } finally {
       setIsLoading(false);
     }
@@ -112,7 +113,7 @@ export const usePermissions = (): UsePermissionsResult => {
       // Add a small delay to ensure all auth state is settled
       timeoutId = setTimeout(() => {
         fetchPermissions();
-      }, 100);
+      }, 500); // Increased delay to 500ms
     } else {
       // Clear permissions if we can't fetch them
       setPermissions([]);

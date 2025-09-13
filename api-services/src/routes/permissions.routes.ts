@@ -1,8 +1,8 @@
-// api-services/src/routes/permissions.routes.ts - FIXED
+// api-services/src/routes/permissions.routes.ts - CLEANED VERSION
 import { Router, Response } from 'express';
 import { PermissionService } from '../services/PermissionService';
 import { authenticate } from '../middleware/authentication';
-import { AuthenticatedRequest } from '../types/express'; // ✅ Import the correct type
+import { AuthenticatedRequest } from '../types/express';
 import { validateWorkspaceAccess } from '../middleware/workspace';
 import { asyncHandler } from '../middleware/errorHandler';
 
@@ -10,39 +10,28 @@ const router = Router();
 
 router.use(authenticate);
 
-// ✅ FIXED: Now the route handler expects AuthenticatedRequest with REQUIRED user
-router.get('/my-permissions/:workspaceId',
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { workspaceId } = req.params;
-    
-    // ✅ No need for user check anymore - TypeScript guarantees user exists
-    // if (!req.user) {
-    //   return res.status(401).json({ success: false, message: 'Not authenticated' });
-    // }
+// ✅ REMOVED: /my-permissions/:workspaceId endpoint - use /api/user/permissions instead
 
-    const permissionService = new PermissionService(req.app.locals.db, req.app.locals.cache);
-    const permissions = await permissionService.getUserEffectivePermissions(
-      req.user.user_id, // ✅ TypeScript knows this exists
-      workspaceId
-    );
-
-    res.json({
-      success: true,
-      data: {
-        permissions,
-        user_id: req.user.user_id, // ✅ No more undefined errors
-        workspace_id: workspaceId
-      }
-    });
-  })
-);
-
-// ✅ FIXED: Use proper types for all routes
+// System permissions endpoint (for admin use)
 router.get('/system-permissions',
   validateWorkspaceAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const permissionService = new PermissionService(req.app.locals.db, req.app.locals.cache);
     const permissions = await permissionService.getSystemPermissions();
+
+    res.json({
+      success: true,
+      data: permissions
+    });
+  })
+);
+
+// Get all available permissions (for admin UI)
+router.get('/',
+  validateWorkspaceAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const permissionService = new PermissionService(req.app.locals.db, req.app.locals.cache);
+    const permissions = await permissionService.getAllPermissions();
 
     res.json({
       success: true,
