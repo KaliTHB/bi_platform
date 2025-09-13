@@ -53,7 +53,7 @@ export const usePermissions = (): UsePermissionsResult => {
       });
 
       // ✅ FIXED: Use only the user route endpoint
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'}/user/permissions?workspace=${workspace.id}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'}/api/user/permissions?workspace=${workspace.id}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${auth.token}`,

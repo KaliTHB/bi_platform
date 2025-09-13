@@ -1,16 +1,4 @@
-// web-application/src/hooks/useAuth.ts - Complete version using full Redux integration
-//
-// This version assumes you've updated your authSlice.ts with the complete version provided
-// It uses Redux for all state management instead of mixing local state
-//
-// Features:
-// - RTK Query integration for all auth operations
-// - Support for both email and username authentication
-// - Full Redux state management with persistence
-// - Automatic token refresh and verification
-// - Workspace switching capabilities
-// - Error handling and loading states
-
+// web-application/src/hooks/useAuth.ts - FIXED VERSION
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useSelector, useDispatch } from 'react-redux';
@@ -26,18 +14,24 @@ import {
   useResetPasswordMutation,
   authApi
 } from '../store/api/authApi';
+
+// FIXED: Import the correct actions from the appropriate slices
 import { 
-  login as loginAction,
+  setCredentials,  // Use setCredentials instead of 'login'
   logout as logoutAction,
   setUser,
   setError,
   clearError,
   setLoading,
-  setInitialized,
-  setWorkspaces,
-  setWorkspace,
-  setPermissions
+  initializeAuth  // Use initializeAuth instead of 'setInitialized'
 } from '../store/slices/authSlice';
+
+// FIXED: Import workspace actions from workspaceSlice
+import {
+  setAvailableWorkspaces,  // Use setAvailableWorkspaces instead of 'setWorkspaces'
+  setCurrentWorkspace      // Use setCurrentWorkspace instead of 'setWorkspace'
+} from '../store/slices/workspaceSlice';
+
 import type { RootState } from '../store';
 import type { User, LoginResponse } from '../types/auth.types';
 
@@ -139,6 +133,7 @@ export const useAuth = (): UseAuthReturn => {
   
   // Get auth state from Redux
   const authState = useSelector((state: RootState) => state.auth);
+  const workspaceState = useSelector((state: RootState) => state.workspace);
   
   // RTK Query hooks
   const [loginMutation, { isLoading: loginLoading }] = useLoginMutation();
@@ -177,26 +172,26 @@ export const useAuth = (): UseAuthReturn => {
     
     if (loginResponse.workspaces) {
       setStorageItem(STORAGE_KEYS.WORKSPACES, loginResponse.workspaces);
-      dispatch(setWorkspaces(loginResponse.workspaces));
+      dispatch(setAvailableWorkspaces(loginResponse.workspaces)); // FIXED: Use correct action
       
       // Set current workspace (from response or first available)
       const currentWorkspace = loginResponse.workspace || loginResponse.workspaces[0];
       if (currentWorkspace) {
         setStorageItem(STORAGE_KEYS.WORKSPACE, currentWorkspace);
-        dispatch(setWorkspace(currentWorkspace));
+        dispatch(setCurrentWorkspace(currentWorkspace)); // FIXED: Use correct action
       }
     }
     
     if (loginResponse.permissions) {
       setStorageItem(STORAGE_KEYS.PERMISSIONS, loginResponse.permissions);
-      dispatch(setPermissions(loginResponse.permissions));
+      // Note: If you have a permissions slice, you'd dispatch to that here
+      // For now, permissions are stored in auth state via setCredentials
     }
     
-    // Update Redux state
-    dispatch(loginAction({
+    // FIXED: Update Redux state using setCredentials instead of loginAction
+    dispatch(setCredentials({
       user: loginResponse.user,
       token: loginResponse.token,
-      workspaces: loginResponse.workspaces || [],
       permissions: loginResponse.permissions || [],
     }));
   }, [dispatch]);
@@ -214,7 +209,7 @@ export const useAuth = (): UseAuthReturn => {
   }, [dispatch]);
 
   // Initialize auth on app start
-  const initializeAuth = useCallback(async () => {
+  const initializeAuthState = useCallback(async () => {
     if (initializationAttempted.current) return;
     initializationAttempted.current = true;
 
@@ -229,116 +224,60 @@ export const useAuth = (): UseAuthReturn => {
       const token = getStorageItem('token') || getStorageItem('authToken');
 
       if (token && storedUser) {
-        // Restore from localStorage
-        dispatch(loginAction({
+        // FIXED: Restore from localStorage using setCredentials
+        dispatch(setCredentials({
           user: JSON.parse(storedUser),
           token,
-          workspaces: storedWorkspaces ? JSON.parse(storedWorkspaces) : [],
           permissions: storedPermissions ? JSON.parse(storedPermissions) : [],
         }));
 
+        if (storedWorkspaces) {
+          dispatch(setAvailableWorkspaces(JSON.parse(storedWorkspaces))); // FIXED: Use correct action
+        }
+
         if (storedWorkspace) {
-          dispatch(setWorkspace(JSON.parse(storedWorkspace)));
+          dispatch(setCurrentWorkspace(JSON.parse(storedWorkspace))); // FIXED: Use correct action
         }
 
         // Verify token in background
         setShouldVerifyToken(true);
       } else {
-        // No stored data, mark as initialized
-        dispatch(setLoading(false));
-        dispatch(setInitialized(true));
+        // No stored data, use initializeAuth action
+        dispatch(initializeAuth());
       }
     } catch (error) {
       console.error('Auth initialization error:', error);
       clearAuthData();
       dispatch(setError('Failed to initialize authentication'));
       dispatch(setLoading(false));
-      dispatch(setInitialized(true));
     }
   }, [dispatch, clearAuthData]);
 
-  // Handle verify token response
-  useEffect(() => {
-    if (verifyData && shouldVerifyToken) {
-      if (verifyData.success && verifyData.valid) {
-        // Token is valid, update user data if needed
-        if (verifyData.user) {
-          dispatch(setUser(verifyData.user));
-          setStorageItem(STORAGE_KEYS.USER, verifyData.user);
-        }
-        if (verifyData.permissions) {
-          dispatch(setPermissions(verifyData.permissions));
-          setStorageItem(STORAGE_KEYS.PERMISSIONS, verifyData.permissions);
-        }
-      } else {
-        // Token is invalid
-        clearAuthData();
-      }
-      setShouldVerifyToken(false);
-      dispatch(setLoading(false));
-      dispatch(setInitialized(true));
-    }
-  }, [verifyData, shouldVerifyToken, dispatch, clearAuthData]);
-
-  // Handle verify token error
-  useEffect(() => {
-    if (verifyError && shouldVerifyToken) {
-      console.warn('Token verification failed:', verifyError);
-      clearAuthData();
-      setShouldVerifyToken(false);
-      dispatch(setLoading(false));
-      dispatch(setInitialized(true));
-    }
-  }, [verifyError, shouldVerifyToken, clearAuthData, dispatch]);
-
-  // Login function using RTK Query
+  // Login function
   const login = useCallback(async (credentials: LoginCredentials): Promise<LoginResponse> => {
-    dispatch(clearError());
-    
-    // Validate credentials - must have either email or username
-    if (!credentials.email && !credentials.username) {
-      const error = new Error('Either email or username is required');
-      dispatch(setError(error.message));
-      throw error;
-    }
-    
-    if (!credentials.password) {
-      const error = new Error('Password is required');
-      dispatch(setError(error.message));
-      throw error;
-    }
-    
     try {
-      // Prepare login payload - convert to the format expected by the API
-      const loginPayload: any = {
+      dispatch(setLoading(true));
+      dispatch(clearError());
+
+      // Determine credential type and format request
+      const credentialType = getCredentialType(credentials.email || credentials.username || '');
+      
+      const loginData: any = {
         password: credentials.password,
         workspace_slug: credentials.workspace_slug,
       };
       
-      // Add either email or username to the payload
-      if (credentials.email) {
-        loginPayload.email = credentials.email;
-      } else if (credentials.username) {
-        loginPayload.username = credentials.username;
+      if (credentialType === 'email') {
+        loginData.email = credentials.email || credentials.username;
+      } else {
+        loginData.username = credentials.username || credentials.email;
       }
+
+      const result = await loginMutation(loginData).unwrap();
       
-      const result = await loginMutation(loginPayload).unwrap();
-      
-      if (result.success) {
-        const loginResponse: LoginResponse = {
-          success: result.success,
-          user: result.user,
-          token: result.token,
-          workspace: result.workspace,
-          permissions: result.permissions,
-          message: result.message,
-        };
-        
-        // Store token in localStorage
-        localStorage.setItem('token', result.token);
-        
-        storeAuthData(loginResponse);
-        return loginResponse;
+      if (result.success && result.data) {
+        storeAuthData(result.data);
+        return result.data;
       } else {
         throw new Error(result.message || 'Login failed');
       }
@@ -346,27 +285,24 @@ export const useAuth = (): UseAuthReturn => {
       const errorMessage = error.data?.message || error.message || 'Login failed';
       dispatch(setError(errorMessage));
       throw error;
+    } finally {
+      dispatch(setLoading(false));
     }
   }, [loginMutation, dispatch, storeAuthData]);
 
-  // Logout function using RTK Query
+  // Logout function
   const logout = useCallback(async (): Promise<void> => {
     try {
       await logoutMutation().unwrap();
     } catch (error) {
-      console.warn('Logout API call failed:', error);
+      console.error('Logout error:', error);
     } finally {
       clearAuthData();
-      localStorage.removeItem('token');
-      
-      // Redirect to login page
-      if (typeof window !== 'undefined') {
-        router.push('/login');
-      }
+      router.push('/login');
     }
   }, [logoutMutation, clearAuthData, router]);
 
-  // Register function (you'll need to add registerMutation to authApi.ts)
+  // Register function (placeholder - implement as needed)
   const register = useCallback(async (data: {
     email: string;
     password: string;
@@ -375,20 +311,7 @@ export const useAuth = (): UseAuthReturn => {
     invitation_token?: string;
   }) => {
     // TODO: Add register mutation to authApi.ts and import useRegisterMutation
-    // For now, this will throw an error indicating the mutation is missing
     throw new Error('Register mutation not implemented in authApi. Please add registerMutation to your authApi.ts file.');
-    
-    // Example implementation once you add the mutation:
-    /*
-    try {
-      const result = await registerMutation(data).unwrap();
-      return result;
-    } catch (error: any) {
-      const errorMessage = error.data?.message || error.message || 'Registration failed';
-      dispatch(setError(errorMessage));
-      throw error;
-    }
-    */
   }, [dispatch]);
 
   // Verify token function
@@ -397,7 +320,6 @@ export const useAuth = (): UseAuthReturn => {
     
     try {
       setShouldVerifyToken(true);
-      // The actual verification happens in the useEffect above
       return true;
     } catch (error) {
       console.error('Token verification error:', error);
@@ -427,29 +349,26 @@ export const useAuth = (): UseAuthReturn => {
 
   // Switch workspace function
   const switchWorkspace = useCallback(async (workspaceSlug: string): Promise<void> => {
-    const workspace = authState.workspaces.find(w => w.slug === workspaceSlug);
+    const workspace = workspaceState.availableWorkspaces.find(w => w.slug === workspaceSlug);
     if (workspace) {
-      dispatch(setWorkspace(workspace));
+      dispatch(setCurrentWorkspace(workspace)); // FIXED: Use correct action
       setStorageItem(STORAGE_KEYS.WORKSPACE, workspace);
       
-      // You might want to refetch user permissions for this workspace
+      // Refetch user permissions for this workspace
       setShouldVerifyToken(true);
     }
-  }, [authState.workspaces, dispatch]);
+  }, [workspaceState.availableWorkspaces, dispatch]);
 
-  // Forgot password function - accepts email or username
+  // Forgot password function
   const forgotPassword = useCallback(async (emailOrUsername: string) => {
     try {
-      // Determine if input is email or username
       const credentialType = getCredentialType(emailOrUsername);
       
       const payload: any = {};
       if (credentialType === 'email') {
         payload.email = emailOrUsername;
       } else {
-        // If your API supports username for password reset, add it here
-        // Otherwise, you might need to resolve username to email first
-        payload.email = emailOrUsername; // Assuming API handles both
+        payload.email = emailOrUsername; // API might handle both
       }
       
       const result = await requestPasswordResetMutation(payload).unwrap();
@@ -464,7 +383,7 @@ export const useAuth = (): UseAuthReturn => {
   // Reset password function
   const resetPassword = useCallback(async (token: string, newPassword: string) => {
     try {
-      const result = await resetPasswordMutation({ token, new_password: newPassword }).unwrap();
+      const result = await resetPasswordMutation({ token, password: newPassword }).unwrap();
       return result;
     } catch (error: any) {
       const errorMessage = error.data?.message || error.message || 'Password reset failed';
@@ -505,38 +424,58 @@ export const useAuth = (): UseAuthReturn => {
   }, [updateProfileMutation, dispatch]);
 
   // Clear error function
-  const clearAuthError = useCallback(() => {
+  const clearErrorFunc = useCallback(() => {
     dispatch(clearError());
   }, [dispatch]);
 
-  // Initialize auth on mount
+  // Handle verify token response
   useEffect(() => {
-    initializeAuth();
-  }, [initializeAuth]);
+    if (verifyData && shouldVerifyToken) {
+      if (verifyData.success && verifyData.valid) {
+        // Token is valid, update user data if needed
+        if (verifyData.user) {
+          dispatch(setUser(verifyData.user));
+          setStorageItem(STORAGE_KEYS.USER, verifyData.user);
+        }
+        // Handle permissions if your API returns them
+        // if (verifyData.permissions) {
+        //   dispatch(setPermissions(verifyData.permissions));
+        //   setStorageItem(STORAGE_KEYS.PERMISSIONS, verifyData.permissions);
+        // }
+      } else {
+        // Token is invalid
+        clearAuthData();
+      }
+      setShouldVerifyToken(false);
+      dispatch(setLoading(false));
+    }
+  }, [verifyData, shouldVerifyToken, dispatch, clearAuthData]);
 
-  // Auto-refresh token before expiration (optional)
+  // Handle verify token error
   useEffect(() => {
-    if (!authState.isAuthenticated || !authState.token) return;
+    if (verifyError && shouldVerifyToken) {
+      console.error('Token verification failed:', verifyError);
+      clearAuthData();
+      setShouldVerifyToken(false);
+      dispatch(setLoading(false));
+    }
+  }, [verifyError, shouldVerifyToken, clearAuthData, dispatch]);
 
-    const interval = setInterval(async () => {
-      await refreshAuth();
-    }, 15 * 60 * 1000); // Refresh every 15 minutes
+  // Initialize on mount
+  useEffect(() => {
+    initializeAuthState();
+  }, [initializeAuthState]);
 
-    return () => clearInterval(interval);
-  }, [authState.isAuthenticated, authState.token, refreshAuth]);
-
-  // Combine loading states
-  const isLoading = authState.isLoading || loginLoading || logoutLoading || verifyLoading;
-
+  // Return the complete auth context
   return {
-    // State from Redux
+    // State
     user: authState.user,
     token: authState.token,
-    workspaces: authState.workspaces,
-    currentWorkspace: authState.currentWorkspace,
+    workspaces: workspaceState.availableWorkspaces,
+    currentWorkspace: workspaceState.currentWorkspace,
     permissions: authState.permissions,
     isAuthenticated: authState.isAuthenticated,
-    isLoading,
+    isLoading: authState.isLoading || loginLoading || logoutLoading || verifyLoading,
     isInitialized: authState.isInitialized,
     error: authState.error,
     
@@ -545,12 +484,12 @@ export const useAuth = (): UseAuthReturn => {
     logout,
     register,
     verifyToken,
+    clearError: clearErrorFunc,
     refreshAuth,
     switchWorkspace,
     forgotPassword,
     resetPassword,
     changePassword,
     updateProfile,
-    clearError: clearAuthError,
   };
 };

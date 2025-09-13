@@ -139,6 +139,10 @@ console.log('✅ Plugin routes registered at /api/plugins');
 app.use('/api/datasources', datasourceRoutes);
 console.log('✅ Data source routes registered at /api/datasources');
 
+// permission routes
+app.use('/api/user', userRoutes);  // Make sure this line exists
+console.log('✅ permission routes registered at /api/user');
+
 // ✅ FIX: Dashboard routes (protected)
 app.use('/api/dashboards', dashboardRoutes);
 console.log('✅ Dashboard routes registered at /api/dashboards');
