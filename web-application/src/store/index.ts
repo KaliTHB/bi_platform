@@ -23,6 +23,7 @@ import uiReducer from "./slices/uiSlice";
 import { userApi } from "./api/userApi";
 import { roleApi } from "./api/roleApi"; // Contains both roles and role assignments
 import { permissionApi } from "./api/permissionApi"; // Contains both permissions and permission assignments
+import { workspaceApi } from "./api/workspaceApi";
 
 // Import other existing APIs
 import { baseApi } from "./api/baseApi";
@@ -43,6 +44,7 @@ const rootPersistConfig = {
     userApi.reducerPath,
     roleApi.reducerPath,
     permissionApi.reducerPath,
+    workspaceApi.reducerPath,
   ],
 };
 
@@ -59,6 +61,7 @@ const rootReducer = combineReducers({
   // Note: baseApi includes dashboardApi and categoryApi endpoints via injectEndpoints
   [baseApi.reducerPath]: baseApi.reducer,
   [authApi.reducerPath]: authApi.reducer,
+  [workspaceApi.reducerPath]: workspaceApi.reducer,
   
   // Separate RBAC API slices (these use createApi, not injectEndpoints)
   [userApi.reducerPath]: userApi.reducer,
@@ -84,6 +87,9 @@ export const store = configureStore({
           authApi.reducerPath,
           userApi.reducerPath,
           roleApi.reducerPath,
+          //datasourceApi.reducerPath,
+          //datasetApi.reducerPath,
+          workspaceApi.reducerPath, // ✅ Add workspace API path
           permissionApi.reducerPath,
         ],
       },
@@ -91,10 +97,13 @@ export const store = configureStore({
     // Add RTK Query middleware - Only for APIs created with createApi()
     .concat(baseApi.middleware) // This handles dashboardApi and categoryApi too
     .concat(authApi.middleware)
+    .concat(workspaceApi.middleware)
     // These APIs use createApi() so they need their own middleware:
     .concat(userApi.middleware)
     .concat(roleApi.middleware) 
     .concat(permissionApi.middleware),
+    //.concat(datasourceApi.middleware)
+    //.concat(datasetApi.middleware),
 
   devTools: process.env.NODE_ENV !== "production",
 });
@@ -110,7 +119,6 @@ export {
   useGetUsersQuery,
   useGetUserByIdQuery,
   useGetCurrentUserQuery,
-  useGetUserWorkspacesQuery,
   useGetUserPermissionsQuery,
   useCreateUserMutation,
   useUpdateUserMutation,
@@ -249,3 +257,14 @@ export {
   useUpdateCategoryMutation,
   useDeleteCategoryMutation,
 } from './api/categoryApi';
+
+
+// ✅ Export workspace API hooks
+export {
+  useGetUserWorkspacesQuery,
+  useSwitchWorkspaceMutation,
+  useGetWorkspaceDetailsQuery,
+  useCreateWorkspaceMutation,
+  useUpdateWorkspaceMutation,
+  useDeleteWorkspaceMutation,
+} from './api/workspaceApi';

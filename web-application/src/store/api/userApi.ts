@@ -154,14 +154,6 @@ export const userApi = createApi({
       providesTags: [{ type: 'User', id: 'CURRENT' }],
     }),
     
-    // Get user's workspaces
-    getUserWorkspaces: builder.query<{ data: UserWorkspace[] }, string>({
-      query: (userId) => `/${userId}/workspaces`,
-      providesTags: (result, error, userId) => [
-        { type: 'User', id: `${userId}-workspaces` }
-      ],
-    }),
-    
     // Get user's permissions in current workspace
     getUserPermissions: builder.query<{ data: UserPermission[] }, string>({
       query: (userId) => `/${userId}/permissions`,
@@ -251,7 +243,6 @@ export const {
   // Missing exports that you need to add
   useGetUserByIdQuery,
   useGetCurrentUserQuery,
-  useGetUserWorkspacesQuery,
   useGetUserPermissionsQuery,
   useDeactivateUserMutation,
   useReactivateUserMutation,
