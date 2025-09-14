@@ -1,5 +1,5 @@
 // File: web-application/src/utils/storageUtils.ts
-// Comprehensive localStorage utilities with error handling and type safety - CORRECTED VERSION
+// Comprehensive localStorage utilities with error handling and type safety - COMPLETE VERSION
 
 import { STORAGE_KEYS, type StorageKey } from '../constants';
 
@@ -140,13 +140,14 @@ export const clearAllStorage = (): boolean => {
 };
 
 // ========================================
-// SPECIALIZED STORAGE FUNCTIONS
+// ENHANCED AUTHENTICATION STORAGE WITH PERMISSIONS
 // ========================================
 
 /**
- * Authentication storage utilities
+ * Enhanced authentication storage utilities with permission support
  */
 export const authStorage = {
+  // Existing token methods
   setToken: (token: string, expiry?: number): boolean => 
     setStorageItem(STORAGE_KEYS.TOKEN, token, { expiry }),
   
@@ -164,25 +165,150 @@ export const authStorage = {
   
   getUser: (): any | null => 
     getStorageItem(STORAGE_KEYS.USER),
+
+  // ✅ NEW: Permission storage methods
+  setPermissions: (permissions: string[], workspaceId?: string): boolean => {
+    const key = workspaceId 
+      ? `${STORAGE_KEYS.PERMISSIONS}_${workspaceId}` 
+      : STORAGE_KEYS.PERMISSIONS;
+    
+    return setStorageItem(key, permissions, {
+      expiry: Date.now() + (30 * 60 * 1000) // 30 minutes TTL
+    });
+  },
   
+  getPermissions: (workspaceId?: string): string[] | null => {
+    const key = workspaceId 
+      ? `${STORAGE_KEYS.PERMISSIONS}_${workspaceId}` 
+      : STORAGE_KEYS.PERMISSIONS;
+    
+    return getStorageItem<string[]>(key) || [];
+  },
+  
+  clearPermissions: (workspaceId?: string): void => {
+    if (workspaceId) {
+      removeStorageItem(`${STORAGE_KEYS.PERMISSIONS}_${workspaceId}`);
+    } else {
+      // Clear all permission keys
+      if (isStorageAvailable()) {
+        const keys = [];
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const key = window.localStorage.key(i);
+          if (key?.startsWith(STORAGE_KEYS.PERMISSIONS)) {
+            keys.push(key);
+          }
+        }
+        keys.forEach(key => removeStorageItem(key));
+      }
+    }
+  },
+
+  // ✅ NEW: Permission metadata storage
+  setPermissionMeta: (meta: {
+    lastUpdated: number;
+    workspaceId?: string;
+    roles?: any[];
+    permissionDetails?: any[];
+  }): boolean => {
+    const key = `${STORAGE_KEYS.PERMISSIONS}_meta`;
+    return setStorageItem(key, meta);
+  },
+
+  getPermissionMeta: (): any | null => {
+    return getStorageItem(`${STORAGE_KEYS.PERMISSIONS}_meta`);
+  },
+
+  // ✅ NEW: Check if permissions are fresh (not expired)
+  arePermissionsFresh: (workspaceId?: string, maxAge: number = 30 * 60 * 1000): boolean => {
+    const meta = authStorage.getPermissionMeta();
+    if (!meta?.lastUpdated) return false;
+    
+    const age = Date.now() - meta.lastUpdated;
+    const isCorrectWorkspace = !workspaceId || meta.workspaceId === workspaceId;
+    
+    return age < maxAge && isCorrectWorkspace;
+  },
+
+  // Enhanced clear auth with permissions
   clearAuth: (): void => {
     removeStorageItem(STORAGE_KEYS.TOKEN);
     removeStorageItem(STORAGE_KEYS.REFRESH_TOKEN);
     removeStorageItem(STORAGE_KEYS.USER);
+    authStorage.clearPermissions(); // Clear all permissions
+    removeStorageItem(`${STORAGE_KEYS.PERMISSIONS}_meta`);
   },
   
   isAuthenticated: (): boolean => {
     const token = authStorage.getToken();
     return !!token;
   },
+
+  // ✅ NEW: Complete auth data getter
+  getAuthData: (workspaceId?: string) => {
+    return {
+      token: authStorage.getToken(),
+      refreshToken: authStorage.getRefreshToken(),
+      user: authStorage.getUser(),
+      permissions: authStorage.getPermissions(workspaceId),
+      permissionMeta: authStorage.getPermissionMeta(),
+      isAuthenticated: authStorage.isAuthenticated(),
+      arePermissionsFresh: authStorage.arePermissionsFresh(workspaceId)
+    };
+  },
+
+  // ✅ NEW: Set complete auth data (for login)
+  setAuthData: (data: {
+    token: string;
+    user: any;
+    permissions?: string[];
+    workspaceId?: string;
+    roles?: any[];
+    permissionDetails?: any[];
+  }): boolean => {
+    try {
+      authStorage.setToken(data.token);
+      authStorage.setUser(data.user);
+      
+      if (data.permissions) {
+        authStorage.setPermissions(data.permissions, data.workspaceId);
+        authStorage.setPermissionMeta({
+          lastUpdated: Date.now(),
+          workspaceId: data.workspaceId,
+          roles: data.roles,
+          permissionDetails: data.permissionDetails
+        });
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Failed to set auth data:', error);
+      return false;
+    }
+  }
 };
 
+// ========================================
+// ENHANCED WORKSPACE STORAGE WITH PERMISSION CONTEXT
+// ========================================
+
 /**
- * Workspace storage utilities - CORRECTED WITH ALL NEEDED METHODS
+ * Enhanced workspace storage utilities with permission context
  */
 export const workspaceStorage = {
-  setCurrentWorkspace: (workspace: any): boolean => 
-    setStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE, workspace),
+  // Enhanced workspace methods with permission cleanup
+  setCurrentWorkspace: (workspace: any): boolean => {
+    const success = setStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE, workspace);
+    
+    // ✅ NEW: Clear old workspace permissions when switching
+    if (success && workspace?.id) {
+      const currentMeta = authStorage.getPermissionMeta();
+      if (currentMeta?.workspaceId && currentMeta.workspaceId !== workspace.id) {
+        authStorage.clearPermissions(currentMeta.workspaceId);
+      }
+    }
+    
+    return success;
+  },
   
   getCurrentWorkspace: (): any | null => 
     getStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE),
@@ -199,7 +325,6 @@ export const workspaceStorage = {
   getWorkspacePreferences: (): any | null => 
     getStorageItem(STORAGE_KEYS.WORKSPACE_PREFERENCES),
   
-  // ✅ ADDED MISSING SESSION DATA METHODS
   setSessionData: (sessionData: any): boolean => 
     setStorageItem(STORAGE_KEYS.SESSION_DATA, sessionData),
   
@@ -209,16 +334,29 @@ export const workspaceStorage = {
   clearSessionData: (): void => 
     removeStorageItem(STORAGE_KEYS.SESSION_DATA),
   
-  // ✅ EXISTING clearWorkspace method (clears current, available, and preferences)
+  // ✅ ENHANCED: Clear workspace with permission cleanup
   clearWorkspace: (): void => {
+    const currentWorkspace = workspaceStorage.getCurrentWorkspace();
+    
     removeStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE);
     removeStorageItem(STORAGE_KEYS.AVAILABLE_WORKSPACES);
     removeStorageItem(STORAGE_KEYS.WORKSPACE_PREFERENCES);
+    
+    // Clear permissions for the current workspace
+    if (currentWorkspace?.id) {
+      authStorage.clearPermissions(currentWorkspace.id);
+    }
   },
   
-  // ✅ ADDED INDIVIDUAL CLEAR METHODS FOR FLEXIBILITY
-  clearCurrentWorkspace: (): void => 
-    removeStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE),
+  clearCurrentWorkspace: (): void => {
+    const currentWorkspace = workspaceStorage.getCurrentWorkspace();
+    removeStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE);
+    
+    // Clear permissions for this workspace
+    if (currentWorkspace?.id) {
+      authStorage.clearPermissions(currentWorkspace.id);
+    }
+  },
   
   clearAvailableWorkspaces: (): void => 
     removeStorageItem(STORAGE_KEYS.AVAILABLE_WORKSPACES),
@@ -234,7 +372,6 @@ export const workspaceStorage = {
         const oldValue = window.localStorage.getItem(key);
         if (oldValue) {
           console.log(`Migrating old workspace key: ${key}`);
-          // You can add migration logic here if needed
           window.localStorage.removeItem(key);
         }
       } catch (error) {
@@ -243,6 +380,10 @@ export const workspaceStorage = {
     });
   },
 };
+
+// ========================================
+// EXISTING STORAGE UTILITIES (UNCHANGED)
+// ========================================
 
 /**
  * Session storage utilities
@@ -360,6 +501,10 @@ export const cacheStorage = {
   },
 };
 
+// ========================================
+// CLEANUP UTILITIES
+// ========================================
+
 export const cleanupOldWorkspaceKeys = (): void => {
   if (!isStorageAvailable()) return;
   
@@ -391,6 +536,49 @@ export const cleanupOldWorkspaceKeys = (): void => {
   if (cleaned > 0) {
     console.log(`✅ Cleaned up ${cleaned} old workspace storage keys`);
   }
+};
+
+/**
+ * ✅ NEW: Clean stale permission entries
+ */
+export const cleanStalePermissions = (): number => {
+  if (!isStorageAvailable()) return 0;
+
+  let cleaned = 0;
+  const keysToRemove: string[] = [];
+  const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+
+  try {
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith(STORAGE_KEYS.PERMISSIONS)) {
+        const item = window.localStorage.getItem(key);
+        if (item) {
+          try {
+            const storageData: StorageData = JSON.parse(item);
+            // Remove if expired or older than 24 hours
+            if (storageData.expiry && Date.now() > storageData.expiry) {
+              keysToRemove.push(key);
+            } else if (storageData.timestamp && Date.now() - storageData.timestamp > maxAge) {
+              keysToRemove.push(key);
+            }
+          } catch {
+            // Remove corrupted permission data
+            keysToRemove.push(key);
+          }
+        }
+      }
+    }
+
+    keysToRemove.forEach(key => {
+      window.localStorage.removeItem(key);
+      cleaned++;
+    });
+  } catch (error) {
+    console.error('Failed to clean stale permissions:', error);
+  }
+
+  return cleaned;
 };
 
 // ========================================
@@ -484,11 +672,11 @@ export const cleanExpiredItems = (): number => {
 };
 
 // ========================================
-// INITIALIZATION & CLEANUP
+// ENHANCED INITIALIZATION WITH PERMISSION CLEANUP
 // ========================================
 
 /**
- * Initialize storage utilities
+ * Enhanced storage initialization with permission cleanup
  */
 export const initializeStorage = (): void => {
   if (!isStorageAvailable()) {
@@ -502,11 +690,21 @@ export const initializeStorage = (): void => {
     console.log(`Cleaned ${cleaned} expired storage items`);
   }
 
+  // ✅ NEW: Clean stale permissions
+  const permissionsCleaned = cleanStalePermissions();
+  if (permissionsCleaned > 0) {
+    console.log(`Cleaned ${permissionsCleaned} stale permission entries`);
+  }
+
   // Migrate old workspace keys
   workspaceStorage.migrateOldWorkspaceKeys();
   
-  console.log('Storage utilities initialized');
+  console.log('Storage utilities initialized with permission support');
 };
+
+// ========================================
+// EXPORTS
+// ========================================
 
 /**
  * Export all storage utilities as default
@@ -519,7 +717,7 @@ export default {
   clearAllStorage,
   isStorageAvailable,
   
-  // Specialized utilities
+  // Enhanced specialized utilities
   auth: authStorage,
   workspace: workspaceStorage,
   session: sessionStorage,
@@ -527,10 +725,11 @@ export default {
   dashboard: dashboardStorage,
   cache: cacheStorage,
   
-  // Utility functions
+  // Enhanced utility functions
   getAllStorageItems,
   getStorageInfo,
   cleanExpiredItems,
+  cleanStalePermissions, // ✅ NEW
   initializeStorage,
   cleanupOldWorkspaceKeys
 };

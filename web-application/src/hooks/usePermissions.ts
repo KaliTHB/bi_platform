@@ -1,175 +1,299 @@
-// web-application/src/hooks/usePermissions.ts - FINAL FIXED VERSION
-import { useState, useEffect, useCallback } from 'react';
-import { useAppSelector } from './redux';
+// =============================================================================
+// FILE: web-application/src/hooks/usePermissions.ts (FIXED IMPORTS)
+// =============================================================================
 
-interface UsePermissionsResult {
+import { useEffect, useMemo } from 'react';
+import { useAppDispatch, useAppSelector } from './redux';
+import {
+  setError, // ✅ FIXED: Use setError instead of setPermissionsError
+  clearError,
+} from '../store/slices/authSlice';
+import {
+  setPermissions,
+  setPermissionError,
+  clearPermissionError,
+  setPermissionLoading,
+} from '../store/slices/permissionSlice';
+
+// ✅ FIXED: Import correct RTK Query hooks
+import { 
+  useGetCurrentUserPermissionsQuery,
+  useLazyGetCurrentUserPermissionsQuery,
+  useRefreshUserPermissionsMutation,
+} from '../store/api/authApi';
+
+// ✅ ALTERNATIVE: If you need permissions-specific queries, use the correct exports from permissionApi
+import { 
+  useLazySearchPermissionsQuery, // ✅ FIXED: Use correct export name
+  useGetPermissionsQuery,
+  useGetPermissionsByCategoryQuery,
+} from '../store/api/permissionApi';
+
+// Types
+interface PermissionHookState {
   permissions: string[];
-  roles: string[];
+  isLoading: boolean;
+  error: string | null;
+  permissionsLoaded: boolean;
+}
+
+interface PermissionHookActions {
+  loadPermissions: () => Promise<string[]>;
+  refreshPermissions: () => Promise<void>;
   hasPermission: (permission: string) => boolean;
   hasAnyPermission: (permissions: string[]) => boolean;
   hasAllPermissions: (permissions: string[]) => boolean;
-  isLoading: boolean;
-  error: string | null;
-  refetch: () => Promise<void>;
+  hasPermissionPattern: (pattern: string) => boolean;
+  getPermissionsByCategory: (category: string) => string[];
+  isAdmin: () => boolean;
+  isSuperAdmin: () => boolean;
+  canManageUsers: () => boolean;
+  canManageWorkspaces: () => boolean;
+  canViewAnalytics: () => boolean;
+  clearError: () => void;
 }
 
-export const usePermissions = (): UsePermissionsResult => {
-  const [permissions, setPermissions] = useState<string[]>([]);
-  const [roles, setRoles] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export const usePermissions = (): PermissionHookState & PermissionHookActions => {
+  const dispatch = useAppDispatch();
+  
+  // Get auth state
+  const { 
+    user, 
+    token, 
+    permissions: authPermissions, 
+    isAuthenticated 
+  } = useAppSelector(state => state.auth);
+  
+  // Get workspace state
+  const { currentWorkspace } = useAppSelector(state => state.workspace);
+  
+  // Get permission-specific state
+  const {
+    userPermissions,
+    loading: permissionLoading,
+    error: permissionError,
+  } = useAppSelector(state => state.permission);
 
-  // Get auth state from Redux
-  const auth = useAppSelector((state) => state.auth);
-  const workspace = useAppSelector((state) => state.workspace.currentWorkspace);
-
-  // Only proceed if we have both user and workspace
-  const canFetchPermissions = auth.isAuthenticated && auth.user && workspace?.id && auth.token;
-
-  const fetchPermissions = useCallback(async () => {
-    // Early return if we don't have required data
-    if (!canFetchPermissions) {
-      console.log('🔐 usePermissions: Cannot fetch permissions - missing auth or workspace', {
-        isAuthenticated: auth.isAuthenticated,
-        hasUser: !!auth.user,
-        hasWorkspace: !!workspace?.id,
-        hasToken: !!auth.token
-      });
-      
-      // Clear permissions if we don't have required data
-      setPermissions([]);
-      setRoles([]);
-      setError(null);
-      return;
+  // ✅ FIXED: RTK Query permissions hooks - using correct exports
+  const { 
+    data: permissionsData,
+    isLoading: permissionsQueryLoading,
+    error: permissionsQueryError,
+    refetch: refetchPermissions
+  } = useGetCurrentUserPermissionsQuery(
+    { workspaceId: currentWorkspace?.id },
+    {
+      skip: !isAuthenticated || !token || !currentWorkspace?.id,
+      pollingInterval: 5 * 60 * 1000, // Poll every 5 minutes
     }
+  );
 
-    setIsLoading(true);
-    setError(null);
+  const [loadPermissionsLazy, { 
+    isLoading: lazyPermissionsLoading 
+  }] = useLazyGetCurrentUserPermissionsQuery();
+
+  const [refreshPermissionsMutation, { 
+    isLoading: refreshingPermissions 
+  }] = useRefreshUserPermissionsMutation();
+
+  // ✅ FIXED: Use correct search permissions hook
+  const [searchPermissions] = useLazySearchPermissionsQuery();
+
+  // Memoized combined permissions (from auth and permission slices)
+  const permissions = useMemo(() => {
+    const allPermissions = new Set([
+      ...(authPermissions || []),
+      ...(userPermissions || []),
+      ...(permissionsData?.permissions || [])
+    ]);
+    return Array.from(allPermissions);
+  }, [authPermissions, userPermissions, permissionsData?.permissions]);
+
+  // Combined loading state
+  const isLoading = permissionLoading || permissionsQueryLoading || lazyPermissionsLoading || refreshingPermissions;
+
+  // Combined error state
+  const error = permissionError || null;
+
+  // Check if permissions are loaded
+  const permissionsLoaded = !!(permissions.length > 0 || (!isLoading && isAuthenticated));
+
+  // Auto-load permissions when authenticated
+  useEffect(() => {
+    if (isAuthenticated && currentWorkspace?.id && !permissionsLoaded && !isLoading) {
+      loadPermissions();
+    }
+  }, [isAuthenticated, currentWorkspace?.id, permissionsLoaded, isLoading]);
+
+  // Load permissions manually
+  const loadPermissions = async (): Promise<string[]> => {
+    if (!isAuthenticated || !token) {
+      console.warn('⚠️ Cannot load permissions: user not authenticated');
+      return [];
+    }
 
     try {
-      console.log('🔐 usePermissions: Fetching permissions', {
-        userId: auth.user.user_id || auth.user.id,
-        workspaceId: workspace.id
-      });
+      console.log('🔍 Permissions Hook: Loading user permissions...');
+      dispatch(setPermissionLoading(true));
+      dispatch(clearPermissionError());
 
-      // ✅ FIXED: Use only the user route endpoint
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'}/api/user/permissions?workspace=${workspace.id}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${auth.token}`,
-          'Content-Type': 'application/json',
-          'X-Workspace-Id': workspace.id,
-        },
-      });
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Authentication required - please log in again');
-        } else if (response.status === 403) {
-          throw new Error('Access denied - insufficient permissions');
-        } else if (response.status === 404) {
-          throw new Error('Permissions endpoint not found - check backend routes');
-        } else {
-          throw new Error(`Failed to fetch permissions: ${response.status} ${response.statusText}`);
-        }
-      }
-
-      const data = await response.json();
+      const result = await loadPermissionsLazy({ 
+        workspaceId: currentWorkspace?.id 
+      }).unwrap();
       
-      console.log('🔐 usePermissions: Permissions response', data);
-
-      if (data.success) {
-        const userPermissions = data.permissions || [];
-        const userRoles = data.roles || [];
-        
-        setPermissions(userPermissions);
-        setRoles(userRoles);
-        
-        console.log('✅ usePermissions: Permissions loaded', {
-          permissionCount: userPermissions.length,
-          roleCount: userRoles.length,
-          permissions: userPermissions,
-          roles: userRoles
-        });
-      } else {
-        throw new Error(data.message || 'Failed to fetch permissions');
-      }
-
-    } catch (err: any) {
-      console.error('❌ usePermissions: Error fetching permissions:', err);
-      setError(err.message || 'Failed to fetch permissions');
+      const loadedPermissions = result.permissions || [];
       
-      // Don't clear permissions on error - keep previous ones if available
+      // Update both slices
+      dispatch(setPermissions(loadedPermissions));
+      dispatch(setPermissions(loadedPermissions)); // Also update permission slice
+      
+      console.log('✅ Permissions Hook: Permissions loaded:', loadedPermissions);
+      return loadedPermissions;
+    } catch (error: any) {
+      console.error('❌ Permissions Hook: Failed to load permissions:', error);
+      dispatch(setPermissionError(error.message || 'Failed to load permissions'));
+      dispatch(setError(error.message || 'Failed to load permissions')); // ✅ FIXED: Use setError
+      return [];
     } finally {
-      setIsLoading(false);
+      dispatch(setPermissionLoading(false));
     }
-  }, [canFetchPermissions, auth.user, workspace, auth.token]);
+  };
 
-  // Fetch permissions when dependencies change
-  useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    
-    if (canFetchPermissions) {
-      // Add a small delay to ensure all auth state is settled
-      timeoutId = setTimeout(() => {
-        fetchPermissions();
-      }, 500); // Increased delay to 500ms
-    } else {
-      // Clear permissions if we can't fetch them
-      setPermissions([]);
-      setRoles([]);
-      setError(null);
+  // Refresh permissions (now with localStorage cache invalidation)
+  const refreshPermissions = async (): Promise<void> => {
+    if (!isAuthenticated) return;
+
+    try {
+      console.log('🔄 Permissions Hook: Refreshing permissions...');
+      dispatch(setPermissionLoading(true));
+      
+      // ✅ NEW: Clear cached permissions before refresh
+      authStorage.clearPermissions(currentWorkspace?.id);
+      
+      await refreshPermissionsMutation({ 
+        workspaceId: currentWorkspace?.id 
+      }).unwrap();
+      
+      await refetchPermissions();
+      
+      // Reload permissions (will cache automatically)
+      await loadPermissions();
+      
+      console.log('✅ Permissions Hook: Permissions refreshed successfully');
+    } catch (error: any) {
+      console.error('❌ Permissions Hook: Failed to refresh permissions:', error);
+      dispatch(setPermissionError(error.message || 'Failed to refresh permissions'));
+      dispatch(setError(error.message || 'Failed to refresh permissions'));
+    } finally {
+      dispatch(setPermissionLoading(false));
     }
-
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [fetchPermissions, canFetchPermissions]);
+  };
 
   // Permission check functions
-  const hasPermission = useCallback((permission: string): boolean => {
-    if (!permissions.length) {
-      console.log('🔐 usePermissions: No permissions available for check:', permission);
-      return false;
-    }
-    
-    const hasAccess = permissions.includes(permission);
-    console.log(`🔐 usePermissions: Permission check "${permission}":`, hasAccess);
-    return hasAccess;
-  }, [permissions]);
+  const hasPermission = (permission: string): boolean => {
+    if (!permissions.length) return false;
+    return permissions.includes(permission);
+  };
 
-  const hasAnyPermission = useCallback((permissionsToCheck: string[]): boolean => {
-    if (!permissions.length) {
-      console.log('🔐 usePermissions: No permissions available for any check:', permissionsToCheck);
-      return false;
-    }
-    
-    const hasAccess = permissionsToCheck.some(permission => permissions.includes(permission));
-    console.log(`🔐 usePermissions: Any permission check [${permissionsToCheck.join(', ')}]:`, hasAccess);
-    return hasAccess;
-  }, [permissions]);
+  const hasAnyPermission = (requiredPermissions: string[]): boolean => {
+    if (!permissions.length || !requiredPermissions.length) return false;
+    return requiredPermissions.some(perm => permissions.includes(perm));
+  };
 
-  const hasAllPermissions = useCallback((permissionsToCheck: string[]): boolean => {
-    if (!permissions.length) {
-      console.log('🔐 usePermissions: No permissions available for all check:', permissionsToCheck);
-      return false;
-    }
+  const hasAllPermissions = (requiredPermissions: string[]): boolean => {
+    if (!permissions.length || !requiredPermissions.length) return false;
+    return requiredPermissions.every(perm => permissions.includes(perm));
+  };
+
+  // Pattern-based permission checking (e.g., "dashboard.*", "user.create")
+  const hasPermissionPattern = (pattern: string): boolean => {
+    if (!permissions.length) return false;
     
-    const hasAccess = permissionsToCheck.every(permission => permissions.includes(permission));
-    console.log(`🔐 usePermissions: All permissions check [${permissionsToCheck.join(', ')}]:`, hasAccess);
-    return hasAccess;
-  }, [permissions]);
+    const regexPattern = new RegExp(
+      '^' + pattern.replace(/\*/g, '.*').replace(/\./g, '\\.') + '$'
+    );
+    
+    return permissions.some(permission => regexPattern.test(permission));
+  };
+
+  // Get permissions by category/prefix
+  const getPermissionsByCategory = (category: string): string[] => {
+    if (!permissions.length) return [];
+    return permissions.filter(permission => 
+      permission.startsWith(category + '.') || 
+      permission.startsWith(category + ':')
+    );
+  };
+
+  // Specific role/permission helpers
+  const isAdmin = (): boolean => {
+    return hasPermission('admin_access') || hasPermission('super_admin');
+  };
+
+  const isSuperAdmin = (): boolean => {
+    return hasPermission('super_admin') || hasPermission('system_admin');
+  };
+
+  const canManageUsers = (): boolean => {
+    return hasAnyPermission([
+      'user.manage',
+      'user.create',
+      'user.update',
+      'user.delete',
+      'admin_access'
+    ]);
+  };
+
+  const canManageWorkspaces = (): boolean => {
+    return hasAnyPermission([
+      'workspace.manage',
+      'workspace.create',
+      'workspace.update',
+      'workspace.delete',
+      'admin_access'
+    ]);
+  };
+
+  const canViewAnalytics = (): boolean => {
+    return hasAnyPermission([
+      'analytics.view',
+      'dashboard.view',
+      'reports.view',
+      'admin_access'
+    ]);
+  };
+
+  // Clear error function
+  const clearErrorState = () => {
+    dispatch(clearError());
+    dispatch(clearPermissionError());
+  };
 
   return {
+    // State
     permissions,
-    roles,
+    isLoading,
+    error,
+    permissionsLoaded,
+
+    // Actions
+    loadPermissions,
+    refreshPermissions,
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,
-    isLoading,
-    error,
-    refetch: fetchPermissions,
+    hasPermissionPattern,
+    getPermissionsByCategory,
+    isAdmin,
+    isSuperAdmin,
+    canManageUsers,
+    canManageWorkspaces,
+    canViewAnalytics,
+    clearError: clearErrorState,
   };
 };
+
+export default usePermissions;
+
+// Export types
+export type { PermissionHookState, PermissionHookActions };

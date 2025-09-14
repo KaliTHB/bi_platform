@@ -4,73 +4,78 @@
 // ========================================
 // STORAGE KEYS - Local Storage Keys
 // ========================================
+
+// ========================================
+// STORAGE CONSTANTS (UPDATED & CONSOLIDATED)
+// ========================================
+
 export const STORAGE_KEYS = {
-  // Authentication & Security
+  // 🔑 Authentication & Security
   TOKEN: 'token',
   REFRESH_TOKEN: 'refresh_token',
-  USER: 'user',
-  SESSION_DATA: 'sessionData',
-  LAST_LOGIN: 'lastLogin',
-  
-  // User Permissions & Roles
-  USER_PERMISSIONS: 'userPermissions',
-  USER_ROLES: 'userRoles',
-  WORKSPACE_PERMISSIONS: 'workspacePermissions',
-  
-  // Workspace Management
-  CURRENT_WORKSPACE: 'currentWorkspace',
-  AVAILABLE_WORKSPACES: 'availableWorkspaces',
-  WORKSPACE_PREFERENCES: 'workspacePreferences',
-  WORKSPACE_MEMBERS: 'workspaceMembers',
-  
-  // Application State
-  THEME_MODE: 'themeMode',
+  USER: 'auth_user',
+  SESSION_DATA: 'session_data',
+  LAST_LOGIN: 'last_login',
+  PERMISSIONS: 'user_permissions',
+  USER_ROLES: 'user_roles',
+  WORKSPACE_PERMISSIONS: 'workspace_permissions',
+
+  // 🏢 Workspace Management
+  CURRENT_WORKSPACE: 'current_workspace',
+  AVAILABLE_WORKSPACES: 'available_workspaces',
+  WORKSPACE_PREFERENCES: 'workspace_preferences',
+  WORKSPACE_MEMBERS: 'workspace_members',
+
+  // 🎨 Application State / UI
+  THEME_MODE: 'theme_mode',
   LANGUAGE: 'language',
-  SIDEBAR_COLLAPSED: 'sidebarCollapsed',
-  ACTIVE_TAB: 'activeTab',
-  TOUR_COMPLETED: 'tourCompleted',
-  
-  // Dashboard & Analytics
-  DASHBOARD_LAYOUT: 'dashboardLayout',
-  CHART_PREFERENCES: 'chartPreferences',
-  FILTER_SETTINGS: 'filterSettings',
-  SELECTED_DASHBOARD: 'selectedDashboard',
-  DASHBOARD_FAVORITES: 'dashboardFavorites',
-  
-  // Data Sources
-  DATA_SOURCE_CONNECTIONS: 'dataSourceConnections',
-  SELECTED_DATA_SOURCE: 'selectedDataSource',
-  CONNECTION_HISTORY: 'connectionHistory',
-  
-  // User Preferences
-  NOTIFICATION_SETTINGS: 'notificationSettings',
-  VIEW_PREFERENCES: 'viewPreferences',
-  RECENT_SEARCHES: 'recentSearches',
+  SIDEBAR_COLLAPSED: 'sidebar_collapsed',
+  ACTIVE_TAB: 'active_tab',
+  TOUR_COMPLETED: 'tour_completed',
+
+  // 📊 Dashboard & Analytics
+  DASHBOARD_LAYOUT: 'dashboard_layout',
+  CHART_PREFERENCES: 'chart_preferences',
+  FILTER_SETTINGS: 'filter_settings',
+  SELECTED_DASHBOARD: 'selected_dashboard',
+  DASHBOARD_FAVORITES: 'dashboard_favorites',
+
+  // 🔌 Data Sources
+  DATA_SOURCE_CONNECTIONS: 'datasource_connections',
+  SELECTED_DATA_SOURCE: 'selected_datasource',
+  CONNECTION_HISTORY: 'connection_history',
+
+  // 👤 User Preferences
+  NOTIFICATION_SETTINGS: 'notification_settings',
+  VIEW_PREFERENCES: 'view_preferences',
+  RECENT_SEARCHES: 'recent_searches',
   BOOKMARKS: 'bookmarks',
   SHORTCUTS: 'shortcuts',
-  
-  // Cache Keys
-  PLUGINS_CACHE: 'pluginsCache',
-  DATA_SOURCES_CACHE: 'dataSourcesCache',
-  METADATA_CACHE: 'metadataCache',
-  SCHEMA_CACHE: 'schemaCache',
-  QUERY_CACHE: 'queryCache',
-  
-  // Form & Input States
-  FORM_DRAFTS: 'formDrafts',
-  UNSAVED_CHANGES: 'unsavedChanges',
-  WIZARD_PROGRESS: 'wizardProgress',
-  
-  // Export & Import
-  EXPORT_SETTINGS: 'exportSettings',
-  IMPORT_HISTORY: 'importHistory',
-  DOWNLOAD_PREFERENCES: 'downloadPreferences',
-  
-  // Development & Debug
-  DEBUG_MODE: 'debugMode',
-  FEATURE_FLAGS: 'featureFlags',
-  EXPERIMENTAL_FEATURES: 'experimentalFeatures',
+
+  // ⚡ Cache Keys
+  PLUGINS_CACHE: 'plugins_cache',
+  DATA_SOURCES_CACHE: 'datasources_cache',
+  METADATA_CACHE: 'metadata_cache',
+  SCHEMA_CACHE: 'schema_cache',
+  QUERY_CACHE: 'query_cache',
+
+  // 📝 Form & Input States
+  FORM_DRAFTS: 'form_drafts',
+  UNSAVED_CHANGES: 'unsaved_changes',
+  WIZARD_PROGRESS: 'wizard_progress',
+
+  // 📥 Export & Import
+  EXPORT_SETTINGS: 'export_settings',
+  IMPORT_HISTORY: 'import_history',
+  DOWNLOAD_PREFERENCES: 'download_preferences',
+
+  // 🧪 Development & Debug
+  DEBUG_MODE: 'debug_mode',
+  FEATURE_FLAGS: 'feature_flags',
+  EXPERIMENTAL_FEATURES: 'experimental_features',
 } as const;
+
+
 
 // ========================================
 // API ENDPOINTS (Simplified version)

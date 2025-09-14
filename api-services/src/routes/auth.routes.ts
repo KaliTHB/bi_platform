@@ -98,6 +98,35 @@ router.get('/profile', optionalAuthenticate, asyncHandler(async (req, res) => {
   }
 }));
 
+/**
+ * ✅ NEW: GET /api/auth/permissions
+ * Get user permissions for current or specified workspace
+ * Query parameters:
+ * - workspace_id: optional workspace ID, if not provided uses user's first workspace
+ */
+router.get('/permissions', asyncHandler(async (req, res) => {
+  try {
+    await authController.getUserPermissions(req as any, res);
+  } catch (error) {
+    logger.error('Route handler error for permissions:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      user_id: (req as any).user?.user_id,
+      workspace_id: req.query.workspace_id,
+      service: 'bi-platform-api'
+    });
+    
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: 'Server error retrieving permissions',
+        error: 'INTERNAL_SERVER_ERROR',
+        permissions: [],
+        roles: []
+      });
+    }
+  }
+}));
+
 // ✅ CRITICAL FIX: Refresh endpoint with special middleware that allows expired tokens
 /**
  * POST /api/auth/refresh

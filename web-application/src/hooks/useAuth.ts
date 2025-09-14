@@ -1,5 +1,5 @@
 // =============================================================================
-// FILE: web-application/src/hooks/useAuth.ts (COMPLETE UPDATE)
+// FILE: web-application/src/hooks/useAuth.ts (FIXED IMPORTS)
 // =============================================================================
 
 import { useEffect } from 'react';
@@ -8,28 +8,33 @@ import {
   setCredentials,
   setPermissions,
   setLoading,
-  setError,
+  setError, // ✅ FIXED: Use setError instead of setPermissionsError
   clearError,
   initializeAuth,
   logout as logoutAction,
 } from '../store/slices/authSlice';
 import {
   setCurrentWorkspace,
-  clearWorkspace,
-  clearWorkspaces,
+  resetWorkspaceState, // ✅ FIXED: Use resetWorkspaceState instead of clearWorkspace/clearWorkspaces
   switchWorkspace as switchWorkspaceAction,
-  fetchUserWorkspaces,
+  fetchAvailableWorkspaces,
   initializeWorkspace,
 } from '../store/slices/workspaceSlice';
-import {  setStorageItem, removeStorageItem, cleanupOldWorkspaceKeys } from '../utils/storageUtils';
+import { setStorageItem, removeStorageItem, cleanupOldWorkspaceKeys } from '../utils/storageUtils';
 import { STORAGE_KEYS } from '@/constants/index';
 
-// NEW: Import RTK Query hooks for permissions
+// ✅ FIXED: Import RTK Query hooks from authApi (not permissionApi)
 import { 
   useGetCurrentUserPermissionsQuery,
   useLazyGetCurrentUserPermissionsQuery,
   useRefreshUserPermissionsMutation,
 } from '../store/api/authApi';
+
+// ✅ ALTERNATIVE: If you need permissions-specific queries, use the correct exports from permissionApi
+import { 
+  useLazySearchPermissionsQuery,
+  useGetPermissionsQuery,
+} from '../store/api/permissionApi';
 
 // Types
 interface User {
@@ -112,7 +117,7 @@ export const useAuth = (): AuthState & AuthActions => {
   
   const isAuthenticated = !!token && !!user && authIsAuthenticated;
 
-  // NEW: RTK Query permissions hooks
+  // ✅ FIXED: RTK Query permissions hooks - using correct exports
   const { 
     data: permissionsData,
     isLoading: permissionsQueryLoading,
@@ -158,7 +163,7 @@ export const useAuth = (): AuthState & AuthActions => {
           
           // Then fetch fresh workspaces from API
           console.log('🔄 useAuth: Fetching user workspaces...');
-          await dispatch(fetchUserWorkspaces()).unwrap();
+          await dispatch(fetchAvailableWorkspaces()).unwrap();
           
           console.log('✅ useAuth: App initialization completed');
         } catch (error) {
@@ -216,35 +221,22 @@ export const useAuth = (): AuthState & AuthActions => {
         hasPermissions: !!permissions?.length
       });
 
-      // Store credentials using consolidated storage
-      setStorageItem(STORAGE_KEYS.TOKEN, token);
-      setStorageItem(STORAGE_KEYS.USER, user);
-
+      // Store credentials in Redux and localStorage
+      dispatch(setCredentials({ user, token, permissions: permissions || [] }));
+      
       if (workspace) {
-        setStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE, workspace);
         dispatch(setCurrentWorkspace(workspace));
       }
 
-      // Handle permissions - store if provided, otherwise will be loaded separately
-      let finalPermissions: string[] = [];
-      if (permissions && permissions.length > 0) {
-        finalPermissions = permissions;
-        setStorageItem(STORAGE_KEYS.PERMISSIONS, permissions);
-        console.log('💾 Auth Hook: Permissions from login response:', permissions);
+      // Store in localStorage using storage utils
+      setStorageItem(STORAGE_KEYS.TOKEN, token);
+      setStorageItem(STORAGE_KEYS.USER, JSON.stringify(user));
+      
+      if (workspace) {
+        setStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE, JSON.stringify(workspace));
       }
 
-      // Update Redux store
-      dispatch(setCredentials({
-        user,
-        token,
-        permissions: finalPermissions,
-        workspace
-      }));
-
-      // Clean up old storage keys
-      cleanupOldWorkspaceKeys();
-
-      return { success: true, user, token, workspace, permissions: finalPermissions };
+      return { user, workspace, permissions };
       
     } catch (error: any) {
       console.error('❌ Auth Hook: Login failed:', error);
@@ -255,88 +247,91 @@ export const useAuth = (): AuthState & AuthActions => {
     }
   };
 
-  // Logout function
+  // Logout function - ✅ FIXED: Use resetWorkspaceState instead of clearWorkspace
   const logout = async (): Promise<void> => {
     try {
-      console.log('🚪 Auth Hook: Logging out');
-
-      // Clear localStorage using consolidated keys
+      console.log('👋 Auth Hook: Starting logout process');
+      dispatch(setLoading(true));
+      
+      // Clear Redux state
+      dispatch(logoutAction());
+      dispatch(resetWorkspaceState()); // ✅ FIXED: Use resetWorkspaceState
+      
+      // Clear localStorage
       removeStorageItem(STORAGE_KEYS.TOKEN);
       removeStorageItem(STORAGE_KEYS.USER);
       removeStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE);
-      removeStorageItem(STORAGE_KEYS.PERMISSIONS);
+      removeStorageItem(STORAGE_KEYS.AVAILABLE_WORKSPACES);
       
-      // Clean up old workspace keys
+      // Clean up old workspace keys for migration
       cleanupOldWorkspaceKeys();
-
-      // Clear Redux store
-      dispatch(logoutAction());
-      dispatch(clearWorkspaces());
-
+      
       console.log('✅ Auth Hook: Logout completed');
+      
     } catch (error) {
       console.error('❌ Auth Hook: Logout error:', error);
+    } finally {
+      dispatch(setLoading(false));
     }
   };
 
-  // Switch workspace function with permissions refresh
+  // Switch workspace function
   const switchWorkspace = async (workspaceSlug: string): Promise<void> => {
     try {
-      console.log('🔄 Auth Hook: Switching to workspace:', workspaceSlug);
+      console.log('🔄 Auth Hook: Switching workspace to:', workspaceSlug);
+      dispatch(setLoading(true));
+      dispatch(clearError());
+
+      await dispatch(switchWorkspaceAction({ slug: workspaceSlug })).unwrap();
       
-      // Ensure workspaces are loaded first
-      if (availableWorkspaces.length === 0) {
-        console.log('📥 Auth Hook: Loading workspaces first...');
-        await dispatch(fetchUserWorkspaces()).unwrap();
-      }
-      
-      // Use Redux action which handles API call and storage
-      await dispatch(switchWorkspaceAction(workspaceSlug)).unwrap();
-      
-      // Refresh permissions for new workspace
-      await refreshPermissions();
-      
-      console.log('✅ Auth Hook: Workspace switched successfully');
+      console.log('✅ Auth Hook: Workspace switch completed');
     } catch (error: any) {
       console.error('❌ Auth Hook: Workspace switch failed:', error);
-      throw new Error(`Failed to switch to workspace '${workspaceSlug}': ${error.message}`);
+      dispatch(setError(error.message || 'Workspace switch failed'));
+      throw error;
+    } finally {
+      dispatch(setLoading(false));
     }
   };
 
   // Get available workspaces
   const getAvailableWorkspaces = async (): Promise<any[]> => {
     try {
-      if (availableWorkspaces.length > 0) {
-        return availableWorkspaces;
-      }
-
-      console.log('📥 Auth Hook: Fetching available workspaces...');
-      const result = await dispatch(fetchUserWorkspaces()).unwrap();
-      return result.workspaces || [];
+      await dispatch(fetchAvailableWorkspaces()).unwrap();
+      return availableWorkspaces;
     } catch (error: any) {
-      console.error('❌ Auth Hook: Failed to get workspaces:', error);
+      console.error('❌ Auth Hook: Failed to fetch workspaces:', error);
       throw error;
     }
   };
 
-  // Verify token
+  // Token verification function
   const verifyToken = async (): Promise<boolean> => {
     try {
       const storedToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
+      const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
       
-      if (!storedToken) {
+      if (!storedToken || !storedUser) {
+        console.log('⚠️ Auth Hook: No stored credentials found');
         return false;
       }
 
+      console.log('🔍 Auth Hook: Verifying stored token...');
+      
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/verify`, {
+        method: 'GET',
         headers: {
           'Authorization': `Bearer ${storedToken}`,
+          'Content-Type': 'application/json',
         },
       });
 
       if (response.ok) {
         const data = await response.json();
-        if (data.success && data.user) {
+        if (data.success && data.valid) {
+          console.log('✅ Auth Hook: Token verified successfully');
+          
+          // Update Redux state with verified data
           dispatch(setCredentials({
             user: data.user,
             token: storedToken,
@@ -385,22 +380,30 @@ export const useAuth = (): AuthState & AuthActions => {
       return result.permissions;
     } catch (error: any) {
       console.error('❌ Auth Hook: Failed to load permissions:', error);
-      dispatch(setError(error.message || 'Failed to load permissions'));
+      dispatch(setError(error.message || 'Failed to load permissions')); // ✅ FIXED: Use setError
       return [];
     }
   };
 
-  // NEW: Refresh permissions
+  // NEW: Refresh permissions (now with localStorage cache invalidation)
   const refreshPermissions = async (): Promise<void> => {
     if (!isAuthenticated) return;
 
     try {
       console.log('🔄 Auth Hook: Refreshing permissions...');
+      
+      // ✅ NEW: Clear cached permissions before refresh
+      authStorage.clearPermissions(currentWorkspace?.id);
+      
       await refreshPermissionsMutation({ 
         workspaceId: currentWorkspace?.id 
       }).unwrap();
       
       await refetchPermissions();
+      
+      // ✅ NEW: The refetched permissions will be cached automatically by loadUserPermissions
+      await loadUserPermissions();
+      
       console.log('✅ Auth Hook: Permissions refreshed successfully');
     } catch (error: any) {
       console.error('❌ Auth Hook: Failed to refresh permissions:', error);

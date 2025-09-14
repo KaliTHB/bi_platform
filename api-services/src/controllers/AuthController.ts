@@ -298,6 +298,173 @@ public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promi
   };
 
   /**
+   * GET /api/auth/permissions
+   * Get user permissions for current or specified workspace
+   * This method mirrors UserController.getUserPermissions but is accessible via auth routes
+   */
+  public async getUserPermissions(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.user_id;
+      const workspaceId = req.query.workspace_id as string || req.user?.workspace_id;
+
+      console.log('🔍 AuthController: Getting permissions for user:', { userId, workspaceId });
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required to access permissions',
+          error: 'AUTHENTICATION_REQUIRED',
+          permissions: [],
+          roles: []
+        });
+        return;
+      }
+
+      // If no workspace ID provided, try to find user's first workspace
+      if (!workspaceId) {
+        try {
+          console.log('🔍 AuthController: No workspace ID provided, finding user default workspace');
+          
+          const userWorkspaces = await this.authService.getUserWorkspaces(userId);
+          
+          if (!userWorkspaces?.length) {
+            res.status(400).json({
+              success: false,
+              message: 'User has no accessible workspaces',
+              error: 'NO_WORKSPACES',
+              permissions: [],
+              roles: []
+            });
+            return;
+          }
+
+          const firstWorkspaceId = userWorkspaces[0]?.id;
+          if (!firstWorkspaceId) {
+            res.status(400).json({
+              success: false,
+              message: 'Unable to determine workspace for permissions',
+              error: 'WORKSPACE_DETERMINATION_FAILED', 
+              permissions: [],
+              roles: []
+            });
+            return;
+          }
+
+          // Get permissions for first workspace
+          const userPermissions = await this.authService.getUserPermissions(userId, firstWorkspaceId);
+
+          res.status(200).json({
+            success: true,
+            message: 'Permissions retrieved successfully using default workspace',
+            permissions: userPermissions.permissions || [],
+            roles: userPermissions.roles || [],
+            is_admin: userPermissions.is_admin || false,
+            role_level: userPermissions.role_level || 0,
+            user_info: {
+              user_id: userId,
+              email: req.user?.email,
+              workspace_id: firstWorkspaceId
+            },
+            workspace_used: firstWorkspaceId
+          });
+          return;
+
+        } catch (workspaceError: any) {
+          console.error('❌ AuthController: Error finding user workspace:', workspaceError);
+          logger.error('AuthController: Error finding user workspace:', {
+            error: workspaceError.message,
+            stack: workspaceError.stack,
+            userId,
+            service: 'bi-platform-api'
+          });
+
+          res.status(400).json({
+            success: false,
+            message: 'Workspace ID required to get permissions',
+            error: 'MISSING_WORKSPACE_ID',
+            permissions: [],
+            roles: []
+          });
+          return;
+        }
+      }
+
+      // Use AuthService to get permissions for specified workspace
+      console.log('🔍 AuthController: Getting permissions using AuthService for workspace:', workspaceId);
+      
+      try {
+        const userPermissions = await this.authService.getUserPermissions(userId, workspaceId);
+
+        console.log('✅ AuthController: Got permissions:', {
+          userId,
+          workspaceId,
+          permissionCount: userPermissions.permissions?.length || 0,
+          roleCount: userPermissions.roles?.length || 0,
+          isAdmin: userPermissions.is_admin
+        });
+
+        res.status(200).json({
+          success: true,
+          message: 'Permissions retrieved successfully using AuthService',
+          permissions: userPermissions.permissions || [],
+          roles: userPermissions.roles || [],
+          is_admin: userPermissions.is_admin || false,
+          role_level: userPermissions.role_level || 0,
+          user_info: {
+            user_id: userId,
+            email: req.user?.email,
+            workspace_id: workspaceId
+          }
+        });
+
+      } catch (permissionError: any) {
+        console.error('❌ AuthController: Error getting permissions from AuthService:', permissionError);
+        logger.error('AuthController: AuthService getUserPermissions error:', {
+          error: permissionError.message,
+          stack: permissionError.stack,
+          userId,
+          workspaceId,
+          service: 'bi-platform-api'
+        });
+
+        // Return empty permissions instead of failing
+        res.status(200).json({
+          success: true,
+          message: 'Permissions retrieved with limited access (error occurred)',
+          permissions: [],
+          roles: [],
+          is_admin: false,
+          role_level: 0,
+          user_info: {
+            user_id: userId,
+            email: req.user?.email,
+            workspace_id: workspaceId
+          },
+          warning: 'Could not retrieve full permissions'
+        });
+      }
+
+    } catch (error: any) {
+      console.error('❌ AuthController: Get user permissions error:', error);
+      
+      logger.error('AuthController: Get user permissions error:', {
+        error: error.message,
+        stack: error.stack,
+        userId: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Unable to retrieve permissions due to server error',
+        error: 'INTERNAL_SERVER_ERROR',
+        permissions: [],
+        roles: []
+      });
+    }
+  }
+  
+  /**
    * Get current user profile
    * GET /api/auth/me
    */
