@@ -1,4 +1,4 @@
-// web-application/src/pages/login.tsx - COMPLETE FIXED VERSION (SAME UI)
+// web-application/src/pages/login.tsx - COMPLETE VERSION WITH CONSOLIDATED LOCALSTORAGE
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
@@ -72,6 +72,28 @@ interface LoginMutationResult {
     };
   };
 }
+
+// ✅ CONSOLIDATED STORAGE KEYS - SINGLE WORKSPACE KEY
+const STORAGE_KEYS = {
+  TOKEN: 'token',
+  USER: 'user',
+  CURRENT_WORKSPACE: 'currentWorkspace', // ✅ Single workspace key
+  PERMISSIONS: 'permissions',
+} as const;
+
+// ✅ CLEANUP FUNCTION FOR OLD WORKSPACE KEYS (MIGRATION)
+const cleanupOldWorkspaceKeys = (): void => {
+  if (typeof window === 'undefined') return;
+  
+  const oldKeys = ['workspace', 'auth_workspace', 'selected_workspace_id'];
+  oldKeys.forEach(key => {
+    try {
+      localStorage.removeItem(key);
+    } catch (error) {
+      console.warn(`Failed to remove old key ${key}:`, error);
+    }
+  });
+};
 
 const getTestCredentials = (): TestCredential[] => {
   const env = process.env.NODE_ENV;
@@ -165,7 +187,26 @@ export default function LoginPage() {
     }
   };
 
-  // ✅ FIXED: Complete handleSubmit with proper typing and data access
+  const handleTogglePasswordVisibility = () => {
+    setShowPassword(prev => !prev);
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !loginIsLoading) {
+      handleSubmit(e as any);
+    }
+  };
+
+  const handleCredentialClick = (credential: TestCredential) => {
+    setFormData({
+      emailOrUsername: credential.email,
+      password: credential.password,
+    });
+    setFormErrors({});
+    setLoginError('');
+  };
+
+  // ✅ UPDATED SUBMIT HANDLER WITH CONSOLIDATED LOCALSTORAGE
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -218,17 +259,26 @@ export default function LoginPage() {
           throw new Error('No user data received from server');
         }
         
-        // ✅ Store in localStorage
-        localStorage.setItem('token', token);
+        // ✅ STORE IN LOCALSTORAGE USING CONSOLIDATED KEYS
+        localStorage.setItem(STORAGE_KEYS.TOKEN, token);
         console.log('💾 Token stored in localStorage:', token.substring(0, 20) + '...');
         
-        localStorage.setItem('user', JSON.stringify(user));
+        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
         console.log('💾 User data stored in localStorage');
         
         if (workspace) {
-          localStorage.setItem('workspace', JSON.stringify(workspace));
-          console.log('💾 Workspace data stored in localStorage');
+          localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, JSON.stringify(workspace));
+          console.log('💾 Workspace data stored in localStorage using currentWorkspace key');
         }
+
+        if (permissions) {
+          localStorage.setItem(STORAGE_KEYS.PERMISSIONS, JSON.stringify(permissions));
+          console.log('💾 Permissions stored in localStorage');
+        }
+
+        // ✅ CLEANUP OLD WORKSPACE KEYS
+        cleanupOldWorkspaceKeys();
+        console.log('🧹 Cleaned up old workspace keys');
         
         // ✅ Update Redux store
         dispatch(setCredentials({ user, token, permissions }));
@@ -241,7 +291,8 @@ export default function LoginPage() {
         
         console.log('✅ All data stored successfully, redirecting...');
         
-         setTimeout(() => {
+        // Force redirect with timeout fallback
+        setTimeout(() => {
           console.log('⚡ EMERGENCY: Force redirect after delay');
           window.location.replace('/workspace/overview');
         }, 100);
@@ -267,158 +318,85 @@ export default function LoginPage() {
     }
   };
 
-  const handleTogglePasswordVisibility = () => {
-    setShowPassword(prev => !prev);
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSubmit(e as any);
-    }
-  };
-
-  const handleCredentialClick = async (credential: TestCredential) => {
-    setFormData({
-      emailOrUsername: credential.email,
-      password: credential.password,
-    });
-  };
-
-  // Show loading screen while checking auth state
-  if (authLoading && !loginIsLoading) {
-    return (
-      <Box 
-        display="flex" 
-        justifyContent="center" 
-        alignItems="center" 
-        minHeight="100vh"
-        sx={{
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        }}
-      >
-        <Paper elevation={3} sx={{ p: 4, textAlign: 'center' }}>
-          <CircularProgress size={40} sx={{ mb: 2 }} />
-          <Typography variant="h6">Checking authentication...</Typography>
-          <Typography variant="body2" sx={{ mt: 1, opacity: 0.7 }}>
-            Please wait while we verify your login status
-          </Typography>
-        </Paper>
-      </Box>
-    );
-  }
-
   return (
-    <Box sx={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      display: 'flex',
-      alignItems: 'center',
-      py: 3
-    }}>
-      <Container maxWidth="xl">
-        <Grid container spacing={4} alignItems="center" sx={{ minHeight: '100vh' }}>
-          {/* Left Side - Feature Showcase */}
-          <Grid item xs={12} md={7}>
-            <Fade in timeout={800}>
-              <Box sx={{ pr: { md: 4 } }}>
-                <Typography 
-                  variant="h2" 
-                  component="h1" 
-                  sx={{ 
-                    color: 'white',
-                    fontWeight: 'bold',
-                    mb: 3,
-                    fontSize: { xs: '2.5rem', md: '3.5rem' }
-                  }}
-                >
-                  Business Intelligence Platform
+    <Box
+      sx={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        padding: 2,
+      }}
+    >
+      <Container maxWidth="md">
+        <Grid container spacing={4} alignItems="center">
+          {/* Left Side - Branding */}
+          <Grid item xs={12} md={6}>
+            <Slide direction="right" in mountOnEnter timeout={800}>
+              <Box sx={{ textAlign: { xs: 'center', md: 'left' }, color: 'white', mb: { xs: 4, md: 0 } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: { xs: 'center', md: 'flex-start' }, mb: 3 }}>
+                  <Avatar sx={{ bgcolor: 'rgba(255, 255, 255, 0.2)', mr: 2, width: 64, height: 64 }}>
+                    <Analytics sx={{ fontSize: 32 }} />
+                  </Avatar>
+                  <Typography variant="h3" component="h1" sx={{ fontWeight: 'bold', letterSpacing: -1 }}>
+                    BI Platform
+                  </Typography>
+                </Box>
+                
+                <Typography variant="h5" sx={{ mb: 4, fontWeight: 300, opacity: 0.9 }}>
+                  Enterprise Business Intelligence & Analytics
                 </Typography>
                 
-                <Typography 
-                  variant="h5" 
-                  sx={{ 
-                    color: 'rgba(255,255,255,0.9)',
-                    mb: 4,
-                    lineHeight: 1.6
-                  }}
-                >
-                  Transform your data into actionable insights with our powerful, 
-                  multi-tenant BI platform designed for modern enterprises.
-                </Typography>
-
-                <Grid container spacing={3} sx={{ mb: 4 }}>
+                {/* Feature highlights */}
+                <Grid container spacing={2} sx={{ mb: 4 }}>
                   {[
-                    { icon: <Dashboard />, title: 'Interactive Dashboards', desc: 'Create beautiful, real-time dashboards' },
-                    { icon: <Analytics />, title: 'Advanced Analytics', desc: 'Powerful data analysis and visualization' },
-                    { icon: <Security />, title: 'Enterprise Security', desc: 'Role-based access and data protection' },
-                    { icon: <Business />, title: 'Multi-Tenant', desc: 'Isolated workspaces for teams' }
+                    { icon: <Dashboard />, title: 'Interactive Dashboards', desc: 'Create and share beautiful visualizations' },
+                    { icon: <Business />, title: 'Multi-Tenant', desc: 'Workspace isolation and security' },
+                    { icon: <Security />, title: 'Enterprise Security', desc: 'Role-based access control' },
                   ].map((feature, index) => (
-                    <Grid item xs={12} sm={6} key={index}>
-                      <Slide in timeout={800 + index * 200} direction="up">
-                        <Card sx={{ 
-                          background: 'rgba(255,255,255,0.1)', 
-                          backdropFilter: 'blur(10px)',
-                          border: '1px solid rgba(255,255,255,0.2)',
-                          color: 'white'
-                        }}>
-                          <CardContent>
-                            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                              <Avatar sx={{ 
-                                bgcolor: 'rgba(255,255,255,0.2)', 
-                                color: 'white',
-                                mr: 2,
-                                width: 32,
-                                height: 32
-                              }}>
-                                {feature.icon}
-                              </Avatar>
-                              <Typography variant="h6" fontWeight="bold">
-                                {feature.title}
-                              </Typography>
-                            </Box>
-                            <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                    <Grid item xs={12} key={index}>
+                      <Card sx={{ bgcolor: 'rgba(255, 255, 255, 0.1)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)' }}>
+                        <CardContent sx={{ display: 'flex', alignItems: 'center', p: 2, '&:last-child': { pb: 2 } }}>
+                          <Avatar sx={{ bgcolor: 'rgba(255, 255, 255, 0.2)', mr: 2 }}>
+                            {feature.icon}
+                          </Avatar>
+                          <Box>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: 'white' }}>
+                              {feature.title}
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                               {feature.desc}
                             </Typography>
-                          </CardContent>
-                        </Card>
-                      </Slide>
+                          </Box>
+                        </CardContent>
+                      </Card>
                     </Grid>
                   ))}
                 </Grid>
               </Box>
-            </Fade>
+            </Slide>
           </Grid>
 
           {/* Right Side - Login Form */}
-          <Grid item xs={12} md={5}>
-            <Slide in timeout={1000} direction="left">
-              <Paper 
-                elevation={10}
+          <Grid item xs={12} md={6}>
+            <Slide direction="left" in mountOnEnter timeout={800}>
+              <Paper
+                elevation={24}
                 sx={{
                   p: 4,
                   borderRadius: 3,
-                  background: 'rgba(255,255,255,0.95)',
-                  backdropFilter: 'blur(10px)',
-                  border: '1px solid rgba(255,255,255,0.3)',
-                  maxWidth: 500,
-                  mx: 'auto'
+                  bgcolor: 'rgba(255, 255, 255, 0.95)',
+                  backdropFilter: 'blur(20px)',
+                  border: '1px solid rgba(255, 255, 255, 0.3)',
                 }}
               >
-                <Box sx={{ textAlign: 'center', mb: 3 }}>
-                  <Avatar sx={{ 
-                    bgcolor: 'primary.main', 
-                    width: 60, 
-                    height: 60, 
-                    mx: 'auto', 
-                    mb: 2 
-                  }}>
-                    <LoginIcon fontSize="large" />
-                  </Avatar>
-                  <Typography variant="h4" component="h1" fontWeight="bold" gutterBottom>
+                <Box sx={{ textAlign: 'center', mb: 4 }}>
+                  <Typography variant="h4" component="h2" sx={{ fontWeight: 'bold', mb: 1 }}>
                     Welcome Back
                   </Typography>
                   <Typography variant="body1" color="text.secondary">
-                    Sign in to access your dashboard
+                    Sign in to access your workspace
                   </Typography>
                 </Box>
 
@@ -538,23 +516,8 @@ export default function LoginPage() {
                   <Box sx={{ textAlign: 'center' }}>
                     <Typography variant="body2" color="text.secondary">
                       Don't have an account?{' '}
-                      <Button 
-                        variant="text" 
-                        size="small" 
-                        onClick={() => router.push('/register')}
-                        disabled={loginIsLoading}
-                      >
-                        Sign up
-                      </Button>
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      <Button 
-                        variant="text" 
-                        size="small" 
-                        onClick={() => router.push('/forgot-password')}
-                        disabled={loginIsLoading}
-                      >
-                        Forgot your password?
+                      <Button variant="text" size="small" sx={{ textTransform: 'none' }}>
+                        Contact Administrator
                       </Button>
                     </Typography>
                   </Box>

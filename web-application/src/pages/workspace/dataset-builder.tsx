@@ -255,7 +255,7 @@ const DatasetBuilderPage: React.FC = () => {
       console.log('Saving dataset:', datasetConfig);
       
       // Navigate back to datasets list
-      router.push(`/workspace/datasets`);
+      router.replace(`/workspace/datasets`);
     } catch (error) {
       console.error('Error saving dataset:', error);
     } finally {
@@ -570,7 +570,7 @@ const DatasetBuilderPage: React.FC = () => {
       <Button
         variant="outlined"
         startIcon={<BackIcon />}
-        onClick={() => router.push(`/workspace/datasets`)}
+        onClick={() => router.replace(`/workspace/datasets`)}
       >
         Cancel
       </Button>

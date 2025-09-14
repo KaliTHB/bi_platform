@@ -669,7 +669,7 @@ const handleChartInteraction = (event: ChartInteractionEvent) => {
   switch (event.type) {
     case 'click':
       // Navigate to detailed view
-      router.push(`/details/${event.data.id}`);
+      router.replace(`/details/${event.data.id}`);
       break;
       
     case 'hover':

@@ -228,7 +228,7 @@ const WorkspacesPage: React.FC = () => {
   const handleSwitchWorkspace = async (workspaceSlug: string) => {
     try {
       // Handle workspace switch
-      router.push(`/workspace/${workspaceSlug}`);
+      router.replace(`/workspace/${workspaceSlug}`);
     } catch (error) {
       console.error('Error switching workspace:', error);
     }
@@ -370,7 +370,7 @@ const WorkspacesPage: React.FC = () => {
       label: 'Settings',
       icon: <SettingsIcon fontSize="small" />,
       onClick: (item) => {
-        router.push(`/workspace/${item.slug}/settings`);
+        router.replace(`/workspace/${item.slug}/settings`);
       },
       requiresPermission: 'workspace.update'
     },
@@ -378,7 +378,7 @@ const WorkspacesPage: React.FC = () => {
       label: 'Manage Members',
       icon: <PeopleIcon fontSize="small" />,
       onClick: (item) => {
-        router.push(`/workspace/${item.slug}/admin/user-management`);
+        router.replace(`/workspace/${item.slug}/admin/user-management`);
       },
       requiresPermission: 'user_mgmt.read'
     },
@@ -546,7 +546,7 @@ const WorkspacesPage: React.FC = () => {
         <Button
           size="small"
           startIcon={<SettingsIcon />}
-          onClick={() => router.push(`/workspace/${workspace.slug}/settings`)}
+          onClick={() => router.replace(`/workspace/${workspace.slug}/settings`)}
         >
           Settings
         </Button>

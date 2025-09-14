@@ -1,8 +1,8 @@
-// web-application/src/middleware/apiMiddleware.ts
+// web-application/src/middleware/apiMiddleware.ts - FIXED VERSION
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 import { store } from '@/store';
 import { logout, setCredentials } from '@/store/slices/authSlice';
-import { clearWorkspaces } from '@/store/slices/workspaceSlice'; // Fixed: Changed from clearWorkspace to clearWorkspaces
+import { clearWorkspaces } from '@/store/slices/workspaceSlice';
 
 export interface ApiError {
   code: string;
@@ -11,10 +11,27 @@ export interface ApiError {
   details?: any;
 }
 
+interface RefreshResponse {
+  success: boolean;
+  data?: {
+    token: string;
+    user: any;
+    workspace?: any;
+    permissions?: string[];
+  };
+  message?: string;
+}
+
+interface QueueItem {
+  resolve: (token: string) => void;
+  reject: (error: any) => void;
+}
+
 class ApiMiddleware {
   private api: AxiosInstance;
   private isRefreshing = false;
-  private failedQueue: any[] = [];
+  private failedQueue: QueueItem[] = [];
+  private refreshPromise: Promise<RefreshResponse> | null = null;
 
   constructor() {
     this.api = axios.create({
@@ -25,42 +42,36 @@ class ApiMiddleware {
       },
     });
 
-    this.setupRequestInterceptor();
-    this.setupResponseInterceptor();
+    this.setupInterceptors();
   }
 
-  private setupRequestInterceptor() {
+  private setupInterceptors() {
+    // Request interceptor
     this.api.interceptors.request.use(
       (config: InternalAxiosRequestConfig) => {
-        // Auto-inject authentication token
         const token = this.getToken();
+        const workspaceId = this.getWorkspaceId();
+        
         if (token && token !== 'undefined' && token !== 'null') {
           config.headers.Authorization = `Bearer ${token}`;
         }
-
-        // Auto-inject workspace context
-        const workspaceId = this.getWorkspaceId();
+        
         if (workspaceId) {
           config.headers['X-Workspace-Id'] = workspaceId;
         }
-
-        // Log outgoing requests in development
+        
         if (process.env.NODE_ENV === 'development') {
           console.log(`🚀 API Request: ${config.method?.toUpperCase()} ${config.url}`);
         }
-
+        
         return config;
       },
-      (error) => {
-        return Promise.reject(this.handleRequestError(error));
-      }
+      (error) => Promise.reject(this.handleRequestError(error))
     );
-  }
 
-  private setupResponseInterceptor() {
+    // Response interceptor with improved token refresh
     this.api.interceptors.response.use(
       (response: AxiosResponse) => {
-        // Handle successful responses
         if (process.env.NODE_ENV === 'development') {
           console.log(`✅ API Response: ${response.status} ${response.config.url}`);
         }
@@ -69,57 +80,94 @@ class ApiMiddleware {
       async (error: AxiosError) => {
         const originalRequest = error.config as any;
 
+        // Check for 401 error and token expiration
         if (error.response?.status === 401 && !originalRequest._retry) {
-          // Token might be expired or invalid
-          console.log('401 error detected, attempting token refresh or logout');
+          const errorData = error.response.data as any;
+          const errorCode = errorData?.error;
           
-          if (!this.isRefreshing) {
-            this.isRefreshing = true;
-            originalRequest._retry = true;
+          console.log('🔍 401 error detected:', { errorCode, canRefresh: errorData?.can_refresh });
+          
+          // Only try refresh if the backend indicates it's possible
+          if ((errorCode === 'TOKEN_EXPIRED' || errorCode === 'TOKEN_INVALID') && errorData?.can_refresh) {
+            
+            if (!this.isRefreshing) {
+              this.isRefreshing = true;
+              originalRequest._retry = true;
 
-            try {
-              // Attempt to refresh token
-              const refreshResponse = await this.refreshToken();
-              
-              if (refreshResponse) {
-                // Update token in store and localStorage
-                store.dispatch(setCredentials({
-                  user: refreshResponse.user,
-                  token: refreshResponse.token,
-                  workspace: refreshResponse.workspace,
-                  permissions: refreshResponse.permissions,
-                }));
-
-                // Process failed queue with new token
-                this.processQueue(null, refreshResponse.token);
+              try {
+                // Use shared refresh promise to prevent multiple simultaneous refreshes
+                if (!this.refreshPromise) {
+                  this.refreshPromise = this.refreshToken();
+                }
                 
-                // Retry original request with new token
-                if (originalRequest.headers) {
-                  originalRequest.headers.Authorization = `Bearer ${refreshResponse.token}`;
-                }
-                return this.api(originalRequest);
-              }
-            } catch (refreshError) {
-              console.error('Token refresh failed:', refreshError);
-              this.processQueue(refreshError, null);
-              this.handleAuthError();
-            } finally {
-              this.isRefreshing = false;
-            }
-          }
+                const refreshResponse = await this.refreshPromise;
+                
+                if (refreshResponse?.success && refreshResponse?.data?.token) {
+                  console.log('✅ Token refreshed successfully');
+                  
+                  // Update Redux store
+                  store.dispatch(setCredentials({
+                    user: refreshResponse.data.user,
+                    token: refreshResponse.data.token,
+                    workspace: refreshResponse.data.workspace,
+                    permissions: refreshResponse.data.permissions,
+                  }));
 
-          // Queue the request if refresh is in progress
-          return new Promise((resolve, reject) => {
-            this.failedQueue.push({
-              resolve: (token: string) => {
-                if (originalRequest.headers) {
-                  originalRequest.headers.Authorization = `Bearer ${token}`;
+                  // Update localStorage
+                  if (typeof window !== 'undefined') {
+                    localStorage.setItem('token', refreshResponse.data.token);
+                  }
+
+                  // Process all queued requests
+                  this.processQueue(null, refreshResponse.data.token);
+                  
+                  // Retry original request
+                  if (originalRequest.headers) {
+                    originalRequest.headers.Authorization = `Bearer ${refreshResponse.data.token}`;
+                  }
+                  
+                  return this.api(originalRequest);
+                } else {
+                  throw new Error(refreshResponse?.message || 'Token refresh failed');
                 }
-                resolve(this.api(originalRequest));
-              },
-              reject,
-            });
-          });
+                
+              } catch (refreshError: any) {
+                console.error('❌ Token refresh failed:', refreshError.message);
+                
+                // Process queue with error
+                this.processQueue(refreshError, null);
+                
+                // Handle auth error (logout and redirect)
+                this.handleAuthError();
+                
+                return Promise.reject(refreshError);
+                
+              } finally {
+                this.isRefreshing = false;
+                this.refreshPromise = null; // Reset the promise
+              }
+              
+            } else {
+              // Queue request while refresh is in progress
+              console.log('🔄 Token refresh in progress, queueing request...');
+              
+              return new Promise((resolve, reject) => {
+                this.failedQueue.push({
+                  resolve: (token: string) => {
+                    if (originalRequest.headers) {
+                      originalRequest.headers.Authorization = `Bearer ${token}`;
+                    }
+                    resolve(this.api(originalRequest));
+                  },
+                  reject,
+                });
+              });
+            }
+          } else {
+            // Can't refresh or other auth error - handle immediately
+            console.log('❌ Auth error that cannot be refreshed, logging out');
+            this.handleAuthError();
+          }
         }
 
         return Promise.reject(this.handleResponseError(error));
@@ -127,178 +175,50 @@ class ApiMiddleware {
     );
   }
 
-  private async refreshToken(): Promise<any> {
-  try {
-    console.log('🔄 Attempting token refresh...');
-    
-    // Get current token
-    const currentToken = this.getToken();
-    if (!currentToken) {
-      throw new Error('No current token available for refresh');
-    }
-
-    // Call refresh endpoint with current token
-    const refreshResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/refresh`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${currentToken}`
-      }
-    });
-
-    if (!refreshResponse.ok) {
-      // If refresh fails, the token is likely completely invalid
-      console.error('❌ Token refresh failed with status:', refreshResponse.status);
-      throw new Error(`Token refresh failed: ${refreshResponse.status}`);
-    }
-
-    const data = await refreshResponse.json();
-    
-    if (!data.success || !data.data?.token) {
-      console.error('❌ Invalid refresh response:', data);
-      throw new Error('Invalid refresh response format');
-    }
-
-    console.log('✅ Token refreshed successfully');
-    
-    return {
-      token: data.data.token,
-      user: data.data.user,
-      workspace: data.data.workspace,
-      permissions: data.data.permissions
-    };
-
-  } catch (error: any) {
-    console.error('❌ Token refresh error:', error.message);
-    throw error;
-  }
-}
-
-// ENHANCED: Better error handling in the interceptor
-private setupInterceptors() {
-  this.api.interceptors.request.use(
-    (config: any) => {
-      const token = this.getToken();
-      const workspaceId = this.getWorkspaceId();
+  private async refreshToken(): Promise<RefreshResponse> {
+    try {
+      console.log('🔄 Attempting token refresh...');
       
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+      const currentToken = this.getToken();
+      if (!currentToken) {
+        throw new Error('No current token available for refresh');
       }
-      
-      if (workspaceId) {
-        config.headers['X-Workspace-ID'] = workspaceId;
-      }
-      
-      return config;
-    },
-    (error) => Promise.reject(error)
-  );
 
-  this.api.interceptors.response.use(
-    (response) => response,
-    async (error) => {
-      const originalRequest: any = error.config;
-
-      // Check if this is a token expiration error
-      if (error.response?.status === 401 && !originalRequest._retry) {
-        console.log('🔍 401 error detected, attempting token refresh...');
-        
-        // Check if the error is specifically about token expiration
-        const errorCode = error.response?.data?.error;
-        if (errorCode === 'TOKEN_EXPIRED' || errorCode === 'TOKEN_INVALID') {
-          
-          if (!this.isRefreshing) {
-            this.isRefreshing = true;
-            originalRequest._retry = true;
-
-            try {
-              const refreshResponse = await this.refreshToken();
-              
-              if (refreshResponse?.token) {
-                // Update token in store and localStorage
-                store.dispatch(setCredentials({
-                  user: refreshResponse.user,
-                  token: refreshResponse.token,
-                  workspace: refreshResponse.workspace,
-                  permissions: refreshResponse.permissions,
-                }));
-
-                // Update localStorage as backup
-                if (typeof window !== 'undefined') {
-                  localStorage.setItem('token', refreshResponse.token);
-                }
-
-                // Process failed queue with new token
-                this.processQueue(null, refreshResponse.token);
-                
-                // Retry original request with new token
-                if (originalRequest.headers) {
-                  originalRequest.headers.Authorization = `Bearer ${refreshResponse.token}`;
-                }
-                
-                console.log('✅ Retrying original request with new token');
-                return this.api(originalRequest);
-              }
-            } catch (refreshError: any) {
-              console.error('❌ Token refresh failed:', refreshError.message);
-              this.processQueue(refreshError, null);
-              this.handleAuthError();
-              return Promise.reject(refreshError);
-            } finally {
-              this.isRefreshing = false;
-            }
-          } else {
-            // Queue the request if refresh is already in progress
-            console.log('🔄 Token refresh in progress, queueing request...');
-            return new Promise((resolve, reject) => {
-              this.failedQueue.push({
-                resolve: (token: string) => {
-                  if (originalRequest.headers) {
-                    originalRequest.headers.Authorization = `Bearer ${token}`;
-                  }
-                  resolve(this.api(originalRequest));
-                },
-                reject,
-              });
-            });
-          }
+      const refreshResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentToken}`,
         }
+      });
+
+      if (!refreshResponse.ok) {
+        throw new Error(`Token refresh failed with status: ${refreshResponse.status}`);
       }
 
-      return Promise.reject(this.handleResponseError(error));
-    }
-  );
-}
+      const data: RefreshResponse = await refreshResponse.json();
+      
+      if (!data.success || !data.data?.token) {
+        console.error('❌ Invalid refresh response:', data);
+        throw new Error(data.message || 'Invalid refresh response format');
+      }
 
-private handleAuthError() {
-  console.log('🚪 Handling authentication error - clearing session and redirecting');
-  
-  // Clear authentication state
-  store.dispatch(logout());
-  store.dispatch(clearWorkspaces());
-  
-  // Clear localStorage
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('workspace');
+      return data;
+      
+    } catch (error: any) {
+      console.error('❌ Token refresh error:', error.message);
+      throw error;
+    }
   }
-  
-  // Redirect to login
-  if (typeof window !== 'undefined') {
-    // Give a small delay to ensure state is cleared
-    setTimeout(() => {
-      window.location.href = '/login';
-    }, 100);
-  }
-}
 
   private processQueue(error: any, token: string | null) {
     this.failedQueue.forEach(({ resolve, reject }) => {
       if (error) {
         reject(error);
-      } else {
+      } else if (token) {
         resolve(token);
+      } else {
+        reject(new Error('No token available'));
       }
     });
     
@@ -306,39 +226,53 @@ private handleAuthError() {
   }
 
   private handleAuthError() {
-    // Clear authentication state
-    store.dispatch(logout());
-    store.dispatch(clearWorkspaces()); // Fixed: Now using clearWorkspaces
+    console.log('🚪 Handling authentication error - clearing session');
     
-    // Redirect to login
+    // Clear Redux state
+    store.dispatch(logout());
+    store.dispatch(clearWorkspaces());
+    
+    // Clear localStorage
     if (typeof window !== 'undefined') {
-      window.location.href = '/login';
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('workspace');
+      localStorage.removeItem('selected_workspace_id');
+    }
+    
+    // Redirect to login with a small delay to prevent redirect loops
+    if (typeof window !== 'undefined') {
+      setTimeout(() => {
+        // Check if already on login page to prevent redirect loops
+        if (!window.location.pathname.includes('/login')) {
+          window.location.href = '/login';
+        }
+      }, 100);
     }
   }
 
   private getToken(): string | null {
-    // Try to get token from Redux store first
+    // Try Redux store first
     const state = store.getState();
-    if (state.auth.token) {
+    if (state.auth.token && state.auth.token !== 'null' && state.auth.token !== 'undefined') {
       return state.auth.token;
     }
     
     // Fallback to localStorage
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('token');
+      const token = localStorage.getItem('token');
+      return token && token !== 'null' && token !== 'undefined' ? token : null;
     }
     
     return null;
   }
 
   private getWorkspaceId(): string | null {
-    // Try to get workspace ID from Redux store
     const state = store.getState();
     if (state.workspace.current?.id) {
       return state.workspace.current.id;
     }
     
-    // Fallback to localStorage
     if (typeof window !== 'undefined') {
       return localStorage.getItem('selected_workspace_id');
     }
@@ -360,16 +294,14 @@ private handleAuthError() {
     const request = error.request;
 
     if (response) {
-      // Server responded with error status
       const data = response.data as any;
       return {
-        code: data?.code || 'SERVER_ERROR',
+        code: data?.code || data?.error || 'SERVER_ERROR',
         message: data?.message || data?.error || error.message,
         status: response.status,
         details: data,
       };
     } else if (request) {
-      // Network error
       return {
         code: 'NETWORK_ERROR',
         message: 'Network connection error',
@@ -377,7 +309,6 @@ private handleAuthError() {
         details: error,
       };
     } else {
-      // Request setup error
       return {
         code: 'REQUEST_SETUP_ERROR',
         message: error.message || 'Request setup failed',
@@ -387,12 +318,10 @@ private handleAuthError() {
     }
   }
 
-  // Public method to get the axios instance
   public getInstance(): AxiosInstance {
     return this.api;
   }
 
-  // Public method for manual API calls
   public async request<T = any>(config: any): Promise<T> {
     const response = await this.api.request(config);
     return response.data;

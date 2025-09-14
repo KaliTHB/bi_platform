@@ -102,7 +102,7 @@ const WebviewPage: React.FC<WebviewPageProps> = ({ webviewName }) => {
   }, [webviewName]);
 
   const handleCategoryClick = (category: Category) => {
-    router.push(`/${webviewName}/category/${category.slug}`);
+    router.replace(`/${webviewName}/category/${category.slug}`);
   };
 
   if (loading) {
@@ -130,7 +130,7 @@ const WebviewPage: React.FC<WebviewPageProps> = ({ webviewName }) => {
               {error || 'The requested webview could not be found or is not accessible.'}
             </p>
             <button
-              onClick={() => router.push('/')}
+              onClick={() => router.replace('/')}
               className="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors"
             >
               Go Home

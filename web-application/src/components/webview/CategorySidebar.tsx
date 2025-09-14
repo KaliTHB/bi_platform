@@ -182,7 +182,7 @@ export const CategorySidebar: React.FC<CategorySidebarProps> = ({
     
     // Navigate to dashboard
     if (webviewSlug) {
-      router.push(`/${webviewSlug}/${dashboard.dashboard_id}`);
+      router.replace(`/${webviewSlug}/${dashboard.dashboard_id}`);
     }
   };
 

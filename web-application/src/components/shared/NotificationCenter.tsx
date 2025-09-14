@@ -177,7 +177,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               }}
               onClick={() => {
                 // Navigate to notifications page or clear all
-                // router.push('/notifications');
+                // router.replace('/notifications');
                 onClose();
               }}
             >

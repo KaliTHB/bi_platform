@@ -129,27 +129,44 @@ export class AuthController {
    * POST /api/auth/switch-workspace
    */
   // api-services/src/controllers/AuthController.ts
-// Update the switchWorkspace method to use workspace_id instead of workspace_slug
-
+  /**
+ * Switch user workspace
+ * POST /api/auth/switch-workspace
+ */
 public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
+    console.log('🔄 AuthController: Switch workspace request received');
     const userId = req.user?.user_id;
     const userEmail = req.user?.email;
+    const { workspace_id } = req.body; // ✅ FIX: Expect workspace_id
 
+    // Validate authentication
     if (!userId || !userEmail) {
+      console.log('⚠️ AuthController: Missing authentication');
+      logger.warn('Workspace switch requested without proper authentication', {
+        userId: userId || 'undefined',
+        userEmail: userEmail || 'undefined',
+        service: 'bi-platform-api'
+      });
+
       res.status(401).json({
         success: false,
-        message: 'Authentication required',
+        message: 'Authentication required to switch workspace',
         error: 'AUTHENTICATION_REQUIRED'
       });
       return;
     }
 
-    // ✅ CHANGE: Extract workspace_id instead of workspace_slug
-    const { workspace_id } = req.body;
-    
+    // ✅ FIX: Validate workspace_id (not workspace_slug)
     if (!workspace_id || typeof workspace_id !== 'string') {
-      console.log('⚠️ AuthController: Missing workspace ID');
+      console.log('⚠️ AuthController: Missing workspace_id');
+      logger.warn('Workspace switch without workspace_id', {
+        userId,
+        userEmail,
+        request_body: req.body,
+        service: 'bi-platform-api'
+      });
+
       res.status(400).json({
         success: false,
         message: 'Workspace ID is required',
@@ -161,12 +178,12 @@ public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promi
     logger.info('Workspace switch attempt', {
       userId,
       userEmail,
-      workspaceId: workspace_id, // ✅ CHANGE: Log workspace ID
+      workspaceId: workspace_id,
       ip: req.ip,
       service: 'bi-platform-api'
     });
 
-    // ✅ CHANGE: Use AuthService with workspace ID
+    // Use AuthService to handle workspace switch
     const result = await this.authService.switchWorkspace(userId, workspace_id);
 
     if (!result.success) {
@@ -174,7 +191,7 @@ public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promi
       logger.warn('Workspace switch failed', {
         userId,
         userEmail,
-        workspaceId: workspace_id, // ✅ CHANGE: Log workspace ID
+        workspaceId: workspace_id,
         error: result.error,
         service: 'bi-platform-api'
       });

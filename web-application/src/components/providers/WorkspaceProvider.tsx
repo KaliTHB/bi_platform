@@ -89,7 +89,7 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
         
         // If we're on the overview page with no workspace selected, redirect
         if (router.pathname === '/workspace/overview' && router.query.slug === undefined) {
-          await router.push(`/workspace/${defaultWorkspace.slug}`);
+          await router.replace(`/workspace/${defaultWorkspace.slug}`);
         }
         
         console.log('✅ Auto-selected workspace:', defaultWorkspace.name);

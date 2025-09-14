@@ -426,7 +426,7 @@ const ChartsPage: NextPage = () => {
       icon: <ViewIcon fontSize="small" />,
       onClick: (chart) => {
         if (chart.dashboard_id) {
-          router.push(`/workspace/dashboard/${chart.dashboard_id}?highlight=${chart.id}`);
+          router.replace(`/workspace/dashboard/${chart.dashboard_id}?highlight=${chart.id}`);
         } else {
           // Open chart preview in modal or new page
           window.open(`/workspace/chart-preview/${chart.id}`, '_blank');
@@ -438,7 +438,7 @@ const ChartsPage: NextPage = () => {
       label: 'Update Chart (Builder)',
       icon: <UpdateIcon fontSize="small" />,
       onClick: (chart) => {
-        router.push(`/workspace/chart-builder?id=${chart.id}`);
+        router.replace(`/workspace/chart-builder?id=${chart.id}`);
       },
       color: 'info',
       show: () => hasPermission('chart.update')
@@ -465,7 +465,7 @@ const ChartsPage: NextPage = () => {
       label: 'Chart Settings',
       icon: <SettingsIcon fontSize="small" />,
       onClick: (chart) => {
-        router.push(`/workspace/charts/${chart.id}/settings`);
+        router.replace(`/workspace/charts/${chart.id}/settings`);
       },
       color: 'default',
       show: () => hasPermission('chart.update')
@@ -528,7 +528,7 @@ const ChartsPage: NextPage = () => {
 
   // Handle chart actions
   const handleCreateChart = () => {
-    router.push(`/workspace/chart-builder`);
+    router.replace(`/workspace/chart-builder`);
   };
 
   const handleEditChart = (chart: ChartData) => {

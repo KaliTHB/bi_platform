@@ -592,7 +592,7 @@ const DashboardBuilderPage: React.FC = () => {
       await new Promise(resolve => setTimeout(resolve, 1500));
       
       console.log('Dashboard saved successfully!');
-      // router.push(`/workspace/${workspace?.slug}/dashboards`);
+      // router.replace(`/workspace/${workspace?.slug}/dashboards`);
     } catch (error) {
       console.error('Failed to save dashboard:', error);
     } finally {

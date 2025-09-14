@@ -137,7 +137,7 @@ const DashboardTemplate: React.FC<DashboardTemplateProps> = ({
     if (onEdit) {
       onEdit();
     } else {
-      router.push(`/workspace/${workspaceSlug}/dashboard/${dashboard?.slug}/edit`);
+      router.replace(`/workspace/${workspaceSlug}/dashboard/${dashboard?.slug}/edit`);
     }
   };
 
@@ -228,7 +228,7 @@ const DashboardTemplate: React.FC<DashboardTemplateProps> = ({
                 href="#"
                 onClick={(e) => {
                   e.preventDefault();
-                  router.push(`/workspace/${workspaceSlug}`);
+                  router.replace(`/workspace/${workspaceSlug}`);
                 }}
                 sx={{ display: 'flex', alignItems: 'center' }}
               >
@@ -240,7 +240,7 @@ const DashboardTemplate: React.FC<DashboardTemplateProps> = ({
                 href="#"
                 onClick={(e) => {
                   e.preventDefault();
-                  router.push(`/workspace/${workspaceSlug}/dashboards`);
+                  router.replace(`/workspace/${workspaceSlug}/dashboards`);
                 }}
               >
                 Dashboards

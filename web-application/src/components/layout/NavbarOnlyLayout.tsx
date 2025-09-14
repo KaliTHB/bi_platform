@@ -62,11 +62,11 @@ const NavbarOnlyLayout: React.FC<NavbarOnlyLayoutProps> = ({
   };
 
   const handleNavigateHome = () => {
-    router.push(`/workspace/${workspace?.slug}`);
+    router.replace(`/workspace/${workspace?.slug}`);
   };
 
   const handleNavigateSettings = () => {
-    router.push(`/workspace/${workspace?.slug}/settings`);
+    router.replace(`/workspace/${workspace?.slug}/settings`);
     handleUserMenuClose();
   };
 
@@ -106,7 +106,7 @@ const NavbarOnlyLayout: React.FC<NavbarOnlyLayoutProps> = ({
                     onClick={(e) => {
                       if (breadcrumb.href) {
                         e.preventDefault();
-                        router.push(breadcrumb.href);
+                        router.replace(breadcrumb.href);
                       }
                     }}
                     sx={{ 

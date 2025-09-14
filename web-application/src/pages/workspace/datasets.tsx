@@ -420,7 +420,7 @@ const DatasetsPage: NextPage = () => {
 
   // Event handlers
   const handleCreateDataset = () => {
-    router.push(`/workspace/${workspace?.slug}/dataset-builder`);
+    router.replace(`/workspace/${workspace?.slug}/dataset-builder`);
   };
 
   const handleEditDataset = (dataset: DatasetData) => {
@@ -482,7 +482,7 @@ const DatasetsPage: NextPage = () => {
   };
 
   const handleDuplicateDataset = (dataset: DatasetData) => {
-    router.push(`/workspace/${workspace?.slug}/dataset-builder?duplicate=${dataset.id}`);
+    router.replace(`/workspace/${workspace?.slug}/dataset-builder?duplicate=${dataset.id}`);
   };
 
   const handleToggleDatasetStatus = async (dataset: DatasetData) => {
@@ -769,7 +769,7 @@ const DatasetsPage: NextPage = () => {
       label: 'Preview Data',
       icon: <VisibilityIcon fontSize="small" />,
       onClick: (dataset) => {
-        router.push(`/workspace/${workspace?.slug}/datasets/${dataset.id}/preview`);
+        router.replace(`/workspace/${workspace?.slug}/datasets/${dataset.id}/preview`);
       },
       show: (dataset) => hasPermission('dataset.read') && dataset.status === 'active',
       color: 'primary'
@@ -778,7 +778,7 @@ const DatasetsPage: NextPage = () => {
       label: 'Execute Query',
       icon: <ExecuteIcon fontSize="small" />,
       onClick: (dataset) => {
-        router.push(`/workspace/${workspace?.slug}/sql-editor?dataset=${dataset.id}`);
+        router.replace(`/workspace/${workspace?.slug}/sql-editor?dataset=${dataset.id}`);
       },
       show: (dataset) => hasPermission('dataset.read') && (dataset.type === 'query' || dataset.type === 'transformation'),
       color: 'info'
@@ -803,7 +803,7 @@ const DatasetsPage: NextPage = () => {
       label: 'View Analytics',
       icon: <AnalyticsIcon fontSize="small" />,
       onClick: (dataset) => {
-        router.push(`/workspace/${workspace?.slug}/datasets/${dataset.id}/analytics`);
+        router.replace(`/workspace/${workspace?.slug}/datasets/${dataset.id}/analytics`);
       },
       show: (dataset) => hasPermission('dataset.read') && dataset.usage_stats,
       color: 'info'
@@ -819,7 +819,7 @@ const DatasetsPage: NextPage = () => {
       label: 'Dataset Settings',
       icon: <SettingsIcon fontSize="small" />,
       onClick: (dataset) => {
-        router.push(`/workspace/${workspace?.slug}/datasets/${dataset.id}/settings`);
+        router.replace(`/workspace/${workspace?.slug}/datasets/${dataset.id}/settings`);
       },
       show: (dataset) => hasPermission('dataset.update') && 
         (dataset.owner_id === user?.id || hasPermission('dataset.admin')),

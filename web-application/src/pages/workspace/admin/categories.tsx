@@ -597,7 +597,7 @@ const CategoriesAdminPage: NextPage = () => {
       label: 'View Category',
       icon: <ViewIcon fontSize="small" />,
       onClick: (category) => {
-        router.push(`/workspace/${workspace?.slug}/dashboards?category=${category.id}`);
+        router.replace(`/workspace/${workspace?.slug}/dashboards?category=${category.id}`);
       },
       color: 'primary'
     },

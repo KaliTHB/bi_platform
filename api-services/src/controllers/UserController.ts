@@ -240,7 +240,6 @@ public async getUserWorkspaces(req: AuthenticatedRequest, res: Response): Promis
       success: true,
       message: 'Workspaces retrieved successfully using AuthService',
       data: workspaces,
-      workspaces: workspaces,
       count: workspaces.length
     });
 

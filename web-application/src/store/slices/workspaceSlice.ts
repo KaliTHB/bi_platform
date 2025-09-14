@@ -1,41 +1,64 @@
-// web-application/src/store/slices/workspaceSlice.ts - FIXED VERSION
-import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
+// web-application/src/store/slices/workspaceSlice.ts
+import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
+import type { Workspace } from '@/types/auth';
 
-export interface Workspace {
-  id: string;
-  name: string;
-  slug: string;
-  display_name?: string;
-  description?: string;
-  logo_url?: string;
-  settings?: any;
-  user_role?: string;
-  member_count?: number;
-  dashboard_count?: number;
-  dataset_count?: number;
-  is_active?: boolean;
-  is_default?: boolean;
-  created_at?: string;
-  updated_at?: string;
-}
-
-export interface WorkspaceState {
+interface WorkspaceState {
   currentWorkspace: Workspace | null;
   availableWorkspaces: Workspace[];
   isLoading: boolean;
+  isInitialized: boolean;
   error: string | null;
-  isInitialized: boolean; // Track if workspace has been initialized
 }
 
 const initialState: WorkspaceState = {
   currentWorkspace: null,
   availableWorkspaces: [],
   isLoading: false,
-  error: null,
   isInitialized: false,
+  error: null,
 };
 
-// Async thunk to fetch user's workspaces
+// Consolidated localStorage key
+const WORKSPACE_STORAGE_KEY = 'currentWorkspace';
+
+// Helper functions for localStorage operations
+const setWorkspaceStorage = (workspace: Workspace | null) => {
+  if (typeof window !== 'undefined') {
+    if (workspace) {
+      localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspace));
+    } else {
+      localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+    }
+  }
+};
+
+const getWorkspaceStorage = (): Workspace | null => {
+  if (typeof window === 'undefined') return null;
+  
+  try {
+    const stored = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch (error) {
+    console.error('❌ Error parsing stored workspace:', error);
+    // Clear corrupted data
+    localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+    return null;
+  }
+};
+
+const clearWorkspaceStorage = () => {
+  if (typeof window !== 'undefined') {
+    // Remove new key
+    localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+    
+    // Clean up old keys for migration
+    localStorage.removeItem('workspace');
+    localStorage.removeItem('auth_workspace');
+    localStorage.removeItem('selected_workspace_id');
+  }
+};
+
+// Async thunks
 export const fetchUserWorkspaces = createAsyncThunk(
   'workspace/fetchUserWorkspaces',
   async (_, { getState, rejectWithValue }) => {
@@ -47,8 +70,7 @@ export const fetchUserWorkspaces = createAsyncThunk(
         throw new Error('No authentication token available');
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'}/user/workspaces`, {
-        method: 'GET',
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/user/workspaces`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -76,7 +98,6 @@ export const fetchUserWorkspaces = createAsyncThunk(
   }
 );
 
-// Async thunk to switch workspace
 export const switchWorkspace = createAsyncThunk(
   'workspace/switchWorkspace',
   async (workspaceSlug: string, { getState, rejectWithValue }) => {
@@ -123,11 +144,8 @@ const workspaceSlice = createSlice({
       state.currentWorkspace = action.payload;
       state.error = null;
       
-      // Store in localStorage for persistence
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('workspace', JSON.stringify(action.payload));
-        localStorage.setItem('selected_workspace_id', action.payload.id);
-      }
+      // Store in localStorage using consolidated key
+      setWorkspaceStorage(action.payload);
     },
     
     setAvailableWorkspaces: (state, action: PayloadAction<Workspace[]>) => {
@@ -140,11 +158,8 @@ const workspaceSlice = createSlice({
       state.currentWorkspace = null;
       state.error = null;
       
-      // Clear from localStorage
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('workspace');
-        localStorage.removeItem('selected_workspace_id');
-      }
+      // Clear from localStorage using consolidated key
+      setWorkspaceStorage(null);
     },
     
     clearWorkspaces: (state) => {
@@ -154,11 +169,8 @@ const workspaceSlice = createSlice({
       state.error = null;
       state.isInitialized = false;
       
-      // Clear from localStorage
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('workspace');
-        localStorage.removeItem('selected_workspace_id');
-      }
+      // Clear from localStorage using consolidated key
+      clearWorkspaceStorage();
     },
     
     setWorkspaceLoading: (state, action: PayloadAction<boolean>) => {
@@ -175,7 +187,7 @@ const workspaceSlice = createSlice({
       state.error = null;
     },
     
-    // FIXED: Initialize workspace from localStorage only if not already initialized
+    // Initialize workspace from localStorage only if not already initialized
     initializeWorkspace: (state) => {
       // Prevent re-initialization
       if (state.isInitialized) {
@@ -184,29 +196,19 @@ const workspaceSlice = createSlice({
       }
 
       try {
-        if (typeof window === 'undefined') {
-          console.log('🏢 Redux: Server-side rendering, skipping localStorage access');
-          return;
-        }
-
-        const storedWorkspace = localStorage.getItem('workspace');
+        const storedWorkspace = getWorkspaceStorage();
         
         console.log('🏢 Redux: Initializing workspace from localStorage', {
           hasStoredWorkspace: !!storedWorkspace,
-          storedData: storedWorkspace ? JSON.parse(storedWorkspace) : null
+          storedData: storedWorkspace
         });
         
-        if (storedWorkspace) {
-          const workspace = JSON.parse(storedWorkspace);
-          
-          // Validate workspace object structure
-          if (workspace && workspace.id && workspace.name) {
-            console.log('✅ Redux: Valid workspace found, setting as current', workspace);
-            state.currentWorkspace = workspace;
-          } else {
-            console.log('❌ Redux: Invalid workspace data found, clearing');
-            localStorage.removeItem('workspace');
-          }
+        if (storedWorkspace && storedWorkspace.id && storedWorkspace.name) {
+          console.log('✅ Redux: Valid workspace found, setting as current', storedWorkspace);
+          state.currentWorkspace = storedWorkspace;
+        } else if (storedWorkspace) {
+          console.log('❌ Redux: Invalid workspace data found, clearing');
+          clearWorkspaceStorage();
         } else {
           console.log('🏢 Redux: No stored workspace found');
         }
@@ -216,10 +218,7 @@ const workspaceSlice = createSlice({
       } catch (error) {
         console.error('❌ Redux: Error initializing workspace from localStorage', error);
         // Clear corrupted data
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('workspace');
-          localStorage.removeItem('selected_workspace_id');
-        }
+        clearWorkspaceStorage();
         state.isInitialized = true;
       }
     },
@@ -243,10 +242,8 @@ const workspaceSlice = createSlice({
         
         if (action.payload.currentWorkspace) {
           state.currentWorkspace = action.payload.currentWorkspace;
-          // Store in localStorage
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('workspace', JSON.stringify(action.payload.currentWorkspace));
-          }
+          // Store in localStorage using consolidated key
+          setWorkspaceStorage(action.payload.currentWorkspace);
         }
         
         state.isLoading = false;
@@ -268,13 +265,12 @@ const workspaceSlice = createSlice({
       .addCase(switchWorkspace.fulfilled, (state, action) => {
         console.log('✅ Redux: Workspace switched successfully');
         state.currentWorkspace = action.payload;
+        
+        // Store in localStorage using consolidated key
+        setWorkspaceStorage(action.payload);
+        
         state.isLoading = false;
         state.error = null;
-        
-        // Store in localStorage
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('workspace', JSON.stringify(action.payload));
-        }
       })
       .addCase(switchWorkspace.rejected, (state, action) => {
         console.log('❌ Redux: Failed to switch workspace', action.payload);

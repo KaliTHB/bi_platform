@@ -158,11 +158,11 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
 };
 
   const handleNavigation = (path: string) => {
-    router.push(`/workspace/${path}`);
+    router.replace(`/workspace/${path}`);
   };
 
   const handleCreateDashboard = () => {
-    router.push('/workspace/dashboard-builder');
+    router.replace('/workspace/dashboard-builder');
   };
 
   // Filter workspaces based on search

@@ -197,7 +197,7 @@ const DashboardPage: NextPage = () => {
   // Handle navigation back to workspace
   const handleBack = useCallback(() => {
     if (workspace?.slug) {
-      router.push(`/workspace/${workspace.slug}`);
+      router.replace(`/workspace/${workspace.slug}`);
     } else {
       router.back();
     }
@@ -272,7 +272,7 @@ const DashboardPage: NextPage = () => {
   // Handle edit navigation
   const handleEdit = useCallback(() => {
     if (workspace?.slug && dashboardId) {
-      router.push(`/workspace/${workspace.slug}/dashboard-builder/${dashboardId}`);
+      router.replace(`/workspace/${workspace.slug}/dashboard-builder/${dashboardId}`);
     }
     handleMenuClose();
   }, [router, workspace, dashboardId]);

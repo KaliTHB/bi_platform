@@ -56,14 +56,14 @@ const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
 
   const handleProfile = () => {
     if (workspace) {
-      router.push(`/workspace/${workspace.slug}/profile`);
+      router.replace(`/workspace/${workspace.slug}/profile`);
     }
     handleClose();
   };
 
   const handleSettings = () => {
     if (workspace) {
-      router.push(`/workspace/${workspace.slug}/admin`);
+      router.replace(`/workspace/${workspace.slug}/admin`);
     }
     handleClose();
   };
@@ -74,10 +74,10 @@ const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
     if (workspace) {
       // If we're on a workspace-specific page, go to workspace-specific overview
       if (workspaceSlug && typeof workspaceSlug === 'string') {
-        router.push(`/workspace/${workspaceSlug}/overview`);
+        router.replace(`/workspace/${workspaceSlug}/overview`);
       } else {
         // Go to general overview
-        router.push('/workspace/overview');
+        router.replace('/workspace/overview');
       }
     } else {
       // Redirect to login to get default workspace
@@ -100,7 +100,7 @@ const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
   // Handle webview navigation
   const handleWebviewNavigation = (path: string) => {
     if (workspace) {
-      router.push(`/workspace/${workspace.slug}/${path}`);
+      router.replace(`/workspace/${workspace.slug}/${path}`);
     }
     handleClose();
   };
@@ -108,7 +108,7 @@ const Navigation: React.FC<NavigationProps> = ({ title = 'BI Platform' }) => {
   // Handle admin navigation
   const handleAdminNavigation = (path: string) => {
     if (workspace) {
-      router.push(`/workspace/${workspace.slug}/admin/${path}`);
+      router.replace(`/workspace/${workspace.slug}/admin/${path}`);
     }
     handleClose();
   };

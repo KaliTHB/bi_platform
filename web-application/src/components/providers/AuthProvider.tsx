@@ -102,7 +102,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Don't redirect if already on a public route
       if (!publicRoutes.some(route => currentPath.startsWith(route))) {
         console.log('🚫 AuthProvider: Not authenticated, redirecting to login');
-        router.push('/login');
+        router.replace('/login');
       }
     }
   }, [auth.isInitialized, auth.isAuthenticated, auth.isLoading, router]);
@@ -135,7 +135,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Note: logout action should be imported and dispatched from authSlice
     
     // Redirect to login
-    router.push('/login');
+    router.replace('/login');
   };
 
   // Refresh auth function

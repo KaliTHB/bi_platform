@@ -29,7 +29,7 @@ export default function AccessDeniedPage() {
           </Button>
           <Button 
             variant="outlined" 
-            onClick={() => router.push('/workspace-selector')}
+            onClick={() => router.replace('/workspace-selector')}
           >
             Select Workspace
           </Button>

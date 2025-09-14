@@ -65,31 +65,31 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
     // Route to actual pages instead of content switching
     switch (contentType) {
       case 'dashboard-builder':
-        router.push(`/workspace/${workspace?.slug}/dashboard-builder`);
+        router.replace(`/workspace/${workspace?.slug}/dashboard-builder`);
         break;
       case 'sql-editor':
-        router.push(`/workspace/${workspace?.slug}/sql-editor`);
+        router.replace(`/workspace/${workspace?.slug}/sql-editor`);
         break;
       case 'workspace-settings':
-        router.push(`/workspace/${workspace?.slug}/admin/settings`);
+        router.replace(`/workspace/${workspace?.slug}/admin/settings`);
         break;
       case 'users':
-        router.push(`/workspace/${workspace?.slug}/admin/users`);
+        router.replace(`/workspace/${workspace?.slug}/admin/users`);
         break;
       case 'settings':
-        router.push(`/workspace/${workspace?.slug}/admin`);
+        router.replace(`/workspace/${workspace?.slug}/admin`);
         break;
       case 'categories':
-        router.push(`/workspace/${workspace?.slug}/admin/categories`);
+        router.replace(`/workspace/${workspace?.slug}/admin/categories`);
         break;
       case 'recent':
       case 'favorites':
         // These could be query parameters on the overview page
-        router.push(`/workspace/${workspace?.slug}?filter=${contentType}`);
+        router.replace(`/workspace/${workspace?.slug}?filter=${contentType}`);
         break;
       case 'overview':
       default:
-        router.push(`/workspace/${workspace?.slug}`);
+        router.replace(`/workspace/${workspace?.slug}`);
         break;
     }
   };
@@ -129,7 +129,7 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
             <Button 
               variant="contained" 
               sx={{ mt: 2 }}
-              onClick={() => router.push(`/workspace/${workspace?.slug}/dashboard-builder`)}
+              onClick={() => router.replace(`/workspace/${workspace?.slug}/dashboard-builder`)}
             >
               Go to Dashboard Builder
             </Button>
@@ -148,7 +148,7 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
             <Button 
               variant="contained" 
               sx={{ mt: 2 }}
-              onClick={() => router.push(`/workspace/${workspace?.slug}/sql-editor`)}
+              onClick={() => router.replace(`/workspace/${workspace?.slug}/sql-editor`)}
             >
               Go to SQL Editor
             </Button>
@@ -263,7 +263,7 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
             >
               <MenuItem onClick={() => {
                 handleUserMenuClose();
-                router.push(`/workspace/${workspace?.slug}`);
+                router.replace(`/workspace/${workspace?.slug}`);
               }}>
                 <ListItemIcon>
                   <AccountCircle fontSize="small" />
@@ -283,7 +283,7 @@ const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
 
               <MenuItem onClick={() => {
                 handleUserMenuClose();
-                router.push('/support');
+                router.replace('/support');
               }}>
                 <ListItemIcon>
                   <ContactSupport fontSize="small" />

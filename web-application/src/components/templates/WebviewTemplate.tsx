@@ -420,7 +420,7 @@ const WebviewTemplate: React.FC<WebviewTemplateProps> = ({
                           variant="outlined"
                           fullWidth
                           sx={{ py: 2, textAlign: 'left', justifyContent: 'flex-start' }}
-                          onClick={() => router.push(`/${webviewName}/category/${category.slug}`)}
+                          onClick={() => router.replace(`/${webviewName}/category/${category.slug}`)}
                         >
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             {category.icon && <span>{category.icon}</span>}

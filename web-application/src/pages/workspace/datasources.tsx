@@ -348,7 +348,7 @@ const DataSourcesPage: NextPage = () => {
 
   // Event handlers
   const handleCreateDataSource = () => {
-    router.push(`/workspace/${workspace?.slug}/datasource-builder`);
+    router.replace(`/workspace/${workspace?.slug}/datasource-builder`);
   };
 
   const handleEditDataSource = (dataSource: DataSourceData) => {
@@ -414,7 +414,7 @@ const DataSourcesPage: NextPage = () => {
   };
 
   const handleDuplicateDataSource = (dataSource: DataSourceData) => {
-    router.push(`/workspace/${workspace?.slug}/datasource-builder?duplicate=${dataSource.id}`);
+    router.replace(`/workspace/${workspace?.slug}/datasource-builder?duplicate=${dataSource.id}`);
   };
 
   const handleShareDataSource = (dataSource: DataSourceData) => {
@@ -672,7 +672,7 @@ const DataSourcesPage: NextPage = () => {
       label: 'View Schema',
       icon: <SchemaIcon fontSize="small" />,
       onClick: (dataSource) => {
-        router.push(`/workspace/${workspace?.slug}/datasources/${dataSource.id}/schema`);
+        router.replace(`/workspace/${workspace?.slug}/datasources/${dataSource.id}/schema`);
       },
       show: (dataSource) => hasPermission('datasource.read') && dataSource.status === 'connected',
       color: 'default'
@@ -689,7 +689,7 @@ const DataSourcesPage: NextPage = () => {
       label: 'View Analytics',
       icon: <AnalyticsIcon fontSize="small" />,
       onClick: (dataSource) => {
-        router.push(`/workspace/${workspace?.slug}/datasources/${dataSource.id}/analytics`);
+        router.replace(`/workspace/${workspace?.slug}/datasources/${dataSource.id}/analytics`);
       },
       show: (dataSource) => hasPermission('datasource.read') && dataSource.usage_stats,
       color: 'info'

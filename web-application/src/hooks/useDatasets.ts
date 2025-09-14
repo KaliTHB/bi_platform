@@ -57,9 +57,7 @@ export const useDatasets = (): UseDatasetsResult => {
 
   // Helper function to get auth headers
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token') || 
-                  localStorage.getItem('authToken') ||
-                  localStorage.getItem('token');
+    const token = localStorage.getItem('token');
     
     if (!token) {
       throw new Error('No authentication token found');
@@ -77,7 +75,7 @@ export const useDatasets = (): UseDatasetsResult => {
     
     if (error.message?.includes('token') || error.status === 401) {
       // Token expired - redirect to login
-      router.push('/login');
+      router.replace('/login');
       return 'Authentication expired. Please log in again.';
     }
     

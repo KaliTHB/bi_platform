@@ -157,7 +157,7 @@ export async function validateWorkspaceAccess(
       
       res.status(401).json({
         success: false,
-        message: 'Authentication required',
+        message: 'Authentication required for workspace resources',
         errors: [{
           code: 'AUTHENTICATION_REQUIRED',
           message: 'User must be authenticated to access workspace resources'
@@ -202,7 +202,7 @@ export async function validateWorkspaceAccess(
       
       res.status(400).json({
         success: false,
-        message: 'Workspace ID required',
+        message: 'Workspace ID required',  // ✅ Clear error message
         errors: [{
           code: 'WORKSPACE_ID_REQUIRED',
           message: 'Workspace ID must be provided in URL parameter, header, JWT token, or request body'
@@ -211,7 +211,7 @@ export async function validateWorkspaceAccess(
       return;
     }
 
-    // Get workspace from database (no mock data)
+    // Get workspace from database
     logger.info('Fetching workspace from database', {
       workspace_id: workspaceId,
       user_id: req.user.user_id,
@@ -258,13 +258,7 @@ export async function validateWorkspaceAccess(
       return;
     }
 
-    // Check if user has access to this workspace (using database)
-    logger.info('Checking user workspace access', {
-      user_id: req.user.user_id,
-      workspace_id: workspaceId,
-      service: 'bi-platform-api'
-    });
-
+    // Check if user has access to this workspace
     const hasAccess = await hasWorkspaceAccess(req.user.user_id, workspaceId);
     
     if (!hasAccess) {

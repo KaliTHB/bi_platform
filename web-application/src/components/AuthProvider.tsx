@@ -1,3 +1,4 @@
+// web-application/src/components/AuthProvider.tsx
 import React, { createContext, useContext, useEffect, ReactNode } from 'react';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import { setCredentials, setLoading, logout } from '../store/slices/authSlice';
@@ -18,6 +19,27 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+// Consolidated storage keys
+const STORAGE_KEYS = {
+  TOKEN: 'token',
+  USER: 'user',
+  CURRENT_WORKSPACE: 'currentWorkspace', // ✅ Single workspace key
+} as const;
+
+// Helper function to clean up old workspace keys (for migration)
+const cleanupOldWorkspaceKeys = (): void => {
+  if (typeof window === 'undefined') return;
+  
+  const oldKeys = ['workspace', 'auth_workspace', 'selected_workspace_id'];
+  oldKeys.forEach(key => {
+    try {
+      localStorage.removeItem(key);
+    } catch (error) {
+      console.warn(`Failed to remove old key ${key}:`, error);
+    }
+  });
+};
+
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const dispatch = useAppDispatch();
   const { user, token, isAuthenticated, isLoading } = useAppSelector((state) => state.auth);
@@ -25,9 +47,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Initialize auth state from localStorage
   useEffect(() => {
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
-    const storedWorkspace = localStorage.getItem('workspace');
+    const storedToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
+    const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
+    const storedWorkspace = localStorage.getItem(STORAGE_KEYS.CURRENT_WORKSPACE);
 
     if (storedToken && storedUser) {
       try {
@@ -38,155 +60,177 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const workspace = JSON.parse(storedWorkspace);
           dispatch(setCurrentWorkspace(workspace));
         }
+
+        // Clean up old workspace keys after successful migration
+        cleanupOldWorkspaceKeys();
+        
       } catch (error) {
         console.error('Error parsing stored auth data:', error);
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        localStorage.removeItem('workspace');
+        localStorage.removeItem(STORAGE_KEYS.TOKEN);
+        localStorage.removeItem(STORAGE_KEYS.USER);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
+        cleanupOldWorkspaceKeys();
       }
     }
   }, [dispatch]);
 
-  const login = async (email: string, password: string) => {
-    dispatch(setLoading(true));
-    
+  const login = async (email: string, password: string): Promise<any> => {
     try {
-      // Mock login - replace with actual API call
-      const response = {
-        user: {
-          id: '1',
-          email,
-          display_name: 'System Administrator',
-          role: 'admin',
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+      dispatch(setLoading(true));
+      
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        token: 'mock-jwt-token'
-      };
+        body: JSON.stringify({ email, password }),
+      });
 
-      dispatch(setCredentials(response));
-      
-      localStorage.setItem('token', response.token);
-      localStorage.setItem('user', JSON.stringify(response.user));
-      
-      return { success: true };
-    } catch (error) {
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Login failed');
+      }
+
+      if (data.success) {
+        const { user, token, workspace } = data.data;
+        
+        // Store with consolidated keys
+        localStorage.setItem(STORAGE_KEYS.TOKEN, token);
+        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+        
+        if (workspace) {
+          localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, JSON.stringify(workspace));
+          dispatch(setCurrentWorkspace(workspace));
+        }
+
+        // Clean up old workspace keys
+        cleanupOldWorkspaceKeys();
+
+        dispatch(setCredentials({ user, token }));
+        return data;
+      } else {
+        throw new Error(data.message || 'Login failed');
+      }
+    } catch (error: any) {
+      throw new Error(error.message || 'Login failed');
+    } finally {
       dispatch(setLoading(false));
-      throw error;
     }
   };
 
-  const logout = () => {
+  const logoutUser = () => {
+    // Clear localStorage with consolidated keys
+    localStorage.removeItem(STORAGE_KEYS.TOKEN);
+    localStorage.removeItem(STORAGE_KEYS.USER);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
+    
+    // Clean up old workspace keys
+    cleanupOldWorkspaceKeys();
+
     dispatch(logout());
     dispatch(clearWorkspace());
-    
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('workspace');
   };
 
-  // Remove the mock workspace creation and replace with real API call
-const switchWorkspace = async (workspaceSlug: string) => {
-  try {
-    setAuthState(prev => ({ ...prev, isLoading: true }));
-    
-    // ✅ Get real workspace data from API
-    const response = await fetch('/api/user/default-workspace', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${authState.token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+  const switchWorkspace = async (slug: string): Promise<any> => {
+    try {
+      const response = await fetch(`/api/user/workspace/${slug}/switch`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
-    if (response.ok) {
       const data = await response.json();
-      if (data.success && data.workspace) {
-        // ✅ Use real workspace data with actual database ID
-        const realWorkspace = {
-          id: data.workspace.id,              // Real UUID from database
-          name: data.workspace.name,
-          slug: data.workspace.slug,
-          display_name: data.workspace.display_name || data.workspace.name,
-          description: data.workspace.description,
-          is_active: data.workspace.is_active,
-          created_at: data.workspace.created_at,
-          updated_at: data.workspace.updated_at,
-        };
 
-        dispatch(setCurrentWorkspace(realWorkspace));
-        localStorage.setItem('workspace', JSON.stringify(realWorkspace));
-        
-        setAuthState(prev => ({ 
-          ...prev, 
-          workspace: realWorkspace,
-          isLoading: false 
-        }));
-        
-        return { success: true };
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to switch workspace');
       }
+
+      if (data.success) {
+        const { workspace } = data;
+        
+        // Store with consolidated key
+        localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, JSON.stringify(workspace));
+        dispatch(setCurrentWorkspace(workspace));
+        
+        return data;
+      } else {
+        throw new Error(data.message || 'Failed to switch workspace');
+      }
+    } catch (error: any) {
+      throw new Error(error.message || 'Failed to switch workspace');
     }
-    
-    throw new Error('Failed to get workspace data');
-    
-  } catch (error) {
-    console.error('Error switching workspace:', error);
-    setAuthState(prev => ({ ...prev, isLoading: false }));
-    return { success: false, error: (error as any).message };
-  }
-};
+  };
 
-  const getAvailableWorkspaces = async () => {
-    // Mock workspaces - replace with actual API call
-    return [
-      {
-        id: '1',
-        name: 'default',
-        slug: 'default',
-        display_name: 'THB Workspace',
-        description: 'Default workspace',
-        is_default: true,
+  const getAvailableWorkspaces = async (): Promise<any> => {
+    try {
+      const response = await fetch('/api/user/workspaces', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to fetch workspaces');
       }
-    ];
+
+      return data;
+    } catch (error: any) {
+      throw new Error(error.message || 'Failed to fetch workspaces');
+    }
   };
 
-  const getDefaultWorkspace = async () => {
-    // Mock default workspace - replace with actual API call
-    return {
-      id: '1',
-      name: 'default',
-      slug: 'default',
-      display_name: 'THB Workspace',
-    };
+  const getDefaultWorkspace = async (): Promise<any> => {
+    try {
+      const response = await fetch('/api/user/workspace/default', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to get default workspace');
+      }
+
+      if (data.success && data.workspace) {
+        // Store with consolidated key
+        localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, JSON.stringify(data.workspace));
+        dispatch(setCurrentWorkspace(data.workspace));
+      }
+
+      return data;
+    } catch (error: any) {
+      throw new Error(error.message || 'Failed to get default workspace');
+    }
   };
 
-  const value = {
-    // Auth state from Redux
-    user,
-    token,
-    isAuthenticated,
-    isLoading,
-    workspace: currentWorkspace,
-    // Auth methods
+  const contextValue: AuthContextType = {
     login,
-    logout,
+    logout: logoutUser,
     switchWorkspace,
     getAvailableWorkspaces,
     getDefaultWorkspace,
   };
 
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-export const useAuth = () => {
+export const useAuthContext = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error('useAuthContext must be used within an AuthProvider');
   }
   return context;
 };

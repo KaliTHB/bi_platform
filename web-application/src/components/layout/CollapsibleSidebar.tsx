@@ -221,7 +221,7 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
     // Navigate
     try {
       console.log('🔄 Attempting navigation to:', item.path);
-      router.push(item.path);
+      router.replace(item.path);
     } catch (error) {
       console.error('❌ Navigation error:', error);
     }

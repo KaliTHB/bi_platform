@@ -182,12 +182,12 @@ const WebviewDashboardPage: React.FC<DashboardPageProps> = ({
   };
 
   const handleHomeClick = () => {
-    router.push(`/${webviewSlug}`);
+    router.replace(`/${webviewSlug}`);
   };
 
   const handleCategoryClick = () => {
     if (dashboard?.category_name) {
-      router.push(`/${webviewSlug}/category/${dashboard.category_name.toLowerCase().replace(/\s+/g, '-')}`);
+      router.replace(`/${webviewSlug}/category/${dashboard.category_name.toLowerCase().replace(/\s+/g, '-')}`);
     }
   };
 

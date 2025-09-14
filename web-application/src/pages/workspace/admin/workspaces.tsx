@@ -341,7 +341,7 @@ const WorkspacesAdminPage: NextPage = () => {
       label: 'View Workspace',
       icon: <ViewIcon fontSize="small" />,
       onClick: (workspace) => {
-        router.push(`/workspace/${workspace.slug}`);
+        router.replace(`/workspace/${workspace.slug}`);
       },
       color: 'primary'
     },
@@ -358,7 +358,7 @@ const WorkspacesAdminPage: NextPage = () => {
       label: 'Workspace Settings',
       icon: <SettingsIcon fontSize="small" />,
       onClick: (workspace) => {
-        router.push(`/workspace/${workspace.slug}/admin/settings`);
+        router.replace(`/workspace/${workspace.slug}/admin/settings`);
       },
       color: 'default',
       show: () => hasPermission('workspace', 'admin')
@@ -367,7 +367,7 @@ const WorkspacesAdminPage: NextPage = () => {
       label: 'Manage Users',
       icon: <AdminIcon fontSize="small" />,
       onClick: (workspace) => {
-        router.push(`/workspace/admin/users`);
+        router.replace(`/workspace/admin/users`);
       },
       color: 'default',
       show: () => hasPermission('user_mgmt', 'read')

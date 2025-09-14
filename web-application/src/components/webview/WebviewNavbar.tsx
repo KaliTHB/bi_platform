@@ -115,7 +115,7 @@ export const WebviewNavbar: React.FC<WebviewNavbarProps> = ({
 
   const handleHomeClick = () => {
     if (webviewConfig) {
-      router.push(`/${webviewConfig.webview_name}`);
+      router.replace(`/${webviewConfig.webview_name}`);
     }
   };
 

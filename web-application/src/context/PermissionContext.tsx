@@ -1,7 +1,8 @@
+// web-application/src/context/PermissionContext.tsx
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useAuth } from './AuthContext';
-import { useWorkspace } from './WorkspaceContext';
-import { apiClient } from '../services/apiClient';
+import { useWorkspace } from '@/hooks/useWorkspace';
+import { apiClient } from '@/utils/apiUtils';
 
 interface PermissionContextType {
   permissions: string[];
@@ -13,6 +14,12 @@ interface PermissionContextType {
 }
 
 const PermissionContext = createContext<PermissionContextType | undefined>(undefined);
+
+// Consolidated storage keys
+const STORAGE_KEYS = {
+  CURRENT_WORKSPACE: 'currentWorkspace', // ✅ Single workspace key
+  PERMISSIONS_PREFIX: 'permissions_', // For user-workspace specific permissions
+} as const;
 
 export function PermissionProvider({ children }: { children: React.ReactNode }) {
   const [permissions, setPermissions] = useState<string[]>([]);
@@ -39,7 +46,9 @@ export function PermissionProvider({ children }: { children: React.ReactNode }) 
         setPermissions(userPermissions);
         
         // Cache permissions in localStorage for offline UI
-        localStorage.setItem(`permissions_${user.id}_${currentWorkspace.id}`, JSON.stringify({
+        // Use consistent workspace key format
+        const permissionsCacheKey = `${STORAGE_KEYS.PERMISSIONS_PREFIX}${user.id}_${currentWorkspace.id}`;
+        localStorage.setItem(permissionsCacheKey, JSON.stringify({
           permissions: userPermissions,
           timestamp: Date.now(),
           ttl: 5 * 60 * 1000 // 5 minutes
@@ -50,7 +59,8 @@ export function PermissionProvider({ children }: { children: React.ReactNode }) 
       setError(err.message || 'Failed to fetch permissions');
       
       // Try to load from cache on error
-      const cached = localStorage.getItem(`permissions_${user.id}_${currentWorkspace.id}`);
+      const permissionsCacheKey = `${STORAGE_KEYS.PERMISSIONS_PREFIX}${user.id}_${currentWorkspace.id}`;
+      const cached = localStorage.getItem(permissionsCacheKey);
       if (cached) {
         try {
           const parsedCache = JSON.parse(cached);
@@ -71,41 +81,55 @@ export function PermissionProvider({ children }: { children: React.ReactNode }) 
     fetchPermissions();
   }, [user?.id, currentWorkspace?.id]);
 
-  // Refresh permissions every 5 minutes
+  // Clean up old permission cache keys when workspace changes
   useEffect(() => {
-    const interval = setInterval(fetchPermissions, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [user?.id, currentWorkspace?.id]);
+    if (currentWorkspace && user) {
+      // Clean up old permission cache keys that might use different formats
+      const oldKeys = [
+        `permissions_${user.id}_workspace_${currentWorkspace.id}`,
+        `user_permissions_${user.id}_${currentWorkspace.id}`,
+        `auth_permissions_${user.id}_${currentWorkspace.id}`,
+      ];
+      
+      oldKeys.forEach(key => {
+        try {
+          localStorage.removeItem(key);
+        } catch (error) {
+          console.warn(`Failed to remove old permission cache key ${key}:`, error);
+        }
+      });
+    }
+  }, [currentWorkspace?.id, user?.id]);
 
   const hasPermission = (permission: string): boolean => {
     return permissions.includes(permission);
   };
 
   const hasAnyPermission = (requiredPermissions: string[]): boolean => {
-    return requiredPermissions.some(perm => permissions.includes(perm));
+    return requiredPermissions.some(permission => permissions.includes(permission));
   };
 
   const hasAllPermissions = (requiredPermissions: string[]): boolean => {
-    return requiredPermissions.every(perm => permissions.includes(perm));
+    return requiredPermissions.every(permission => permissions.includes(permission));
   };
 
-  const value = {
+  const contextValue: PermissionContextType = {
     permissions,
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,
     isLoading,
-    error
+    error,
   };
 
   return (
-    <PermissionContext.Provider value={value}>
+    <PermissionContext.Provider value={contextValue}>
       {children}
     </PermissionContext.Provider>
   );
 }
 
-export function usePermissions() {
+export function usePermissions(): PermissionContextType {
   const context = useContext(PermissionContext);
   if (context === undefined) {
     throw new Error('usePermissions must be used within a PermissionProvider');

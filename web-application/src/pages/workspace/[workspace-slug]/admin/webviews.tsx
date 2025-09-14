@@ -544,7 +544,7 @@ const WebviewsAdminPage: NextPage = () => {
       label: 'View Analytics',
       icon: <AnalyticsIcon fontSize="small" />,
       onClick: (webview) => {
-        router.push(`/workspace/${workspace?.slug}/admin/webviews/${webview.id}/analytics`);
+        router.replace(`/workspace/${workspace?.slug}/admin/webviews/${webview.id}/analytics`);
       },
       show: (webview) => hasPermission('webview.read') && webview.usage_stats,
       color: 'info'

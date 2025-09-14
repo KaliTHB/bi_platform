@@ -494,7 +494,7 @@ const SQLEditorPage: React.FC = () => {
       <Button
         variant="outlined"
         startIcon={<BackIcon />}
-        onClick={() => router.push(`/workspace/${workspace?.slug}`)}
+        onClick={() => router.replace(`/workspace/${workspace?.slug}`)}
         size="small"
       >
         Back to Workspace

@@ -159,7 +159,7 @@ const WorkspaceAdminSettingsPage: NextPage = () => {
       setLoading(true);
       const response = await fetch(`/api/workspaces/${workspace?.id}/settings`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
 
@@ -185,7 +185,7 @@ const WorkspaceAdminSettingsPage: NextPage = () => {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({ settings })
       });

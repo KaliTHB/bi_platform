@@ -492,7 +492,7 @@ const DashboardsPage: NextPage = () => {
       icon: <ViewIcon fontSize="small" />,
       onClick: (dashboard) => {
         console.log(`🔗 Navigating to dashboard: /workspace/dashboard/dashboard-${dashboard.id}`);
-        router.push(`/workspace/dashboard/${dashboard.id}`);
+        router.replace(`/workspace/dashboard/${dashboard.id}`);
       },
       color: 'primary'
     },
@@ -500,7 +500,7 @@ const DashboardsPage: NextPage = () => {
       label: 'Update Dashboard (Builder)',
       icon: <UpdateIcon fontSize="small" />,
       onClick: (dashboard) => {
-        router.push(`/workspace/dashboard-builder?id=${dashboard.id}`);
+        router.replace(`/workspace/dashboard-builder?id=${dashboard.id}`);
       },
       color: 'info',
       show: () => hasPermission('dashboard.update')
@@ -536,7 +536,7 @@ const DashboardsPage: NextPage = () => {
       label: 'Dashboard Settings',
       icon: <SettingsIcon fontSize="small" />,
       onClick: (dashboard) => {
-        router.push(`/workspace/${workspace?.slug}/dashboards/${dashboard.id}/settings`);
+        router.replace(`/workspace/${workspace?.slug}/dashboards/${dashboard.id}/settings`);
       },
       color: 'default',
       show: () => hasPermission('dashboard.update')
@@ -596,7 +596,7 @@ const DashboardsPage: NextPage = () => {
 
   // Handle dashboard actions
   const handleCreateDashboard = () => {
-    router.push('/workspace/dashboard-builder');
+    router.replace('/workspace/dashboard-builder');
   };
 
   const handleEditDashboard = (dashboard: DashboardData) => {
