@@ -54,15 +54,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const workspace = JSON.parse(storedWorkspace);
           dispatch(setCurrentWorkspace(workspace));
         }
-
-        // Clean up old workspace keys after successful migration
-        
         
       } catch (error) {
         console.error('Error parsing stored auth data:', error);
-        localStorage.removeItem(STORAGE_KEYS.TOKEN);
-        localStorage.removeItem(STORAGE_KEYS.USER);
-        localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
         
       }
     }

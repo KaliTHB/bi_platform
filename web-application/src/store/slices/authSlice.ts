@@ -58,15 +58,6 @@ export const validateToken = createAsyncThunk(
         },
       });
 
-      if (!response.ok) {
-        // Token is invalid, clear storage
-        localStorage.removeItem(STORAGE_KEYS.TOKEN);
-        localStorage.removeItem(STORAGE_KEYS.USER);
-        localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
-        localStorage.removeItem(STORAGE_KEYS.PERMISSIONS);
-        throw new Error('Token validation failed');
-      }
-
       const data = await response.json();
       
       if (!data.success || !data.user) {
@@ -215,10 +206,6 @@ const authSlice = createSlice({
             state.error = null;
           } catch (parseError) {
             console.error('❌ Redux: Error parsing stored auth data', parseError);
-            // Clear corrupted data
-            localStorage.removeItem(STORAGE_KEYS.TOKEN);
-            localStorage.removeItem(STORAGE_KEYS.USER);
-            localStorage.removeItem(STORAGE_KEYS.PERMISSIONS);
             
             state.isLoading = false;
             state.isInitialized = true;
