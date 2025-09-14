@@ -258,7 +258,7 @@ export default function LoginPage() {
         }
 
         // ✅ CLEANUP OLD WORKSPACE KEYS
-        cleanupOldWorkspaceKeys();
+        
         console.log('🧹 Cleaned up old workspace keys');
         
         // ✅ Update Redux store

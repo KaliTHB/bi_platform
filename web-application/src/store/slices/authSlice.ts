@@ -1,21 +1,22 @@
-// web-application/src/store/slices/authSlice.ts - UPDATED WITH WORKSPACE INIT
+// web-application/src/store/slices/authSlice.ts - FIXED initialization
 import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
+import { STORAGE_KEYS } from '@/constants/index';
 
-export interface User {
+interface User {
   id: string;
+  user_id: string;
   email: string;
+  first_name: string;
+  last_name: string;
   username?: string;
-  display_name?: string;
-  first_name?: string;
-  last_name?: string;
-  role?: string;
   avatar_url?: string;
   is_active: boolean;
+  last_login?: string;
   created_at: string;
   updated_at: string;
 }
 
-export interface AuthState {
+interface AuthState {
   user: User | null;
   token: string | null;
   permissions: string[];
@@ -23,7 +24,7 @@ export interface AuthState {
   isLoading: boolean;
   error: string | null;
   lastLoginAt: string | null;
-  isInitialized: boolean; // Add this to track initialization
+  isInitialized: boolean; // Track if we've tried to load from storage
 }
 
 const initialState: AuthState = {
@@ -31,24 +32,26 @@ const initialState: AuthState = {
   token: null,
   permissions: [],
   isAuthenticated: false,
-  isLoading: true, // Start as loading until initialized
+  isLoading: true, // Start as loading during initialization
   error: null,
   lastLoginAt: null,
-  isInitialized: false,
+  isInitialized: false, // Not initialized yet
 };
 
-// Async thunk for token validation
+// ✅ FIXED: Async thunk for token validation
 export const validateToken = createAsyncThunk(
   'auth/validateToken',
   async (_, { rejectWithValue }) => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No token found');
+      const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
+      const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
+      
+      if (!token || !storedUser) {
+        throw new Error('No stored credentials found');
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'}/auth/verify`, {
-        method: 'GET',
+      // Verify token with backend
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/verify`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -56,27 +59,27 @@ export const validateToken = createAsyncThunk(
       });
 
       if (!response.ok) {
+        // Token is invalid, clear storage
+        localStorage.removeItem(STORAGE_KEYS.TOKEN);
+        localStorage.removeItem(STORAGE_KEYS.USER);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
+        localStorage.removeItem(STORAGE_KEYS.PERMISSIONS);
         throw new Error('Token validation failed');
       }
 
       const data = await response.json();
       
-      if (!data.success || !data.valid) {
-        throw new Error('Invalid token');
+      if (!data.success || !data.user) {
+        throw new Error('Invalid token response');
       }
 
       return {
         user: data.user,
         token,
         permissions: data.permissions || [],
-        workspace: data.workspace,
+        workspace: data.workspace
       };
     } catch (error: any) {
-      // Clear invalid token from localStorage
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      localStorage.removeItem('workspace');
-      
       return rejectWithValue(error.message || 'Token validation failed');
     }
   }
@@ -86,9 +89,14 @@ const authSlice = createSlice({
   name: 'auth',
   initialState,
   reducers: {
-    setCredentials: (state, action: PayloadAction<{ user: User; token: string; permissions?: string[] }>) => {
+    setCredentials: (state, action: PayloadAction<{ 
+      user: User; 
+      token: string; 
+      permissions?: string[];
+      workspace?: any;
+    }>) => {
       console.log('🔄 Redux: Setting credentials', {
-        user: action.payload.user,
+        user: action.payload.user?.email,
         token: action.payload.token ? 'Present' : 'Missing',
         permissions: action.payload.permissions?.length || 0
       });
@@ -109,7 +117,10 @@ const authSlice = createSlice({
     },
     
     setPermissions: (state, action: PayloadAction<string[]>) => {
-      console.log('🔄 Redux: Setting permissions', action.payload);
+      console.log('🔄 Redux: Setting permissions', {
+        count: action.payload.length,
+        permissions: action.payload
+      });
       state.permissions = action.payload;
     },
     
@@ -134,17 +145,22 @@ const authSlice = createSlice({
       console.log('🔄 Redux: Updating token');
       state.token = action.payload;
       // Update localStorage as well
-      localStorage.setItem('token', action.payload);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEYS.TOKEN, action.payload);
+      }
     },
     
     logout: (state) => {
       console.log('🚪 Redux: Logging out user');
       
-      // Clear localStorage
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      localStorage.removeItem('workspace');
-      localStorage.removeItem('persist:root');
+      // Clear localStorage (only in browser)
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(STORAGE_KEYS.TOKEN);
+        localStorage.removeItem(STORAGE_KEYS.USER);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
+        localStorage.removeItem(STORAGE_KEYS.PERMISSIONS);
+        localStorage.removeItem('persist:root');
+      }
       
       // Reset state
       state.user = null;
@@ -157,44 +173,70 @@ const authSlice = createSlice({
       state.isInitialized = true; // Keep initialized true after logout
     },
     
-    // Action to initialize auth state from localStorage on app startup
+    // ✅ FIXED: Synchronous initialization from localStorage
     initializeAuth: (state) => {
+      // Only run in browser environment
+      if (typeof window === 'undefined') {
+        state.isLoading = false;
+        state.isInitialized = true;
+        return;
+      }
+
       try {
-        const storedToken = localStorage.getItem('token');
-        const storedUser = localStorage.getItem('user');
+        console.log('🔄 Redux: Initializing auth from localStorage');
         
-        console.log('🔄 Redux: Initializing auth', {
+        const storedToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
+        const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
+        const storedPermissions = localStorage.getItem(STORAGE_KEYS.PERMISSIONS);
+
+        console.log('📦 Redux: Storage check', {
           hasToken: !!storedToken,
-          hasUser: !!storedUser
+          hasUser: !!storedUser,
+          hasPermissions: !!storedPermissions
         });
         
         if (storedToken && storedUser) {
-          const user = JSON.parse(storedUser);
-          console.log('🔄 Redux: Restoring auth from localStorage', {
-            user: user,
-            hasToken: !!storedToken
-          });
-          
-          state.token = storedToken;
-          state.user = user;
-          state.isAuthenticated = true;
-          state.isLoading = false;
-          state.isInitialized = true;
+          try {
+            const user = JSON.parse(storedUser);
+            const permissions = storedPermissions ? JSON.parse(storedPermissions) : [];
+            
+            console.log('🔄 Redux: Restoring auth from localStorage', {
+              user: user.email,
+              hasToken: !!storedToken,
+              permissionCount: permissions.length
+            });
+            
+            state.token = storedToken;
+            state.user = user;
+            state.permissions = permissions;
+            state.isAuthenticated = true;
+            state.isLoading = false;
+            state.isInitialized = true;
+            state.error = null;
+          } catch (parseError) {
+            console.error('❌ Redux: Error parsing stored auth data', parseError);
+            // Clear corrupted data
+            localStorage.removeItem(STORAGE_KEYS.TOKEN);
+            localStorage.removeItem(STORAGE_KEYS.USER);
+            localStorage.removeItem(STORAGE_KEYS.PERMISSIONS);
+            
+            state.isLoading = false;
+            state.isInitialized = true;
+            state.isAuthenticated = false;
+            state.error = 'Stored auth data was corrupted and has been cleared';
+          }
         } else {
-          console.log('🔄 Redux: No stored auth data found');
+          console.log('📭 Redux: No stored auth data found');
           state.isLoading = false;
           state.isInitialized = true;
           state.isAuthenticated = false;
         }
       } catch (error) {
         console.error('❌ Redux: Error initializing auth from localStorage', error);
-        // Clear corrupted data
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        localStorage.removeItem('workspace');
         state.isLoading = false;
         state.isInitialized = true;
         state.isAuthenticated = false;
+        state.error = 'Failed to initialize authentication';
       }
     },
   },

@@ -56,14 +56,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
 
         // Clean up old workspace keys after successful migration
-        cleanupOldWorkspaceKeys();
+        
         
       } catch (error) {
         console.error('Error parsing stored auth data:', error);
         localStorage.removeItem(STORAGE_KEYS.TOKEN);
         localStorage.removeItem(STORAGE_KEYS.USER);
         localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
-        cleanupOldWorkspaceKeys();
+        
       }
     }
   }, [dispatch]);
@@ -99,7 +99,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
 
         // Clean up old workspace keys
-        cleanupOldWorkspaceKeys();
+        
 
         dispatch(setCredentials({ user, token }));
         return data;
@@ -120,7 +120,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
     
     // Clean up old workspace keys
-    cleanupOldWorkspaceKeys();
+    
 
     dispatch(logout());
     dispatch(clearWorkspace());
