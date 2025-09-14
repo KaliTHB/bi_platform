@@ -558,3 +558,36 @@ export enum AuthErrorCode {
   INVALID_EMAIL_FORMAT = 'INVALID_EMAIL_FORMAT',
   INVALID_USERNAME_FORMAT = 'INVALID_USERNAME_FORMAT',
 }
+
+export interface PermissionResponse {
+  success: boolean;
+  permissions: string[];
+  user_id: string;
+  workspace_id?: string;
+  role_breakdown?: Record<string, string[]>;
+  total_permissions: number;
+  message?: string;
+}
+
+export interface RefreshPermissionsResponse {
+  success: boolean;
+  message: string;
+  user_id: string;
+  timestamp: string;
+}
+
+export interface PermissionCheck {
+  permission: string;
+  hasPermission: boolean;
+  source?: 'role' | 'direct' | 'inherited';
+}
+
+export interface UserPermissions {
+  userId: string;
+  workspaceId?: string;
+  permissions: string[];
+  rolePermissions: Record<string, string[]>;
+  directPermissions: string[];
+  effectivePermissions: string[];
+  lastUpdated: string;
+}

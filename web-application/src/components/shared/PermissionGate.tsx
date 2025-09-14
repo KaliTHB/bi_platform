@@ -1,9 +1,12 @@
-// web-application/src/components/shared/PermissionGate.tsx
+// =============================================================================
+// FILE: web-application/src/components/shared/PermissionGate.tsx (UPDATE existing)
+// =============================================================================
+
 import React, { useMemo, ReactNode } from 'react';
 import { Box, CircularProgress, Alert, Typography, Button } from '@mui/material';
-import { Lock as LockIcon, Warning as WarningIcon } from '@mui/icons-material';
-import { usePermissions } from '../../hooks/usePermissions';
+import { Lock as LockIcon, Warning as WarningIcon, Refresh as RefreshIcon } from '@mui/icons-material';
 import { useAuth } from '../../hooks/useAuth';
+import { usePermissions } from '../../hooks/usePermissions';
 
 interface PermissionGateProps {
   /**
@@ -54,7 +57,8 @@ interface PermissionGateProps {
   showContactAdmin?: boolean;
   
   /**
-   * Minimum role required (optional - works with role hierarchy)
+   * Minimum role required (optional - for backward compatibility)
+   * @deprecated Use permissions instead of roles
    */
   minRole?: 'reader' | 'contributor' | 'admin';
   
@@ -77,18 +81,22 @@ interface PermissionGateProps {
    * Skip permission check and always render children (for development/testing)
    */
   bypass?: boolean;
+
+  /**
+   * Show refresh button in error states
+   */
+  showRefresh?: boolean;
 }
 
 /**
- * PermissionGate - Enhanced version with better UX and debugging capabilities
+ * PermissionGate - Updated version that integrates with RTK Query permissions
  * 
  * Usage Examples:
- * - Single permission: <PermissionGate permissions="dashboard.read">...</PermissionGate>
- * - Multiple (OR): <PermissionGate permissions={["dashboard.read", "dashboard.admin"]}>...</PermissionGate>
- * - Multiple (AND): <PermissionGate permissions={["dashboard.read", "dashboard.update"]} requireAll>...</PermissionGate>
- * - With custom denied message: <PermissionGate permissions="dashboard.create" deniedMessage="Contact your admin for dashboard creation access">...</PermissionGate>
- * - With role requirement: <PermissionGate permissions="dashboard.read" minRole="contributor">...</PermissionGate>
- * - Debug mode: <PermissionGate permissions="dashboard.read" debug>...</PermissionGate>
+ * - Single permission: <PermissionGate permissions="admin_access">...</PermissionGate>
+ * - Multiple (OR): <PermissionGate permissions={["dashboard_view", "dashboard_admin"]}>...</PermissionGate>
+ * - Multiple (AND): <PermissionGate permissions={["dashboard_create", "workspace_edit"]} requireAll>...</PermissionGate>
+ * - With fallback: <PermissionGate permissions="admin_access" fallback={<div>Access Denied</div>}>...</PermissionGate>
+ * - Debug mode: <PermissionGate permissions="admin_access" debug>...</PermissionGate>
  */
 export const PermissionGate: React.FC<PermissionGateProps> = ({
   permissions,
@@ -96,23 +104,67 @@ export const PermissionGate: React.FC<PermissionGateProps> = ({
   children,
   fallback,
   showLoading = true,
-  showError = false,
+  showError = true,
   showPermissionDetails = false,
   deniedMessage,
   showContactAdmin = false,
-  minRole,
+  minRole, // Deprecated but kept for backward compatibility
   workspaceId,
   debug = false,
   loadingComponent,
-  bypass = false
+  bypass = false,
+  showRefresh = true,
 }) => {
-  const { hasPermission, hasAnyPermission, hasRole, loading, error } = usePermissions();
-  const { user, workspace } = useAuth();
+  // Use both hooks for maximum compatibility
+  const { 
+    hasPermission: authHasPermission, 
+    hasAnyPermission: authHasAnyPermission, 
+    hasAllPermissions: authHasAllPermissions,
+    isAuthenticated, 
+    user,
+    isLoading: authLoading,
+    error: authError,
+  } = useAuth();
+
+  const { 
+    hasPermission: permHasPermission,
+    hasAnyPermission: permHasAnyPermission,
+    hasAllPermissions: permHasAllPermissions,
+    permissions: userPermissions,
+    isLoading: permLoading,
+    permissionsError,
+    refreshPermissions,
+    loadPermissions,
+  } = usePermissions({ workspaceId });
 
   // Normalize permissions to array for consistent processing
   const permissionArray = useMemo(() => {
     return Array.isArray(permissions) ? permissions : [permissions];
   }, [permissions]);
+
+  // Use the most reliable permission check function available
+  const hasPermission = (permission: string): boolean => {
+    // Try usePermissions hook first (RTK Query-based)
+    if (permHasPermission) {
+      return permHasPermission(permission);
+    }
+    // Fallback to useAuth hook
+    return authHasPermission(permission);
+  };
+
+  const hasAnyPermission = (perms: string[]): boolean => {
+    if (permHasAnyPermission) {
+      return permHasAnyPermission(perms);
+    }
+    return authHasAnyPermission(perms);
+  };
+
+  const hasAllPermissions = (perms: string[]): boolean => {
+    if (permHasAllPermissions) {
+      return permHasAllPermissions(perms);
+    }
+    return authHasAllPermissions(perms);
+  };
 
   // Check permissions with caching via useMemo
   const hasAccess = useMemo(() => {
@@ -122,48 +174,85 @@ export const PermissionGate: React.FC<PermissionGateProps> = ({
       return true;
     }
 
-    // Check minimum role requirement first
-    if (minRole && !hasRole(minRole)) {
-      if (debug) console.log(`[PermissionGate] User lacks minimum role: ${minRole}`);
+    // Must be authenticated first
+    if (!isAuthenticated || !user) {
+      if (debug) console.log('[PermissionGate] User not authenticated');
       return false;
+    }
+
+    // Legacy role check (deprecated but maintained for backward compatibility)
+    if (minRole) {
+      console.warn('[PermissionGate] minRole prop is deprecated. Use permissions instead.');
+      const rolePermissions = {
+        'reader': ['dashboard_view', 'dataset_view'],
+        'contributor': ['dashboard_view', 'dashboard_create', 'dataset_view', 'dataset_create'],
+        'admin': ['admin_access']
+      };
+      
+      const requiredRolePermissions = rolePermissions[minRole] || [];
+      if (!hasAnyPermission(requiredRolePermissions)) {
+        if (debug) console.log(`[PermissionGate] User lacks minimum role permissions for: ${minRole}`);
+        return false;
+      }
     }
 
     let access = false;
 
     if (requireAll) {
       // AND logic - user must have ALL permissions
-      access = permissionArray.every(permission => {
-        const hasP = hasPermission(permission, workspaceId);
-        if (debug) console.log(`[PermissionGate] Checking permission '${permission}': ${hasP}`);
-        return hasP;
-      });
+      access = hasAllPermissions(permissionArray);
+      if (debug) {
+        console.log(`[PermissionGate] Checking ALL permissions ${JSON.stringify(permissionArray)}: ${access}`);
+        permissionArray.forEach(permission => {
+          const hasP = hasPermission(permission);
+          console.log(`  - ${permission}: ${hasP}`);
+        });
+      }
     } else {
       // OR logic - user must have ANY of the permissions
-      access = hasAnyPermission ? 
-        hasAnyPermission(permissionArray, workspaceId) : 
-        permissionArray.some(permission => {
-          const hasP = hasPermission(permission, workspaceId);
-          if (debug) console.log(`[PermissionGate] Checking permission '${permission}': ${hasP}`);
-          return hasP;
+      access = hasAnyPermission(permissionArray);
+      if (debug) {
+        console.log(`[PermissionGate] Checking ANY permissions ${JSON.stringify(permissionArray)}: ${access}`);
+        permissionArray.forEach(permission => {
+          const hasP = hasPermission(permission);
+          console.log(`  - ${permission}: ${hasP}`);
         });
+      }
     }
 
     if (debug) {
-      console.log('[PermissionGate] Permission check result:', {
+      console.log('[PermissionGate] Final permission check result:', {
         permissions: permissionArray,
         requireAll,
         minRole,
-        workspaceId: workspaceId || workspace?.id,
+        workspaceId,
+        userPermissions,
         hasAccess: access,
-        user: user?.username
+        user: user?.email
       });
     }
 
     return access;
-  }, [permissionArray, requireAll, hasPermission, hasAnyPermission, hasRole, minRole, workspaceId, workspace?.id, user?.username, bypass, debug]);
+  }, [
+    bypass,
+    isAuthenticated,
+    user,
+    minRole,
+    permissionArray,
+    requireAll,
+    hasPermission,
+    hasAnyPermission,
+    hasAllPermissions,
+    userPermissions,
+    workspaceId,
+    debug
+  ]);
+
+  // Calculate loading state
+  const isLoading = authLoading || permLoading;
 
   // Handle loading state
-  if (loading && showLoading) {
+  if (isLoading && showLoading) {
     if (loadingComponent) {
       return <>{loadingComponent}</>;
     }
@@ -172,31 +261,45 @@ export const PermissionGate: React.FC<PermissionGateProps> = ({
       <Box display="flex" justifyContent="center" alignItems="center" p={2}>
         <CircularProgress size={24} />
         <Typography variant="body2" sx={{ ml: 1 }} color="text.secondary">
-          Checking permissions...
+          Loading permissions...
         </Typography>
       </Box>
     );
   }
 
   // Handle error state
-  if (error && showError) {
+  const errorMessage = permissionsError || authError;
+  if (errorMessage && showError) {
     return (
       <Alert 
         severity="error" 
         sx={{ m: 1 }}
         icon={<WarningIcon />}
         action={
-          <Button 
-            size="small" 
-            onClick={() => window.location.reload()}
-            color="inherit"
-          >
-            Retry
-          </Button>
+          showRefresh ? (
+            <Box>
+              <Button 
+                size="small" 
+                onClick={loadPermissions}
+                color="inherit"
+                startIcon={<RefreshIcon />}
+                sx={{ mr: 1 }}
+              >
+                Reload
+              </Button>
+              <Button 
+                size="small" 
+                onClick={refreshPermissions}
+                color="inherit"
+              >
+                Refresh
+              </Button>
+            </Box>
+          ) : undefined
         }
       >
         <Typography variant="body2">
-          Failed to load permissions: {error}
+          Failed to load permissions: {errorMessage}
         </Typography>
       </Alert>
     );
@@ -228,15 +331,28 @@ export const PermissionGate: React.FC<PermissionGateProps> = ({
         sx={{ m: 1 }}
         icon={<LockIcon />}
         action={
-          showContactAdmin ? (
-            <Button 
-              size="small" 
-              onClick={() => window.location.href = 'mailto:admin@yourcompany.com?subject=Access Request'}
-              color="inherit"
-            >
-              Contact Admin
-            </Button>
-          ) : undefined
+          <Box>
+            {showContactAdmin && (
+              <Button 
+                size="small" 
+                onClick={() => window.location.href = 'mailto:admin@yourcompany.com?subject=Permission Request'}
+                color="inherit"
+                sx={{ mr: 1 }}
+              >
+                Contact Admin
+              </Button>
+            )}
+            {showRefresh && (
+              <Button 
+                size="small" 
+                onClick={refreshPermissions}
+                color="inherit"
+                startIcon={<RefreshIcon />}
+              >
+                Refresh
+              </Button>
+            )}
+          </Box>
         }
       >
         <Typography variant="body2" fontWeight={500}>
@@ -247,7 +363,15 @@ export const PermissionGate: React.FC<PermissionGateProps> = ({
         </Typography>
         {minRole && (
           <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-            Minimum role required: {minRole}
+            Minimum role required: {minRole} (deprecated)
+          </Typography>
+        )}
+        {debug && (
+          <Typography variant="caption" component="pre" sx={{ mt: 1, fontSize: '0.7rem', bgcolor: 'grey.100', p: 1, borderRadius: 1 }}>
+            Debug Info:{'\n'}
+            Required: {JSON.stringify(permissionArray, null, 2)}{'\n'}
+            User has: {JSON.stringify(userPermissions, null, 2)}{'\n'}
+            Logic: {requireAll ? 'AND' : 'OR'}
           </Typography>
         )}
       </Alert>
@@ -258,7 +382,7 @@ export const PermissionGate: React.FC<PermissionGateProps> = ({
 };
 
 /**
- * Enhanced Higher-Order Component version with additional options
+ * Enhanced Higher-Order Component version with RTK Query integration
  */
 export const withPermissionGate = <P extends object>(
   Component: React.ComponentType<P>,
@@ -271,6 +395,7 @@ export const withPermissionGate = <P extends object>(
     deniedMessage?: string;
     minRole?: 'reader' | 'contributor' | 'admin';
     debug?: boolean;
+    workspaceId?: string;
   } = {}
 ) => {
   const PermissionWrappedComponent: React.FC<P> = (props) => {
@@ -284,6 +409,7 @@ export const withPermissionGate = <P extends object>(
         deniedMessage={options.deniedMessage}
         minRole={options.minRole}
         debug={options.debug}
+        workspaceId={options.workspaceId}
       >
         <Component {...props} />
       </PermissionGate>
@@ -308,7 +434,7 @@ export const usePermissionGate = (
   } = {}
 ): {
   hasAccess: boolean;
-  loading: boolean;
+  isLoading: boolean;
   error: string | null;
   permissions: string[];
   checkDetails: {
@@ -317,59 +443,49 @@ export const usePermissionGate = (
     workspaceId?: string;
   };
 } => {
-  const { hasPermission, hasAnyPermission, hasRole, loading, error } = usePermissions();
-  const { workspace } = useAuth();
+  const { 
+    hasPermission, 
+    hasAnyPermission, 
+    hasAllPermissions,
+    isLoading: authLoading,
+    error: authError,
+  } = useAuth();
+
+  const {
+    permissions: userPermissions,
+    isLoading: permLoading,
+    permissionsError,
+  } = usePermissions({ workspaceId: options.workspaceId });
 
   const permissionArray = Array.isArray(permissions) ? permissions : [permissions];
-  const { requireAll = false, minRole, workspaceId, debug = false } = options;
-  
+
   const hasAccess = useMemo(() => {
-    // Check minimum role requirement first
-    if (minRole && !hasRole(minRole)) {
-      if (debug) console.log(`[usePermissionGate] User lacks minimum role: ${minRole}`);
-      return false;
-    }
-
-    let access = false;
-
+    const { requireAll = false } = options;
+    
     if (requireAll) {
-      access = permissionArray.every(permission => hasPermission(permission, workspaceId));
+      return hasAllPermissions(permissionArray);
     } else {
-      access = hasAnyPermission ? 
-        hasAnyPermission(permissionArray, workspaceId) : 
-        permissionArray.some(permission => hasPermission(permission, workspaceId));
+      return hasAnyPermission(permissionArray);
     }
-
-    if (debug) {
-      console.log('[usePermissionGate] Permission check:', {
-        permissions: permissionArray,
-        requireAll,
-        minRole,
-        workspaceId: workspaceId || workspace?.id,
-        hasAccess: access
-      });
-    }
-
-    return access;
-  }, [permissionArray, requireAll, hasPermission, hasAnyPermission, hasRole, minRole, workspaceId, workspace?.id, debug]);
+  }, [permissionArray, options.requireAll, hasAnyPermission, hasAllPermissions]);
 
   return {
     hasAccess,
-    loading,
-    error,
-    permissions: permissionArray,
+    isLoading: authLoading || permLoading,
+    error: permissionsError || authError,
+    permissions: userPermissions,
     checkDetails: {
-      requireAll,
-      minRole,
-      workspaceId: workspaceId || workspace?.id
-    }
+      requireAll: options.requireAll || false,
+      minRole: options.minRole,
+      workspaceId: options.workspaceId,
+    },
   };
 };
 
 /**
- * Utility function to check permissions without React context (for utility functions)
+ * Simple permission check utility function
  */
-export const checkPermissions = (
+export const checkPermission = (
   userPermissions: string[],
   requiredPermissions: string | string[],
   requireAll: boolean = false
@@ -388,13 +504,13 @@ export const checkPermissions = (
  */
 export const PermissionDebugger: React.FC<{ 
   showUserPermissions?: boolean;
-  showRoles?: boolean;
+  showLoadingState?: boolean;
 }> = ({ 
   showUserPermissions = true, 
-  showRoles = true 
+  showLoadingState = true 
 }) => {
-  const { getAllPermissions, getAllRoles } = usePermissions();
-  const { user } = useAuth();
+  const { user, permissions, isLoading } = useAuth();
+  const { permissions: rtkPermissions, isLoading: rtkLoading } = usePermissions();
 
   if (process.env.NODE_ENV !== 'development') {
     return null;
@@ -406,24 +522,36 @@ export const PermissionDebugger: React.FC<{
         Permission Debugger (Development Only)
       </Typography>
       
-      {showUserPermissions && (
+      {showLoadingState && (
         <Box sx={{ mb: 2 }}>
           <Typography variant="subtitle2" gutterBottom>
-            Current User Permissions:
+            Loading States:
           </Typography>
-          <Typography variant="body2" component="pre" sx={{ fontSize: '0.75rem' }}>
-            {JSON.stringify(getAllPermissions?.() || [], null, 2)}
+          <Typography variant="body2">
+            Auth Loading: {isLoading ? 'Yes' : 'No'}
+          </Typography>
+          <Typography variant="body2">
+            RTK Loading: {rtkLoading ? 'Yes' : 'No'}
           </Typography>
         </Box>
       )}
       
-      {showRoles && (
-        <Box>
+      {showUserPermissions && (
+        <Box sx={{ mb: 2 }}>
           <Typography variant="subtitle2" gutterBottom>
-            Current User Roles:
+            User: {user?.email || 'Not authenticated'}
+          </Typography>
+          <Typography variant="subtitle2" gutterBottom>
+            Auth Permissions ({permissions.length}):
+          </Typography>
+          <Typography variant="body2" component="pre" sx={{ fontSize: '0.75rem', mb: 1 }}>
+            {JSON.stringify(permissions, null, 2)}
+          </Typography>
+          <Typography variant="subtitle2" gutterBottom>
+            RTK Permissions ({rtkPermissions.length}):
           </Typography>
           <Typography variant="body2" component="pre" sx={{ fontSize: '0.75rem' }}>
-            {JSON.stringify(getAllRoles?.() || [], null, 2)}
+            {JSON.stringify(rtkPermissions, null, 2)}
           </Typography>
         </Box>
       )}

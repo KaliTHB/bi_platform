@@ -360,6 +360,39 @@ export const cacheStorage = {
   },
 };
 
+export const cleanupOldWorkspaceKeys = (): void => {
+  if (!isStorageAvailable()) return;
+  
+  const oldKeys = [
+    'workspace', 
+    'auth_workspace', 
+    'selected_workspace_id',
+    'workspace_data',
+    'currentWorkspace',
+    'user_workspace', 
+    'active_workspace'
+  ];
+  
+  let cleaned = 0;
+  
+  oldKeys.forEach(key => {
+    try {
+      const oldValue = window.localStorage.getItem(key);
+      if (oldValue !== null) {
+        console.log(`🧹 Cleaning up old workspace key: ${key}`);
+        window.localStorage.removeItem(key);
+        cleaned++;
+      }
+    } catch (error) {
+      console.warn(`⚠️ Failed to remove old workspace key ${key}:`, error);
+    }
+  });
+  
+  if (cleaned > 0) {
+    console.log(`✅ Cleaned up ${cleaned} old workspace storage keys`);
+  }
+};
+
 // ========================================
 // UTILITY FUNCTIONS
 // ========================================
@@ -499,4 +532,5 @@ export default {
   getStorageInfo,
   cleanExpiredItems,
   initializeStorage,
+  cleanupOldWorkspaceKeys
 };

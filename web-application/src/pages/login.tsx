@@ -38,7 +38,8 @@ import {
   Analytics,
 } from '@mui/icons-material';
 
-import { STORAGE_KEYS, setStorageItem, removeStorageItem, cleanupOldWorkspaceKeys } from '../utils/storageUtils';
+import { setStorageItem, removeStorageItem, cleanupOldWorkspaceKeys } from '../utils/storageUtils';
+import {STORAGE_KEYS} from '@/constants/index';
 
 // Updated interface to support both email and usernamS
 interface LoginForm {
