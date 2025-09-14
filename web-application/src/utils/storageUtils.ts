@@ -1,287 +1,462 @@
-// web-application/src/utils/storageUtils.ts
-// Consolidated localStorage utilities with type safety and error handling
+// File: web-application/src/utils/storageUtils.ts
+// Comprehensive localStorage utilities with error handling and type safety
+
+import { STORAGE_KEYS, type StorageKey } from '../constants';
+
+// ========================================
+// TYPES & INTERFACES
+// ========================================
+interface StorageOptions {
+  encrypt?: boolean;
+  expiry?: number; // Timestamp for expiration
+  compress?: boolean;
+}
+
+interface StorageData<T = any> {
+  value: T;
+  timestamp: number;
+  expiry?: number;
+  encrypted?: boolean;
+  compressed?: boolean;
+}
+
+// ========================================
+// CORE STORAGE FUNCTIONS
+// ========================================
 
 /**
- * Consolidated storage keys to prevent key collisions and ensure consistency
+ * Check if localStorage is available
  */
-
-// Consolidated storage keys
-export const STORAGE_KEYS = {
-  TOKEN: 'token',
-  USER: 'user',
-  PERMISSIONS: 'permissions',
-  CURRENT_WORKSPACE: 'currentWorkspace', // ✅ Single workspace key
-  AVAILABLE_WORKSPACES: 'workspaces'
-} as const;
-
-/**
- * Type-safe storage key type
- */
-export type StorageKey = typeof STORAGE_KEYS[keyof typeof STORAGE_KEYS] | string;
-
-/**
- * Get item from localStorage with error handling
- * @param key - Storage key
- * @returns Parsed value or null if not found/error
- */
-export const getStorageItem = <T = any>(key: StorageKey): T | null => {
-  if (typeof window === 'undefined') {
-    return null;
-  }
+export const isStorageAvailable = (): boolean => {
+  if (typeof window === 'undefined') return false;
   
   try {
-    const item = localStorage.getItem(key);
-    if (item === null) {
-      return null;
-    }
-    
-    // Try to parse as JSON, fallback to string
-    try {
-      return JSON.parse(item) as T;
-    } catch {
-      return item as unknown as T;
-    }
+    const testKey = '__storage_test__';
+    window.localStorage.setItem(testKey, 'test');
+    window.localStorage.removeItem(testKey);
+    return true;
   } catch (error) {
-    console.warn(`Failed to get ${key} from localStorage:`, error);
-    return null;
+    console.warn('localStorage is not available:', error);
+    return false;
   }
 };
 
 /**
- * Set item in localStorage with automatic serialization
- * @param key - Storage key  
- * @param value - Value to store (will be JSON.stringified if not string)
+ * Set item in localStorage with optional features
  */
-export const setStorageItem = (key: StorageKey, value: any): boolean => {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  
+export const setStorageItem = <T>(
+  key: string | StorageKey,
+  value: T,
+  options: StorageOptions = {}
+): boolean => {
+  if (!isStorageAvailable()) return false;
+
   try {
-    const serializedValue = typeof value === 'string' ? value : JSON.stringify(value);
-    localStorage.setItem(key, serializedValue);
+    const storageData: StorageData<T> = {
+      value,
+      timestamp: Date.now(),
+      ...(options.expiry && { expiry: options.expiry }),
+      ...(options.encrypted && { encrypted: true }),
+      ...(options.compress && { compressed: true }),
+    };
+
+    let serializedData = JSON.stringify(storageData);
+    
+    // Simple compression (in real app, use a proper compression library)
+    if (options.compress) {
+      // This is a placeholder - implement proper compression if needed
+      console.log('Compression requested but not implemented');
+    }
+    
+    // Simple encryption (in real app, use proper encryption)
+    if (options.encrypt) {
+      // This is a placeholder - implement proper encryption if needed
+      console.log('Encryption requested but not implemented');
+    }
+
+    window.localStorage.setItem(key, serializedData);
     return true;
   } catch (error) {
-    console.warn(`Failed to set ${key} in localStorage:`, error);
+    console.error(`Failed to set storage item "${key}":`, error);
     return false;
+  }
+};
+
+/**
+ * Get item from localStorage with expiry check
+ */
+export const getStorageItem = <T>(key: string | StorageKey): T | null => {
+  if (!isStorageAvailable()) return null;
+
+  try {
+    const item = window.localStorage.getItem(key);
+    if (!item) return null;
+
+    const storageData: StorageData<T> = JSON.parse(item);
+    
+    // Check expiry
+    if (storageData.expiry && Date.now() > storageData.expiry) {
+      removeStorageItem(key);
+      return null;
+    }
+
+    return storageData.value;
+  } catch (error) {
+    console.error(`Failed to get storage item "${key}":`, error);
+    // Remove corrupted item
+    removeStorageItem(key);
+    return null;
   }
 };
 
 /**
  * Remove item from localStorage
- * @param key - Storage key to remove
  */
-export const removeStorageItem = (key: StorageKey): boolean => {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  
+export const removeStorageItem = (key: string | StorageKey): boolean => {
+  if (!isStorageAvailable()) return false;
+
   try {
-    localStorage.removeItem(key);
+    window.localStorage.removeItem(key);
     return true;
   } catch (error) {
-    console.warn(`Failed to remove ${key} from localStorage:`, error);
+    console.error(`Failed to remove storage item "${key}":`, error);
     return false;
   }
 };
 
 /**
- * Check if localStorage item exists
- * @param key - Storage key to check
+ * Clear all localStorage items
  */
-export const hasStorageItem = (key: StorageKey): boolean => {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  
+export const clearAllStorage = (): boolean => {
+  if (!isStorageAvailable()) return false;
+
   try {
-    return localStorage.getItem(key) !== null;
+    window.localStorage.clear();
+    return true;
   } catch (error) {
-    console.warn(`Failed to check ${key} in localStorage:`, error);
+    console.error('Failed to clear all storage:', error);
     return false;
   }
 };
 
+// ========================================
+// SPECIALIZED STORAGE FUNCTIONS
+// ========================================
+
 /**
- * Clear all app-related localStorage items
- * Uses the STORAGE_KEYS to ensure all app data is cleared
+ * Authentication storage utilities
  */
-export const clearAllStorage = (): void => {
-  if (typeof window === 'undefined') {
-    return;
-  }
+export const authStorage = {
+  setToken: (token: string, expiry?: number): boolean => 
+    setStorageItem(STORAGE_KEYS.TOKEN, token, { expiry }),
   
-  try {
-    Object.values(STORAGE_KEYS).forEach(key => {
-      localStorage.removeItem(key);
-    });
-    
-    // Also clean up old workspace keys
-    cleanupOldWorkspaceKeys();
-    
-    console.log('✅ All app storage cleared');
-  } catch (error) {
-    console.warn('Failed to clear all storage:', error);
-  }
+  getToken: (): string | null => 
+    getStorageItem<string>(STORAGE_KEYS.TOKEN),
+  
+  setRefreshToken: (token: string, expiry?: number): boolean => 
+    setStorageItem(STORAGE_KEYS.REFRESH_TOKEN, token, { expiry }),
+  
+  getRefreshToken: (): string | null => 
+    getStorageItem<string>(STORAGE_KEYS.REFRESH_TOKEN),
+  
+  setUser: (user: any): boolean => 
+    setStorageItem(STORAGE_KEYS.USER, user),
+  
+  getUser: (): any | null => 
+    getStorageItem(STORAGE_KEYS.USER),
+  
+  clearAuth: (): void => {
+    removeStorageItem(STORAGE_KEYS.TOKEN);
+    removeStorageItem(STORAGE_KEYS.REFRESH_TOKEN);
+    removeStorageItem(STORAGE_KEYS.USER);
+  },
+  
+  isAuthenticated: (): boolean => {
+    const token = authStorage.getToken();
+    return !!token;
+  },
 };
 
 /**
- * Clean up old workspace-related keys from previous versions
- * This ensures migration compatibility and prevents storage bloat
+ * Workspace storage utilities
  */
-export const cleanupOldWorkspaceKeys = (): void => {
-  if (typeof window === 'undefined') {
-    return;
-  }
+export const workspaceStorage = {
+  setCurrentWorkspace: (workspace: any): boolean => 
+    setStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE, workspace),
   
-  const oldWorkspaceKeys = [
-    'workspace',
-    'auth_workspace', 
-    'selected_workspace_id',
-    'selected_workspace',
-    'user_workspace',
-    'current_workspace_data',
-    'active_workspace',
-  ];
+  getCurrentWorkspace: (): any | null => 
+    getStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE),
   
-  // Clean up old permission cache keys pattern
-  const oldPermissionKeyPatterns = [
-    'permissions_',
-    'user_permissions_',
-    'auth_permissions_',
-    'workspace_permissions_',
-  ];
+  setAvailableWorkspaces: (workspaces: any[]): boolean => 
+    setStorageItem(STORAGE_KEYS.AVAILABLE_WORKSPACES, workspaces),
   
-  try {
-    // Remove old workspace keys
-    oldWorkspaceKeys.forEach(key => {
+  getAvailableWorkspaces: (): any[] | null => 
+    getStorageItem(STORAGE_KEYS.AVAILABLE_WORKSPACES),
+  
+  setWorkspacePreferences: (preferences: any): boolean => 
+    setStorageItem(STORAGE_KEYS.WORKSPACE_PREFERENCES, preferences),
+  
+  getWorkspacePreferences: (): any | null => 
+    getStorageItem(STORAGE_KEYS.WORKSPACE_PREFERENCES),
+  
+  clearWorkspace: (): void => {
+    removeStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE);
+    removeStorageItem(STORAGE_KEYS.AVAILABLE_WORKSPACES);
+    removeStorageItem(STORAGE_KEYS.WORKSPACE_PREFERENCES);
+  },
+  
+  // Migration helper for old workspace keys
+  migrateOldWorkspaceKeys: (): void => {
+    const oldKeys = ['workspace', 'auth_workspace', 'selected_workspace_id'];
+    oldKeys.forEach(key => {
       try {
-        localStorage.removeItem(key);
+        const oldValue = window.localStorage.getItem(key);
+        if (oldValue) {
+          console.log(`Migrating old workspace key: ${key}`);
+          // You can add migration logic here if needed
+          window.localStorage.removeItem(key);
+        }
       } catch (error) {
-        // Silently ignore errors for individual key removal
+        console.warn(`Failed to migrate old key ${key}:`, error);
       }
     });
-    
-    // Clean up permission keys by pattern
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && oldPermissionKeyPatterns.some(pattern => key.startsWith(pattern))) {
-        try {
-          localStorage.removeItem(key);
-          i--; // Adjust index since localStorage.length changed
-        } catch (error) {
-          // Silently ignore errors for individual key removal
-        }
-      }
-    }
-    
-    console.log('🧹 Cleaned up old workspace keys');
-  } catch (error) {
-    console.warn('Failed to cleanup old workspace keys:', error);
-  }
+  },
 };
 
 /**
- * Get all storage items for debugging
- * @returns Object with all localStorage items
+ * UI preferences storage utilities
  */
-export const getAllStorageItems = (): Record<string, any> => {
-  if (typeof window === 'undefined') {
-    return {};
-  }
+export const uiStorage = {
+  setThemeMode: (mode: 'light' | 'dark'): boolean => 
+    setStorageItem(STORAGE_KEYS.THEME_MODE, mode),
   
+  getThemeMode: (): 'light' | 'dark' | null => 
+    getStorageItem(STORAGE_KEYS.THEME_MODE),
+  
+  setLanguage: (language: string): boolean => 
+    setStorageItem(STORAGE_KEYS.LANGUAGE, language),
+  
+  getLanguage: (): string | null => 
+    getStorageItem(STORAGE_KEYS.LANGUAGE),
+  
+  setSidebarCollapsed: (collapsed: boolean): boolean => 
+    setStorageItem(STORAGE_KEYS.SIDEBAR_COLLAPSED, collapsed),
+  
+  getSidebarCollapsed: (): boolean | null => 
+    getStorageItem(STORAGE_KEYS.SIDEBAR_COLLAPSED),
+  
+  setNotificationSettings: (settings: any): boolean => 
+    setStorageItem(STORAGE_KEYS.NOTIFICATION_SETTINGS, settings),
+  
+  getNotificationSettings: (): any | null => 
+    getStorageItem(STORAGE_KEYS.NOTIFICATION_SETTINGS),
+};
+
+/**
+ * Dashboard and analytics storage utilities
+ */
+export const dashboardStorage = {
+  setDashboardLayout: (layout: any): boolean => 
+    setStorageItem(STORAGE_KEYS.DASHBOARD_LAYOUT, layout),
+  
+  getDashboardLayout: (): any | null => 
+    getStorageItem(STORAGE_KEYS.DASHBOARD_LAYOUT),
+  
+  setChartPreferences: (preferences: any): boolean => 
+    setStorageItem(STORAGE_KEYS.CHART_PREFERENCES, preferences),
+  
+  getChartPreferences: (): any | null => 
+    getStorageItem(STORAGE_KEYS.CHART_PREFERENCES),
+  
+  setFilterSettings: (filters: any): boolean => 
+    setStorageItem(STORAGE_KEYS.FILTER_SETTINGS, filters),
+  
+  getFilterSettings: (): any | null => 
+    getStorageItem(STORAGE_KEYS.FILTER_SETTINGS),
+  
+  addRecentSearch: (search: string): void => {
+    const recent = dashboardStorage.getRecentSearches() || [];
+    const updated = [search, ...recent.filter(s => s !== search)].slice(0, 10);
+    setStorageItem(STORAGE_KEYS.RECENT_SEARCHES, updated);
+  },
+  
+  getRecentSearches: (): string[] | null => 
+    getStorageItem(STORAGE_KEYS.RECENT_SEARCHES),
+  
+  clearRecentSearches: (): void => 
+    removeStorageItem(STORAGE_KEYS.RECENT_SEARCHES),
+};
+
+/**
+ * Cache storage utilities
+ */
+export const cacheStorage = {
+  setPluginsCache: (plugins: any, ttl: number = 30 * 60 * 1000): boolean => // 30 minutes TTL
+    setStorageItem(STORAGE_KEYS.PLUGINS_CACHE, plugins, { expiry: Date.now() + ttl }),
+  
+  getPluginsCache: (): any | null => 
+    getStorageItem(STORAGE_KEYS.PLUGINS_CACHE),
+  
+  setDataSourcesCache: (dataSources: any, ttl: number = 30 * 60 * 1000): boolean => 
+    setStorageItem(STORAGE_KEYS.DATA_SOURCES_CACHE, dataSources, { expiry: Date.now() + ttl }),
+  
+  getDataSourcesCache: (): any | null => 
+    getStorageItem(STORAGE_KEYS.DATA_SOURCES_CACHE),
+  
+  setMetadataCache: (metadata: any, ttl: number = 30 * 60 * 1000): boolean => 
+    setStorageItem(STORAGE_KEYS.METADATA_CACHE, metadata, { expiry: Date.now() + ttl }),
+  
+  getMetadataCache: (): any | null => 
+    getStorageItem(STORAGE_KEYS.METADATA_CACHE),
+  
+  clearAllCache: (): void => {
+    removeStorageItem(STORAGE_KEYS.PLUGINS_CACHE);
+    removeStorageItem(STORAGE_KEYS.DATA_SOURCES_CACHE);
+    removeStorageItem(STORAGE_KEYS.METADATA_CACHE);
+  },
+};
+
+
+
+// ========================================
+// UTILITY FUNCTIONS
+// ========================================
+
+/**
+ * Get all storage items with optional prefix filter
+ */
+export const getAllStorageItems = (prefix?: string): Record<string, any> => {
+  if (!isStorageAvailable()) return {};
+
   const items: Record<string, any> = {};
   
   try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key) {
-        items[key] = getStorageItem(key);
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key && (!prefix || key.startsWith(prefix))) {
+        const value = getStorageItem(key);
+        if (value !== null) {
+          items[key] = value;
+        }
       }
     }
   } catch (error) {
-    console.warn('Failed to get all storage items:', error);
+    console.error('Failed to get all storage items:', error);
   }
-  
+
   return items;
 };
 
 /**
  * Get storage usage information
- * @returns Object with storage stats
  */
-export const getStorageInfo = (): {
-  used: number;
-  total: number;
-  available: number;
-  itemCount: number;
-} => {
-  if (typeof window === 'undefined') {
-    return { used: 0, total: 0, available: 0, itemCount: 0 };
-  }
-  
+export const getStorageInfo = () => {
+  if (!isStorageAvailable()) return null;
+
   try {
-    let used = 0;
-    const itemCount = localStorage.length;
-    
-    // Calculate used space (approximate)
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key) {
-        const value = localStorage.getItem(key);
-        used += key.length + (value?.length || 0);
-      }
-    }
-    
-    // Most browsers have 5-10MB limit for localStorage
-    const total = 5 * 1024 * 1024; // 5MB estimate
-    const available = total - used;
+    const usage = new Blob(Object.values(window.localStorage)).size;
+    const quota = 5 * 1024 * 1024; // Approximate 5MB limit for localStorage
     
     return {
-      used,
-      total,
-      available,
-      itemCount,
+      used: usage,
+      quota: quota,
+      available: quota - usage,
+      percentage: Math.round((usage / quota) * 100),
+      items: window.localStorage.length,
     };
   } catch (error) {
-    console.warn('Failed to get storage info:', error);
-    return { used: 0, total: 0, available: 0, itemCount: 0 };
+    console.error('Failed to get storage info:', error);
+    return null;
   }
 };
 
 /**
- * Test localStorage availability
- * @returns true if localStorage is available and working
+ * Clean expired items from localStorage
  */
-export const isStorageAvailable = (): boolean => {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  
+export const cleanExpiredItems = (): number => {
+  if (!isStorageAvailable()) return 0;
+
+  let cleaned = 0;
+  const keysToRemove: string[] = [];
+
   try {
-    const testKey = '__storage_test__';
-    const testValue = 'test';
-    
-    localStorage.setItem(testKey, testValue);
-    const retrieved = localStorage.getItem(testKey);
-    localStorage.removeItem(testKey);
-    
-    return retrieved === testValue;
-  } catch {
-    return false;
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key) {
+        const item = window.localStorage.getItem(key);
+        if (item) {
+          try {
+            const storageData: StorageData = JSON.parse(item);
+            if (storageData.expiry && Date.now() > storageData.expiry) {
+              keysToRemove.push(key);
+            }
+          } catch {
+            // Skip items that aren't in our format
+          }
+        }
+      }
+    }
+
+    keysToRemove.forEach(key => {
+      window.localStorage.removeItem(key);
+      cleaned++;
+    });
+  } catch (error) {
+    console.error('Failed to clean expired items:', error);
   }
+
+  return cleaned;
 };
 
-// Export default object with all functions for convenience
+// ========================================
+// INITIALIZATION & CLEANUP
+// ========================================
+
+/**
+ * Initialize storage utilities
+ */
+export const initializeStorage = (): void => {
+  if (!isStorageAvailable()) {
+    console.warn('localStorage is not available');
+    return;
+  }
+
+  // Clean expired items on initialization
+  const cleaned = cleanExpiredItems();
+  if (cleaned > 0) {
+    console.log(`Cleaned ${cleaned} expired storage items`);
+  }
+
+  // Migrate old workspace keys
+  workspaceStorage.migrateOldWorkspaceKeys();
+  
+  console.log('Storage utilities initialized');
+};
+
+/**
+ * Export all storage utilities as default
+ */
 export default {
-  STORAGE_KEYS,
-  getStorageItem,
+  // Core functions
   setStorageItem,
+  getStorageItem,
   removeStorageItem,
-  hasStorageItem,
   clearAllStorage,
-  cleanupOldWorkspaceKeys,
+  isStorageAvailable,
+  
+  // Specialized utilities
+  auth: authStorage,
+  workspace: workspaceStorage,
+  //permissions: permissionStorage,
+  //dataSource: dataSourceStorage,
+  session: sessionStorage,
+  ui: uiStorage,
+  dashboard: dashboardStorage,
+  cache: cacheStorage,
+  
+  // Utility functions
   getAllStorageItems,
   getStorageInfo,
-  isStorageAvailable,
+  cleanExpiredItems,
+  initializeStorage,
 };

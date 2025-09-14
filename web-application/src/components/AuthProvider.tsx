@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, ReactNode } from 'react';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import { setCredentials, setLoading, logout } from '../store/slices/authSlice';
 import { setCurrentWorkspace, clearWorkspace } from '../store/slices/workspaceSlice';
-import {STORAGE_KEYS} from '@/utils/storageUtils'
+import {STORAGE_KEYS} from '@/constants/index';
 
 interface AuthContextType {
   // Add your auth methods here

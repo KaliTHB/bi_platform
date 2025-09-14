@@ -3,7 +3,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useAuth } from '../components/providers/AuthProvider';
-import { STORAGE_KEYS, StorageManager } from '../constants/storageKeys';
+import { STORAGE_KEYS,  } from '@/constants/index';
 
 interface PermissionContextType {
   permissions: string[];

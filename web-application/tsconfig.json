@@ -57,6 +57,9 @@
       ],
       "@/plugins/*": [
         "./src/plugins/*"
+      ],
+      "@/constants/*": [
+        "./src/constants/*"
       ]
     },
     "allowSyntheticDefaultImports": true,
