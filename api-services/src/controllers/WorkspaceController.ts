@@ -451,7 +451,7 @@ export class WorkspaceController {
         LEFT JOIN dashboards d ON w.id = d.workspace_id AND d.is_active = true
         LEFT JOIN datasets dt ON w.id = dt.workspace_id AND dt.is_active = true
         LEFT JOIN users u ON w.owner_id = u.id
-        WHERE w.id = $1::uuid OR w.slug = $1
+        WHERE w.id = $1::uuid
         GROUP BY w.id, u.email, u.name
       `;
 
@@ -1036,7 +1036,7 @@ export class WorkspaceController {
         LEFT JOIN datasets dt ON w.id = dt.workspace_id
         LEFT JOIN charts c ON w.id = c.workspace_id
         LEFT JOIN datasources ds ON w.id = ds.workspace_id
-        WHERE w.id = $1::uuid OR w.slug = $1
+        WHERE w.id = $1::uuid
         GROUP BY w.id, w.name, w.slug, w.created_at
       `;
 

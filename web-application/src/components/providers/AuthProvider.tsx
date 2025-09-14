@@ -1,4 +1,4 @@
-// web-application/src/components/providers/AuthProvider.tsx - FIXED WITH PROPER WORKSPACE INIT
+// web-application/src/components/providers/AuthProvider.tsx - FIXED
 import React, { createContext, useContext, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import { useAppDispatch, useAppSelector } from '../../hooks/redux';
@@ -61,19 +61,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   }, [auth.isInitialized, auth.isAuthenticated, dispatch]);
 
-  // STEP 3: Fetch workspaces from API if no workspace is loaded but user is authenticated
+  // 🔥 STEP 3: ALWAYS fetch workspaces from API when authenticated (FOR VALIDATION)
   useEffect(() => {
     const shouldFetchWorkspaces = 
       auth.isAuthenticated && 
       workspaceInitialized && 
-      !workspace && 
+      // ✅ REMOVED !workspace condition - always fetch for validation
       !auth.isLoading;
 
     if (shouldFetchWorkspaces) {
-      console.log('🔄 AuthProvider: No workspace found, fetching from API');
+      console.log('🔄 AuthProvider: Fetching workspaces for validation (regardless of localStorage)');
       dispatch(fetchUserWorkspaces());
     }
-  }, [auth.isAuthenticated, workspaceInitialized, workspace, auth.isLoading, dispatch]);
+  }, [auth.isAuthenticated, workspaceInitialized, auth.isLoading, dispatch]);
 
   // STEP 4: Validate token if needed
   useEffect(() => {
@@ -127,12 +127,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Clear localStorage
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    localStorage.removeItem('workspace');
-    localStorage.removeItem('selected_workspace_id');
+    localStorage.removeItem('currentWorkspace');
     
     // Clear Redux state
     dispatch(clearWorkspaces());
-    // Note: logout action should be imported and dispatched from authSlice
+    // Note: Add logout action from authSlice
     
     // Redirect to login
     router.replace('/login');
