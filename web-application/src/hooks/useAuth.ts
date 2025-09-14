@@ -198,9 +198,6 @@ export const useAuth = (): AuthActions & {
         workspace: responseWorkspace
       }));
 
-      // Clean up old storage keys
-      cleanupOldWorkspaceKeys();
-
       return { success: true, user, token, workspace: responseWorkspace, permissions: finalPermissions };
       
     } catch (error: any) {
@@ -222,9 +219,7 @@ export const useAuth = (): AuthActions & {
       removeStorageItem(STORAGE_KEYS.USER);
       removeStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE);
       removeStorageItem(STORAGE_KEYS.PERMISSIONS);
-      
-      // Clean up old workspace keys
-      cleanupOldWorkspaceKeys();
+  
 
       // Clear Redux store - ✅ FIXED: Use only existing actions
       dispatch(logoutAction());

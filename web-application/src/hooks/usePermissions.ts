@@ -84,10 +84,9 @@ export const usePermissions = (): PermissionHookState & PermissionHookActions =>
     { workspaceId: currentWorkspace?.id },
     {
       skip: !isAuthenticated || !token || !currentWorkspace?.id,
-      pollingInterval: 5 * 60 * 1000, // Poll every 5 minutes
     }
   );
-
+  
   const [loadPermissionsLazy, { 
     isLoading: lazyPermissionsLoading 
   }] = useLazyGetCurrentUserPermissionsQuery();

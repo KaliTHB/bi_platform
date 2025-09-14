@@ -364,21 +364,6 @@ export const workspaceStorage = {
   clearWorkspacePreferences: (): void => 
     removeStorageItem(STORAGE_KEYS.WORKSPACE_PREFERENCES),
   
-  // Migration helper for old workspace keys
-  migrateOldWorkspaceKeys: (): void => {
-    const oldKeys = ['workspace', 'auth_workspace', 'selected_workspace_id'];
-    oldKeys.forEach(key => {
-      try {
-        const oldValue = window.localStorage.getItem(key);
-        if (oldValue) {
-          console.log(`Migrating old workspace key: ${key}`);
-          window.localStorage.removeItem(key);
-        }
-      } catch (error) {
-        console.warn(`Failed to migrate old key ${key}:`, error);
-      }
-    });
-  },
 };
 
 // ========================================
@@ -685,19 +670,16 @@ export const initializeStorage = (): void => {
   }
 
   // Clean expired items on initialization
-  const cleaned = cleanExpiredItems();
-  if (cleaned > 0) {
-    console.log(`Cleaned ${cleaned} expired storage items`);
-  }
+  //const cleaned = cleanExpiredItems();
+  //if (cleaned > 0) {
+  //  console.log(`Cleaned ${cleaned} expired storage items`);
+  //}
 
   // ✅ NEW: Clean stale permissions
-  const permissionsCleaned = cleanStalePermissions();
-  if (permissionsCleaned > 0) {
-    console.log(`Cleaned ${permissionsCleaned} stale permission entries`);
-  }
-
-  // Migrate old workspace keys
-  workspaceStorage.migrateOldWorkspaceKeys();
+  //const permissionsCleaned = cleanStalePermissions();
+  //if (permissionsCleaned > 0) {
+  //  console.log(`Cleaned ${permissionsCleaned} stale permission entries`);
+  //}
   
   console.log('Storage utilities initialized with permission support');
 };
