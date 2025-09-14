@@ -276,21 +276,20 @@ export const useAuth = (): UseAuthReturn => {
     }
   };
 
-  // Get available workspaces
   const getAvailableWorkspaces = async (): Promise<any[]> => {
-    try {
-      const resultAction = await dispatch(fetchUserWorkspaces());
-      
-      if (fetchUserWorkspaces.fulfilled.match(resultAction)) {
-        return resultAction.payload.workspaces || [];
-      } else {
-        throw new Error('Failed to fetch workspaces');
-      }
-    } catch (error: any) {
-      console.error('❌ Auth Hook: Failed to get available workspaces:', error);
-      throw error;
+  try {
+    const resultAction = await dispatch(fetchUserWorkspaces());
+    
+    if (fetchUserWorkspaces.fulfilled.match(resultAction)) {
+      return resultAction.payload.workspaces || [];
+    } else {
+      throw new Error('Failed to fetch workspaces');
     }
-  };
+  } catch (error: any) {
+    console.error('❌ Auth Hook: Failed to get available workspaces:', error);
+    throw error;
+  }
+};
 
   // Verify token function
   const verifyToken = async (): Promise<boolean> => {

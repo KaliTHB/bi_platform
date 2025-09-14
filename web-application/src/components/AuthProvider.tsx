@@ -164,26 +164,37 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const getAvailableWorkspaces = async (): Promise<any> => {
-    try {
-      const response = await fetch('/api/user/workspaces', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+  const getAvailableWorkspaces = async (): Promise<any[]> => {
+  try {
+    const response = await fetch('/api/user/workspaces', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
 
-      const data = await response.json();
+    const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to fetch workspaces');
-      }
-
-      return data;
-    } catch (error: any) {
-      throw new Error(error.message || 'Failed to fetch workspaces');
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to fetch workspaces');
     }
-  };
+
+    // 🔥 UPDATED: Match your API response format
+    if (data.success) {
+      console.log('✅ AuthProvider: Workspaces fetched', {
+        count: data.count,
+        workspaces: data.data?.length || 0
+      });
+      
+      return data.data || []; // ✅ Use data.data from your API
+    }
+
+    return [];
+  } catch (error: any) {
+    console.error('❌ AuthProvider: Failed to fetch workspaces:', error);
+    throw new Error(error.message || 'Failed to fetch workspaces');
+  }
+};
 
   const getDefaultWorkspace = async (): Promise<any> => {
     try {
