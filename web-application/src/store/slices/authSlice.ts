@@ -206,7 +206,7 @@ const authSlice = createSlice({
             state.error = null;
           } catch (parseError) {
             console.error('❌ Redux: Error parsing stored auth data', parseError);
-            
+          
             state.isLoading = false;
             state.isInitialized = true;
             state.isAuthenticated = false;
