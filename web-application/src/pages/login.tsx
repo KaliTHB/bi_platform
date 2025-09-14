@@ -38,7 +38,9 @@ import {
   Analytics,
 } from '@mui/icons-material';
 
-// Updated interface to support both email and username
+import { STORAGE_KEYS, setStorageItem, removeStorageItem, cleanupOldWorkspaceKeys } from '../utils/storageUtils';
+
+// Updated interface to support both email and usernamS
 interface LoginForm {
   emailOrUsername: string;
   password: string;
@@ -72,28 +74,6 @@ interface LoginMutationResult {
     };
   };
 }
-
-// ✅ CONSOLIDATED STORAGE KEYS - SINGLE WORKSPACE KEY
-const STORAGE_KEYS = {
-  TOKEN: 'token',
-  USER: 'user',
-  CURRENT_WORKSPACE: 'currentWorkspace', // ✅ Single workspace key
-  PERMISSIONS: 'permissions',
-} as const;
-
-// ✅ CLEANUP FUNCTION FOR OLD WORKSPACE KEYS (MIGRATION)
-const cleanupOldWorkspaceKeys = (): void => {
-  if (typeof window === 'undefined') return;
-  
-  const oldKeys = ['workspace', 'auth_workspace', 'selected_workspace_id'];
-  oldKeys.forEach(key => {
-    try {
-      localStorage.removeItem(key);
-    } catch (error) {
-      console.warn(`Failed to remove old key ${key}:`, error);
-    }
-  });
-};
 
 const getTestCredentials = (): TestCredential[] => {
   const env = process.env.NODE_ENV;

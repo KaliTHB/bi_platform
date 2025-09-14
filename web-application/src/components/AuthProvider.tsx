@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, ReactNode } from 'react';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import { setCredentials, setLoading, logout } from '../store/slices/authSlice';
 import { setCurrentWorkspace, clearWorkspace } from '../store/slices/workspaceSlice';
+import {STORAGE_KEYS} from '@/utils/storageUtils'
 
 interface AuthContextType {
   // Add your auth methods here
@@ -18,13 +19,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 interface AuthProviderProps {
   children: ReactNode;
 }
-
-// Consolidated storage keys
-const STORAGE_KEYS = {
-  TOKEN: 'token',
-  USER: 'user',
-  CURRENT_WORKSPACE: 'currentWorkspace', // ✅ Single workspace key
-} as const;
 
 // Helper function to clean up old workspace keys (for migration)
 const cleanupOldWorkspaceKeys = (): void => {
@@ -185,7 +179,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         count: data.count,
         workspaces: data.data?.length || 0
       });
-      
+      // Store with consolidated key
+      localStorage.setItem(STORAGE_KEYS.AVAILABLE_WORKSPACES, JSON.stringify(data.data));
       return data.data || []; // ✅ Use data.data from your API
     }
 

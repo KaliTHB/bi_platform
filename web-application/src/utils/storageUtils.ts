@@ -4,11 +4,14 @@
 /**
  * Consolidated storage keys to prevent key collisions and ensure consistency
  */
+
+// Consolidated storage keys
 export const STORAGE_KEYS = {
   TOKEN: 'token',
-  USER: 'user', 
-  CURRENT_WORKSPACE: 'currentWorkspace',
+  USER: 'user',
   PERMISSIONS: 'permissions',
+  CURRENT_WORKSPACE: 'currentWorkspace', // ✅ Single workspace key
+  AVAILABLE_WORKSPACES: 'workspaces'
 } as const;
 
 /**

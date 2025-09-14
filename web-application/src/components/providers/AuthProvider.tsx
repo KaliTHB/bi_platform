@@ -1,27 +1,46 @@
-// web-application/src/components/providers/AuthProvider.tsx - FIXED
-import React, { createContext, useContext, useEffect, ReactNode } from 'react';
-import { useRouter } from 'next/router';
+// web-application/src/components/providers/AuthProvider.tsx
+// ✅ Updated to use unified storage system
+
+import React, { createContext, useContext, useEffect, ReactNode, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../../hooks/redux';
-import { initializeAuth, validateToken } from '../../store/slices/authSlice';
 import { 
-  initializeWorkspace, 
-  clearWorkspaces,
+  setCredentials, 
+  setLoading, 
+  logout as logoutAction,
+  clearError 
+} from '../../store/slices/authSlice';
+import { 
+  setCurrentWorkspace, 
+  clearWorkspaces, 
   fetchUserWorkspaces,
-  selectCurrentWorkspace,
-  selectWorkspaceInitialized 
+  switchWorkspace as switchWorkspaceAction
 } from '../../store/slices/workspaceSlice';
+import { useRouter } from 'next/router';
+import { STORAGE_KEYS, StorageManager } from '../../constants/storageKeys';
 
 interface AuthContextType {
+  // Auth state
   isAuthenticated: boolean;
-  user: any | null;
-  workspace: any | null;
+  user: any;
+  workspace: any;
   permissions: string[];
   loading: boolean;
   isInitialized: boolean;
   workspaceInitialized: boolean;
+
+  // Auth methods
+  login: (email: string, password: string) => Promise<any>;
+  logout: () => void;
+  switchWorkspace: (slug: string) => Promise<any>;
+  getAvailableWorkspaces: () => Promise<any>;
+  getDefaultWorkspace: () => Promise<any>;
+  
+  // Permission methods
   hasPermission: (permission: string) => boolean;
   hasAnyPermission: (permissions: string[]) => boolean;
   hasAllPermissions: (permissions: string[]) => boolean;
+  
+  // Utility methods
   signOut: () => Promise<void>;
   refreshAuth: () => Promise<void>;
   loadWorkspaces: () => Promise<void>;
@@ -37,75 +56,259 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const dispatch = useAppDispatch();
   const router = useRouter();
   
-  // Auth state
+  // Redux state
   const auth = useAppSelector((state) => state.auth);
+  const workspace = useAppSelector((state) => state.workspace);
   
-  // Workspace state
-  const workspace = useAppSelector(selectCurrentWorkspace);
-  const workspaceInitialized = useAppSelector(selectWorkspaceInitialized);
+  // Local state
+  const [workspaceInitialized, setWorkspaceInitialized] = useState(false);
 
-  // STEP 1: Initialize auth state first
+  // API base URL
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+
+  // Initialize auth state from localStorage
   useEffect(() => {
-    console.log('🚀 AuthProvider: Initializing auth state');
-    dispatch(initializeAuth());
+    const initializeAuth = async () => {
+      try {
+        console.log('🔄 AuthProvider: Initializing auth from storage');
+        
+        // Clean up legacy keys on startup
+        StorageManager.cleanupLegacyKeys();
+        
+        // Get stored auth data using unified storage
+        const storedToken = StorageManager.getItem(STORAGE_KEYS.TOKEN);
+        const storedUser = StorageManager.getItem(STORAGE_KEYS.USER);
+        const storedWorkspace = StorageManager.getCurrentWorkspace();
+        
+        if (storedToken && storedUser) {
+          console.log('📦 AuthProvider: Found stored auth data');
+          
+          // Set auth credentials in Redux
+          dispatch(setCredentials({ 
+            user: storedUser, 
+            token: storedToken 
+          }));
+
+          // Load workspaces
+          try {
+            const workspaceResult = await dispatch(fetchUserWorkspaces()).unwrap();
+            
+            if (workspaceResult.workspaces && workspaceResult.workspaces.length > 0) {
+              console.log('✅ AuthProvider: Workspaces loaded:', workspaceResult.workspaces.length);
+              
+              // If we have a stored workspace and it's still valid, restore it
+              if (storedWorkspace) {
+                const workspaceExists = workspaceResult.workspaces.find(
+                  (ws: any) => ws.id === storedWorkspace.id
+                );
+                
+                if (workspaceExists) {
+                  dispatch(setCurrentWorkspace(storedWorkspace));
+                  console.log('🔄 AuthProvider: Restored workspace:', storedWorkspace.name);
+                } else {
+                  // Stored workspace no longer exists, select first available
+                  const firstWorkspace = workspaceResult.workspaces[0];
+                  dispatch(setCurrentWorkspace(firstWorkspace));
+                  StorageManager.setCurrentWorkspace(firstWorkspace);
+                  console.log('🔄 AuthProvider: Auto-selected first workspace:', firstWorkspace.name);
+                }
+              } else {
+                // No stored workspace, select first available
+                const firstWorkspace = workspaceResult.workspaces[0];
+                dispatch(setCurrentWorkspace(firstWorkspace));
+                StorageManager.setCurrentWorkspace(firstWorkspace);
+                console.log('🔄 AuthProvider: Auto-selected first workspace:', firstWorkspace.name);
+              }
+              
+              setWorkspaceInitialized(true);
+            }
+          } catch (workspaceError) {
+            console.error('❌ AuthProvider: Error loading workspaces during init:', workspaceError);
+          }
+        } else {
+          console.log('📭 AuthProvider: No stored auth data found');
+        }
+        
+        // Debug storage state in development
+        if (process.env.NODE_ENV === 'development') {
+          StorageManager.debugStorage();
+        }
+        
+      } catch (error) {
+        console.error('❌ AuthProvider: Initialization error:', error);
+        // Clear potentially corrupted data
+        StorageManager.clearAll();
+      }
+    };
+
+    initializeAuth();
   }, [dispatch]);
 
-  // STEP 2: Initialize workspace ONLY after auth is initialized and authenticated
-  useEffect(() => {
-    if (auth.isInitialized && auth.isAuthenticated) {
-      console.log('🏢 AuthProvider: Auth is ready, initializing workspace');
-      dispatch(initializeWorkspace());
-    } else if (auth.isInitialized && !auth.isAuthenticated) {
-      console.log('🧹 AuthProvider: Not authenticated, clearing workspace data');
-      dispatch(clearWorkspaces());
-    }
-  }, [auth.isInitialized, auth.isAuthenticated, dispatch]);
+  // Login function
+  const login = async (email: string, password: string): Promise<any> => {
+    try {
+      dispatch(setLoading(true));
+      dispatch(clearError());
 
-  // 🔥 STEP 3: ALWAYS fetch workspaces from API when authenticated (FOR VALIDATION)
-  useEffect(() => {
-    const shouldFetchWorkspaces = 
-      auth.isAuthenticated && 
-      workspaceInitialized && 
-      // ✅ REMOVED !workspace condition - always fetch for validation
-      !auth.isLoading;
+      console.log('🔐 AuthProvider: Attempting login');
 
-    if (shouldFetchWorkspaces) {
-      console.log('🔄 AuthProvider: Fetching workspaces for validation (regardless of localStorage)');
-      dispatch(fetchUserWorkspaces());
-    }
-  }, [auth.isAuthenticated, workspaceInitialized, auth.isLoading, dispatch]);
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
 
-  // STEP 4: Validate token if needed
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    
-    const shouldValidateToken = 
-      token && 
-      auth.isInitialized && 
-      !auth.isAuthenticated && 
-      !auth.isLoading && 
-      !auth.error;
+      const result = await response.json();
 
-    if (shouldValidateToken) {
-      console.log('🔒 AuthProvider: Validating stored token');
-      dispatch(validateToken());
-    }
-  }, [auth.isInitialized, auth.isAuthenticated, auth.isLoading, auth.error, dispatch]);
-
-  // STEP 5: Handle authentication failures and redirects
-  useEffect(() => {
-    // Only redirect if we're fully initialized and definitely not authenticated
-    if (auth.isInitialized && !auth.isAuthenticated && !auth.isLoading) {
-      const publicRoutes = ['/login', '/register', '/forgot-password', '/reset-password'];
-      const currentPath = router.asPath;
-      
-      // Don't redirect if already on a public route
-      if (!publicRoutes.some(route => currentPath.startsWith(route))) {
-        console.log('🚫 AuthProvider: Not authenticated, redirecting to login');
-        router.replace('/login');
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Login failed');
       }
+
+      const { user, token, workspace } = result.data;
+
+      // Store using unified storage system
+      StorageManager.setItem(STORAGE_KEYS.TOKEN, token);
+      StorageManager.setItem(STORAGE_KEYS.USER, user);
+      
+      if (workspace) {
+        StorageManager.setCurrentWorkspace(workspace);
+        dispatch(setCurrentWorkspace(workspace));
+      }
+
+      // Update Redux state
+      dispatch(setCredentials({ user, token }));
+
+      // Load all available workspaces
+      await dispatch(fetchUserWorkspaces()).unwrap();
+      setWorkspaceInitialized(true);
+
+      console.log('✅ AuthProvider: Login successful');
+      return result;
+
+    } catch (error: any) {
+      console.error('❌ AuthProvider: Login error:', error);
+      throw error;
+    } finally {
+      dispatch(setLoading(false));
     }
-  }, [auth.isInitialized, auth.isAuthenticated, auth.isLoading, router]);
+  };
+
+  // Logout function
+  const logout = async (): Promise<void> => {
+    try {
+      console.log('👋 AuthProvider: Logging out');
+
+      // Call logout API endpoint
+      const token = StorageManager.getItem(STORAGE_KEYS.TOKEN);
+      if (token) {
+        try {
+          await fetch(`${API_BASE_URL}/auth/logout`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          });
+        } catch (apiError) {
+          console.warn('⚠️ AuthProvider: Logout API call failed:', apiError);
+          // Continue with local logout even if API fails
+        }
+      }
+
+      // Clear all storage using unified system
+      StorageManager.clearAll();
+
+      // Clear Redux state
+      dispatch(logoutAction());
+      dispatch(clearWorkspaces());
+      
+      // Reset initialization flags
+      setWorkspaceInitialized(false);
+
+      // Redirect to login
+      router.replace('/login');
+
+      console.log('✅ AuthProvider: Logout completed');
+    } catch (error) {
+      console.error('❌ AuthProvider: Logout error:', error);
+    }
+  };
+
+  // Switch workspace function
+  const switchWorkspace = async (workspaceSlug: string): Promise<any> => {
+    try {
+      console.log('🔄 AuthProvider: Switching workspace to:', workspaceSlug);
+      
+      const result = await dispatch(switchWorkspaceAction(workspaceSlug)).unwrap();
+      
+      // Update storage using unified system
+      if (result) {
+        StorageManager.setCurrentWorkspace(result);
+      }
+      
+      console.log('✅ AuthProvider: Workspace switched successfully');
+      return result;
+      
+    } catch (error: any) {
+      console.error('❌ AuthProvider: Workspace switch failed:', error);
+      
+      // Fallback: try to find and switch locally
+      try {
+        const workspaces = workspace.workspaces || [];
+        const targetWorkspace = workspaces.find((ws: any) => ws.slug === workspaceSlug);
+        
+        if (targetWorkspace) {
+          dispatch(setCurrentWorkspace(targetWorkspace));
+          StorageManager.setCurrentWorkspace(targetWorkspace);
+          console.log('✅ AuthProvider: Workspace switched (local fallback):', targetWorkspace.name);
+          return targetWorkspace;
+        }
+      } catch (fallbackError) {
+        console.error('❌ AuthProvider: Local fallback also failed:', fallbackError);
+      }
+      
+      throw error;
+    }
+  };
+
+  // Get available workspaces function
+  const getAvailableWorkspaces = async (): Promise<any[]> => {
+    try {
+      console.log('🔍 AuthProvider: Getting available workspaces');
+      
+      if (!auth.isAuthenticated) {
+        console.warn('⚠️ AuthProvider: User not authenticated');
+        return [];
+      }
+
+      // Try to get from Redux state first
+      if (workspace.workspaces && workspace.workspaces.length > 0) {
+        console.log('📦 AuthProvider: Using workspaces from Redux state:', workspace.workspaces.length);
+        return workspace.workspaces;
+      }
+
+      // Fetch fresh from API
+      const result = await dispatch(fetchUserWorkspaces()).unwrap();
+      return result.workspaces || [];
+      
+    } catch (error: any) {
+      console.error('❌ AuthProvider: Error getting workspaces:', error);
+      return [];
+    }
+  };
+
+  // Get default workspace function
+  const getDefaultWorkspace = async (): Promise<any> => {
+    try {
+      const workspaces = await getAvailableWorkspaces();
+      return workspaces.find((ws: any) => ws.is_default) || workspaces[0] || null;
+    } catch (error) {
+      console.error('❌ AuthProvider: Error getting default workspace:', error);
+      return null;
+    }
+  };
 
   // Permission helper functions
   const hasPermission = (permission: string): boolean => {
@@ -120,50 +323,48 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return permissions.every(permission => hasPermission(permission));
   };
 
-  // Sign out function
-  const signOut = async (): Promise<void> => {
-    console.log('👋 AuthProvider: Signing out');
-    
-    // Clear localStorage
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('currentWorkspace');
-    
-    // Clear Redux state
-    dispatch(clearWorkspaces());
-    // Note: Add logout action from authSlice
-    
-    // Redirect to login
-    router.replace('/login');
-  };
-
-  // Refresh auth function
+  // Utility functions for backward compatibility
+  const signOut = logout;
+  
   const refreshAuth = async (): Promise<void> => {
     console.log('🔄 AuthProvider: Refreshing auth');
     if (auth.token) {
-      dispatch(validateToken());
+      // Add token validation logic here if needed
+      await dispatch(fetchUserWorkspaces());
     }
   };
 
-  // Load workspaces function
   const loadWorkspaces = async (): Promise<void> => {
     console.log('📁 AuthProvider: Loading workspaces');
     if (auth.isAuthenticated) {
-      dispatch(fetchUserWorkspaces());
+      await dispatch(fetchUserWorkspaces());
+      setWorkspaceInitialized(true);
     }
   };
 
   const contextValue: AuthContextType = {
+    // Auth state
     isAuthenticated: auth.isAuthenticated,
     user: auth.user,
-    workspace: workspace,
+    workspace: workspace.currentWorkspace,
     permissions: auth.permissions || [],
-    loading: auth.isLoading,
+    loading: auth.isLoading || workspace.isLoading,
     isInitialized: auth.isInitialized,
-    workspaceInitialized: workspaceInitialized,
+    workspaceInitialized,
+
+    // Auth methods  
+    login,
+    logout,
+    switchWorkspace,
+    getAvailableWorkspaces,
+    getDefaultWorkspace,
+    
+    // Permission methods
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,
+    
+    // Utility methods
     signOut,
     refreshAuth,
     loadWorkspaces,
@@ -171,13 +372,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Debug logging in development
   if (process.env.NODE_ENV === 'development') {
-    console.log('AuthProvider state:', {
-      isAuthenticated: auth.isAuthenticated,
-      authInitialized: auth.isInitialized,
-      workspaceInitialized: workspaceInitialized,
-      hasUser: !!auth.user,
-      hasWorkspace: !!workspace,
-      loading: auth.isLoading,
+    console.log('AuthProvider context value:', {
+      isAuthenticated: contextValue.isAuthenticated,
+      authInitialized: contextValue.isInitialized,
+      workspaceInitialized: contextValue.workspaceInitialized,
+      hasUser: !!contextValue.user,
+      hasWorkspace: !!contextValue.workspace,
+      loading: contextValue.loading,
+      workspacesCount: workspace.workspaces?.length || 0,
     });
   }
 
