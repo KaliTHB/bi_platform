@@ -1,5 +1,5 @@
 // File: web-application/src/constants/index.ts
-// Centralized constants for the entire application
+// Centralized constants for the entire application - CORRECTED VERSION
 
 // ========================================
 // STORAGE KEYS - Local Storage Keys
@@ -73,7 +73,7 @@ export const STORAGE_KEYS = {
 } as const;
 
 // ========================================
-// API ENDPOINTS
+// API ENDPOINTS (Simplified version)
 // ========================================
 export const API_ENDPOINTS = {
   // Authentication
@@ -168,7 +168,7 @@ export const UI_CONSTANTS = {
 } as const;
 
 // ========================================
-// ERROR MESSAGES
+// ERROR MESSAGES - CORRECTED WITH WORKSPACE SECTION
 // ========================================
 export const ERROR_MESSAGES = {
   AUTHENTICATION: {
@@ -188,10 +188,41 @@ export const ERROR_MESSAGES = {
     SERVER_ERROR: 'Server error. Please try again later.',
     TIMEOUT: 'Request timeout. Please try again.',
   },
+  
+  // ✅ ADDED MISSING WORKSPACE SECTION
+  WORKSPACE: {
+    SWITCH_FAILED: 'Failed to switch workspace',
+    NOT_FOUND: 'Workspace not found',
+    ACCESS_DENIED: 'Access denied to workspace',
+    CREATION_FAILED: 'Failed to create workspace',
+    UPDATE_FAILED: 'Failed to update workspace',
+    DELETE_FAILED: 'Failed to delete workspace',
+    INVALID_SLUG: 'Invalid workspace slug',
+    ALREADY_EXISTS: 'Workspace already exists',
+  },
+  
+  // Data Source errors
+  DATA_SOURCE: {
+    CONNECTION_FAILED: 'Failed to connect to data source',
+    INVALID_CREDENTIALS: 'Invalid data source credentials',
+    TEST_FAILED: 'Data source test failed',
+    CREATION_FAILED: 'Failed to create data source',
+    UPDATE_FAILED: 'Failed to update data source',
+    DELETE_FAILED: 'Failed to delete data source',
+  },
+  
+  // Dashboard errors
+  DASHBOARD: {
+    LOAD_FAILED: 'Failed to load dashboard',
+    SAVE_FAILED: 'Failed to save dashboard',
+    DELETE_FAILED: 'Failed to delete dashboard',
+    SHARE_FAILED: 'Failed to share dashboard',
+    EXPORT_FAILED: 'Failed to export dashboard',
+  },
 } as const;
 
 // ========================================
-// SUCCESS MESSAGES
+// SUCCESS MESSAGES - CORRECTED WITH WORKSPACE SECTION
 // ========================================
 export const SUCCESS_MESSAGES = {
   AUTHENTICATION: {
@@ -200,19 +231,40 @@ export const SUCCESS_MESSAGES = {
     PASSWORD_CHANGED: 'Password changed successfully',
   },
   
+  // ✅ ADDED MISSING WORKSPACE SECTION
   WORKSPACE: {
     CREATED: 'Workspace created successfully',
     UPDATED: 'Workspace updated successfully',
     SWITCHED: 'Workspace switched successfully',
+    DELETED: 'Workspace deleted successfully',
+    INVITED: 'User invited successfully',
   },
   
   DATA_SOURCE: {
     CONNECTED: 'Data source connected successfully',
     UPDATED: 'Data source updated successfully',
     DELETED: 'Data source deleted successfully',
+    TEST_SUCCESS: 'Data source test successful',
+  },
+  
+  DASHBOARD: {
+    CREATED: 'Dashboard created successfully',
+    UPDATED: 'Dashboard updated successfully',
+    DELETED: 'Dashboard deleted successfully',
+    SHARED: 'Dashboard shared successfully',
+    EXPORTED: 'Dashboard exported successfully',
+  },
+  
+  CHART: {
+    CREATED: 'Chart created successfully',
+    UPDATED: 'Chart updated successfully',
+    DELETED: 'Chart deleted successfully',
+    SAVED: 'Chart saved successfully',
   },
 } as const;
 
 // Type exports for better TypeScript support
 export type StorageKey = keyof typeof STORAGE_KEYS;
 export type StorageCategory = keyof typeof STORAGE_CATEGORIES;
+export type ErrorMessageCategory = keyof typeof ERROR_MESSAGES;
+export type SuccessMessageCategory = keyof typeof SUCCESS_MESSAGES;

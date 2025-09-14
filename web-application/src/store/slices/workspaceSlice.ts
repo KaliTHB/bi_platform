@@ -1,329 +1,508 @@
-// web-application/src/store/slices/workspaceSlice.ts - FIXED VERSION
+// File: web-application/src/store/slices/workspaceSlice.ts
+// Fixed workspace slice using storage utilities instead of hard-coded keys
+
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import type { Workspace } from '@/types/auth';
+import { workspaceStorage, authStorage } from '@/utils/storageUtils';
+import { API_ENDPOINTS, API_CONFIG } from '@/constants/api';
+import { SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants';
 
+// ========================================
+// INTERFACES & TYPES
+// ========================================
 interface WorkspaceState {
   currentWorkspace: Workspace | null;
   availableWorkspaces: Workspace[];
   isLoading: boolean;
   isInitialized: boolean;
+  isSwitching: boolean;
   error: string | null;
+  lastSwitchTime: number | null;
 }
 
+interface SwitchWorkspacePayload {
+  slug: string;
+  workspaceId?: string;
+}
+
+interface WorkspaceApiResponse {
+  success: boolean;
+  data?: any;
+  message?: string;
+  error?: string;
+}
+
+// ========================================
+// INITIAL STATE
+// ========================================
 const initialState: WorkspaceState = {
   currentWorkspace: null,
   availableWorkspaces: [],
   isLoading: false,
   isInitialized: false,
+  isSwitching: false,
   error: null,
+  lastSwitchTime: null,
 };
 
-// Consolidated localStorage key
-const WORKSPACE_STORAGE_KEY = 'currentWorkspace';
+// ========================================
+// ASYNC THUNKS
+// ========================================
 
-// Helper functions for localStorage operations
-const setWorkspaceStorage = (workspace: Workspace | null) => {
-  if (typeof window !== 'undefined') {
-    if (workspace) {
-      localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspace));
-      console.log('✅ Workspace stored:', workspace.name);
-    } else {
-      localStorage.removeItem(WORKSPACE_STORAGE_KEY);
-      console.log('✅ Workspace storage cleared');
+/**
+ * Initialize workspace state from localStorage
+ * Uses storage utilities instead of direct localStorage access
+ */
+export const initializeWorkspace = createAsyncThunk(
+  'workspace/initialize',
+  async (_, { dispatch, rejectWithValue }) => {
+    try {
+      console.log('🏢 WorkspaceSlice: Initializing workspace state');
+      
+      // ✅ Use storage utility instead of hard-coded localStorage key
+      const storedWorkspace = workspaceStorage.getCurrentWorkspace();
+      const availableWorkspaces = workspaceStorage.getAvailableWorkspaces() || [];
+      
+      if (storedWorkspace) {
+        console.log('✅ WorkspaceSlice: Found stored workspace:', storedWorkspace.name);
+        
+        // Validate workspace is still in available workspaces
+        const isValidWorkspace = availableWorkspaces.some(ws => ws.id === storedWorkspace.id);
+        
+        if (isValidWorkspace) {
+          dispatch(setCurrentWorkspace(storedWorkspace));
+          return {
+            currentWorkspace: storedWorkspace,
+            availableWorkspaces,
+            initialized: true,
+          };
+        } else {
+          console.warn('⚠️ WorkspaceSlice: Stored workspace not in available list, clearing');
+          workspaceStorage.clearCurrentWorkspace();
+        }
+      }
+      
+      return {
+        currentWorkspace: null,
+        availableWorkspaces,
+        initialized: true,
+      };
+    } catch (error) {
+      console.error('❌ WorkspaceSlice: Failed to initialize workspace', error);
+      return rejectWithValue('Failed to initialize workspace state');
     }
   }
-};
+);
 
-const getWorkspaceStorage = (): Workspace | null => {
-  if (typeof window === 'undefined') return null;
-  
-  try {
-    const stored = localStorage.getItem(WORKSPACE_STORAGE_KEY);
-    return stored ? JSON.parse(stored) : null;
-  } catch (error) {
-    console.error('Error parsing workspace from localStorage:', error);
-    return null;
-  }
-};
-
-const clearWorkspaceStorage = () => {
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem(WORKSPACE_STORAGE_KEY);
-  }
-};
-
-// Helper to get auth headers
-const getAuthHeaders = () => {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-  return {
-    'Authorization': `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  };
-};
-
-// Fetch user workspaces from API
-export const fetchUserWorkspaces = createAsyncThunk(
-  'workspace/fetchUserWorkspaces',
+/**
+ * Fetch available workspaces for current user
+ */
+export const fetchAvailableWorkspaces = createAsyncThunk(
+  'workspace/fetchAvailable',
   async (_, { rejectWithValue }) => {
     try {
-      console.log('🔄 Fetching workspaces from API...');
+      console.log('📡 WorkspaceSlice: Fetching available workspaces');
       
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user/workspaces`, {
+      const token = authStorage.getToken();
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      
+      const response = await fetch(`${API_CONFIG.BASE_URL}${API_ENDPOINTS.WORKSPACES.LIST}`, {
         method: 'GET',
-        headers: getAuthHeaders(),
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: API_CONFIG.TIMEOUT,
       });
-
+      
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to fetch workspaces');
+        const errorData = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
       }
-
-      const data = await response.json();
-      const workspaces = data.workspaces || [];
-
-      // Check if stored workspace is still valid
-      let currentWorkspace = null;
-      try {
-        const storedWorkspace = getWorkspaceStorage();
-        if (storedWorkspace && storedWorkspace.id) {
-          const workspaceExists = workspaces.find((ws: any) => ws.id === storedWorkspace.id);
-          if (workspaceExists) {
-            currentWorkspace = storedWorkspace;
-            console.log('✅ Valid stored workspace found:', currentWorkspace.name);
-          } else {
-            console.log('⚠️ Stored workspace no longer exists, clearing...');
-            clearWorkspaceStorage();
-          }
-        }
-      } catch (error) {
-        console.error('❌ Error handling stored workspace:', error);
-        clearWorkspaceStorage();
+      
+      const data: WorkspaceApiResponse = await response.json();
+      
+      if (!data.success || !data.data) {
+        throw new Error(data.error || 'Invalid response format');
       }
-
-      console.log('✅ fetchUserWorkspaces success:', {
-        count: data.count,
-        workspaceCount: workspaces.length,
-        currentWorkspace: currentWorkspace?.name || 'None selected',
-        workspaces: workspaces.map((ws: any) => `${ws.name} (${ws.slug})`)
-      });
-
-      return {
-        workspaces,
-        currentWorkspace,
-      };
-    } catch (error: any) {
-      console.error('❌ Error fetching workspaces:', error);
-      return rejectWithValue(error.message || 'Failed to fetch workspaces');
+      
+      const workspaces = Array.isArray(data.data) ? data.data : [data.data];
+      
+      // ✅ Use storage utility to cache workspaces
+      workspaceStorage.setAvailableWorkspaces(workspaces);
+      
+      console.log(`✅ WorkspaceSlice: Fetched ${workspaces.length} workspaces`);
+      return workspaces;
+      
+    } catch (error) {
+      console.error('❌ WorkspaceSlice: Failed to fetch workspaces', error);
+      return rejectWithValue(error instanceof Error ? error.message : 'Unknown error');
     }
   }
 );
 
-// ✅ FIXED: Switch workspace with API call
+/**
+ * Switch to a different workspace
+ */
 export const switchWorkspace = createAsyncThunk(
-  'workspace/switchWorkspace',
-  async (workspaceSlug: string, { getState, rejectWithValue }) => {
+  'workspace/switch',
+  async (payload: SwitchWorkspacePayload, { getState, dispatch, rejectWithValue }) => {
     try {
+      console.log('🔄 WorkspaceSlice: Switching workspace to:', payload.slug);
+      
       const state = getState() as any;
-      const availableWorkspaces = state.workspace.availableWorkspaces;
+      const currentWorkspace = state.workspace.currentWorkspace;
       
-      // Find the workspace to switch to
-      const targetWorkspace = availableWorkspaces.find((ws: any) => ws.slug === workspaceSlug);
-      
-      if (!targetWorkspace) {
-        // If not found locally, try to fetch fresh workspaces first
-        console.log('⚠️ Workspace not found locally, this might be a data sync issue');
-        throw new Error(`Workspace '${workspaceSlug}' not found in available workspaces`);
+      // Don't switch if already in the target workspace
+      if (currentWorkspace?.slug === payload.slug) {
+        console.log('ℹ️ WorkspaceSlice: Already in target workspace');
+        return { workspace: currentWorkspace, switched: false };
       }
-
-      console.log('🔄 Switching to workspace via API:', targetWorkspace.name);
       
-      // ✅ NEW: Make API call to backend to switch workspace
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/switch-workspace`, {
+      const token = authStorage.getToken();
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      
+      // Make API call to switch workspace
+      const response = await fetch(`${API_CONFIG.BASE_URL}${API_ENDPOINTS.WORKSPACES.SWITCH}`, {
         method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ 
-          workspace_id: targetWorkspace.id  // ✅ Send workspace_id, not slug
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          slug: payload.slug,
+          workspace_id: payload.workspaceId,
         }),
+        timeout: API_CONFIG.TIMEOUT,
       });
-
+      
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `Failed to switch to workspace: ${targetWorkspace.name}`);
+        const errorData = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(errorData.error || ERROR_MESSAGES.WORKSPACE.SWITCH_FAILED || `HTTP ${response.status}`);
       }
-
-      const data = await response.json();
       
-      // ✅ Update token in localStorage if provided
-      if (data.data?.token) {
-        localStorage.setItem('token', data.data.token);
-        console.log('✅ New token received and stored');
+      const data: WorkspaceApiResponse = await response.json();
+      
+      if (!data.success || !data.data?.workspace) {
+        throw new Error(data.error || 'Invalid workspace switch response');
       }
-
-      // ✅ Update workspace data from API response
-      const updatedWorkspace = data.data?.workspace || targetWorkspace;
       
-      // Store in localStorage
-      setWorkspaceStorage(updatedWorkspace);
-
-      console.log('✅ Workspace switched successfully:', updatedWorkspace.name);
-      return updatedWorkspace;
+      const newWorkspace = data.data.workspace;
       
-    } catch (error: any) {
-      console.error('❌ Error switching workspace:', error);
-      return rejectWithValue(error.message || 'Failed to switch workspace');
+      // ✅ Use storage utility to persist workspace
+      workspaceStorage.setCurrentWorkspace(newWorkspace);
+      
+      // Update session data if present
+      if (data.data.session) {
+        // ✅ Use storage utility for session data
+        const sessionData = workspaceStorage.getSessionData() || {};
+        workspaceStorage.setSessionData({
+          ...sessionData,
+          currentWorkspace: newWorkspace,
+          lastWorkspaceSwitch: Date.now(),
+        });
+      }
+      
+      console.log('✅ WorkspaceSlice: Successfully switched to workspace:', newWorkspace.name);
+      
+      return {
+        workspace: newWorkspace,
+        switched: true,
+        message: data.message || SUCCESS_MESSAGES.WORKSPACE.SWITCHED,
+      };
+      
+    } catch (error) {
+      console.error('❌ WorkspaceSlice: Failed to switch workspace', error);
+      return rejectWithValue(error instanceof Error ? error.message : 'Unknown error');
     }
   }
 );
 
-// Create workspace slice
+/**
+ * Get default workspace for user
+ */
+export const getDefaultWorkspace = createAsyncThunk(
+  'workspace/getDefault',
+  async (_, { rejectWithValue }) => {
+    try {
+      console.log('📡 WorkspaceSlice: Fetching default workspace');
+      
+      const token = authStorage.getToken();
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      
+      const response = await fetch(`${API_CONFIG.BASE_URL}${API_ENDPOINTS.USER.DEFAULT_WORKSPACE}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: API_CONFIG.TIMEOUT,
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+      
+      const data: WorkspaceApiResponse = await response.json();
+      
+      if (!data.success || !data.data) {
+        throw new Error(data.error || 'Invalid response format');
+      }
+      
+      const defaultWorkspace = data.data;
+      
+      // ✅ Use storage utility to set default workspace
+      workspaceStorage.setCurrentWorkspace(defaultWorkspace);
+      
+      console.log('✅ WorkspaceSlice: Set default workspace:', defaultWorkspace.name);
+      return defaultWorkspace;
+      
+    } catch (error) {
+      console.error('❌ WorkspaceSlice: Failed to get default workspace', error);
+      return rejectWithValue(error instanceof Error ? error.message : 'Unknown error');
+    }
+  }
+);
+
+/**
+ * Clear workspace state (for logout)
+ */
+export const clearWorkspaceState = createAsyncThunk(
+  'workspace/clear',
+  async (_, { dispatch }) => {
+    console.log('🧹 WorkspaceSlice: Clearing workspace state');
+    
+    // ✅ Use storage utilities to clear all workspace data
+    workspaceStorage.clearCurrentWorkspace();
+    workspaceStorage.clearAvailableWorkspaces();
+    workspaceStorage.clearSessionData();
+    workspaceStorage.clearWorkspacePreferences();
+    
+    return null;
+  }
+);
+
+// ========================================
+// WORKSPACE SLICE DEFINITION
+// ========================================
 const workspaceSlice = createSlice({
   name: 'workspace',
   initialState,
   reducers: {
+    // Synchronous actions
     setCurrentWorkspace: (state, action: PayloadAction<Workspace | null>) => {
-      console.log('🔄 Redux: Setting current workspace', action.payload?.name || 'null');
       state.currentWorkspace = action.payload;
-      setWorkspaceStorage(action.payload);
+      state.error = null;
+      
+      // ✅ Use storage utility to persist
+      if (action.payload) {
+        workspaceStorage.setCurrentWorkspace(action.payload);
+        console.log('✅ WorkspaceSlice: Set current workspace:', action.payload.name);
+      } else {
+        workspaceStorage.clearCurrentWorkspace();
+        console.log('✅ WorkspaceSlice: Cleared current workspace');
+      }
     },
     
     setAvailableWorkspaces: (state, action: PayloadAction<Workspace[]>) => {
-      console.log('🔄 Redux: Setting available workspaces', action.payload.length);
       state.availableWorkspaces = action.payload;
-    },
-    
-    clearWorkspace: (state) => {
-      console.log('🧹 Redux: Clearing current workspace');
-      state.currentWorkspace = null;
-      clearWorkspaceStorage();
-    },
-    
-    clearWorkspaces: (state) => {
-      console.log('🧹 Redux: Clearing all workspace data');
-      state.currentWorkspace = null;
-      state.availableWorkspaces = [];
-      state.isInitialized = false;
-      state.error = null;
-      clearWorkspaceStorage();
-    },
-    
-    setWorkspaceLoading: (state, action: PayloadAction<boolean>) => {
-      state.isLoading = action.payload;
-    },
-    
-    setWorkspaceError: (state, action: PayloadAction<string | null>) => {
-      state.error = action.payload;
-    },
-    
-    clearWorkspaceError: (state) => {
-      state.error = null;
-    },
-    
-    initializeWorkspace: (state) => {
-      console.log('🚀 Redux: Initializing workspace from localStorage');
       
-      try {
-        const storedWorkspace = getWorkspaceStorage();
-        
-        console.log('🔍 Redux: Workspace initialization check:', {
-          hasStoredWorkspace: !!storedWorkspace,
-          storedData: storedWorkspace?.name || 'None'
-        });
-        
-        if (storedWorkspace && storedWorkspace.id && storedWorkspace.name) {
-          console.log('✅ Redux: Valid workspace found, setting as current', storedWorkspace.name);
-          state.currentWorkspace = storedWorkspace;
-        }
-        
-        state.isInitialized = true;
-        
-      } catch (error) {
-        console.error('❌ Redux: Error initializing workspace from localStorage', error);
-        clearWorkspaceStorage();
-        state.isInitialized = true;
-      }
+      // ✅ Use storage utility to persist
+      workspaceStorage.setAvailableWorkspaces(action.payload);
+      console.log(`✅ WorkspaceSlice: Set ${action.payload.length} available workspaces`);
     },
-
-    resetWorkspaceInitialization: (state) => {
-      state.isInitialized = false;
+    
+    updateWorkspace: (state, action: PayloadAction<Partial<Workspace> & { id: string }>) => {
+      const { id, ...updates } = action.payload;
+      
+      // Update current workspace if it's the one being updated
+      if (state.currentWorkspace?.id === id) {
+        state.currentWorkspace = { ...state.currentWorkspace, ...updates };
+        // ✅ Use storage utility to persist updated workspace
+        workspaceStorage.setCurrentWorkspace(state.currentWorkspace);
+      }
+      
+      // Update in available workspaces list
+      state.availableWorkspaces = state.availableWorkspaces.map(workspace =>
+        workspace.id === id ? { ...workspace, ...updates } : workspace
+      );
+      
+      // ✅ Use storage utility to persist updated list
+      workspaceStorage.setAvailableWorkspaces(state.availableWorkspaces);
+      
+      console.log('✅ WorkspaceSlice: Updated workspace:', id);
+    },
+    
+    removeWorkspace: (state, action: PayloadAction<string>) => {
+      const workspaceId = action.payload;
+      
+      // Clear current workspace if it's being removed
+      if (state.currentWorkspace?.id === workspaceId) {
+        state.currentWorkspace = null;
+        workspaceStorage.clearCurrentWorkspace();
+      }
+      
+      // Remove from available workspaces
+      state.availableWorkspaces = state.availableWorkspaces.filter(
+        workspace => workspace.id !== workspaceId
+      );
+      
+      // ✅ Use storage utility to persist updated list
+      workspaceStorage.setAvailableWorkspaces(state.availableWorkspaces);
+      
+      console.log('✅ WorkspaceSlice: Removed workspace:', workspaceId);
+    },
+    
+    clearError: (state) => {
+      state.error = null;
+    },
+    
+    resetWorkspaceState: (state) => {
+      return { ...initialState };
     },
   },
-
+  
+  // Handle async thunk actions
   extraReducers: (builder) => {
+    // Initialize workspace
     builder
-      // Handle fetchUserWorkspaces
-      .addCase(fetchUserWorkspaces.pending, (state) => {
-        console.log('🔄 Redux: Fetching workspaces...');
+      .addCase(initializeWorkspace.pending, (state) => {
         state.isLoading = true;
         state.error = null;
       })
-      .addCase(fetchUserWorkspaces.fulfilled, (state, action) => {
-        console.log('✅ Redux: Workspaces fetched successfully', {
-          workspaceCount: action.payload.workspaces.length,
-          currentWorkspace: action.payload.currentWorkspace?.name || 'None'
-        });
-        
-        // Set available workspaces from API
-        state.availableWorkspaces = action.payload.workspaces;
-        
-        // Set current workspace from localStorage (already validated)
+      .addCase(initializeWorkspace.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.isInitialized = true;
         if (action.payload.currentWorkspace) {
           state.currentWorkspace = action.payload.currentWorkspace;
-        } else if (state.availableWorkspaces.length > 0 && !state.currentWorkspace) {
-          // Auto-select first workspace if none is currently selected
-          const firstWorkspace = state.availableWorkspaces[0];
-          state.currentWorkspace = firstWorkspace;
-          setWorkspaceStorage(firstWorkspace);
-          console.log('🔄 Redux: Auto-selected first workspace:', firstWorkspace.name);
         }
-        
-        state.isLoading = false;
+        state.availableWorkspaces = action.payload.availableWorkspaces;
         state.error = null;
-        state.isInitialized = true;
       })
-      .addCase(fetchUserWorkspaces.rejected, (state, action) => {
-        console.log('❌ Redux: Failed to fetch workspaces', action.payload);
+      .addCase(initializeWorkspace.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isInitialized = true; // Still mark as initialized even if failed
+        state.error = action.payload as string;
+      });
+    
+    // Fetch available workspaces
+    builder
+      .addCase(fetchAvailableWorkspaces.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(fetchAvailableWorkspaces.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.availableWorkspaces = action.payload;
+        state.error = null;
+      })
+      .addCase(fetchAvailableWorkspaces.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload as string;
-        state.isInitialized = true;
-      })
-      
-      // Handle switchWorkspace
+      });
+    
+    // Switch workspace
+    builder
       .addCase(switchWorkspace.pending, (state) => {
-        console.log('🔄 Redux: Switching workspace...');
-        state.isLoading = true;
+        state.isSwitching = true;
         state.error = null;
       })
       .addCase(switchWorkspace.fulfilled, (state, action) => {
-        console.log('✅ Redux: Workspace switched successfully to:', action.payload.name);
-        state.currentWorkspace = action.payload;
-        state.isLoading = false;
+        state.isSwitching = false;
+        if (action.payload.switched) {
+          state.currentWorkspace = action.payload.workspace;
+          state.lastSwitchTime = Date.now();
+        }
         state.error = null;
       })
       .addCase(switchWorkspace.rejected, (state, action) => {
-        console.log('❌ Redux: Failed to switch workspace', action.payload);
+        state.isSwitching = false;
+        state.error = action.payload as string;
+      });
+    
+    // Get default workspace
+    builder
+      .addCase(getDefaultWorkspace.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(getDefaultWorkspace.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.currentWorkspace = action.payload;
+        state.error = null;
+      })
+      .addCase(getDefaultWorkspace.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload as string;
+      });
+    
+    // Clear workspace state
+    builder
+      .addCase(clearWorkspaceState.fulfilled, (state) => {
+        return { ...initialState, isInitialized: true };
       });
   },
 });
 
+// ========================================
+// EXPORT ACTIONS AND REDUCER
+// ========================================
 export const {
   setCurrentWorkspace,
   setAvailableWorkspaces,
-  clearWorkspace,
-  clearWorkspaces,
-  setWorkspaceLoading,
-  setWorkspaceError,
-  clearWorkspaceError,
-  initializeWorkspace,
-  resetWorkspaceInitialization,
+  updateWorkspace,
+  removeWorkspace,
+  clearError,
+  resetWorkspaceState,
 } = workspaceSlice.actions;
 
 export default workspaceSlice.reducer;
 
-// Selectors
+// ========================================
+// SELECTORS
+// ========================================
 export const selectCurrentWorkspace = (state: { workspace: WorkspaceState }) => state.workspace.currentWorkspace;
 export const selectAvailableWorkspaces = (state: { workspace: WorkspaceState }) => state.workspace.availableWorkspaces;
 export const selectWorkspaceLoading = (state: { workspace: WorkspaceState }) => state.workspace.isLoading;
 export const selectWorkspaceError = (state: { workspace: WorkspaceState }) => state.workspace.error;
 export const selectWorkspaceInitialized = (state: { workspace: WorkspaceState }) => state.workspace.isInitialized;
+export const selectWorkspaceSwitching = (state: { workspace: WorkspaceState }) => state.workspace.isSwitching;
+
+// ========================================
+// UTILITY FUNCTIONS
+// ========================================
+
+/**
+ * Check if user has access to a specific workspace
+ */
+export const hasWorkspaceAccess = (workspaceId: string, availableWorkspaces: Workspace[]): boolean => {
+  return availableWorkspaces.some(ws => ws.id === workspaceId);
+};
+
+/**
+ * Get workspace by slug from available workspaces
+ */
+export const getWorkspaceBySlug = (slug: string, availableWorkspaces: Workspace[]): Workspace | null => {
+  return availableWorkspaces.find(ws => ws.slug === slug) || null;
+};
+
+/**
+ * Get workspace display name with fallback
+ */
+export const getWorkspaceDisplayName = (workspace: Workspace | null): string => {
+  return workspace?.display_name || workspace?.name || 'Unknown Workspace';
+};
+
+/**
+ * Check if workspace switching is needed
+ */
+export const shouldSwitchWorkspace = (targetSlug: string, currentWorkspace: Workspace | null): boolean => {
+  return !currentWorkspace || currentWorkspace.slug !== targetSlug;
+};

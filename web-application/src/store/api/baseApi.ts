@@ -1,201 +1,184 @@
-// web-application/src/store/api/baseApi.ts - COMPLETE UPDATED VERSION
+// File: web-application/src/store/api/baseApi.ts
+// Fixed RTK Query base API configuration using constants
+
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { RootState } from '../index';
 import { logout } from '../slices/authSlice';
+import { 
+  API_CONFIG, 
+  API_ENDPOINTS, 
+  HTTP_STATUS, 
+  HTTP_METHODS,
+  isSuccessStatus,
+  isClientError,
+  isServerError 
+} from '@/constants/api';
+import { STORAGE_KEYS } from '@/constants';
 
-// ✅ FIXED: Ensure proper API URL construction with /api prefix
-const getApiBaseUrl = (): string => {
-  const envUrl = process.env.NEXT_PUBLIC_API_URL;
-  
-  // If NEXT_PUBLIC_API_URL already ends with /api, use it as is
-  if (envUrl?.endsWith('/api')) {
-    return envUrl;
-  }
-  
-  // Otherwise, construct the proper URL
-  const baseUrl = envUrl || 'http://localhost:3001';
-  return `${baseUrl}/api`;
-};
+console.log('🔧 BaseAPI: Initialized with configuration:', {
+  baseUrl: API_CONFIG.BASE_URL,
+  timeout: API_CONFIG.TIMEOUT,
+  retryAttempts: API_CONFIG.RETRY_ATTEMPTS,
+  retryDelay: API_CONFIG.RETRY_DELAY,
+});
 
-const API_BASE_URL = getApiBaseUrl();
-
-console.log('🔧 BaseAPI: Initialized with URL:', API_BASE_URL);
-
-// Base query configuration with authentication and workspace context
+// ========================================
+// BASE QUERY CONFIGURATION
+// ========================================
 const baseQuery = fetchBaseQuery({
-  baseUrl: API_BASE_URL,
+  baseUrl: API_CONFIG.BASE_URL, // ✅ Use constant instead of hard-coded
+  timeout: API_CONFIG.TIMEOUT, // ✅ Use constant instead of hard-coded
+  
   prepareHeaders: (headers, { getState, endpoint }) => {
     const state = getState() as RootState;
     const token = state.auth.token;
     const workspaceSlug = state.workspace.currentWorkspace?.slug;
     const workspaceId = state.workspace.currentWorkspace?.id;
     
-    // Debug logging
-    console.log('📡 BaseAPI: Preparing request headers', {
-      endpoint: endpoint || 'unknown',
-      baseUrl: API_BASE_URL,
-      hasToken: !!token,
-      hasWorkspace: !!workspaceId,
-      workspaceSlug: workspaceSlug || 'none',
-      workspaceId: workspaceId || 'none',
-      tokenPreview: token ? `${token.substring(0, 20)}...` : 'None'
+    // Debug logging for development
+    if (process.env.NODE_ENV === 'development') {
+      console.log('📡 BaseAPI: Preparing request', {
+        endpoint: endpoint || 'unknown',
+        hasToken: !!token,
+        hasWorkspace: !!workspaceId,
+        workspaceSlug: workspaceSlug || 'none',
+        method: 'GET', // Default, will be overridden by actual request
+      });
+    }
+    
+    // Set default headers from constants
+    Object.entries(API_CONFIG.DEFAULT_HEADERS).forEach(([key, value]) => {
+      if (!headers.get(key)) {
+        headers.set(key, value);
+      }
     });
     
     // Add authentication header
     if (token) {
       headers.set('Authorization', `Bearer ${token}`);
-      console.log('🔑 BaseAPI: Authorization header added');
     } else {
-      console.warn('⚠️ BaseAPI: No token in Redux state, checking localStorage...');
-      
-      // Fallback to localStorage if Redux doesn't have token
-      const fallbackToken = localStorage.getItem('token');
-      if (fallbackToken) {
-        headers.set('Authorization', `Bearer ${fallbackToken}`);
-        console.log('🔑 BaseAPI: Using fallback token from localStorage');
-      } else {
-        console.warn('⚠️ BaseAPI: No token found anywhere - request may fail');
+      // Fallback to localStorage if Redux doesn't have token yet
+      if (typeof window !== 'undefined') {
+        const fallbackToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
+        if (fallbackToken) {
+          headers.set('Authorization', `Bearer ${fallbackToken}`);
+          console.log('🔑 BaseAPI: Using fallback token from localStorage');
+        }
       }
     }
     
-    // Add workspace context headers (multiple formats for compatibility)
+    // Add workspace context headers
     if (workspaceId) {
       headers.set('X-Workspace-Id', workspaceId);
-      console.log(`🏢 BaseAPI: Workspace ID header added: ${workspaceId}`);
     }
     
     if (workspaceSlug) {
       headers.set('X-Workspace-Slug', workspaceSlug);
-      console.log(`🏢 BaseAPI: Workspace slug header added: ${workspaceSlug}`);
     }
     
-    // Ensure content type is set
-    if (!headers.get('Content-Type')) {
-      headers.set('Content-Type', 'application/json');
+    // Add request tracking for debugging
+    if (process.env.NODE_ENV === 'development') {
+      headers.set('X-Request-Id', `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
     }
     
     return headers;
   },
   
-  // Add timeout configuration
-  timeout: 30000, // 30 seconds timeout
+  // Add response preprocessing
+  responseHandler: async (response) => {
+    const contentType = response.headers.get('content-type');
+    
+    // Handle different content types
+    if (contentType?.includes('application/json')) {
+      return response.json();
+    } else if (contentType?.includes('text/')) {
+      return response.text();
+    } else if (contentType?.includes('application/octet-stream') || 
+               contentType?.includes('application/vnd.openxmlformats')) {
+      return response.blob();
+    }
+    
+    // Default to json
+    return response.json();
+  },
 });
 
-// Enhanced base query wrapper with error handling and token refresh
+// ========================================
+// ENHANCED BASE QUERY WITH ERROR HANDLING & RETRY
+// ========================================
 const baseQueryWithReauth = async (args: any, api: any, extraOptions: any) => {
+  const startTime = Date.now();
+  
+  // Extract request info for logging
   const requestUrl = typeof args === 'string' ? args : args.url;
-  const method = typeof args === 'string' ? 'GET' : (args.method || 'GET');
-  const fullUrl = `${API_BASE_URL}${requestUrl}`;
+  const method = typeof args === 'string' ? HTTP_METHODS.GET : (args.method || HTTP_METHODS.GET);
+  const fullUrl = `${API_CONFIG.BASE_URL}${requestUrl}`;
   
-  // Log the request details
-  console.log('📡 BaseAPI: Making request', {
-    method: method.toUpperCase(),
-    requestUrl,
-    fullUrl,
-    timestamp: new Date().toISOString(),
-    hasBody: !!(typeof args !== 'string' && args.body),
-    hasParams: !!(typeof args !== 'string' && args.params)
-  });
+  // Log request start
+  if (process.env.NODE_ENV === 'development') {
+    console.log('📡 BaseAPI: Request started', {
+      method: method.toUpperCase(),
+      url: requestUrl,
+      fullUrl,
+      timestamp: new Date().toISOString(),
+    });
+  }
   
-  // Make the initial request
-  let result = await baseQuery(args, api, extraOptions);
+  // Make the initial request with retry logic
+  let result = await makeRequestWithRetry(args, api, extraOptions);
+  const duration = Date.now() - startTime;
   
-  // Handle the response
+  // Handle authentication errors
   if (result.error) {
-    const errorStatus = typeof result.error.status === 'number' ? result.error.status : 0;
-    const errorData = result.error.data || {};
+    const status = result.error.status;
     
-    console.error('❌ BaseAPI: Request failed', {
-      status: errorStatus,
-      statusText: result.error.statusText || 'Unknown',
-      url: fullUrl,
-      method: method.toUpperCase(),
-      errorType: result.error.status === 'FETCH_ERROR' ? 'Network Error' : 'HTTP Error',
-      errorData,
-      timestamp: new Date().toISOString()
-    });
-    
-    // Handle specific error cases
-    switch (errorStatus) {
-      case 401:
-        console.warn('🔐 BaseAPI: Authentication failed (401)');
+    if (status === HTTP_STATUS.UNAUTHORIZED) {
+      console.log('🔄 BaseAPI: Attempting token refresh due to 401');
+      
+      // Try to refresh the token
+      const refreshResult = await baseQuery(
+        {
+          url: API_ENDPOINTS.AUTH.REFRESH,
+          method: HTTP_METHODS.POST,
+        },
+        api,
+        extraOptions
+      );
+      
+      if (refreshResult.data) {
+        console.log('✅ BaseAPI: Token refreshed successfully, retrying original request');
         
-        // Check if this is a token expiration vs invalid token
-        if (errorData?.error === 'TOKEN_EXPIRED' && errorData?.can_refresh) {
-          console.log('🔄 BaseAPI: Token expired but can be refreshed');
-          // TODO: Implement automatic token refresh here if needed
-          // For now, just log out the user
+        // Update the token in the store if the refresh was successful
+        if (refreshResult.data && typeof refreshResult.data === 'object' && 'token' in refreshResult.data) {
+          // The auth slice should handle the token update
+          // Retry the original request
+          result = await makeRequestWithRetry(args, api, extraOptions);
         }
-        
-        console.log('🚪 BaseAPI: Logging out user due to authentication failure');
+      } else {
+        console.log('❌ BaseAPI: Token refresh failed, logging out user');
+        // Refresh failed, logout the user
         api.dispatch(logout());
-        
-        // Redirect to login (only in browser)
-        if (typeof window !== 'undefined') {
-          console.log('🔄 BaseAPI: Redirecting to login page');
-          setTimeout(() => {
-            window.location.href = '/login';
-          }, 1000);
-        }
-        break;
-        
-      case 403:
-        console.warn('🚫 BaseAPI: Access forbidden (403) - insufficient permissions');
-        break;
-        
-      case 404:
-        console.error('🔍 BaseAPI: Endpoint not found (404)', {
-          requestedUrl: fullUrl,
-          suggestion: 'Check if the API endpoint exists and is properly registered on the server',
-          possibleCauses: [
-            'Route not registered in backend',
-            'Incorrect URL construction',
-            'Missing middleware',
-            'Server not running'
-          ]
-        });
-        break;
-        
-      case 500:
-        console.error('🔥 BaseAPI: Server error (500)');
-        break;
-        
-      default:
-        if (result.error.status === 'FETCH_ERROR') {
-          console.error('🌐 BaseAPI: Network/Connection error', {
-            message: 'Could not connect to server',
-            possibleCauses: [
-              'Server is not running',
-              'Incorrect API URL',
-              'CORS issues',
-              'Network connectivity problems'
-            ],
-            checkList: [
-              `Verify server is running on expected port`,
-              `Confirm API_BASE_URL: ${API_BASE_URL}`,
-              'Check browser network tab for details',
-              'Verify CORS configuration on server'
-            ]
-          });
-        }
+      }
     }
-  } else if (result.data) {
-    console.log('✅ BaseAPI: Request successful', {
-      url: fullUrl,
+  }
+  
+  // Log request completion
+  if (process.env.NODE_ENV === 'development') {
+    const logLevel = result.error ? 'error' : 'log';
+    console[logLevel](`📡 BaseAPI: Request completed`, {
       method: method.toUpperCase(),
-      hasData: !!result.data,
-      dataType: typeof result.data,
-      timestamp: new Date().toISOString()
+      url: requestUrl,
+      status: result.error?.status || 'success',
+      duration: `${duration}ms`,
+      success: !result.error,
     });
     
-    // Log successful response structure for debugging
-    if (result.data && typeof result.data === 'object') {
-      console.log('📊 BaseAPI: Response structure', {
-        success: result.data.success,
-        hasMessage: !!result.data.message,
-        hasData: !!result.data.data,
-        hasPagination: !!result.data.pagination,
-        dataKeys: result.data.data ? Object.keys(result.data.data) : []
+    if (result.error) {
+      console.error('❌ BaseAPI: Request error details', {
+        status: result.error.status,
+        statusText: result.error.statusText || 'Unknown',
+        data: result.error.data,
+        originalArgs: args,
       });
     }
   }
@@ -203,92 +186,210 @@ const baseQueryWithReauth = async (args: any, api: any, extraOptions: any) => {
   return result;
 };
 
-// Create the base API
+// ========================================
+// RETRY LOGIC IMPLEMENTATION
+// ========================================
+const makeRequestWithRetry = async (
+  args: any, 
+  api: any, 
+  extraOptions: any, 
+  attempt: number = 1
+): Promise<any> => {
+  const result = await baseQuery(args, api, extraOptions);
+  
+  // Check if we should retry
+  if (result.error && shouldRetry(result.error, attempt)) {
+    console.log(`🔄 BaseAPI: Retrying request (attempt ${attempt + 1}/${API_CONFIG.RETRY_ATTEMPTS + 1})`);
+    
+    // Wait before retrying
+    await delay(API_CONFIG.RETRY_DELAY * attempt);
+    
+    // Retry the request
+    return makeRequestWithRetry(args, api, extraOptions, attempt + 1);
+  }
+  
+  return result;
+};
+
+// ========================================
+// RETRY DECISION LOGIC
+// ========================================
+const shouldRetry = (error: any, attempt: number): boolean => {
+  // Don't retry if we've exceeded max attempts
+  if (attempt >= API_CONFIG.RETRY_ATTEMPTS) {
+    return false;
+  }
+  
+  // Don't retry on client errors (4xx) except for specific cases
+  if (isClientError(error.status)) {
+    // Only retry on specific client errors
+    return error.status === HTTP_STATUS.UNAUTHORIZED || 
+           error.status === 429; // Rate limiting
+  }
+  
+  // Retry on server errors (5xx)
+  if (isServerError(error.status)) {
+    return true;
+  }
+  
+  // Retry on network errors
+  if (error.status === 'FETCH_ERROR' || error.status === 'TIMEOUT_ERROR') {
+    return true;
+  }
+  
+  return false;
+};
+
+// ========================================
+// UTILITY FUNCTIONS
+// ========================================
+const delay = (ms: number): Promise<void> => {
+  return new Promise(resolve => setTimeout(resolve, ms));
+};
+
+// ========================================
+// BASE API DEFINITION
+// ========================================
 export const baseApi = createApi({
   reducerPath: 'baseApi',
   baseQuery: baseQueryWithReauth,
   
-  // Define tag types for cache invalidation
+  // Define tag types for caching invalidation
   tagTypes: [
     'Auth',
     'User', 
     'Workspace',
-    'Dashboard', 
-    'Chart', 
-    'Category', 
+    'Dashboard',
+    'Chart',
     'Dataset',
-    'Permission', 
-    'Role',
+    'DataSource',
+    'Category',
     'Plugin',
-    'Webview'
+    'Role',
+    'Permission',
+    'AuditLog',
+    'Analytics',
+    'System',
   ],
   
-  // Keep unused data for 60 seconds
-  keepUnusedDataFor: 60,
+  // Keep queries fresh for the configured time
+  keepUnusedDataFor: API_CONFIG.CACHE_TTL / 1000, // Convert to seconds for RTK Query
   
-  // Refetch on reconnect and focus
+  // Refetch on mount/reconnect
+  refetchOnMountOrArgChange: API_CONFIG.STALE_TIME / 1000, // Convert to seconds
   refetchOnReconnect: true,
-  refetchOnFocus: false, // Set to true if you want refetch on window focus
+  refetchOnFocus: false, // Don't refetch on window focus to avoid excessive requests
   
-  // Base endpoints (other APIs will inject into this)
+  // Base endpoints - other APIs will inject into this
   endpoints: (builder) => ({
-    // Health check endpoint for testing connectivity
-    healthCheck: builder.query<
-      { success: boolean; status: string; timestamp: string },
-      void
-    >({
-      query: () => '/health',
-      keepUnusedDataFor: 0, // Don't cache health checks
+    // Health check endpoint
+    healthCheck: builder.query<{ status: string; timestamp: string }, void>({
+      query: () => ({
+        url: API_ENDPOINTS.SYSTEM.HEALTH,
+        method: HTTP_METHODS.GET,
+      }),
+      keepUnusedDataFor: 30, // Keep health data for 30 seconds only
+    }),
+    
+    // System status endpoint
+    getSystemStatus: builder.query<any, void>({
+      query: () => ({
+        url: API_ENDPOINTS.SYSTEM.STATUS,
+        method: HTTP_METHODS.GET,
+      }),
+      providesTags: ['System'],
+    }),
+    
+    // Version info endpoint
+    getVersion: builder.query<{ version: string; build: string }, void>({
+      query: () => ({
+        url: API_ENDPOINTS.SYSTEM.VERSION,
+        method: HTTP_METHODS.GET,
+      }),
+      keepUnusedDataFor: 300, // Keep version data for 5 minutes
     }),
   }),
 });
 
-// Export hooks for the base endpoints
-export const { useHealthCheckQuery } = baseApi;
+// ========================================
+// EXPORT HOOKS AND API
+// ========================================
+export const {
+  useHealthCheckQuery,
+  useGetSystemStatusQuery,
+  useGetVersionQuery,
+  util: { getRunningQueriesThunk },
+} = baseApi;
 
-// Export the base API configuration for debugging
-export const getApiConfig = () => ({
-  baseUrl: API_BASE_URL,
-  reducerPath: baseApi.reducerPath,
-  tagTypes: baseApi.tagTypes,
+// Export the baseApi as default
+export default baseApi;
+
+// ========================================
+// API UTILITIES FOR OTHER FILES
+// ========================================
+
+/**
+ * Helper to build request configuration
+ */
+export const buildRequest = (
+  url: string,
+  method: keyof typeof HTTP_METHODS = 'GET',
+  body?: any,
+  headers?: Record<string, string>
+) => ({
+  url,
+  method: HTTP_METHODS[method],
+  ...(body && { body }),
+  ...(headers && { headers }),
 });
 
-// Utility function to test API connectivity
-export const testApiConnectivity = async (): Promise<boolean> => {
-  try {
-    console.log('🧪 BaseAPI: Testing connectivity to', API_BASE_URL);
-    
-    const response = await fetch(`${API_BASE_URL}/health`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+/**
+ * Helper to handle file uploads
+ */
+export const buildFileUploadRequest = (
+  url: string,
+  file: File,
+  additionalData?: Record<string, any>
+) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  if (additionalData) {
+    Object.entries(additionalData).forEach(([key, value]) => {
+      formData.append(key, typeof value === 'string' ? value : JSON.stringify(value));
     });
-    
-    const isHealthy = response.ok;
-    console.log(`${isHealthy ? '✅' : '❌'} BaseAPI: Connectivity test`, {
-      status: response.status,
-      statusText: response.statusText,
-      url: `${API_BASE_URL}/health`
-    });
-    
-    return isHealthy;
-  } catch (error) {
-    console.error('❌ BaseAPI: Connectivity test failed', error);
-    return false;
   }
+  
+  return {
+    url,
+    method: HTTP_METHODS.POST,
+    body: formData,
+    // Don't set Content-Type header, let the browser set it with boundary
+    prepareHeaders: (headers: Headers) => {
+      headers.delete('Content-Type');
+      return headers;
+    },
+  };
 };
 
-// Development helper - only available in development mode
-if (process.env.NODE_ENV === 'development') {
-  // Make debugging functions available on window object
-  if (typeof window !== 'undefined') {
-    (window as any).apiDebug = {
-      baseUrl: API_BASE_URL,
-      testConnectivity: testApiConnectivity,
-      getConfig: getApiConfig,
-    };
-    
-    console.log('🛠️ BaseAPI: Debug tools available at window.apiDebug');
+/**
+ * Helper to handle query parameters
+ */
+export const buildQueryUrl = (
+  baseUrl: string,
+  params?: Record<string, any>
+): string => {
+  if (!params || Object.keys(params).length === 0) {
+    return baseUrl;
   }
-}
+  
+  const queryString = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      queryString.append(key, String(value));
+    }
+  });
+  
+  const queryStr = queryString.toString();
+  return queryStr ? `${baseUrl}?${queryStr}` : baseUrl;
+};

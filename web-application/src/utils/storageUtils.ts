@@ -1,5 +1,5 @@
 // File: web-application/src/utils/storageUtils.ts
-// Comprehensive localStorage utilities with error handling and type safety
+// Comprehensive localStorage utilities with error handling and type safety - CORRECTED VERSION
 
 import { STORAGE_KEYS, type StorageKey } from '../constants';
 
@@ -178,7 +178,7 @@ export const authStorage = {
 };
 
 /**
- * Workspace storage utilities
+ * Workspace storage utilities - CORRECTED WITH ALL NEEDED METHODS
  */
 export const workspaceStorage = {
   setCurrentWorkspace: (workspace: any): boolean => 
@@ -199,11 +199,32 @@ export const workspaceStorage = {
   getWorkspacePreferences: (): any | null => 
     getStorageItem(STORAGE_KEYS.WORKSPACE_PREFERENCES),
   
+  // ✅ ADDED MISSING SESSION DATA METHODS
+  setSessionData: (sessionData: any): boolean => 
+    setStorageItem(STORAGE_KEYS.SESSION_DATA, sessionData),
+  
+  getSessionData: (): any | null => 
+    getStorageItem(STORAGE_KEYS.SESSION_DATA),
+  
+  clearSessionData: (): void => 
+    removeStorageItem(STORAGE_KEYS.SESSION_DATA),
+  
+  // ✅ EXISTING clearWorkspace method (clears current, available, and preferences)
   clearWorkspace: (): void => {
     removeStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE);
     removeStorageItem(STORAGE_KEYS.AVAILABLE_WORKSPACES);
     removeStorageItem(STORAGE_KEYS.WORKSPACE_PREFERENCES);
   },
+  
+  // ✅ ADDED INDIVIDUAL CLEAR METHODS FOR FLEXIBILITY
+  clearCurrentWorkspace: (): void => 
+    removeStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE),
+  
+  clearAvailableWorkspaces: (): void => 
+    removeStorageItem(STORAGE_KEYS.AVAILABLE_WORKSPACES),
+  
+  clearWorkspacePreferences: (): void => 
+    removeStorageItem(STORAGE_KEYS.WORKSPACE_PREFERENCES),
   
   // Migration helper for old workspace keys
   migrateOldWorkspaceKeys: (): void => {
@@ -224,20 +245,31 @@ export const workspaceStorage = {
 };
 
 /**
+ * Session storage utilities
+ */
+export const sessionStorage = {
+  addRecentSearch: (search: string): void => {
+    const recent = sessionStorage.getRecentSearches() || [];
+    const updated = [search, ...recent.filter(s => s !== search)].slice(0, 10);
+    setStorageItem(STORAGE_KEYS.RECENT_SEARCHES, updated);
+  },
+  
+  getRecentSearches: (): string[] | null => 
+    getStorageItem(STORAGE_KEYS.RECENT_SEARCHES),
+  
+  clearRecentSearches: (): void => 
+    removeStorageItem(STORAGE_KEYS.RECENT_SEARCHES),
+};
+
+/**
  * UI preferences storage utilities
  */
 export const uiStorage = {
-  setThemeMode: (mode: 'light' | 'dark'): boolean => 
+  setThemeMode: (mode: string): boolean => 
     setStorageItem(STORAGE_KEYS.THEME_MODE, mode),
   
-  getThemeMode: (): 'light' | 'dark' | null => 
+  getThemeMode: (): string | null => 
     getStorageItem(STORAGE_KEYS.THEME_MODE),
-  
-  setLanguage: (language: string): boolean => 
-    setStorageItem(STORAGE_KEYS.LANGUAGE, language),
-  
-  getLanguage: (): string | null => 
-    getStorageItem(STORAGE_KEYS.LANGUAGE),
   
   setSidebarCollapsed: (collapsed: boolean): boolean => 
     setStorageItem(STORAGE_KEYS.SIDEBAR_COLLAPSED, collapsed),
@@ -245,15 +277,21 @@ export const uiStorage = {
   getSidebarCollapsed: (): boolean | null => 
     getStorageItem(STORAGE_KEYS.SIDEBAR_COLLAPSED),
   
-  setNotificationSettings: (settings: any): boolean => 
-    setStorageItem(STORAGE_KEYS.NOTIFICATION_SETTINGS, settings),
+  setLanguage: (language: string): boolean => 
+    setStorageItem(STORAGE_KEYS.LANGUAGE, language),
   
-  getNotificationSettings: (): any | null => 
-    getStorageItem(STORAGE_KEYS.NOTIFICATION_SETTINGS),
+  getLanguage: (): string | null => 
+    getStorageItem(STORAGE_KEYS.LANGUAGE),
+  
+  setTourCompleted: (completed: boolean): boolean => 
+    setStorageItem(STORAGE_KEYS.TOUR_COMPLETED, completed),
+  
+  getTourCompleted: (): boolean | null => 
+    getStorageItem(STORAGE_KEYS.TOUR_COMPLETED),
 };
 
 /**
- * Dashboard and analytics storage utilities
+ * Dashboard storage utilities
  */
 export const dashboardStorage = {
   setDashboardLayout: (layout: any): boolean => 
@@ -268,23 +306,29 @@ export const dashboardStorage = {
   getChartPreferences: (): any | null => 
     getStorageItem(STORAGE_KEYS.CHART_PREFERENCES),
   
-  setFilterSettings: (filters: any): boolean => 
-    setStorageItem(STORAGE_KEYS.FILTER_SETTINGS, filters),
+  setFilterSettings: (settings: any): boolean => 
+    setStorageItem(STORAGE_KEYS.FILTER_SETTINGS, settings),
   
   getFilterSettings: (): any | null => 
     getStorageItem(STORAGE_KEYS.FILTER_SETTINGS),
   
-  addRecentSearch: (search: string): void => {
-    const recent = dashboardStorage.getRecentSearches() || [];
-    const updated = [search, ...recent.filter(s => s !== search)].slice(0, 10);
-    setStorageItem(STORAGE_KEYS.RECENT_SEARCHES, updated);
+  addToFavorites: (dashboardId: string): boolean => {
+    const favorites = dashboardStorage.getFavorites() || [];
+    if (!favorites.includes(dashboardId)) {
+      favorites.push(dashboardId);
+      return setStorageItem(STORAGE_KEYS.DASHBOARD_FAVORITES, favorites);
+    }
+    return true;
   },
   
-  getRecentSearches: (): string[] | null => 
-    getStorageItem(STORAGE_KEYS.RECENT_SEARCHES),
+  removeFromFavorites: (dashboardId: string): boolean => {
+    const favorites = dashboardStorage.getFavorites() || [];
+    const updated = favorites.filter(id => id !== dashboardId);
+    return setStorageItem(STORAGE_KEYS.DASHBOARD_FAVORITES, updated);
+  },
   
-  clearRecentSearches: (): void => 
-    removeStorageItem(STORAGE_KEYS.RECENT_SEARCHES),
+  getFavorites: (): string[] | null => 
+    getStorageItem(STORAGE_KEYS.DASHBOARD_FAVORITES),
 };
 
 /**
@@ -315,8 +359,6 @@ export const cacheStorage = {
     removeStorageItem(STORAGE_KEYS.METADATA_CACHE);
   },
 };
-
-
 
 // ========================================
 // UTILITY FUNCTIONS
@@ -447,8 +489,6 @@ export default {
   // Specialized utilities
   auth: authStorage,
   workspace: workspaceStorage,
-  //permissions: permissionStorage,
-  //dataSource: dataSourceStorage,
   session: sessionStorage,
   ui: uiStorage,
   dashboard: dashboardStorage,

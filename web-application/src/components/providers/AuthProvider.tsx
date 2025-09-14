@@ -16,7 +16,8 @@ import {
   switchWorkspace as switchWorkspaceAction
 } from '../../store/slices/workspaceSlice';
 import { useRouter } from 'next/router';
-import { STORAGE_KEYS, StorageManager } from '../../constants/storageKeys';
+import { STORAGE_KEYS } from '@/constants';
+import {StorageManager} from '@/utils/storageUtils';
 
 interface AuthContextType {
   // Auth state
