@@ -248,7 +248,7 @@ export default function LoginPage() {
         console.log('💾 User data stored in localStorage');
         
         if (workspace) {
-          localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, JSON.stringify(workspace));
+          localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, JSON.stringify(workspace.value));
           console.log('💾 Workspace data stored in localStorage using currentWorkspace key');
         }
 

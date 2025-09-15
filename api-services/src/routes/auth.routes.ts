@@ -173,7 +173,7 @@ router.get('/verify', asyncHandler(async (req: Request, res: Response) => {
  */
 router.get('/permissions', asyncHandler(async (req: Request, res: Response) => {
   try {
-    await authController.getPermissions(req as AuthenticatedRequest, res);
+    await authController.getUserPermissions(req as AuthenticatedRequest, res);
   } catch (error) {
     logger.error('Route handler error for permissions:', {
       error: error instanceof Error ? error.message : 'Unknown error',

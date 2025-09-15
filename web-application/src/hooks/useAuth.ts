@@ -1,266 +1,375 @@
-// web-application/src/hooks/useAuth.ts
+// web-application/src/hooks/useAuth.ts - FIXED VERSION
 import { useEffect, useCallback } from 'react';
-import { useRouter } from 'next/router';
-import { useDispatch, useSelector } from 'react-redux';
-import { RootState } from '../store';
+import { useAppDispatch, useAppSelector } from './redux';
 import {
-  setCurrentWorkspace,     // ✅ This comes from workspaceSlice
+  setCredentials,
+  setPermissions,
+  setLoading,
+  setError,
+  clearError,
+  initializeAuth,
+  logout as logoutAction,  // ✅ CORRECT: Use logout from authSlice
+  updateToken
+} from '../store/slices/authSlice';
+import {
+  setCurrentWorkspace,
   setAvailableWorkspaces,
-  clearWorkspaceState      // ✅ This clears workspace state
+  resetWorkspaceState,    // ✅ CORRECT: Use resetWorkspaceState  
+  clearError as clearWorkspaceError
 } from '../store/slices/workspaceSlice';
-import storageUtils, { cleanExpiredItems } from '../utils/storageUtils';
+import { STORAGE_KEYS } from '../constants';
 
-export interface User {
+// Types
+interface User {
   id: string;
+  user_id: string;
   email: string;
-  display_name?: string;
+  first_name: string;
+  last_name: string;
+  username?: string;
   avatar_url?: string;
-  role?: string;
   is_active: boolean;
+  last_login?: string;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface Workspace {
-  id: string;
-  name: string;
-  slug: string;
-  display_name?: string;
-  description?: string;
-  is_active: boolean;
-  users_count?: number;
+interface LoginCredentials {
+  emailOrUsername: string;
+  password: string;
 }
 
-export interface UseAuthReturn {
-  user: User | null;
-  workspace: Workspace | null;
-  token: string | null;
-  permissions: string[];
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  
-  // Functions
-  logout: () => void;
-  switchWorkspace: (workspaceId: string) => Promise<void>;
-  getAvailableWorkspaces: () => Promise<Workspace[]>;
-  refreshAuth: () => Promise<void>;
-}
+export const useAuth = () => {
+  const dispatch = useAppDispatch();
+  const auth = useAppSelector((state) => state.auth);
+  const workspace = useAppSelector((state) => state.workspace);
 
-export const useAuth = (): UseAuthReturn => {
-  const router = useRouter();
-  const dispatch = useDispatch();
-  
-  // Get auth state from Redux
-  const { user, workspace, token, permissions, isLoading } = useSelector(
-    (state: RootState) => state.auth
-  );
-
-  const isAuthenticated = !!user && !!token;
-
-  // ✅ CORRECTED: Logout with proper storage cleanup
-  const logout = useCallback(() => {
-    console.log('🚪 Logout: Clearing all storage...');
-    
-    // Clear all auth storage
-    storageUtils.auth.clearAuth();
-    
-    // Clean expired items one final time
-    cleanExpiredItems();
-    
-    // Clear Redux state
-    dispatch(clearCredentials());
-    
-    // Redirect to login
-    router.push('/login');
-  }, [dispatch, router]);
-
-  // ✅ CORRECTED: Handle token expiry with proper cleanup
-  const handleTokenExpiry = useCallback(() => {
-    console.log('⏰ Token expired: Clearing storage...');
-    
-    // Clear all auth storage
-    storageUtils.auth.clearAuth();
-    cleanExpiredItems();
-    
-    // Clear Redux state
-    dispatch(clearCredentials());
-    
-    // Redirect to login
-    router.push('/login?expired=true');
-  }, [dispatch, router]);
-
-  // Switch workspace (update, don't remove)
-  const switchWorkspace = useCallback(async (workspaceId: string): Promise<void> => {
-    try {
-      console.log(`🔄 Switching to workspace: ${workspaceId}`);
-
-      // Make API call to switch workspace
-      const response = await fetch(`/api/workspaces/${workspaceId}/switch`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to switch workspace');
-      }
-
-      const data = await response.json();
-      
-      // Update workspace in storage and Redux
-      storageUtils.workspace.setCurrentWorkspace(data.workspace);
-      dispatch(setCurrentWorkspace(data.workspace));
-      
-      // Update permissions for new workspace
-      if (data.permissions) {
-        storageUtils.auth.setPermissions(data.permissions, workspaceId);
-      }
-
-      console.log(`✅ Successfully switched to workspace: ${workspaceId}`);
-
-    } catch (error) {
-      console.error('❌ Failed to switch workspace:', error);
-      throw error;
-    }
-  }, [token, dispatch]);
-
-  // Get available workspaces
-  const getAvailableWorkspaces = useCallback(async (): Promise<Workspace[]> => {
-    try {
-      const response = await fetch('/api/workspaces', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          handleTokenExpiry();
-          return [];
-        }
-        throw new Error('Failed to fetch workspaces');
-      }
-
-      const data = await response.json();
-      const workspaces = data.workspaces || [];
-      
-      // Cache available workspaces
-      storageUtils.workspace.setAvailableWorkspaces(workspaces);
-      
-      return workspaces;
-
-    } catch (error) {
-      console.error('❌ Failed to get available workspaces:', error);
-      return [];
-    }
-  }, [token, handleTokenExpiry]);
-
-  // Refresh authentication
-  const refreshAuth = useCallback(async (): Promise<void> => {
-    try {
-      const refreshToken = storageUtils.auth.getRefreshToken();
-      if (!refreshToken) {
-        logout();
-        return;
-      }
-
-      const response = await fetch('/api/auth/refresh', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ refresh_token: refreshToken })
-      });
-
-      if (!response.ok) {
-        logout();
-        return;
-      }
-
-      const data = await response.json();
-      
-      // Update token
-      storageUtils.auth.setToken(data.token);
-      
-      // Update Redux state
-      dispatch(setCredentials({
-        user: data.user || user,
-        token: data.token,
-        permissions: data.permissions || permissions
-      }));
-
-      console.log('✅ Authentication refreshed successfully');
-
-    } catch (error) {
-      console.error('❌ Failed to refresh authentication:', error);
-      logout();
-    }
-  }, [user, permissions, dispatch, logout]);
-
-  // Initialize auth from storage on mount
+  // Initialize auth state from localStorage
   useEffect(() => {
-    const initializeAuth = () => {
-      const storedToken = storageUtils.auth.getToken();
-      const storedUser = storageUtils.auth.getUser();
-      const storedWorkspace = storageUtils.workspace.getCurrentWorkspace();
-      const storedPermissions = storageUtils.auth.getPermissions(storedWorkspace?.id);
-
-      if (storedToken && storedUser) {
-        dispatch(setCredentials({
-          user: storedUser,
-          token: storedToken,
-          permissions: storedPermissions || []
-        }));
-
-        if (storedWorkspace) {
-          dispatch(setCurrentWorkspace(storedWorkspace));
-        }
-
-        console.log('✅ Auth initialized from storage');
-      } else {
-        console.log('❌ No valid auth data in storage');
+    const initializeApp = async () => {
+      console.log('🚀 useAuth: Starting app initialization');
+      
+      if (!auth.isInitialized) {
+        dispatch(initializeAuth());
       }
     };
 
-    initializeAuth();
+    initializeApp();
+  }, [dispatch, auth.isInitialized]);
+
+  // Login function
+  const login = async (credentials: LoginCredentials): Promise<any> => {
+    try {
+      console.log('🔐 useAuth: Attempting login for:', credentials.emailOrUsername);
+      dispatch(setLoading(true));
+      dispatch(clearError());
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(credentials),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Login failed with status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.success || !data.user || !data.token) {
+        throw new Error(data.message || 'Login response missing required data');
+      }
+
+      const { user, token, workspace: responseWorkspace, permissions } = data;
+      
+      console.log('✅ useAuth: Login successful', {
+        user: user.email,
+        hasWorkspace: !!responseWorkspace,
+        hasToken: !!token,
+        hasPermissions: !!permissions?.length
+      });
+
+      // Store credentials in localStorage
+      localStorage.setItem(STORAGE_KEYS.TOKEN, token);
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+
+      if (responseWorkspace) {
+        localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, JSON.stringify(responseWorkspace));
+        dispatch(setCurrentWorkspace(responseWorkspace));
+      }
+
+      let finalPermissions: string[] = [];
+      if (permissions && permissions.length > 0) {
+        finalPermissions = permissions;
+        localStorage.setItem(STORAGE_KEYS.PERMISSIONS, JSON.stringify(permissions));
+      }
+
+      // ✅ FIXED: Use setCredentials (which exists) instead of clearCredentials
+      dispatch(setCredentials({
+        user,
+        token,
+        permissions: finalPermissions,
+        workspace: responseWorkspace
+      }));
+
+      return { success: true, user, token, workspace: responseWorkspace, permissions: finalPermissions };
+      
+    } catch (error: any) {
+      console.error('❌ useAuth: Login failed:', error);
+      dispatch(setError(error.message || 'Login failed'));
+      throw error;
+    } finally {
+      dispatch(setLoading(false));
+    }
+  };
+
+  // ✅ FIXED: Logout function using correct Redux actions
+  const logout = async (): Promise<void> => {
+    try {
+      console.log('🚪 useAuth: Logging out');
+
+      // Clear localStorage
+      localStorage.removeItem(STORAGE_KEYS.TOKEN);
+      localStorage.removeItem(STORAGE_KEYS.USER);
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
+      localStorage.removeItem(STORAGE_KEYS.PERMISSIONS);
+
+      // ✅ FIXED: Use correct Redux actions that actually exist
+      dispatch(logoutAction());           // This exists in authSlice
+      dispatch(resetWorkspaceState());    // This exists in workspaceSlice
+
+      console.log('✅ useAuth: Logout completed');
+      
+    } catch (error: any) {
+      console.error('❌ useAuth: Logout failed:', error);
+      // Still clear state even if logout request fails
+      dispatch(logoutAction());
+      dispatch(resetWorkspaceState());
+    }
+  };
+
+  // Switch workspace function
+  const switchWorkspace = async (workspaceSlug: string): Promise<void> => {
+    try {
+      console.log('🔄 useAuth: Switching workspace to:', workspaceSlug);
+      dispatch(setLoading(true));
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/switch-workspace`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({ workspace_slug: workspaceSlug }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Workspace switch failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.success || !data.token) {
+        throw new Error(data.message || 'Workspace switch response missing token');
+      }
+
+      const { user, token, workspace: newWorkspace, permissions } = data;
+
+      // Update localStorage
+      localStorage.setItem(STORAGE_KEYS.TOKEN, token);
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+      localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, JSON.stringify(newWorkspace));
+      
+      if (permissions) {
+        localStorage.setItem(STORAGE_KEYS.PERMISSIONS, JSON.stringify(permissions));
+      }
+
+      // Update Redux store
+      dispatch(setCredentials({
+        user,
+        token,
+        permissions: permissions || [],
+        workspace: newWorkspace
+      }));
+      
+      dispatch(setCurrentWorkspace(newWorkspace));
+
+      console.log('✅ useAuth: Workspace switched successfully to:', newWorkspace.name);
+
+    } catch (error: any) {
+      console.error('❌ useAuth: Workspace switch failed:', error);
+      dispatch(setError(error.message || 'Failed to switch workspace'));
+      throw error;
+    } finally {
+      dispatch(setLoading(false));
+    }
+  };
+
+  // Get available workspaces
+  const getAvailableWorkspaces = async (): Promise<any[]> => {
+    try {
+      console.log('📋 useAuth: Getting available workspaces');
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/user/workspaces`, {
+        headers: {
+          'Authorization': `Bearer ${auth.token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Failed to get workspaces: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to retrieve workspaces');
+      }
+
+      const workspaces = data.workspaces || [];
+      console.log('✅ useAuth: Retrieved workspaces:', workspaces.length);
+
+      dispatch(setAvailableWorkspaces(workspaces));
+      return workspaces;
+
+    } catch (error: any) {
+      console.error('❌ useAuth: Failed to get available workspaces:', error);
+      dispatch(setError(error.message || 'Failed to load workspaces'));
+      return [];
+    }
+  };
+
+  // Verify token
+  const verifyToken = async (): Promise<boolean> => {
+    const storedToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
+    if (!storedToken) {
+      console.log('🔍 useAuth: No stored token found');
+      return false;
+    }
+
+    try {
+      console.log('🔍 useAuth: Verifying token...');
+      
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/profile`, {
+        headers: {
+          'Authorization': `Bearer ${storedToken}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.user) {
+          console.log('✅ useAuth: Token verification successful');
+          
+          // ✅ FIXED: Use setCredentials instead of non-existent clearCredentials
+          dispatch(setCredentials({
+            user: data.user,
+            token: storedToken,
+            permissions: data.permissions || [],
+            workspace: data.workspace
+          }));
+          
+          return true;
+        }
+      }
+
+      console.log('❌ useAuth: Token verification failed');
+      return false;
+    } catch (error: any) {
+      console.error('❌ useAuth: Token verification error:', error);
+      return false;
+    }
+  };
+
+  // Clear error
+  const clearAuthError = useCallback(() => {
+    dispatch(clearError());
+    dispatch(clearWorkspaceError());
   }, [dispatch]);
 
-  // Set up token expiry monitoring
-  useEffect(() => {
-    if (!token) return;
+  // Refresh auth
+  const refreshAuth = async (): Promise<void> => {
+    console.log('🔄 useAuth: Refreshing auth');
+    if (auth.token) {
+      await verifyToken();
+      await getAvailableWorkspaces();
+    }
+  };
 
-    // Check token validity periodically
-    const intervalId = setInterval(async () => {
-      try {
-        const response = await fetch('/api/auth/verify', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
+  // Permission checking helpers
+  const hasPermission = useCallback((permission: string): boolean => {
+    return auth.permissions.includes(permission);
+  }, [auth.permissions]);
 
-        if (!response.ok) {
-          console.log('⚠️ Token validation failed, triggering expiry handling');
-          handleTokenExpiry();
-        }
-      } catch (error) {
-        console.error('❌ Token verification error:', error);
-        handleTokenExpiry();
-      }
-    }, 5 * 60 * 1000); // Check every 5 minutes
+  const hasAnyPermission = useCallback((permissions: string[]): boolean => {
+    return permissions.some(permission => auth.permissions.includes(permission));
+  }, [auth.permissions]);
 
-    return () => clearInterval(intervalId);
-  }, [token, handleTokenExpiry]);
+  const hasAllPermissions = useCallback((permissions: string[]): boolean => {
+    return permissions.every(permission => auth.permissions.includes(permission));
+  }, [auth.permissions]);
+
+  // Placeholder functions for complete interface
+  const register = async (data: {
+    name: string;
+    email: string;
+    password: string;
+    confirmPassword: string;
+  }): Promise<any> => {
+    throw new Error('Register function not implemented yet');
+  };
+
+  const forgotPassword = async (emailOrUsername: string): Promise<any> => {
+    throw new Error('Forgot password function not implemented yet');
+  };
+
+  const resetPassword = async (token: string, newPassword: string): Promise<any> => {
+    throw new Error('Reset password function not implemented yet');
+  };
+
+  const changePassword = async (currentPassword: string, newPassword: string): Promise<any> => {
+    throw new Error('Change password function not implemented yet');
+  };
+
+  const updateProfile = async (data: { name?: string; email?: string; avatar?: string }): Promise<any> => {
+    throw new Error('Update profile function not implemented yet');
+  };
 
   return {
-    user,
-    workspace,
-    token,
-    permissions,
-    isAuthenticated,
-    isLoading,
+    // State
+    user: auth.user,
+    token: auth.token,
+    isAuthenticated: auth.isAuthenticated,
+    isLoading: auth.isLoading || workspace.isLoading,
+    error: auth.error || workspace.error,
+    permissions: auth.permissions || [],
+    availableWorkspaces: workspace.availableWorkspaces || [],
+    currentWorkspace: workspace.currentWorkspace,
+    isInitialized: auth.isInitialized,
+
+    // Actions
+    login,
     logout,
+    register,
+    verifyToken,
+    clearError: clearAuthError,
+    refreshAuth,
     switchWorkspace,
     getAvailableWorkspaces,
-    refreshAuth
+    forgotPassword,
+    resetPassword,
+    changePassword,
+    updateProfile,
+    
+    // Permission helpers
+    hasPermission,
+    hasAnyPermission,
+    hasAllPermissions,
   };
 };

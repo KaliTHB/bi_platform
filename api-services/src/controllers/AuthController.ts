@@ -17,6 +17,15 @@ export class AuthController {
 
   constructor() {
     this.authService = new AuthService(db);
+     // Verify all methods are bound correctly
+    console.log('🔍 AuthController constructor - methods available:', {
+      getUserPermissions: typeof this.getUserPermissions === 'function',
+      login: typeof this.login === 'function',
+      logout: typeof this.logout === 'function',
+      getCurrentUser: typeof this.getCurrentUser === 'function',
+      refreshToken: typeof this.refreshToken === 'function',
+      switchWorkspace: typeof this.switchWorkspace === 'function'
+    });
     // ✅ INITIALIZE PERMISSION SERVICE
     this.permissionService = new PermissionService(db, new CacheService());
   }

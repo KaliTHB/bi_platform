@@ -42,13 +42,16 @@ export class PermissionService {
     try {
       // Get all user roles in workspace
       const roleResult = await this.database.query(`
-        SELECT cr.permissions
-        FROM user_role_assignments ura
-        JOIN roles cr ON ura.role_id = cr.id
-        WHERE ura.user_id = $1 
-          AND ura.workspace_id = $2 
-          AND ura.is_active = true
-          AND cr.is_active = true
+         SELECT 
+          role_id as id,
+          role_name as name,
+          jsonb_agg(DISTINCT permission_name) as permissions
+        FROM user_permissions_view
+        WHERE user_id = $1 
+          AND workspace_id = $2 
+          AND is_permission_active = true
+        GROUP BY role_id, role_name
+        ORDER BY role_name
       `, [userId, workspaceId]);
 
       // Union all permissions from all roles
@@ -111,12 +114,7 @@ export class PermissionService {
    */
   async getUserRoles(userId: string, workspaceId: string): Promise<UserRole[]> {
     const result = await this.database.query(`
-      SELECT cr.id, cr.name, cr.permissions
-      FROM user_role_assignments ura
-      JOIN roles cr ON ura.role_id = cr.id
-      WHERE ura.user_id = $1 
-        AND ura.workspace_id = $2 
-        AND ura.is_active = true
+      SELECT get_user_effective_permissions($1, $2) as permissions;
     `, [userId, workspaceId]);
 
     return result.rows;
