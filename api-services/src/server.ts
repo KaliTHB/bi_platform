@@ -2,6 +2,8 @@
 import dotenv from 'dotenv';
 import app from './app';
 import { logger } from './utils/logger';
+import { cacheService } from './services/CacheService';
+import { RedisConfig } from './config/redis';
 
 // Load environment variables
 dotenv.config();
@@ -14,6 +16,19 @@ const HOST = process.env.HOST || '0.0.0.0';
 // Start server
 async function startServer(): Promise<void> {
   try {
+    logger.info('🚀 Starting BI Platform API Server...');
+    
+    // Log environment configuration
+    logger.info('📋 Environment Configuration:', {
+      NODE_ENV: NODE_ENV,
+      PORT: PORT,
+      HOST: HOST,
+      REDIS_ENABLED: process.env.REDIS_ENABLED !== 'false',
+      CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:3000',
+      node_version: process.version,
+      pid: process.pid
+    });
+
     // Initialize database connections
     await initializeDatabase();
     
@@ -25,13 +40,20 @@ async function startServer(): Promise<void> {
     
     // Start HTTP server
     const server = app.listen(PORT, HOST, () => {
-      logger.info('🚀 Server started successfully', {
+      logger.info('🌟 BI Platform API Server running successfully', {
+        url: `http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`,
         port: PORT,
         host: HOST,
-        environment: NODE_ENV,
-        node_version: process.version,
-        pid: process.pid
+        environment: NODE_ENV
       });
+      
+      // Log cache configuration
+      const cacheInfo = cacheService.getCacheInfo();
+      if (process.env.REDIS_ENABLED === 'false') {
+        logger.info('💾 Running with in-memory cache (Redis disabled)');
+      } else {
+        logger.info(`💾 Cache Type: ${cacheInfo.type} (${cacheInfo.enabled ? 'enabled' : 'disabled'})`);
+      }
       
       // Log available endpoints in development
       if (NODE_ENV === 'development') {
@@ -124,25 +146,43 @@ async function initializeDatabase(): Promise<void> {
 // Initialize cache connections
 async function initializeCache(): Promise<void> {
   try {
-    logger.info('Initializing cache connections...');
+    logger.info('🔧 Initializing cache service...');
     
-    // In a real implementation, you would connect to Redis here
-    // Example:
-    // const redis = new Redis({
-    //   host: process.env.REDIS_HOST,
-    //   port: parseInt(process.env.REDIS_PORT || '6379'),
-    //   password: process.env.REDIS_PASSWORD,
-    // });
-    // 
-    // await redis.ping();
+    // Check if Redis is enabled
+    const isRedisEnabled = process.env.REDIS_ENABLED !== 'false';
     
-    // Mock cache initialization
-    await new Promise(resolve => setTimeout(resolve, 500));
+    if (!isRedisEnabled) {
+      logger.info('🚫 Redis disabled via REDIS_ENABLED=false, using memory cache');
+    } else {
+      logger.info('🔄 Attempting Redis connection...');
+      
+      // Try to initialize Redis connection
+      try {
+        const redisClient = await RedisConfig.getClient();
+        if (redisClient) {
+          logger.info('✅ Redis connection established successfully');
+        } else {
+          logger.warn('⚠️ Redis connection failed, falling back to memory cache');
+        }
+      } catch (redisError) {
+        logger.warn('⚠️ Redis connection error, using memory fallback:', redisError);
+      }
+    }
     
-    logger.info('✅ Cache connections established');
+    // Get cache service info
+    const cacheInfo = cacheService.getCacheInfo();
+    logger.info(`✅ Cache service initialized: ${cacheInfo.type} (${cacheInfo.enabled ? 'enabled' : 'disabled'})`);
+    
+    // Start periodic cleanup for memory cache if needed
+    if (!cacheService.isRedisEnabled()) {
+      cacheService.startPeriodicCleanup();
+      logger.info('🧹 Memory cache cleanup initialized');
+    }
+    
   } catch (error) {
     logger.error('❌ Cache initialization failed:', error);
-    throw error;
+    // Don't throw error - cache is not critical for startup, fallback to no caching
+    logger.warn('⚠️ Continuing without cache service');
   }
 }
 
@@ -191,16 +231,17 @@ async function closeCache(): Promise<void> {
   try {
     logger.info('Closing cache connections...');
     
-    // In a real implementation:
-    // await redis.disconnect();
+    // Close cache service
+    await cacheService.close();
     
-    // Mock cache cleanup
-    await new Promise(resolve => setTimeout(resolve, 200));
+    // Disconnect Redis if connected
+    await RedisConfig.disconnect();
     
     logger.info('✅ Cache connections closed');
   } catch (error) {
     logger.error('❌ Error closing cache connections:', error);
-    throw error;
+    // Don't throw error for cache cleanup
+    logger.warn('Cache cleanup completed with warnings');
   }
 }
 
@@ -214,15 +255,27 @@ function logAvailableEndpoints(): void {
     authentication: {
       login: `POST ${baseUrl}/api/auth/login`,
       register: `POST ${baseUrl}/api/auth/register`,
-      verify: `GET ${baseUrl}/api/auth/verify`
+      verify: `POST ${baseUrl}/api/auth/verify-token`,
+      logout: `POST ${baseUrl}/api/auth/logout`,
+      switch_workspace: `POST ${baseUrl}/api/auth/switch-workspace`
     },
     workspaces: `${baseUrl}/api/workspaces`,
+    users: `${baseUrl}/api/users`,
     datasets: `${baseUrl}/api/datasets`,
     dashboards: `${baseUrl}/api/dashboards`,
     charts: `${baseUrl}/api/charts`,
     plugins: `${baseUrl}/api/plugins`,
     webviews: `${baseUrl}/api/webviews`,
     public_webviews: `${baseUrl}/api/webviews/public/:webviewName`
+  });
+  
+  // Log cache status
+  const cacheInfo = cacheService.getCacheInfo();
+  logger.info('💾 Cache Status:', {
+    type: cacheInfo.type,
+    enabled: cacheInfo.enabled,
+    redis_available: RedisConfig.isRedisAvailable(),
+    memory_cache_size: cacheInfo.memorySize || 0
   });
 }
 
@@ -233,6 +286,17 @@ process.on('warning', (warning) => {
     message: warning.message,
     stack: warning.stack
   });
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
 });
 
 // Start the server
