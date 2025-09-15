@@ -28,7 +28,9 @@ export class AuthController {
   public login = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const { identifier, password, workspace_slug } = req.body;
-
+      
+      console.log('identifier', 'password', 'workspace_slug')
+      console.log(identifier, password, workspace_slug)
       // Validate input
       if (!identifier || !password) {
         res.status(400).json({

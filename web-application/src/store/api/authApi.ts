@@ -1,113 +1,148 @@
-// web-application/src/store/api/authApi.ts - UPDATED WITH CORRECT BACKEND ENDPOINTS
+// web-application/src/store/api/authApi.ts - CLEAN VERSION USING UNIFIED TYPES
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { RootState } from '../index';
 
-// ✅ FIXED: Auth API with correct base URL structure
+// ✅ Import all types from unified auth types
+import type {
+  // Authentication types
+  LoginCredentials,
+  LoginResponse,
+  LoginMutationResult,
+  RefreshTokenRequest,
+  RefreshTokenResponse,
+  VerifyTokenResponse,
+  
+  // User profile types
+  GetCurrentUserResponse,
+  UpdateProfileRequest,
+  UpdateProfileResponse,
+  
+  // Password management types
+  ChangePasswordRequest,
+  ChangePasswordResponse,
+  ForgotPasswordRequest,
+  ForgotPasswordResponse,
+  ResetPasswordRequest,
+  ResetPasswordResponse,
+  
+  // Permission types
+  UserPermissionsResponse,
+  GetUserRolesResponse,
+  CheckPermissionsRequest,
+  CheckPermissionsResponse,
+  RefreshPermissionsRequest,
+  
+  // Workspace types
+  SwitchWorkspaceRequest,
+  SwitchWorkspaceResponse,
+  
+  // Session types
+  GetSessionsResponse,
+  RevokeSessionRequest,
+  
+  // Audit log types
+  GetAuditLogRequest,
+  GetAuditLogResponse,
+  
+  // Generic API types
+  ApiResponse,
+  AuthErrorResponse,
+} from '@/types/auth.types';
+
+// ✅ Base query configuration with proper headers
 const authBaseQuery = fetchBaseQuery({
   baseUrl: process.env.NEXT_PUBLIC_API_URL 
     ? `${process.env.NEXT_PUBLIC_API_URL}/api/auth` 
     : 'http://localhost:3001/api/auth',
+    
   prepareHeaders: (headers, { getState }) => {
     const state = getState() as RootState;
     const token = state.auth.token;
     const workspaceId = state.workspace.currentWorkspace?.id;
     
+    // Add authorization header if token exists
     if (token) {
       headers.set('authorization', `Bearer ${token}`);
     }
+    
+    // Add workspace context if available
     if (workspaceId) {
       headers.set('x-workspace-id', workspaceId);
     }
     
+    // Set content type and accept headers
     headers.set('Content-Type', 'application/json');
+    headers.set('Accept', 'application/json');
+    
     return headers;
   },
 });
 
-// ✅ UPDATED: Types matching backend response format
-interface AuthApiResponse<T = any> {
-  success: boolean;
-  data?: T;
-  message?: string;
-  error?: string;
-}
-
-// ✅ UPDATED: Backend permissions response format
-interface UserPermissionsResponse {
-  success: boolean;
-  permissions: string[];
-  roles?: string[];
-  is_admin?: boolean;
-  role_level?: number;
-  user_info?: {
-    user_id: string;
-    email: string;
-    workspace_id: string;
-  };
-  workspace_used?: string;
-  warning?: string;
-  message?: string;
-}
-
-interface LoginCredentials {
-  email?: string;
-  username?: string;
-  password: string;
-  workspace_slug?: string;
-}
-
-interface LoginResponse {
-  success: boolean;
-  user: any;
-  token: string;
-  workspace?: any;
-  permissions?: string[];
-  message: string;
-}
-
+// ✅ Auth API definition using unified types
 export const authApi = createApi({
   reducerPath: 'authApi',
   baseQuery: authBaseQuery,
-  tagTypes: ['Auth', 'User', 'UserPermissions'],
+  tagTypes: ['Auth', 'User', 'UserPermissions', 'Session', 'AuditLog'],
+  
   endpoints: (builder) => ({
     // ==================== AUTHENTICATION ENDPOINTS ====================
     
+    /**
+     * Login user with email/username and password
+     * POST /api/auth/login
+     */
     login: builder.mutation<LoginResponse, LoginCredentials>({
-      query: (credentials) => ({
-        url: '/login', // becomes /api/auth/login
-        method: 'POST',
-        body: credentials,
-      }),
+      query: (credentials) => {
+        console.log('🔄 AuthAPI: Sending login request:', { 
+          ...credentials, 
+          password: '[REDACTED]' 
+        });
+        
+        return {
+          url: '/login',
+          method: 'POST',
+          body: credentials,
+        };
+      },
+      transformResponse: (response: LoginResponse) => {
+        console.log('📥 AuthAPI: Login response received:', response);
+        return response;
+      },
+      transformErrorResponse: (response: { status: number; data: AuthErrorResponse }) => {
+        console.error('❌ AuthAPI: Login error response:', response);
+        return response;
+      },
       invalidatesTags: ['Auth', 'User', 'UserPermissions'],
     }),
-    
-    logout: builder.mutation<AuthApiResponse, void>({
+
+    /**
+     * Logout current user
+     * POST /api/auth/logout
+     */
+    logout: builder.mutation<ApiResponse, void>({
       query: () => ({
-        url: '/logout', // becomes /api/auth/logout
+        url: '/logout',
         method: 'POST',
       }),
-      invalidatesTags: ['Auth', 'User', 'UserPermissions'],
+      invalidatesTags: ['Auth', 'User', 'UserPermissions', 'Session'],
     }),
-    
-    verifyToken: builder.query<AuthApiResponse<{
-      user: any;
-      workspace?: any;
-      permissions?: string[];
-      valid: boolean;
-    }>, void>({
-      query: () => ({
-        url: '/verify', // becomes /api/auth/verify
-        method: 'GET',
-      }),
+
+    /**
+     * Verify current token validity
+     * GET /api/auth/verify
+     */
+    verifyToken: builder.query<VerifyTokenResponse, void>({
+      query: () => '/verify',
       providesTags: ['Auth'],
     }),
-    
-    refreshToken: builder.mutation<AuthApiResponse<{
-      token: string;
-      user: any;
-    }>, { refresh_token: string }>({
+
+    /**
+     * Refresh access token using refresh token
+     * POST /api/auth/refresh
+     */
+    refreshToken: builder.mutation<RefreshTokenResponse, RefreshTokenRequest>({
       query: ({ refresh_token }) => ({
-        url: '/refresh', // becomes /api/auth/refresh
+        url: '/refresh',
         method: 'POST',
         body: { refresh_token },
       }),
@@ -116,24 +151,22 @@ export const authApi = createApi({
 
     // ==================== USER PROFILE ENDPOINTS ====================
 
-    getCurrentUser: builder.query<AuthApiResponse<{
-      user: any;
-      permissions?: string[];
-      workspaces?: any[];
-    }>, void>({
-      query: () => '/profile', // ✅ FIXED: becomes /api/auth/profile
+    /**
+     * Get current user profile with permissions and workspaces
+     * GET /api/auth/profile
+     */
+    getCurrentUser: builder.query<GetCurrentUserResponse, void>({
+      query: () => '/profile',
       providesTags: ['User'],
     }),
 
-    updateCurrentUser: builder.mutation<AuthApiResponse<{
-      user: any;
-    }>, {
-      first_name?: string;
-      last_name?: string;
-      avatar_url?: string;
-    }>({
+    /**
+     * Update current user profile
+     * PUT /api/auth/profile
+     */
+    updateCurrentUser: builder.mutation<UpdateProfileResponse, UpdateProfileRequest>({
       query: (userData) => ({
-        url: '/profile', // ✅ FIXED: becomes /api/auth/profile
+        url: '/profile',
         method: 'PUT',
         body: userData,
       }),
@@ -143,13 +176,14 @@ export const authApi = createApi({
     // ==================== PERMISSION ENDPOINTS ====================
 
     /**
-     * ✅ UPDATED: Get current user's permissions - matches backend exactly
+     * Get current user's permissions for specified workspace
+     * GET /api/auth/permissions
      */
     getCurrentUserPermissions: builder.query<UserPermissionsResponse, {
       workspaceId?: string;
     }>({
       query: ({ workspaceId }) => ({
-        url: '/permissions', // becomes /api/auth/permissions
+        url: '/permissions',
         params: workspaceId ? { workspace_id: workspaceId } : undefined,
       }),
       providesTags: (result, error, { workspaceId }) => [
@@ -159,18 +193,12 @@ export const authApi = createApi({
     }),
 
     /**
-     * Lazy version for on-demand permission loading
-     * This creates useLazyGetCurrentUserPermissionsQuery automatically
+     * Refresh user permissions (force reload from database)
+     * POST /api/auth/permissions/refresh
      */
-
-    /**
-     * ✅ UPDATED: Refresh user permissions (if backend supports it)
-     */
-    refreshUserPermissions: builder.mutation<UserPermissionsResponse, {
-      workspaceId?: string;
-    }>({
+    refreshUserPermissions: builder.mutation<UserPermissionsResponse, RefreshPermissionsRequest>({
       query: ({ workspaceId }) => ({
-        url: '/permissions/refresh', // becomes /api/auth/permissions/refresh
+        url: '/permissions/refresh',
         method: 'POST',
         body: workspaceId ? { workspace_id: workspaceId } : {},
       }),
@@ -181,21 +209,12 @@ export const authApi = createApi({
     }),
 
     /**
-     * Check if user has specific permissions (if backend supports it)
+     * Check if user has specific permissions
+     * POST /api/auth/permissions/check
      */
-    checkUserPermissions: builder.query<AuthApiResponse<{
-      results: Array<{
-        permission: string;
-        granted: boolean;
-        reason?: string;
-      }>;
-      allGranted: boolean;
-    }>, {
-      permissions: string[];
-      workspaceId?: string;
-    }>({
+    checkUserPermissions: builder.query<CheckPermissionsResponse, CheckPermissionsRequest>({
       query: ({ permissions, workspaceId }) => ({
-        url: '/permissions/check', // becomes /api/auth/permissions/check
+        url: '/permissions/check',
         method: 'POST',
         body: {
           permissions,
@@ -207,22 +226,12 @@ export const authApi = createApi({
     }),
 
     /**
-     * Get user's role assignments (if backend supports it)
+     * Get user's role assignments
+     * GET /api/auth/roles
      */
-    getUserRoles: builder.query<AuthApiResponse<{
-      roles: Array<{
-        id: string;
-        name: string;
-        display_name: string;
-        level: number;
-        is_system: boolean;
-        permissions: string[];
-        assigned_at: string;
-        expires_at?: string;
-      }>;
-    }>, { workspaceId?: string }>({
+    getUserRoles: builder.query<GetUserRolesResponse, { workspaceId?: string }>({
       query: ({ workspaceId }) => ({
-        url: '/roles', // becomes /api/auth/roles
+        url: '/roles',
         params: workspaceId ? { workspace_id: workspaceId } : undefined,
       }),
       providesTags: ['UserPermissions'],
@@ -230,33 +239,37 @@ export const authApi = createApi({
 
     // ==================== PASSWORD MANAGEMENT ====================
 
-    changePassword: builder.mutation<AuthApiResponse, {
-      current_password: string;
-      new_password: string;
-    }>({
+    /**
+     * Change user password
+     * POST /api/auth/change-password
+     */
+    changePassword: builder.mutation<ChangePasswordResponse, ChangePasswordRequest>({
       query: (passwords) => ({
-        url: '/change-password', // ✅ FIXED: matches backend route
+        url: '/change-password',
         method: 'POST',
         body: passwords,
       }),
     }),
 
-    requestPasswordReset: builder.mutation<AuthApiResponse, {
-      email: string;
-    }>({
+    /**
+     * Request password reset email
+     * POST /api/auth/forgot-password
+     */
+    requestPasswordReset: builder.mutation<ForgotPasswordResponse, ForgotPasswordRequest>({
       query: ({ email }) => ({
-        url: '/forgot-password', // ✅ FIXED: matches backend route
+        url: '/forgot-password',
         method: 'POST',
         body: { email },
       }),
     }),
 
-    confirmPasswordReset: builder.mutation<AuthApiResponse, {
-      token: string;
-      new_password: string;
-    }>({
+    /**
+     * Confirm password reset with token
+     * POST /api/auth/reset-password
+     */
+    confirmPasswordReset: builder.mutation<ResetPasswordResponse, ResetPasswordRequest>({
       query: ({ token, new_password }) => ({
-        url: '/reset-password', // ✅ FIXED: matches backend route
+        url: '/reset-password',
         method: 'POST',
         body: { token, new_password },
       }),
@@ -264,15 +277,13 @@ export const authApi = createApi({
 
     // ==================== WORKSPACE SWITCHING ====================
 
-    switchWorkspace: builder.mutation<AuthApiResponse<{
-      workspace: any;
-      permissions: string[];
-      token?: string;
-    }>, {
-      workspace_id: string; // ✅ FIXED: backend expects workspace_id not slug
-    }>({
+    /**
+     * Switch to different workspace
+     * POST /api/auth/switch-workspace
+     */
+    switchWorkspace: builder.mutation<SwitchWorkspaceResponse, SwitchWorkspaceRequest>({
       query: ({ workspace_id }) => ({
-        url: '/switch-workspace', // becomes /api/auth/switch-workspace
+        url: '/switch-workspace',
         method: 'POST',
         body: { workspace_id },
       }),
@@ -280,79 +291,63 @@ export const authApi = createApi({
     }),
 
     // ==================== SESSION MANAGEMENT ====================
-    // Note: These endpoints may need to be implemented in backend
 
-    getSessions: builder.query<AuthApiResponse<{
-      sessions: Array<{
-        id: string;
-        device_name?: string;
-        ip_address: string;
-        user_agent: string;
-        created_at: string;
-        last_activity: string;
-        is_current: boolean;
-      }>;
-    }>, void>({
-      query: () => '/sessions', // becomes /api/auth/sessions
+    /**
+     * Get all user sessions
+     * GET /api/auth/sessions
+     */
+    getSessions: builder.query<GetSessionsResponse, void>({
+      query: () => '/sessions',
+      providesTags: ['Session'],
     }),
 
-    revokeSession: builder.mutation<AuthApiResponse, {
-      session_id: string;
-    }>({
+    /**
+     * Revoke specific session
+     * DELETE /api/auth/sessions/:session_id
+     */
+    revokeSession: builder.mutation<ApiResponse, RevokeSessionRequest>({
       query: ({ session_id }) => ({
-        url: `/sessions/${session_id}`, // becomes /api/auth/sessions/:id
+        url: `/sessions/${session_id}`,
         method: 'DELETE',
       }),
+      invalidatesTags: ['Session'],
     }),
 
-    revokeAllSessions: builder.mutation<AuthApiResponse, void>({
+    /**
+     * Revoke all sessions except current
+     * DELETE /api/auth/sessions
+     */
+    revokeAllSessions: builder.mutation<ApiResponse, void>({
       query: () => ({
-        url: '/sessions', // becomes /api/auth/sessions
+        url: '/sessions',
         method: 'DELETE',
       }),
-      invalidatesTags: ['Auth'],
+      invalidatesTags: ['Auth', 'Session'],
     }),
 
     // ==================== AUDIT LOG ====================
-    // Note: This endpoint may need to be implemented in backend
 
-    getAuthAuditLog: builder.query<AuthApiResponse<{
-      logs: Array<{
-        id: string;
-        action: string;
-        success: boolean;
-        ip_address: string;
-        user_agent: string;
-        workspace_id?: string;
-        details?: any;
-        created_at: string;
-      }>;
-      pagination?: {
-        page: number;
-        limit: number;
-        total: number;
-        pages: number;
-      };
-    }>, {
-      page?: number;
-      limit?: number;
-      action?: string;
-      workspace_id?: string;
-    }>({
-      query: ({ page = 1, limit = 50, action, workspace_id }) => ({
-        url: '/audit', // becomes /api/auth/audit
+    /**
+     * Get authentication audit logs
+     * GET /api/auth/audit
+     */
+    getAuthAuditLog: builder.query<GetAuditLogResponse, GetAuditLogRequest>({
+      query: ({ page = 1, limit = 50, action, workspace_id } = {}) => ({
+        url: '/audit',
         params: {
           page: page.toString(),
           limit: limit.toString(),
-          action,
-          workspace_id,
+          ...(action && { action }),
+          ...(workspace_id && { workspace_id }),
         },
       }),
+      providesTags: ['AuditLog'],
     }),
   }),
 });
 
-// Export hooks for usage in functional components
+// ==================== EXPORT HOOKS ====================
+
 export const {
   // Authentication hooks
   useLoginMutation,
@@ -366,7 +361,7 @@ export const {
   useLazyGetCurrentUserQuery,
   useUpdateCurrentUserMutation,
 
-  // ✅ PERMISSION HOOKS - Now correctly mapped to backend endpoints!
+  // Permission hooks
   useGetCurrentUserPermissionsQuery,
   useLazyGetCurrentUserPermissionsQuery,
   useRefreshUserPermissionsMutation,
@@ -383,15 +378,29 @@ export const {
   // Workspace switching hooks
   useSwitchWorkspaceMutation,
 
-  // Session management hooks (may need backend implementation)
+  // Session management hooks
   useGetSessionsQuery,
+  useLazyGetSessionsQuery,
   useRevokeSessionMutation,
   useRevokeAllSessionsMutation,
 
-  // Audit log hooks (may need backend implementation)
+  // Audit log hooks
   useGetAuthAuditLogQuery,
   useLazyGetAuthAuditLogQuery,
 } = authApi;
 
 // Export the API itself for store configuration
 export default authApi;
+
+// ==================== TYPE EXPORTS ====================
+// Re-export commonly used types for convenience
+export type {
+  LoginCredentials,
+  LoginResponse,
+  LoginMutationResult,
+  UserPermissionsResponse,
+  SwitchWorkspaceRequest,
+  SwitchWorkspaceResponse,
+  ChangePasswordRequest,
+  UpdateProfileRequest,
+} from '@/types/auth.types';
