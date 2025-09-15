@@ -1,20 +1,23 @@
-// File: web-application/src/constants/api.ts
+// web-application/src/constants/api.ts
 // Complete API-related constants and configurations
 
 // ========================================
 // BASE CONFIGURATION
 // ========================================
+const HEADERS: Record<string, string> = {
+  'Content-Type': 'application/json',
+  Accept: 'application/json',
+};
+
 export const API_CONFIG = {
+  // ✅ FIXED: Ensure correct API base URL with /api prefix
   BASE_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api',
   TIMEOUT: 30000, // 30 seconds
   RETRY_ATTEMPTS: 3,
   RETRY_DELAY: 1000, // 1 second
   
   // Request/Response Configuration
-  DEFAULT_HEADERS: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
+  DEFAULT_HEADERS: HEADERS ,
   
   // Pagination Defaults
   DEFAULT_PAGE_SIZE: 20,
@@ -24,6 +27,7 @@ export const API_CONFIG = {
   CACHE_TTL: 5 * 60 * 1000, // 5 minutes
   STALE_TIME: 2 * 60 * 1000, // 2 minutes
 } as const;
+
 
 // ========================================
 // COMPLETE ENDPOINT DEFINITIONS
@@ -42,13 +46,14 @@ export const API_ENDPOINTS = {
     CHANGE_PASSWORD: '/auth/change-password',
     UPDATE_PROFILE: '/auth/update-profile',
     VERIFY_TOKEN: '/auth/verify',
+    SWITCH_WORKSPACE: '/auth/switch-workspace', // ✅ Added missing endpoint
   },
   
   // User Management
   USER: {
     PROFILE: '/user/profile',
     DEFAULT_WORKSPACE: '/user/default-workspace',
-    WORKSPACES: '/user/workspaces',
+    WORKSPACES: '/user/workspaces', // ✅ This is the correct endpoint for user workspaces
     GET: (id: string) => `/user/${id}`,
     UPDATE: (id: string) => `/user/${id}`,
     DELETE: (id: string) => `/user/${id}`,
@@ -58,34 +63,17 @@ export const API_ENDPOINTS = {
   
   // Workspace Management
   WORKSPACES: {
-    LIST: '/user/workspaces',
-    CREATE: '/workspace/create',
-    GET: (id: string) => `/workspace/${id}`,
-    UPDATE: (id: string) => `/workspace/${id}`,
-    DELETE: (id: string) => `/workspace/${id}`,
-    SWITCH: '/workspace/switch',
-    INVITE: (id: string) => `/workspace/${id}/invite`,
-    MEMBERS: (id: string) => `/workspace/${id}/members`,
-    ROLES: (id: string) => `/workspace/${id}/roles`,
-    PERMISSIONS: (id: string) => `/workspace/${id}/permissions`,
-    SETTINGS: (id: string) => `/workspace/${id}/settings`,
-    LEAVE: (id: string) => `/workspace/${id}/leave`,
-  },
-  
-  // Data Sources Management
-  DATA_SOURCES: {
-    LIST: '/datasources',
-    CREATE: '/datasources',
-    GET: (id: string) => `/datasources/${id}`,
-    UPDATE: (id: string) => `/datasources/${id}`,
-    DELETE: (id: string) => `/datasources/${id}`,
-    TEST: (id: string) => `/datasources/${id}/test`,
-    SCHEMA: (id: string) => `/datasources/${id}/schema`,
-    PREVIEW: (id: string) => `/datasources/${id}/preview`,
-    TABLES: (id: string) => `/datasources/${id}/tables`,
-    COLUMNS: (id: string) => `/datasources/${id}/columns`,
-    PLUGINS: '/datasources/plugins',
-    CATEGORIES: '/datasources/categories',
+    LIST: '/workspaces', // ✅ FIXED: Direct workspace endpoint
+    CREATE: '/workspaces',
+    SWITCH: '/workspaces/switch',
+    GET: (id: string) => `/workspaces/${id}`,
+    UPDATE: (id: string) => `/workspaces/${id}`,
+    DELETE: (id: string) => `/workspaces/${id}`,
+    MEMBERS: (id: string) => `/workspaces/${id}/members`,
+    INVITE: (id: string) => `/workspaces/${id}/invite`,
+    SETTINGS: (id: string) => `/workspaces/${id}/settings`,
+    STATS: (id: string) => `/workspaces/${id}/stats`,
+    EXPORT: (id: string) => `/workspaces/${id}/export`,
   },
   
   // Dataset Management
@@ -95,13 +83,11 @@ export const API_ENDPOINTS = {
     GET: (id: string) => `/datasets/${id}`,
     UPDATE: (id: string) => `/datasets/${id}`,
     DELETE: (id: string) => `/datasets/${id}`,
-    EXECUTE: (id: string) => `/datasets/${id}/execute`,
     PREVIEW: (id: string) => `/datasets/${id}/preview`,
-    VALIDATE: (id: string) => `/datasets/${id}/validate`,
-    DUPLICATE: (id: string) => `/datasets/${id}/duplicate`,
+    SCHEMA: (id: string) => `/datasets/${id}/schema`,
     EXPORT: (id: string) => `/datasets/${id}/export`,
-    TRANSFORMATIONS: (id: string) => `/datasets/${id}/transformations`,
-    CACHE_REFRESH: (id: string) => `/datasets/${id}/cache/refresh`,
+    QUERY: (id: string) => `/datasets/${id}/query`,
+    REFRESH: (id: string) => `/datasets/${id}/refresh`,
   },
   
   // Dashboard Management
@@ -111,22 +97,13 @@ export const API_ENDPOINTS = {
     GET: (id: string) => `/dashboards/${id}`,
     UPDATE: (id: string) => `/dashboards/${id}`,
     DELETE: (id: string) => `/dashboards/${id}`,
-    DUPLICATE: (id: string) => `/dashboards/${id}/duplicate`,
-    SHARE: '/dashboards/share',
-    UNSHARE: (id: string) => `/dashboards/${id}/unshare`,
-    PUBLIC: (slug: string) => `/dashboards/public/${slug}`,
+    CLONE: (id: string) => `/dashboards/${id}/clone`,
+    SHARE: (id: string) => `/dashboards/${id}/share`,
     EXPORT: (id: string) => `/dashboards/${id}/export`,
-    PUBLISH: (id: string) => `/dashboards/${id}/publish`,
-    UNPUBLISH: (id: string) => `/dashboards/${id}/unpublish`,
-    FAVORITES: '/dashboards/favorites',
-    ADD_FAVORITE: (id: string) => `/dashboards/${id}/favorite`,
-    REMOVE_FAVORITE: (id: string) => `/dashboards/${id}/unfavorite`,
-    RECENT: '/dashboards/recent',
-    FILTERS: (id: string) => `/dashboards/${id}/filters`,
-    LAYOUT: (id: string) => `/dashboards/${id}/layout`,
+    WIDGETS: (id: string) => `/dashboards/${id}/widgets`,
   },
   
-  // Chart Management
+  // Chart/Widget Management
   CHARTS: {
     LIST: '/charts',
     CREATE: '/charts',
@@ -134,279 +111,428 @@ export const API_ENDPOINTS = {
     UPDATE: (id: string) => `/charts/${id}`,
     DELETE: (id: string) => `/charts/${id}`,
     DATA: (id: string) => `/charts/${id}/data`,
-    PREVIEW: '/charts/preview',
-    DUPLICATE: (id: string) => `/charts/${id}/duplicate`,
-    EXPORT: (id: string) => `/charts/${id}/export`,
-    TYPES: '/charts/types',
-    TEMPLATES: '/charts/templates',
-    VALIDATE: (id: string) => `/charts/${id}/validate`,
     REFRESH: (id: string) => `/charts/${id}/refresh`,
+    EXPORT: (id: string) => `/charts/${id}/export`,
   },
   
-  // Category Management
-  CATEGORIES: {
-    LIST: '/categories',
-    CREATE: '/categories',
-    GET: (id: string) => `/categories/${id}`,
-    UPDATE: (id: string) => `/categories/${id}`,
-    DELETE: (id: string) => `/categories/${id}`,
-    REORDER: '/categories/reorder',
-    DASHBOARDS: (id: string) => `/categories/${id}/dashboards`,
-    MOVE_DASHBOARD: (id: string) => `/categories/${id}/move-dashboard`,
+  // Data Source Management
+  DATASOURCES: {
+    LIST: '/datasources',
+    CREATE: '/datasources',
+    GET: (id: string) => `/datasources/${id}`,
+    UPDATE: (id: string) => `/datasources/${id}`,
+    DELETE: (id: string) => `/datasources/${id}`,
+    TEST: '/datasources/test',
+    SCHEMA: (id: string) => `/datasources/${id}/schema`,
+    QUERY: (id: string) => `/datasources/${id}/query`,
+    TABLES: (id: string) => `/datasources/${id}/tables`,
   },
   
   // Plugin Management
   PLUGINS: {
     LIST: '/plugins',
-    CONFIGURE: '/plugins/configure',
-    GET: (id: string) => `/plugins/${id}`,
-    UPDATE: (id: string) => `/plugins/${id}`,
-    ENABLE: (id: string) => `/plugins/${id}/enable`,
-    DISABLE: (id: string) => `/plugins/${id}/disable`,
+    GET: (name: string) => `/plugins/${name}`,
     INSTALL: '/plugins/install',
-    UNINSTALL: (id: string) => `/plugins/${id}/uninstall`,
-    MARKETPLACE: '/plugins/marketplace',
-    CONFIGURATION: (id: string) => `/plugins/${id}/configuration`,
+    UNINSTALL: (name: string) => `/plugins/${name}/uninstall`,
+    UPDATE: (name: string) => `/plugins/${name}/update`,
+    CONFIG: (name: string) => `/plugins/${name}/config`,
+    STATUS: (name: string) => `/plugins/${name}/status`,
   },
   
-  // Role & Permission Management
-  ROLES: {
-    LIST: '/roles',
-    CREATE: '/roles',
-    GET: (id: string) => `/roles/${id}`,
-    UPDATE: (id: string) => `/roles/${id}`,
-    DELETE: (id: string) => `/roles/${id}`,
-    PERMISSIONS: (id: string) => `/roles/${id}/permissions`,
-    USERS: (id: string) => `/roles/${id}/users`,
+  // File Management
+  FILES: {
+    UPLOAD: '/files/upload',
+    GET: (id: string) => `/files/${id}`,
+    DELETE: (id: string) => `/files/${id}`,
+    LIST: '/files',
+    DOWNLOAD: (id: string) => `/files/${id}/download`,
   },
   
-  PERMISSIONS: {
-    LIST: '/permissions',
-    CHECK: '/permissions/check',
-    USER_PERMISSIONS: (userId: string) => `/permissions/user/${userId}`,
-    WORKSPACE_PERMISSIONS: (workspaceId: string) => `/permissions/workspace/${workspaceId}`,
+  // Notification Management
+  NOTIFICATIONS: {
+    LIST: '/notifications',
+    GET: (id: string) => `/notifications/${id}`,
+    MARK_READ: (id: string) => `/notifications/${id}/read`,
+    MARK_ALL_READ: '/notifications/read-all',
+    DELETE: (id: string) => `/notifications/${id}`,
+    SETTINGS: '/notifications/settings',
   },
   
-  // Export & Import
-  EXPORT: {
-    DASHBOARD: (id: string) => `/export/dashboard/${id}`,
-    CHART: (id: string) => `/export/chart/${id}`,
-    DATASET: (id: string) => `/export/dataset/${id}`,
-    WORKSPACE: '/export/workspace',
-    BULK: '/export/bulk',
+  // Admin Management
+  ADMIN: {
+    USERS: '/admin/users',
+    WORKSPACES: '/admin/workspaces',
+    SYSTEM: '/admin/system',
+    SETTINGS: '/admin/settings',
+    LOGS: '/admin/logs',
+    STATS: '/admin/stats',
+    BACKUP: '/admin/backup',
+    RESTORE: '/admin/restore',
   },
   
-  IMPORT: {
-    DASHBOARD: '/import/dashboard',
-    CHART: '/import/chart',
-    DATASET: '/import/dataset',
-    WORKSPACE: '/import/workspace',
-    VALIDATE: '/import/validate',
-  },
+  // Health & Monitoring
+  HEALTH: '/health',
+  METRICS: '/metrics',
+  VERSION: '/version',
+  STATUS: '/status',
   
-  // System & Health
-  SYSTEM: {
-    HEALTH: '/system/health',
-    STATUS: '/system/status',
-    VERSION: '/system/version',
-    METRICS: '/system/metrics',
-    LOGS: '/system/logs',
-    CACHE: '/system/cache',
-    CLEAR_CACHE: '/system/cache/clear',
-  },
-  
-  // WebView Panel
-  WEBVIEW: {
-    CATEGORIES: '/webview/categories',
-    DASHBOARDS: (categoryId?: string) => 
-      categoryId ? `/webview/dashboards?category=${categoryId}` : '/webview/dashboards',
-    DASHBOARD: (id: string) => `/webview/dashboard/${id}`,
-    NAVIGATION: '/webview/navigation',
-    SEARCH: '/webview/search',
-    RECENT: '/webview/recent',
-    FAVORITES: '/webview/favorites',
-  },
-  
-  // Analytics & Audit
-  ANALYTICS: {
-    USAGE: '/analytics/usage',
-    DASHBOARD_VIEWS: '/analytics/dashboard-views',
-    USER_ACTIVITY: '/analytics/user-activity',
-    PERFORMANCE: '/analytics/performance',
-    REPORTS: '/analytics/reports',
-  },
-  
-  AUDIT: {
-    LOGS: '/audit/logs',
-    USER_ACTIONS: (userId: string) => `/audit/user/${userId}`,
-    WORKSPACE_ACTIONS: (workspaceId: string) => `/audit/workspace/${workspaceId}`,
-    EXPORT_LOGS: '/audit/export',
-  },
 } as const;
 
 // ========================================
-// HTTP STATUS CODES
+// API UTILITY FUNCTIONS
 // ========================================
-export const HTTP_STATUS = {
-  OK: 200,
-  CREATED: 201,
-  NO_CONTENT: 204,
-  BAD_REQUEST: 400,
-  UNAUTHORIZED: 401,
-  FORBIDDEN: 403,
-  NOT_FOUND: 404,
-  CONFLICT: 409,
-  UNPROCESSABLE_ENTITY: 422,
-  INTERNAL_SERVER_ERROR: 500,
-  SERVICE_UNAVAILABLE: 503,
-} as const;
+
+// Build full API URL
+export const buildApiUrl = (endpoint: string): string => {
+  // Remove leading slash if present to avoid double slashes
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+  return `${API_CONFIG.BASE_URL}/${cleanEndpoint}`;
+};
+
+// Build query string from parameters
+export const buildQueryString = (params: Record<string, any>): string => {
+  const searchParams = new URLSearchParams();
+  
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== null && value !== undefined) {
+      if (Array.isArray(value)) {
+        value.forEach(item => searchParams.append(key, item.toString()));
+      } else {
+        searchParams.append(key, value.toString());
+      }
+    }
+  });
+  
+  return searchParams.toString();
+};
+
+// Get authorization headers
+export const getAuthHeaders = (token?: string): Record<string, string> => {
+  const headers = { ...API_CONFIG.DEFAULT_HEADERS };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  return headers;
+};
+
+// Create fetch configuration
+export const createFetchConfig = (
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' = 'GET',
+  data?: any,
+  token?: string,
+  customHeaders?: Record<string, string>
+): RequestInit => {
+  const config: RequestInit = {
+    method,
+    headers: {
+      ...getAuthHeaders(token),
+      ...customHeaders,
+    },
+  };
+  
+  if (data && method !== 'GET') {
+    if (data instanceof FormData) {
+      // Don't set Content-Type for FormData, browser will set it with boundary
+      delete (config.headers as any)['Content-Type'];
+      config.body = data;
+    } else {
+      config.body = JSON.stringify(data);
+    }
+  }
+  
+  return config;
+};
 
 // ========================================
-// REQUEST METHODS
+// ERROR HANDLING
+// ========================================
+
+export interface ApiError {
+  success: false;
+  message: string;
+  errors?: Array<{
+    code: string;
+    message: string;
+    field?: string;
+  }>;
+  statusCode?: number;
+}
+
+export interface ApiSuccess<T = any> {
+  success: true;
+  data: T;
+  message?: string;
+  meta?: {
+    page?: number;
+    limit?: number;
+    total?: number;
+    totalPages?: number;
+  };
+}
+
+export type ApiResponse<T = any> = ApiSuccess<T> | ApiError;
+
+// ========================================
+// HTTP METHODS
 // ========================================
 export const HTTP_METHODS = {
   GET: 'GET',
   POST: 'POST',
   PUT: 'PUT',
-  PATCH: 'PATCH',
   DELETE: 'DELETE',
-  OPTIONS: 'OPTIONS',
+  PATCH: 'PATCH',
   HEAD: 'HEAD',
+  OPTIONS: 'OPTIONS',
+  CONNECT: 'CONNECT',
+  TRACE: 'TRACE',
 } as const;
 
-// ========================================
-// CONTENT TYPES
-// ========================================
-export const CONTENT_TYPES = {
-  JSON: 'application/json',
-  FORM_DATA: 'multipart/form-data',
-  FORM_URLENCODED: 'application/x-www-form-urlencoded',
-  TEXT: 'text/plain',
-  HTML: 'text/html',
-  CSV: 'text/csv',
-  EXCEL: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  PDF: 'application/pdf',
-  IMAGE: 'image/*',
-} as const;
-
-// ========================================
-// API ERROR CODES
-// ========================================
-export const API_ERROR_CODES = {
-  // Authentication Errors
-  INVALID_TOKEN: 'INVALID_TOKEN',
-  TOKEN_EXPIRED: 'TOKEN_EXPIRED',
-  MISSING_TOKEN: 'MISSING_TOKEN',
-  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
-  
-  // Authorization Errors
-  INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
-  WORKSPACE_ACCESS_DENIED: 'WORKSPACE_ACCESS_DENIED',
-  ADMIN_REQUIRED: 'ADMIN_REQUIRED',
-  
-  // Validation Errors
-  VALIDATION_FAILED: 'VALIDATION_FAILED',
-  MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-  INVALID_DATA_FORMAT: 'INVALID_DATA_FORMAT',
-  
-  // Resource Errors
-  RESOURCE_NOT_FOUND: 'RESOURCE_NOT_FOUND',
-  RESOURCE_ALREADY_EXISTS: 'RESOURCE_ALREADY_EXISTS',
-  RESOURCE_IN_USE: 'RESOURCE_IN_USE',
-  
-  // System Errors
-  DATABASE_ERROR: 'DATABASE_ERROR',
-  NETWORK_ERROR: 'NETWORK_ERROR',
-  INTERNAL_ERROR: 'INTERNAL_ERROR',
-  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
-  
-  // Rate Limiting
-  RATE_LIMIT_EXCEEDED: 'RATE_LIMIT_EXCEEDED',
-  
-  // File Upload Errors
-  FILE_TOO_LARGE: 'FILE_TOO_LARGE',
-  INVALID_FILE_TYPE: 'INVALID_FILE_TYPE',
-  UPLOAD_FAILED: 'UPLOAD_FAILED',
-} as const;
-
-// ========================================
-// TYPE EXPORTS
-// ========================================
-export type ApiEndpoint = keyof typeof API_ENDPOINTS;
-export type HttpStatus = typeof HTTP_STATUS[keyof typeof HTTP_STATUS];
 export type HttpMethod = typeof HTTP_METHODS[keyof typeof HTTP_METHODS];
-export type ContentType = typeof CONTENT_TYPES[keyof typeof CONTENT_TYPES];
-export type ApiErrorCode = typeof API_ERROR_CODES[keyof typeof API_ERROR_CODES];
+
+// ========================================
+// HTTP STATUS CODES
+// ========================================
+export const HTTP_STATUS = {
+  // 1xx Informational responses
+  CONTINUE: 100,
+  SWITCHING_PROTOCOLS: 101,
+  PROCESSING: 102,
+  EARLY_HINTS: 103,
+
+  // 2xx Success responses
+  OK: 200,
+  CREATED: 201,
+  ACCEPTED: 202,
+  NON_AUTHORITATIVE_INFORMATION: 203,
+  NO_CONTENT: 204,
+  RESET_CONTENT: 205,
+  PARTIAL_CONTENT: 206,
+  MULTI_STATUS: 207,
+  ALREADY_REPORTED: 208,
+  IM_USED: 226,
+
+  // 3xx Redirection messages
+  MULTIPLE_CHOICES: 300,
+  MOVED_PERMANENTLY: 301,
+  FOUND: 302,
+  SEE_OTHER: 303,
+  NOT_MODIFIED: 304,
+  USE_PROXY: 305,
+  SWITCH_PROXY: 306,
+  TEMPORARY_REDIRECT: 307,
+  PERMANENT_REDIRECT: 308,
+
+  // 4xx Client error responses
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  PAYMENT_REQUIRED: 402,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  METHOD_NOT_ALLOWED: 405,
+  NOT_ACCEPTABLE: 406,
+  PROXY_AUTHENTICATION_REQUIRED: 407,
+  REQUEST_TIMEOUT: 408,
+  CONFLICT: 409,
+  GONE: 410,
+  LENGTH_REQUIRED: 411,
+  PRECONDITION_FAILED: 412,
+  PAYLOAD_TOO_LARGE: 413,
+  URI_TOO_LONG: 414,
+  UNSUPPORTED_MEDIA_TYPE: 415,
+  RANGE_NOT_SATISFIABLE: 416,
+  EXPECTATION_FAILED: 417,
+  IM_A_TEAPOT: 418,
+  MISDIRECTED_REQUEST: 421,
+  UNPROCESSABLE_ENTITY: 422,
+  LOCKED: 423,
+  FAILED_DEPENDENCY: 424,
+  TOO_EARLY: 425,
+  UPGRADE_REQUIRED: 426,
+  PRECONDITION_REQUIRED: 428,
+  TOO_MANY_REQUESTS: 429,
+  REQUEST_HEADER_FIELDS_TOO_LARGE: 431,
+  UNAVAILABLE_FOR_LEGAL_REASONS: 451,
+
+  // 5xx Server error responses
+  INTERNAL_SERVER_ERROR: 500,
+  NOT_IMPLEMENTED: 501,
+  BAD_GATEWAY: 502,
+  SERVICE_UNAVAILABLE: 503,
+  GATEWAY_TIMEOUT: 504,
+  HTTP_VERSION_NOT_SUPPORTED: 505,
+  VARIANT_ALSO_NEGOTIATES: 506,
+  INSUFFICIENT_STORAGE: 507,
+  LOOP_DETECTED: 508,
+  NOT_EXTENDED: 510,
+  NETWORK_AUTHENTICATION_REQUIRED: 511,
+} as const;
+
+export type HttpStatus = typeof HTTP_STATUS[keyof typeof HTTP_STATUS];
 
 // ========================================
 // UTILITY FUNCTIONS
 // ========================================
 
 /**
- * Build full API URL from endpoint path
- */
-export const buildApiUrl = (endpoint: string): string => {
-  // Remove leading slash from endpoint if present
-  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
-  return `${API_CONFIG.BASE_URL}/${cleanEndpoint}`;
-};
-
-/**
- * Get API endpoint with parameters
- */
-export const getEndpoint = (
-  category: keyof typeof API_ENDPOINTS,
-  action: string,
-  params?: string | string[]
-): string => {
-  const endpoints = API_ENDPOINTS[category] as any;
-  const endpoint = endpoints[action];
-  
-  if (typeof endpoint === 'function') {
-    if (Array.isArray(params)) {
-      return endpoint(...params);
-    } else if (params) {
-      return endpoint(params);
-    } else {
-      throw new Error(`Endpoint ${category}.${action} requires parameters`);
-    }
-  }
-  
-  return endpoint;
-};
-
-/**
- * Check if status code indicates success
+ * Check if status code indicates success (2xx)
  */
 export const isSuccessStatus = (status: number): boolean => {
-  return status >= 200 && status < 300;
+  return status >= HTTP_STATUS_RANGES.SUCCESS.min && status <= HTTP_STATUS_RANGES.SUCCESS.max;
 };
 
 /**
- * Check if status code indicates client error
+ * Check if status code indicates informational (1xx)
+ */
+export const isInformationalStatus = (status: number): boolean => {
+  return status >= HTTP_STATUS_RANGES.INFORMATIONAL.min && status <= HTTP_STATUS_RANGES.INFORMATIONAL.max;
+};
+
+/**
+ * Check if status code indicates redirection (3xx)
+ */
+export const isRedirectionStatus = (status: number): boolean => {
+  return status >= HTTP_STATUS_RANGES.REDIRECTION.min && status <= HTTP_STATUS_RANGES.REDIRECTION.max;
+};
+
+/**
+ * Check if status code indicates client error (4xx)
  */
 export const isClientError = (status: number): boolean => {
-  return status >= 400 && status < 500;
+  return status >= HTTP_STATUS_RANGES.CLIENT_ERROR.min && status <= HTTP_STATUS_RANGES.CLIENT_ERROR.max;
 };
 
 /**
- * Check if status code indicates server error
+ * Check if status code indicates server error (5xx)
  */
 export const isServerError = (status: number): boolean => {
-  return status >= 500;
+  return status >= HTTP_STATUS_RANGES.SERVER_ERROR.min && status <= HTTP_STATUS_RANGES.SERVER_ERROR.max;
 };
 
-// Export everything as default for convenience
+/**
+ * Check if status code indicates any error (4xx or 5xx)
+ */
+export const isErrorStatus = (status: number): boolean => {
+  return isClientError(status) || isServerError(status);
+};
+
+/**
+ * Get status code category name
+ */
+export const getStatusCategory = (status: number): string => {
+  if (isInformationalStatus(status)) return 'Informational';
+  if (isSuccessStatus(status)) return 'Success';
+  if (isRedirectionStatus(status)) return 'Redirection';
+  if (isClientError(status)) return 'Client Error';
+  if (isServerError(status)) return 'Server Error';
+  return 'Unknown';
+};
+
+/**
+ * Get human-readable status message
+ */
+export const getStatusMessage = (status: number): string => {
+  const statusMap: Record<number, string> = {
+    // 2xx Success
+    [HTTP_STATUS.OK]: 'OK',
+    [HTTP_STATUS.CREATED]: 'Created',
+    [HTTP_STATUS.ACCEPTED]: 'Accepted',
+    [HTTP_STATUS.NO_CONTENT]: 'No Content',
+
+    // 4xx Client Error
+    [HTTP_STATUS.BAD_REQUEST]: 'Bad Request',
+    [HTTP_STATUS.UNAUTHORIZED]: 'Unauthorized',
+    [HTTP_STATUS.FORBIDDEN]: 'Forbidden',
+    [HTTP_STATUS.NOT_FOUND]: 'Not Found',
+    [HTTP_STATUS.METHOD_NOT_ALLOWED]: 'Method Not Allowed',
+    [HTTP_STATUS.CONFLICT]: 'Conflict',
+    [HTTP_STATUS.UNPROCESSABLE_ENTITY]: 'Unprocessable Entity',
+    [HTTP_STATUS.TOO_MANY_REQUESTS]: 'Too Many Requests',
+
+    // 5xx Server Error
+    [HTTP_STATUS.INTERNAL_SERVER_ERROR]: 'Internal Server Error',
+    [HTTP_STATUS.NOT_IMPLEMENTED]: 'Not Implemented',
+    [HTTP_STATUS.BAD_GATEWAY]: 'Bad Gateway',
+    [HTTP_STATUS.SERVICE_UNAVAILABLE]: 'Service Unavailable',
+    [HTTP_STATUS.GATEWAY_TIMEOUT]: 'Gateway Timeout',
+  };
+
+  return statusMap[status] || `HTTP ${status}`;
+};
+
+// ========================================
+// COMMON STATUS CODE GROUPS
+// ========================================
+export const COMMON_SUCCESS_CODES = [
+  HTTP_STATUS.OK,
+  HTTP_STATUS.CREATED,
+  HTTP_STATUS.ACCEPTED,
+  HTTP_STATUS.NO_CONTENT,
+] as const;
+
+export const COMMON_CLIENT_ERROR_CODES = [
+  HTTP_STATUS.BAD_REQUEST,
+  HTTP_STATUS.UNAUTHORIZED,
+  HTTP_STATUS.FORBIDDEN,
+  HTTP_STATUS.NOT_FOUND,
+  HTTP_STATUS.METHOD_NOT_ALLOWED,
+  HTTP_STATUS.CONFLICT,
+  HTTP_STATUS.UNPROCESSABLE_ENTITY,
+  HTTP_STATUS.TOO_MANY_REQUESTS,
+] as const;
+
+export const COMMON_SERVER_ERROR_CODES = [
+  HTTP_STATUS.INTERNAL_SERVER_ERROR,
+  HTTP_STATUS.NOT_IMPLEMENTED,
+  HTTP_STATUS.BAD_GATEWAY,
+  HTTP_STATUS.SERVICE_UNAVAILABLE,
+  HTTP_STATUS.GATEWAY_TIMEOUT,
+] as const;
+
+// ========================================
+// RETRY-ABLE STATUS CODES
+// ========================================
+export const RETRYABLE_STATUS_CODES = [
+  HTTP_STATUS.REQUEST_TIMEOUT,
+  HTTP_STATUS.TOO_MANY_REQUESTS,
+  HTTP_STATUS.INTERNAL_SERVER_ERROR,
+  HTTP_STATUS.BAD_GATEWAY,
+  HTTP_STATUS.SERVICE_UNAVAILABLE,
+  HTTP_STATUS.GATEWAY_TIMEOUT,
+] as const;
+
+/**
+ * Check if a status code is retryable
+ */
+export const isRetryableStatus = (status: number): boolean => {
+  return RETRYABLE_STATUS_CODES.includes(status as any);
+};
+
+
+// ========================================
+// ENVIRONMENT CONFIGURATION
+// ========================================
+
+export const ENV_CONFIG = {
+  IS_DEVELOPMENT: process.env.NODE_ENV === 'development',
+  IS_PRODUCTION: process.env.NODE_ENV === 'production',
+  API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api',
+  WS_URL: process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001',
+  APP_URL: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+  VERSION: process.env.NEXT_PUBLIC_VERSION || '1.0.0',
+} as const;
+
+// ========================================
+// EXPORT DEFAULT
+// ========================================
+
 export default {
   API_CONFIG,
   API_ENDPOINTS,
-  HTTP_STATUS,
-  HTTP_METHODS,
-  CONTENT_TYPES,
-  API_ERROR_CODES,
   buildApiUrl,
-  getEndpoint,
-  isSuccessStatus,
-  isClientError,
-  isServerError,
+  buildQueryString,
+  getAuthHeaders,
+  createFetchConfig,
+  ENV_CONFIG,
 };

@@ -170,3 +170,214 @@ FROM roles r
 LEFT JOIN user_role_assignments ura ON r.id = ura.role_id AND ura.is_active = TRUE
 LEFT JOIN role_permissions rp ON r.id = rp.role_id
 GROUP BY r.id, r.name, r.created_at, r.is_system;
+
+
+
+
+
+-- ===================================
+-- SQL Function: get_user_role_assignments
+-- Returns detailed role assignment information for a user in a workspace
+-- ===================================
+
+CREATE OR REPLACE FUNCTION get_user_role_assignments(
+    p_user_id UUID,
+    p_workspace_id UUID
+) RETURNS TABLE (
+    assignment_id UUID,
+    assignment_active BOOLEAN,
+    assigned_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    role_id UUID,
+    role_name VARCHAR,
+    role_display_name VARCHAR,
+    role_is_active BOOLEAN,
+    is_system_role BOOLEAN,
+    role_level INTEGER,
+    role_permissions JSONB
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        ura.id AS assignment_id,
+        ura.is_active AS assignment_active,
+        ura.assigned_at,
+        ura.expires_at,
+        r.id AS role_id,
+        r.name AS role_name,
+        r.display_name AS role_display_name,
+        r.is_active AS role_is_active,
+        r.is_system AS is_system_role,
+        r.level AS role_level,
+        r.permissions AS role_permissions
+    FROM user_role_assignments ura
+    LEFT JOIN roles r ON ura.role_id = r.id
+    WHERE ura.user_id = p_user_id 
+      AND ura.workspace_id = p_workspace_id
+    ORDER BY ura.assigned_at DESC;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ===================================
+-- Alternative Function: get_user_active_roles
+-- Returns only active role assignments (more commonly used)
+-- ===================================
+
+CREATE OR REPLACE FUNCTION get_user_active_roles(
+    p_user_id UUID,
+    p_workspace_id UUID
+) RETURNS TABLE (
+    assignment_id UUID,
+    role_id UUID,
+    role_name VARCHAR,
+    role_display_name VARCHAR,
+    role_level INTEGER,
+    role_permissions JSONB,
+    assigned_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        ura.id AS assignment_id,
+        r.id AS role_id,
+        r.name AS role_name,
+        r.display_name AS role_display_name,
+        r.level AS role_level,
+        r.permissions AS role_permissions,
+        ura.assigned_at,
+        ura.expires_at
+    FROM user_role_assignments ura
+    INNER JOIN roles r ON ura.role_id = r.id
+    WHERE ura.user_id = p_user_id 
+      AND ura.workspace_id = p_workspace_id
+      AND ura.is_active = TRUE
+      AND r.is_active = TRUE
+      AND (ura.expires_at IS NULL OR ura.expires_at > NOW())
+    ORDER BY r.level DESC, r.name ASC;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ===================================
+-- Enhanced Function: get_user_role_summary
+-- Returns role summary with computed fields
+-- ===================================
+
+CREATE OR REPLACE FUNCTION get_user_role_summary(
+    p_user_id UUID,
+    p_workspace_id UUID
+) RETURNS TABLE (
+    assignment_id UUID,
+    role_id UUID,
+    role_name VARCHAR,
+    role_display_name VARCHAR,
+    role_level INTEGER,
+    role_permissions JSONB,
+    assigned_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    is_expired BOOLEAN,
+    days_until_expiry INTEGER,
+    permission_count INTEGER,
+    is_admin_role BOOLEAN
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        ura.id AS assignment_id,
+        r.id AS role_id,
+        r.name AS role_name,
+        r.display_name AS role_display_name,
+        r.level AS role_level,
+        r.permissions AS role_permissions,
+        ura.assigned_at,
+        ura.expires_at,
+        
+        -- Computed fields
+        CASE 
+            WHEN ura.expires_at IS NOT NULL AND ura.expires_at <= NOW() 
+            THEN TRUE 
+            ELSE FALSE 
+        END AS is_expired,
+        
+        CASE 
+            WHEN ura.expires_at IS NOT NULL 
+            THEN EXTRACT(DAYS FROM (ura.expires_at - NOW()))::INTEGER
+            ELSE NULL 
+        END AS days_until_expiry,
+        
+        CASE 
+            WHEN r.permissions IS NOT NULL 
+            THEN jsonb_array_length(r.permissions)
+            ELSE 0 
+        END AS permission_count,
+        
+        CASE 
+            WHEN r.name ILIKE '%admin%' OR r.level >= 80 
+            THEN TRUE 
+            ELSE FALSE 
+        END AS is_admin_role
+        
+    FROM user_role_assignments ura
+    INNER JOIN roles r ON ura.role_id = r.id
+    WHERE ura.user_id = p_user_id 
+      AND ura.workspace_id = p_workspace_id
+      AND ura.is_active = TRUE
+      AND r.is_active = TRUE
+    ORDER BY r.level DESC, r.name ASC;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ===================================
+-- Function: check_user_has_role
+-- Quick check if user has a specific role
+-- ===================================
+
+CREATE OR REPLACE FUNCTION check_user_has_role(
+    p_user_id UUID,
+    p_workspace_id UUID,
+    p_role_name VARCHAR
+) RETURNS BOOLEAN AS $$
+DECLARE
+    role_exists BOOLEAN := FALSE;
+BEGIN
+    SELECT EXISTS(
+        SELECT 1
+        FROM user_role_assignments ura
+        INNER JOIN roles r ON ura.role_id = r.id
+        WHERE ura.user_id = p_user_id 
+          AND ura.workspace_id = p_workspace_id
+          AND r.name = p_role_name
+          AND ura.is_active = TRUE
+          AND r.is_active = TRUE
+          AND (ura.expires_at IS NULL OR ura.expires_at > NOW())
+    ) INTO role_exists;
+    
+    RETURN role_exists;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ===================================
+-- Function: get_user_highest_role_level
+-- Returns the highest role level for a user
+-- ===================================
+
+CREATE OR REPLACE FUNCTION get_user_highest_role_level(
+    p_user_id UUID,
+    p_workspace_id UUID
+) RETURNS INTEGER AS $$
+DECLARE
+    max_level INTEGER := 0;
+BEGIN
+    SELECT COALESCE(MAX(r.level), 0)
+    INTO max_level
+    FROM user_role_assignments ura
+    INNER JOIN roles r ON ura.role_id = r.id
+    WHERE ura.user_id = p_user_id 
+      AND ura.workspace_id = p_workspace_id
+      AND ura.is_active = TRUE
+      AND r.is_active = TRUE
+      AND (ura.expires_at IS NULL OR ura.expires_at > NOW());
+    
+    RETURN max_level;
+END;
+$$ LANGUAGE plpgsql;

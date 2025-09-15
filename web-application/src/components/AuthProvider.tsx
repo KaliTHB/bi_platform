@@ -4,6 +4,7 @@ import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import { setCredentials, setLoading, logout } from '../store/slices/authSlice';
 import { setCurrentWorkspace, clearWorkspace } from '../store/slices/workspaceSlice';
 import {STORAGE_KEYS} from '@/constants/index';
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 interface AuthContextType {
   // Add your auth methods here
@@ -109,9 +110,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logoutUser = () => {
     // Clear localStorage with consolidated keys
-    localStorage.removeItem(STORAGE_KEYS.TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.USER);
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
+    //localStorage.removeItem(STORAGE_KEYS.TOKEN);
+    //localStorage.removeItem(STORAGE_KEYS.USER);
+    //localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
+    authStorage.clearAll();
+    workspaceStorage.clearAll();
     
     // Clean up old workspace keys
     

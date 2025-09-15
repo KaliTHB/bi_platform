@@ -673,22 +673,7 @@ export class PermissionService {
 
       // 4. Check roles assigned to user in workspace
       const rolesCheck = await this.database.query(`
-        SELECT 
-          ura.id as assignment_id,
-          ura.is_active as assignment_active,
-          ura.assigned_at,
-          ura.expires_at,
-          r.id as role_id,
-          r.name as role_name,
-          r.display_name as role_display_name,
-          r.is_active as role_is_active,
-          r.is_system as is_system_role,
-          r.level as role_level,
-          r.permissions as role_permissions
-        FROM user_role_assignments ura
-        LEFT JOIN roles r ON ura.role_id = r.id
-        WHERE ura.user_id = $1 AND ura.workspace_id = $2
-        ORDER BY ura.assigned_at DESC
+          SELECT * FROM get_user_role_assignments($1, $2)
       `, [userId, workspaceId]);
 
       // 5. Check the permission view directly

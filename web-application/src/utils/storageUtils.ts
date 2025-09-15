@@ -238,10 +238,10 @@ export const workspaceStorage = {
     }
   },
   
-  clearAvailableWorkspaces: (): void => 
+  clearAvailableWorkspaces: (): any | null => 
     removeStorageItem(STORAGE_KEYS.AVAILABLE_WORKSPACES),
   
-  clearWorkspacePreferences: (): void => 
+  clearWorkspacePreferences: (): any | null => 
     removeStorageItem(STORAGE_KEYS.WORKSPACE_PREFERENCES),
 };
 
@@ -259,7 +259,7 @@ export const sessionStorage = {
   getRecentSearches: (): string[] | null => 
     getStorageItem(STORAGE_KEYS.RECENT_SEARCHES),
   
-  clearRecentSearches: (): void => 
+  clearRecentSearches: (): any | null => 
     removeStorageItem(STORAGE_KEYS.RECENT_SEARCHES),
 
   setSessionData: (sessionData: any): boolean => 
@@ -268,7 +268,7 @@ export const sessionStorage = {
   getSessionData: (): any | null => 
     getStorageItem(STORAGE_KEYS.SESSION_DATA),
   
-  clearSessionData: (): void => 
+  clearSessionData: (): any | null => 
     removeStorageItem(STORAGE_KEYS.SESSION_DATA),
 };
 
@@ -421,29 +421,44 @@ export const getAllStorageItems = (prefix?: string): Record<string, any> => {
 
   return items;
 };
-
 /**
  * Get storage usage information
  */
-export const getStorageInfo = () => {
-  if (!isStorageAvailable()) return null;
+export const getStorageInfo = (): {
+  used: number;
+  available: number;
+  total: number;
+  itemCount: number;
+} => {
+  if (!isStorageAvailable()) {
+    return { used: 0, available: 0, total: 0, itemCount: 0 };
+  }
+
+  let used = 0;
+  let itemCount = 0;
 
   try {
-    const usage = new Blob(Object.values(window.localStorage)).size;
-    const quota = 5 * 1024 * 1024; // Approximate 5MB limit for localStorage
-    
-    return {
-      used: usage,
-      quota: quota,
-      available: quota - usage,
-      percentage: Math.round((usage / quota) * 100),
-      items: window.localStorage.length,
-    };
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key) {
+        const value = window.localStorage.getItem(key);
+        if (value) {
+          used += key.length + value.length;
+          itemCount++;
+        }
+      }
+    }
   } catch (error) {
     console.error('Failed to get storage info:', error);
-    return null;
   }
+
+  // Rough estimate: most browsers allow ~5-10MB for localStorage
+  const total = 5 * 1024 * 1024; // 5MB estimate
+  const available = Math.max(0, total - used);
+
+  return { used, available, total, itemCount };
 };
+
 
 /**
  * Clean expired items from localStorage
@@ -511,6 +526,56 @@ export const initializeStorage = (): void => {
   console.log('✅ Storage utilities initialized with essential cleanup');
 };
 
+/**
+ * Debug storage state
+ */
+export const debugStorageState = (): void => {
+  console.log('🔍 =========================');
+  console.log('🔍 STORAGE DEBUG REPORT');
+  console.log('🔍 =========================');
+  
+  if (!isStorageAvailable()) {
+    console.log('❌ localStorage is not available');
+    return;
+  }
+  
+  // Check auth data
+  console.log('🔐 AUTH DATA:');
+  console.log('  Token:', authStorage.getToken() ? 'Present' : 'Missing');
+  console.log('  User:', authStorage.getUser());
+  console.log('  Permissions:', authStorage.getPermissions());
+  console.log('  Authenticated:', authStorage.isAuthenticated());
+  
+  console.log('🏢 WORKSPACE DATA:');
+  console.log('  Current:', workspaceStorage.getCurrentWorkspace());
+  console.log('  Available:', workspaceStorage.getAvailableWorkspaces());
+  
+  console.log('🎨 UI STATE:');
+  console.log('  Theme:', uiStorage.getThemeMode());
+  console.log('  Sidebar Collapsed:', uiStorage.getSidebarCollapsed());
+  console.log('  Language:', uiStorage.getLanguage());
+  
+  console.log('📊 STORAGE INFO:');
+  const storageInfo = getStorageInfo();
+  console.log('  Items:', storageInfo.itemCount);
+  console.log('  Used:', Math.round(storageInfo.used / 1024) + 'KB');
+  console.log('  Available:', Math.round(storageInfo.available / 1024) + 'KB');
+  
+  console.log('🗂️ ALL STORAGE KEYS:');
+  for (let i = 0; i < window.localStorage.length; i++) {
+    const key = window.localStorage.key(i);
+    if (key) {
+      const value = window.localStorage.getItem(key);
+      const preview = value ? 
+        (value.length > 50 ? value.substring(0, 50) + '...' : value) : 
+        'null';
+      console.log(`  ${key}: ${preview}`);
+    }
+  }
+  
+  console.log('🔍 =========================');
+};
+
 // ========================================
 // EXPORTS
 // ========================================
@@ -537,4 +602,5 @@ export default {
   cleanExpiredItems,
   cleanStalePermissions,
   initializeStorage,
+  debugStorageState
 };

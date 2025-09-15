@@ -38,8 +38,9 @@ import {
   Analytics,
 } from '@mui/icons-material';
 
-import { setStorageItem, removeStorageItem, cleanupOldWorkspaceKeys } from '../utils/storageUtils';
+import { setStorageItem, removeStorageItem } from '../utils/storageUtils';
 import {STORAGE_KEYS} from '@/constants/index';
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 // Updated interface to support both email and usernamS
 interface LoginForm {
@@ -240,20 +241,27 @@ export default function LoginPage() {
           throw new Error('No user data received from server');
         }
         
+        
+
+
         // ✅ STORE IN LOCALSTORAGE USING CONSOLIDATED KEYS
-        localStorage.setItem(STORAGE_KEYS.TOKEN, token);
+        //localStorage.setItem(STORAGE_KEYS.TOKEN, token);
+        authStorage.setToken(token);
         console.log('💾 Token stored in localStorage:', token.substring(0, 20) + '...');
         
-        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+        authStorage.setUser(user);
+        //localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
         console.log('💾 User data stored in localStorage');
         
         if (workspace) {
-          localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, JSON.stringify(workspace));
+          //localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, JSON.stringify(workspace));
+          workspaceStorage.setCurrentWorkspace(workspace);
           console.log('💾 Workspace data stored in localStorage using currentWorkspace key');
         }
 
         if (permissions) {
-          localStorage.setItem(STORAGE_KEYS.PERMISSIONS, JSON.stringify(permissions));
+          //localStorage.setItem(STORAGE_KEYS.PERMISSIONS, JSON.stringify(permissions));
+          authStorage.setPermissions(permissions);
           console.log('💾 Permissions stored in localStorage');
         }
 
