@@ -27,12 +27,18 @@ export class AuthController {
    */
   public login = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const { identifier, password, workspace_slug } = req.body;
+      // ✅ FIXED: Accept both email and username fields separately
+      const { email, username, password, workspace_slug } = req.body;
+      const emailOrUsername = email || username;
+
+      console.log('📧 Email received:', email);
+      console.log('👤 Username received:', username);
+      console.log('🔗 EmailOrUsername:', emailOrUsername);
+      console.log('🔑 Password received:', password ? '[PRESENT]' : '[MISSING]');
+      console.log('🏢 Workspace slug:', workspace_slug);
       
-      console.log('identifier', 'password', 'workspace_slug')
-      console.log(identifier, password, workspace_slug)
       // Validate input
-      if (!identifier || !password) {
+      if (!emailOrUsername || !password) {
         res.status(400).json({
           success: false,
           message: 'Email/username and password are required',
@@ -42,18 +48,18 @@ export class AuthController {
       }
 
       logger.info('Login attempt', {
-        identifier: identifier.toLowerCase(),
+        emailOrUsername: emailOrUsername.toLowerCase(),
         workspace_slug,
         ip: req.ip,
         service: 'bi-platform-api'
       });
 
       // Attempt login using AuthService
-      const result = await this.authService.login(identifier, password, workspace_slug);
+      const result = await this.authService.login(emailOrUsername, password, workspace_slug);
 
       if (!result.success) {
         logger.warn('Login failed', {
-          identifier: identifier.toLowerCase(),
+          emailOrUsername: emailOrUsername.toLowerCase(),
           workspace_slug,
           error: result.error,
           ip: req.ip,
