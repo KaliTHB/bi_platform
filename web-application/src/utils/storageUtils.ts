@@ -238,6 +238,77 @@ export const workspaceStorage = {
     }
   },
 
+  // ✅ NEW: Set user permissions for specific workspace
+  setUserPermissions: (userId: string, workspaceId: string, permissions: string[], ttl: number = 30 * 60 * 1000): boolean => {
+    const key = `permissions_${userId}_${workspaceId}`;
+    return setStorageItem(key, permissions, { expiry: Date.now() + ttl });
+  },
+
+  // ✅ NEW: Get user permissions for specific workspace
+  getUserPermissions: (userId: string, workspaceId: string): string[] | null => {
+    const key = `permissions_${userId}_${workspaceId}`;
+    return getStorageItem<string[]>(key);
+  },
+
+  // ✅ NEW: Set user role details for workspace
+  setUserRoleDetails: (userId: string, workspaceId: string, roleDetails: any[], ttl: number = 30 * 60 * 1000): boolean => {
+    const key = `role_details_${userId}_${workspaceId}`;
+    return setStorageItem(key, roleDetails, { expiry: Date.now() + ttl });
+  },
+
+  // ✅ NEW: Get user role details for workspace
+  getUserRoleDetails: (userId: string, workspaceId: string): any[] | null => {
+    const key = `role_details_${userId}_${workspaceId}`;
+    return getStorageItem<any[]>(key);
+  },
+
+  // ✅ NEW: Set complete user permission data (permissions + roles + user info)
+  setUserPermissionData: (userId: string, workspaceId: string, data: {
+    permissions: string[];
+    role_details: any[];
+    user_info: any;
+    timestamp?: string;
+  }, ttl: number = 30 * 60 * 1000): boolean => {
+    const key = `user_permission_data_${userId}_${workspaceId}`;
+    const enhancedData = {
+      ...data,
+      cached_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + ttl).toISOString()
+    };
+    return setStorageItem(key, enhancedData, { expiry: Date.now() + ttl });
+  },
+
+  // ✅ NEW: Get complete user permission data
+  getUserPermissionData: (userId: string, workspaceId: string): any | null => {
+    const key = `user_permission_data_${userId}_${workspaceId}`;
+    return getStorageItem<any>(key);
+  },
+
+  // ✅ NEW: Clear all permission data for a user in specific workspace
+  clearUserPermissions: (userId: string, workspaceId: string): void => {
+    const patterns = [
+      `permissions_${userId}_${workspaceId}`,
+      `role_details_${userId}_${workspaceId}`,
+      `user_permission_data_${userId}_${workspaceId}`
+    ];
+    
+    patterns.forEach(key => removeStorageItem(key));
+  },
+
+  // ✅ NEW: Clear all permission data for current workspace
+  clearWorkspacePermissions: (workspaceId: string): void => {
+    if (!isStorageAvailable()) return;
+
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key && key.includes(`_${workspaceId}`)) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(key => removeStorageItem(key));
+  },
+
   clearCurrentWorkspace: (): void => {
     const currentWorkspace = workspaceStorage.getCurrentWorkspace();
     removeStorageItem(STORAGE_KEYS.CURRENT_WORKSPACE);
