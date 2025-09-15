@@ -9,7 +9,6 @@ import { PermissionService } from '../services/PermissionService';  // ✅ ADD T
 import { logger } from '../utils/logger';
 import { AuthenticatedRequest } from '../types/express';
 import { db } from '../utils/database';
-import { CacheService } from '../services/CacheService';  // ✅ ADD THIS IMPORT
 
 export class AuthController {
   private authService: AuthService;
@@ -27,7 +26,7 @@ export class AuthController {
       switchWorkspace: typeof this.switchWorkspace === 'function'
     });
     // ✅ INITIALIZE PERMISSION SERVICE
-    this.permissionService = new PermissionService(db, new CacheService());
+    this.permissionService = new PermissionService(db);
   }
 
   /**

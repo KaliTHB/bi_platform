@@ -1,38 +1,9 @@
 // web-application/src/utils/storageUtils.ts
 // Enhanced Storage Utilities with Essential Cleanup
+import {STORAGE_KEYS} from '@/constants/index'
 
 // Storage key types and constants
 export type StorageKey = keyof typeof STORAGE_KEYS;
-
-export const STORAGE_KEYS = {
-  // Authentication keys
-  TOKEN: 'auth_token',
-  REFRESH_TOKEN: 'refresh_token',  
-  USER: 'user_data',
-  PERMISSIONS: 'user_permissions',
-  
-  // Workspace keys
-  CURRENT_WORKSPACE: 'current_workspace',
-  AVAILABLE_WORKSPACES: 'available_workspaces',
-  WORKSPACE_PREFERENCES: 'workspace_preferences',
-  
-  // Session keys
-  SESSION_DATA: 'session_data',
-  RECENT_SEARCHES: 'recent_searches',
-  
-  // UI state keys
-  SIDEBAR_COLLAPSED: 'sidebar_collapsed',
-  THEME_MODE: 'theme_mode',
-  LANGUAGE: 'language',
-  
-  // Dashboard keys
-  DASHBOARD_FAVORITES: 'dashboard_favorites',
-  
-  // Cache keys
-  PLUGINS_CACHE: 'plugins_cache',
-  DATA_SOURCES_CACHE: 'data_sources_cache',
-  METADATA_CACHE: 'metadata_cache',
-} as const;
 
 // Storage data structure interface
 interface StorageData<T = any> {

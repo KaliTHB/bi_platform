@@ -2,10 +2,6 @@
 // Centralized constants for the entire application - CORRECTED VERSION
 
 // ========================================
-// STORAGE KEYS - Local Storage Keys
-// ========================================
-
-// ========================================
 // STORAGE CONSTANTS (UPDATED & CONSOLIDATED)
 // ========================================
 

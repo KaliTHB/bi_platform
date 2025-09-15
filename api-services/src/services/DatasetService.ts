@@ -1,6 +1,7 @@
 // api-services/src/services/DatasetService.ts - UPDATED WITH ALL MISSING METHODS
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger';
+import { cacheService } from './CacheService';  // ✅ FIXED: Correct import
 
 // Interfaces (existing and new)
 interface Dataset {
