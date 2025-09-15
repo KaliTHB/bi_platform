@@ -200,28 +200,17 @@ router.get('/permissions', asyncHandler(async (req: Request, res: Response) => {
  * Switch user's active workspace
  * Payload: { workspaceId }
  */
+/**
+ * ✅ MISSING ROUTE: Switch Workspace
+ * POST /api/auth/switch-workspace
+ */
 router.post('/switch-workspace', asyncHandler(async (req: Request, res: Response) => {
   try {
-    const { workspaceId } = req.body;
-    
-    if (!workspaceId) {
-      res.status(400).json({
-        success: false,
-        message: 'Workspace ID is required',
-        error: 'MISSING_WORKSPACE_ID'
-      });
-      return;
-    }
-
-    // Add workspaceId to body as workspace_id for backward compatibility with existing controller
-    req.body.workspace_id = workspaceId;
-    
     await authController.switchWorkspace(req as AuthenticatedRequest, res);
   } catch (error) {
     logger.error('Route handler error for switch-workspace:', {
       error: error instanceof Error ? error.message : 'Unknown error',
       user_id: (req as AuthenticatedRequest).user?.user_id,
-      workspace_id: req.body.workspaceId,
       service: 'bi-platform-api'
     });
     
@@ -234,6 +223,7 @@ router.post('/switch-workspace', asyncHandler(async (req: Request, res: Response
     }
   }
 }));
+
 
 // ==================== PASSWORD MANAGEMENT (PAYLOAD-BASED) ====================
 

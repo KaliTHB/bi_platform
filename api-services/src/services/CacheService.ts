@@ -4,7 +4,7 @@ import { RedisConfig } from '../config/redis';
 
 export class CacheService {
   private redis: Redis | null = null;
-  private isRedisEnabled: boolean = false;
+  private redisEnabled: boolean = false;
   private memoryCache: Map<string, { value: any; expires?: number }> = new Map();
   private initialized: boolean = false;
 
@@ -25,13 +25,13 @@ export class CacheService {
       if (process.env.REDIS_ENABLED === 'false') {
         logger.info('🚫 Redis disabled via REDIS_ENABLED=false, using memory cache');
         this.redis = null;
-        this.isRedisEnabled = false;
+        this.redisEnabled = false;
         this.initialized = true;
         return;
       }
 
       this.redis = await RedisConfig.getClient();
-      this.isRedisEnabled = this.redis !== null;
+      this.redisEnabled = this.redis !== null;
       
       if (this.isRedisEnabled) {
         logger.info('✅ CacheService initialized with Redis');
@@ -41,7 +41,7 @@ export class CacheService {
     } catch (error) {
       logger.warn('⚠️ CacheService falling back to memory cache:', error);
       this.redis = null;
-      this.isRedisEnabled = false;
+      this.redisEnabled = false;
     }
     
     this.initialized = true;
@@ -222,7 +222,7 @@ export class CacheService {
   }
 
   isRedisEnabled(): boolean {
-    return this.isRedisEnabled && this.redis !== null;
+      return this.redisEnabled && this.redis !== null;
   }
 
   getCacheType(): 'redis' | 'memory' {

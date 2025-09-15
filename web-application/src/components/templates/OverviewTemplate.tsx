@@ -67,7 +67,7 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
   title = "Overview"
 }) => {
   const router = useRouter();
-  const { user, workspace, getAvailableWorkspaces, switchWorkspace, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, currentWorkspace , getAvailableWorkspaces, switchWorkspace, isAuthenticated, isLoading: authLoading } = useAuth();
   const { hasPermission, loading: permissionsLoading } = usePermissions();
   
   // Local state
@@ -95,17 +95,17 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
 
   // ✅ ONLY ADDITION: Update permissions on workspace changes (not remove)
   useEffect(() => {
-    if (workspace?.id) {
-      console.log(`🔄 Overview: Workspace changed to ${workspace.id}, updating permissions...`);
+    if (currentWorkspace?.id) {
+      console.log(`🔄 Overview: Workspace changed to ${currentWorkspace.id}, updating permissions...`);
       // Just clean stale permissions, don't remove all
       cleanStalePermissions();
     }
-  }, [workspace?.id]);
+  }, [currentWorkspace?.id]);
 
   // Load workspace stats
   useEffect(() => {
     const loadStats = async () => {
-      if (!workspace?.id) {
+      if (!currentWorkspace?.id) {
         setStatsLoading(false);
         return;
       }
@@ -114,7 +114,7 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
         setStatsLoading(true);
         
         // Replace with actual API calls
-        const response = await fetch(`/api/workspaces/${workspace.id}/stats`, {
+        const response = await fetch(`/api/workspaces/${currentWorkspace.id}/stats`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`
           }
@@ -155,7 +155,7 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
     };
 
     loadStats();
-  }, [workspace?.id]);
+  }, [currentWorkspace?.id]);
 
   const handleWorkspaceSwitch = async (workspaceId: string) => {
     try {
@@ -209,7 +209,7 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
                       {title}
                     </Typography>
                     <Typography variant="h6" color="textSecondary" gutterBottom>
-                      {workspace?.display_name || workspace?.name || 'Loading...'}
+                      {currentWorkspace?.display_name || currentWorkspace?.name || 'Loading...'}
                     </Typography>
                     <Typography variant="body2" color="textSecondary">
                       Welcome back, {user?.display_name || user?.email || 'User'}
@@ -298,7 +298,7 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
                       variant="outlined"
                       startIcon={<Add />}
                       fullWidth
-                      onClick={() => router.push(`/workspace/${workspace?.slug}/dashboard-builder`)}
+                      onClick={() => router.push(`/workspace/${currentWorkspace?.slug}/dashboard-builder`)}
                     >
                       Create Dashboard
                     </Button>
@@ -309,7 +309,7 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
                       variant="outlined"
                       startIcon={<DataObject />}
                       fullWidth
-                      onClick={() => router.push(`/workspace/${workspace?.slug}/sql-editor`)}
+                      onClick={() => router.push(`/workspace/${currentWorkspace?.slug}/sql-editor`)}
                     >
                       SQL Editor
                     </Button>
@@ -320,7 +320,7 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
                       variant="outlined"
                       startIcon={<Settings />}
                       fullWidth
-                      onClick={() => router.push(`/workspace/${workspace?.slug}/admin`)}
+                      onClick={() => router.push(`/workspace/${currentWorkspace?.slug}/admin`)}
                     >
                       Workspace Settings
                     </Button>
@@ -331,7 +331,7 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
                       variant="outlined"
                       startIcon={<People />}
                       fullWidth
-                      onClick={() => router.push(`/workspace/${workspace?.slug}/admin/users`)}
+                      onClick={() => router.push(`/workspace/${currentWorkspace?.slug}/admin/users`)}
                     >
                       Manage Users
                     </Button>
@@ -390,7 +390,7 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
                     <ListItem key={ws.id} disablePadding>
                       <ListItemButton
                         onClick={() => handleWorkspaceSwitch(ws.id)}
-                        selected={ws.id === workspace?.id}
+                        selected={ws.id === currentWorkspace?.id}
                       >
                         <ListItemAvatar>
                           <Avatar>
@@ -401,7 +401,7 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
                           primary={ws.display_name || ws.name}
                           secondary={ws.description || `${ws.users_count || 0} members`}
                         />
-                        {ws.id === workspace?.id && (
+                        {ws.id === currentWorkspace?.id && (
                           <CheckCircle color="primary" />
                         )}
                       </ListItemButton>

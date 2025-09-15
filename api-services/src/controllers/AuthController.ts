@@ -557,40 +557,50 @@ export class AuthController {
   };
 
   /**
-   * Switch workspace - KEEP EXISTING
+   * ✅ Switch Workspace
    * POST /api/auth/switch-workspace
    */
   public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const userId = req.user?.user_id;
       const userEmail = req.user?.email;
-      const { workspace_id } = req.body;
+      
+      // ✅ Accept either workspace_id or workspaceId from request body
+      const { workspace_id, workspaceId } = req.body;
+      const targetWorkspaceId = workspace_id || workspaceId;
 
-      if (!userId || !userEmail) {
+      console.log('🔄 AuthController: Switch workspace request', {
+        userId,
+        targetWorkspaceId,
+        requestBody: req.body
+      });
+
+      if (!userId) {
         res.status(401).json({
           success: false,
           message: 'Authentication required',
-          error: 'AUTHENTICATION_REQUIRED'
+          error: 'USER_NOT_AUTHENTICATED'
         });
         return;
       }
 
-      if (!workspace_id) {
+      if (!targetWorkspaceId) {
         res.status(400).json({
           success: false,
           message: 'Workspace ID is required',
-          error: 'MISSING_WORKSPACE_ID'
+          error: 'WORKSPACE_ID_REQUIRED'
         });
         return;
       }
 
-      const result = await this.authService.switchWorkspace(userId, workspace_id);
+      // Use AuthService to switch workspace
+      const result = await this.authService.switchWorkspace(userId, targetWorkspaceId);
 
       if (!result.success) {
         res.status(400).json({
           success: false,
-          message: result.message || 'Failed to switch workspace',
-          error: result.error || 'WORKSPACE_SWITCH_FAILED'
+          message: result.error || 'Workspace switch failed',
+          error: 'WORKSPACE_SWITCH_FAILED'
         });
         return;
       }
@@ -601,11 +611,11 @@ export class AuthController {
         data: {
           token: result.token,
           workspace: result.workspace,
-          permissions: result.permissions || [],
+          permissions: result.permissions || [], // ✅ CRITICAL: Always include permissions
           user_info: {
             user_id: userId,
             email: userEmail,
-            workspace_id: workspace_id
+            workspace_id: targetWorkspaceId
           }
         }
       });

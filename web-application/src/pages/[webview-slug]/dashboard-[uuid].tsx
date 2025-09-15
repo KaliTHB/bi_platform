@@ -26,7 +26,7 @@ import {
 import { WebviewLayout } from '../../components/layout/WebviewLayout';
 import { DashboardContainer } from '../../components/dashboard/DashboardContainer';
 import { useWebview } from '../../hooks/useWebview';
-import { useDashboard } from '../../hooks/useDashboard';
+import { useDashboards } from '../../hooks/useDashboards';
 
 // =============================================================================
 // INTERFACES
@@ -91,7 +91,7 @@ const WebviewDashboardPage: React.FC<DashboardPageProps> = ({
     incrementViewCount,
     shareDashboard,
     exportDashboard
-  } = useDashboard(dashboardId);
+  } = useDashboards(dashboardId);
 
   // =============================================================================
   // EFFECTS

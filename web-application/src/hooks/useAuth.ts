@@ -152,16 +152,59 @@ export const useAuth = () => {
     }
   };
 
-  // Switch workspace function
+
+  // ✅ NEW: Add method to fetch permissions independently
+  const fetchUserPermissions = async (workspaceId?: string): Promise<void> => {
+    try {
+      const targetWorkspaceId = workspaceId || workspace.currentWorkspace?.id;
+      if (!targetWorkspaceId) {
+        console.warn('⚠️ No workspace context for permission fetch');
+        return;
+      }
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/permissions?workspace_id=${targetWorkspaceId}`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${auth.token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        console.warn('⚠️ Failed to fetch user permissions:', response.status);
+        return;
+      }
+
+      const data = await response.json();
+      
+      if (data.success && data.permissions) {
+        // ✅ Update permissions in auth state
+        dispatch(setPermissions(data.permissions));
+        
+        // Update localStorage
+        localStorage.setItem(STORAGE_KEYS.PERMISSIONS, JSON.stringify(data.permissions));
+        
+        console.log('✅ User permissions updated:', data.permissions.length);
+      }
+    } catch (error: any) {
+      console.warn('⚠️ Error fetching user permissions:', error.message);
+    }
+  };
+
   const switchWorkspace = async (workspaceId: string): Promise<void> => {
     try {
       console.log('🔄 useAuth: Switching workspace to:', workspaceId);
       dispatch(setLoading(true));
+      dispatch(clearError());
+
       // Get current context
       const currentUser = authStorage.getUser();
       const currentWorkspace = workspaceStorage.getCurrentWorkspace();
 
-
+      // ✅ FIX: Use the correct backend endpoint
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/switch-workspace`, {
         method: 'POST',
         headers: {
@@ -171,7 +214,9 @@ export const useAuth = () => {
           'X-Workspace-Slug': currentWorkspace?.slug || '',
           'X-User-Id': currentUser?.user_id || ''
         },
-        body: JSON.stringify({ workspaceId: workspaceId }),
+        body: JSON.stringify({ 
+          workspace_id: workspaceId  // ✅ Use workspace_id not workspaceId
+        }),
       });
 
       if (!response.ok) {
@@ -181,32 +226,44 @@ export const useAuth = () => {
 
       const data = await response.json();
       
-      if (!data.success || !data.token) {
+      if (!data.success || !data.data?.token) {
         throw new Error(data.message || 'Workspace switch response missing token');
       }
 
-      const { user, token, workspace: newWorkspace, permissions } = data;
+      const { 
+        token: newToken, 
+        workspace: newWorkspace, 
+        permissions: newPermissions,
+        user_info 
+      } = data.data;
 
-      // Update localStorage
-      localStorage.setItem(STORAGE_KEYS.TOKEN, token);
-      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+      // ✅ CRITICAL FIX: Update both auth state AND workspace state
+      // Update localStorage with new context
+      localStorage.setItem(STORAGE_KEYS.TOKEN, newToken);
       localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, JSON.stringify(newWorkspace));
       
-      if (permissions) {
-        localStorage.setItem(STORAGE_KEYS.PERMISSIONS, JSON.stringify(permissions));
+      if (newPermissions && newPermissions.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.PERMISSIONS, JSON.stringify(newPermissions));
       }
 
-      // Update Redux store
+      // ✅ FIX: Update Redux auth state with new permissions
       dispatch(setCredentials({
-        user,
-        token,
-        permissions: permissions || [],
+        user: currentUser, // Keep current user data
+        token: newToken,
+        permissions: newPermissions || [], // ✅ CRITICAL: Set new permissions
         workspace: newWorkspace
       }));
       
+      // ✅ FIX: Update workspace state
       dispatch(setCurrentWorkspace(newWorkspace));
 
-      console.log('✅ useAuth: Workspace switched successfully to:', newWorkspace.name);
+      // ✅ ADDITIONAL FIX: Fetch fresh permissions to ensure accuracy
+      await fetchUserPermissions(workspaceId);
+
+      console.log('✅ useAuth: Workspace switched successfully', {
+        workspace: newWorkspace.name,
+        permissionsCount: newPermissions?.length || 0
+      });
 
     } catch (error: any) {
       console.error('❌ useAuth: Workspace switch failed:', error);

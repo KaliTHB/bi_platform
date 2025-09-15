@@ -45,32 +45,85 @@ export const validateToken = createAsyncThunk(
     try {
       const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
       const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
+      const storedPermissions = localStorage.getItem(STORAGE_KEYS.PERMISSIONS);
       
       if (!token || !storedUser) {
         throw new Error('No stored credentials found');
       }
 
-      // Verify token with backend
+      console.log('🔍 Validating token with backend...');
+
+      // ✅ FIX: Verify token with backend using correct endpoint
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/verify`, {
+        method: 'GET', // ✅ Change to GET method
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
       });
 
+      if (!response.ok) {
+        console.log('❌ Token validation failed with status:', response.status);
+        throw new Error(`Token validation failed: ${response.status}`);
+      }
+
       const data = await response.json();
       
       if (!data.success || !data.user) {
+        console.log('❌ Invalid token response structure:', data);
         throw new Error('Invalid token response');
       }
+
+      // ✅ FIX: Handle permissions properly from response or localStorage
+      let permissions: string[] = [];
+      
+      // Priority: Backend response > localStorage > Empty array
+      if (data.permissions && Array.isArray(data.permissions)) {
+        permissions = data.permissions;
+        console.log('✅ Using permissions from backend response:', permissions.length);
+      } else if (storedPermissions) {
+        try {
+          const parsedPermissions = JSON.parse(storedPermissions);
+          if (Array.isArray(parsedPermissions)) {
+            permissions = parsedPermissions;
+            console.log('✅ Using permissions from localStorage:', permissions.length);
+          }
+        } catch (parseError) {
+          console.warn('⚠️ Failed to parse stored permissions, using empty array');
+          permissions = [];
+        }
+      } else {
+        console.warn('⚠️ No permissions found, using empty array');
+        permissions = [];
+      }
+
+      // ✅ FIX: Update localStorage with fresh data if available
+      if (data.permissions && Array.isArray(data.permissions)) {
+        localStorage.setItem(STORAGE_KEYS.PERMISSIONS, JSON.stringify(data.permissions));
+      }
+
+      console.log('✅ Token validation successful', {
+        user: data.user.email,
+        workspace: data.workspace?.name || 'none',
+        permissionsCount: permissions.length
+      });
 
       return {
         user: data.user,
         token,
-        permissions: data.permissions || [],
+        permissions, // ✅ CRITICAL: Always include permissions
         workspace: data.workspace
       };
+
     } catch (error: any) {
+      console.error('❌ Token validation error:', error);
+      
+      // Clear invalid stored data
+      localStorage.removeItem(STORAGE_KEYS.TOKEN);
+      localStorage.removeItem(STORAGE_KEYS.USER);
+      localStorage.removeItem(STORAGE_KEYS.PERMISSIONS);
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
+      
       return rejectWithValue(error.message || 'Token validation failed');
     }
   }
