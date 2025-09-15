@@ -58,7 +58,7 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
   workspaceSlug
 }) => {
   const router = useRouter();
-  const { workspace, user } = useAuth();
+  const { currentWorkspace, user } = useAuth();
   const { hasPermission, hasAnyPermission } = usePermissions();
 
   const drawerWidth = isOpen ? 280 : 64;
@@ -66,23 +66,23 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
   // 🔧 FIX 1: Get workspaceSlug from multiple sources
   const effectiveWorkspaceSlug = React.useMemo(() => {
     return workspaceSlug || 
-           workspace?.slug || 
+           currentWorkspace?.slug || 
            (router.query.workspaceSlug as string) || 
            'default';
-  }, [workspaceSlug, workspace?.slug, router.query.workspaceSlug]);
+  }, [workspaceSlug, currentWorkspace?.slug, router.query.workspaceSlug]);
 
   // 🔧 FIX 2: Debug logging
   React.useEffect(() => {
     console.log('🔍 CollapsibleSidebar Debug:', {
       workspaceSlug,
-      'workspace?.slug': workspace?.slug,
+      'workspace?.slug': currentWorkspace?.slug,
       'router.query.workspaceSlug': router.query.workspaceSlug,
       effectiveWorkspaceSlug,
       'router.isReady': router.isReady,
       'currentPath': router.asPath,
       user: !!user
     });
-  }, [workspaceSlug, workspace?.slug, router.query.workspaceSlug, effectiveWorkspaceSlug, router.isReady, router.asPath, user]);
+  }, [workspaceSlug, currentWorkspace?.slug, router.query.workspaceSlug, effectiveWorkspaceSlug, router.isReady, router.asPath, user]);
 
   // 🔧 FIX 3: Simplified admin check (removing complex logic that might fail)
   const isAdmin = React.useMemo(() => {
@@ -339,13 +339,13 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
           borderColor: 'divider'
         }}
       >
-        {isOpen && workspace && (
+        {isOpen && currentWorkspace && (
           <Box sx={{ overflow: 'hidden' }}>
             <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600 }}>
-              {workspace.display_name || workspace.name}
+              {currentWorkspace.display_name || currentWorkspace.name}
             </Typography>
             <Typography variant="caption" color="textSecondary" noWrap>
-              {workspace.description || 'Workspace'}
+              {currentWorkspace.description || 'Workspace'}
             </Typography>
             {/* Debug info in development */}
             {process.env.NODE_ENV === 'development' && (

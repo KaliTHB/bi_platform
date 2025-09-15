@@ -68,7 +68,7 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
     member_count:0,
     dashboard_count: 0,
     dataset_count: 0,
-    data_source_count: 0,
+    datasource_count: 0,
     chart_count: 0,
     webview_count: 0
   });
@@ -98,61 +98,53 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
 
   // Load workspace stats
   useEffect(() => {
-    const loadStats = async () => {
-      if (!currentWorkspace?.id) {
-        setStatsLoading(false);
-        return;
-      }
+  const loadStats = async () => {
+    if (!currentWorkspace?.id) {
+      setStatsLoading(false);
+      return;
+    }
 
-      try {
-        setStatsLoading(true);
-        
-        // Replace with actual API calls
-        const response = await fetch(`/api/workspaces/${currentWorkspace.id}/stats`, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          setStats({
-            member_count : data.active_members || 12,
-            dashboard_count: data.active_dashboards || 12,
-            dataset_count : data.active_datasets || 8,
-            data_source_count: data.active_datasources || 5,
-            chart_count: data.active_charts || 24,
-            webview_count: data.active_webviews || 3
-          });
-        } else {
-          // Fallback to mock data
-          setStats({
-            member_count:2,
-            dashboard_count: 12,
-            dataset_count: 8,
-            data_source_count: 5,
-            chart_count: 24,
-            webview_count: 3
-          });
+    try {
+      setStatsLoading(true);
+      
+      const response = await fetch(`/api/workspaces/${currentWorkspace.id}/stats`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
         }
-      } catch (error) {
-        console.error('Failed to load stats:', error);
-        // Fallback to mock data
-        setStats({
-            member_count:2,
-            dashboard_count: 12,
-            dataset_count: 8,
-            data_source_count: 5,
-            chart_count: 24,
-            webview_count: 3
-        });
-      } finally {
-        setStatsLoading(false);
-      }
-    };
+      });
 
-    loadStats();
-  }, [currentWorkspace?.id]);
+      if (!response.ok) {
+        throw new Error('Failed to fetch workspace stats');
+      }
+
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        // ✅ ONLY ADDITION: Map backend field names to frontend interface
+        const mappedStats = {
+          member_count : result.data.active_members || 0,
+          dashboard_count : result.data.active_dashboards || 0,
+          dataset_count : result.data.active_datasets || 0,
+          datasource_count : result.data.active_datasources || 0,
+          chart_count : result.data.active_charts || 0,
+          webview_count: result.data.active_webviews || 0  // ✅ ADDED: Include webviews count
+        };
+        
+        setStats(mappedStats);
+      }
+    } catch (error) {
+      console.error('Error loading workspace stats:', error);
+      // Keep existing stats on error to prevent UI flashing
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  // Only load stats once when workspace changes
+  loadStats();
+}, [currentWorkspace?.id]); // Only depend on workspace ID chang
+
 
   const handleWorkspaceSwitch = async (workspaceId: string) => {
     try {
@@ -258,7 +250,7 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
                     <Grid item xs={6} sm={2.4}>
                       <Box textAlign="center" p={1}>
                         <Storage color="success" fontSize="large" />
-                        <Typography variant="h4">{stats.data_source_count}</Typography>
+                        <Typography variant="h4">{stats.datasource_count}</Typography>
                         <Typography variant="caption" color="textSecondary">Data Sources</Typography>
                       </Box>
                     </Grid>

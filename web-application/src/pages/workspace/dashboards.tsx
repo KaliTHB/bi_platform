@@ -80,7 +80,7 @@ interface DashboardData {
     icon?: string;
   };
   thumbnail_url?: string;
-  tags: string[];
+  tags?: string[];
   created_at: string;
   updated_at: string;
   published_at?: string;
@@ -123,7 +123,7 @@ interface DashboardFormData {
 
 const DashboardsPage: NextPage = () => {
   const router = useRouter();
-  const { user, workspace } = useAuth();
+  const { user, currentWorkspace } = useAuth();
   const { hasPermission } = usePermissions();
 
   // State management
@@ -147,170 +147,109 @@ const DashboardsPage: NextPage = () => {
 
   // Load dashboards data
   useEffect(() => {
-    if (workspace?.id) {
+    if (currentWorkspace?.id) {
       loadDashboards();
     }
-  }, [workspace?.id]);
+  }, [currentWorkspace?.id]);
 
   const loadDashboards = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // API call to get all dashboards in workspace
-      // const response = await fetch('/api/v1/workspaces/dashboards');
-      // const data = await response.json();
-      // setDashboards(data.dashboards || data);
-      
-      // Mock data for now - replace with actual API call
-      const mockDashboards: DashboardData[] = [
+  try {
+    setLoading(true);
+    setError(null);
+    console.log('🔄 Loading dashboards for workspace:', currentWorkspace?.id);
+    
+    const token = localStorage.getItem('token');
+    if (!token) {
+      throw new Error('Authentication required');
+    }
+    
+    // Use the correct API endpoint based on your backend structure
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+    const response = await fetch(`${apiUrl}/api/dashboards`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'x-workspace-id': currentWorkspace?.id || '',  // ✅ CRITICAL: Use header instead of query
+        'Accept': 'application/json'
+      }
+    });
+    
+    console.log('📡 API Response:', {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        // Handle authentication error
+        //localStorage.removeItem('token');
+        //localStorage.removeItem('user');
+        router.push('/login');
+        return;
+      }
+      throw new Error(`Failed to fetch dashboards: ${response.statusText}`);
+    }
+
+    const responseData = await response.json();
+    console.log('📊 Dashboards response:', responseData);
+    
+    if (responseData.success) {
+      setDashboards(responseData.data || []);
+      console.log('✅ Dashboards loaded:', responseData.data?.length || 0);
+    } else {
+      // If API returns success: false, fall back to mock data temporarily
+      console.warn('⚠️ API returned success: false, using mock data');
+      setDashboards([
         {
           id: 'dashboard-1',
           name: 'executive_overview',
           display_name: 'Executive Overview',
-          description: 'High-level metrics and KPIs for executive team',
+          description: 'High-level metrics and KPIs',
           slug: 'executive-overview',
           status: 'published',
           visibility: 'workspace',
           is_featured: true,
           chart_count: 8,
           view_count: 245,
-          category_id: 'cat-1',
-          category: {
-            id: 'cat-1',
-            name: 'Analytics',
-            color: '#1976d2',
-            icon: 'analytics'
-          },
-          thumbnail_url: '/thumbnails/dashboard-1.png',
-          tags: ['executive', 'kpi', 'overview'],
-          created_at: '2024-01-10T09:00:00Z',
-          updated_at: '2024-01-20T16:30:00Z',
-          published_at: '2024-01-15T10:00:00Z',
-          last_viewed_at: '2024-01-20T14:22:00Z',
-          owner_id: 'user-1',
-          owner: {
-            id: 'user-1',
-            name: 'John Smith',
-            email: 'john.smith@company.com'
-          },
-          config_json: {
-            auto_refresh: {
-              enabled: true,
-              interval: 300
-            }
-          },
-          theme_config: {
-            primary_color: '#1976d2',
-            background_color: '#ffffff'
-          },
-          usage_stats: {
-            daily_views: 45,
-            weekly_views: 180,
-            unique_viewers: 28
-          }
-        },
-        {
-          id: 'dashboard-2',
-          name: 'sales_performance',
-          display_name: 'Sales Performance Dashboard',
-          description: 'Comprehensive sales analytics and performance metrics',
-          slug: 'sales-performance',
-          status: 'published',
-          visibility: 'private',
-          is_featured: false,
-          chart_count: 12,
-          view_count: 189,
-          category_id: 'cat-2',
-          category: {
-            id: 'cat-2',
-            name: 'Sales',
-            color: '#388e3c',
-            icon: 'trending_up'
-          },
-          thumbnail_url: '/thumbnails/dashboard-2.png',
-          tags: ['sales', 'revenue', 'performance'],
-          created_at: '2024-01-08T11:30:00Z',
-          updated_at: '2024-01-19T09:45:00Z',
-          published_at: '2024-01-12T08:00:00Z',
-          last_viewed_at: '2024-01-19T15:10:00Z',
-          owner_id: 'user-2',
-          owner: {
-            id: 'user-2',
-            name: 'Sarah Johnson',
-            email: 'sarah.j@company.com'
-          },
-          config_json: {
-            auto_refresh: {
-              enabled: false,
-              interval: 600
-            }
-          },
-          theme_config: {
-            primary_color: '#388e3c',
-            background_color: '#f5f5f5'
-          },
-          usage_stats: {
-            daily_views: 32,
-            weekly_views: 156,
-            unique_viewers: 19
-          }
-        },
-        {
-          id: 'dashboard-3',
-          name: 'operational_metrics',
-          display_name: 'Operational Metrics',
-          description: 'Real-time operational KPIs and system performance',
-          slug: 'operational-metrics',
-          status: 'draft',
-          visibility: 'public',
-          is_featured: false,
-          chart_count: 6,
-          view_count: 67,
-          category_id: 'cat-3',
-          category: {
-            id: 'cat-3',
-            name: 'Operations',
-            color: '#f57c00',
-            icon: 'settings'
-          },
-          thumbnail_url: '/thumbnails/dashboard-3.png',
-          tags: ['operations', 'monitoring', 'real-time'],
-          created_at: '2024-01-15T14:20:00Z',
-          updated_at: '2024-01-20T11:15:00Z',
-          last_viewed_at: '2024-01-18T13:45:00Z',
-          owner_id: 'user-3',
-          owner: {
-            id: 'user-3',
-            name: 'Mike Chen',
-            email: 'mike.chen@company.com'
-          },
-          config_json: {
-            auto_refresh: {
-              enabled: true,
-              interval: 60
-            }
-          },
-          theme_config: {
-            primary_color: '#f57c00',
-            background_color: '#fafafa'
-          },
-          usage_stats: {
-            daily_views: 12,
-            weekly_views: 67,
-            unique_viewers: 8
-          }
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          owner_id: 'current-user'
         }
-      ];
-      
-      setDashboards(mockDashboards);
-    } catch (error) {
-      console.error('Failed to load dashboards:', error);
-      setError('Failed to load dashboards. Please try again.');
-    } finally {
-      setLoading(false);
+      ]);
     }
-  };
+  } catch (err) {
+    console.error('❌ Error loading dashboards:', err);
+    const errorMessage = err instanceof Error ? err.message : 'Failed to load dashboards';
+    setError(errorMessage);
+    
+    // For development, show mock data on error
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔧 Development mode: showing mock data');
+      setDashboards([
+        {
+          id: 'dashboard-1',
+          name: 'executive_overview', 
+          display_name: 'Executive Overview',
+          description: 'High-level metrics and KPIs',
+          slug: 'executive-overview',
+          status: 'published',
+          visibility: 'workspace',
+          is_featured: true,
+          chart_count: 8,
+          view_count: 245,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          owner_id: 'current-user'
+        }
+      ]);
+      setError(null); // Clear error in dev mode
+    }
+  } finally {
+    setLoading(false);
+  }
+};
 
   // Visibility icon mapping
   const getVisibilityIcon = (visibility: string) => {
@@ -536,7 +475,7 @@ const DashboardsPage: NextPage = () => {
       label: 'Dashboard Settings',
       icon: <SettingsIcon fontSize="small" />,
       onClick: (dashboard) => {
-        router.replace(`/workspace/${workspace?.slug}/dashboards/${dashboard.id}/settings`);
+        router.replace(`/workspace/${currentWorkspace?.slug}/dashboards/${dashboard.id}/settings`);
       },
       color: 'default',
       show: () => hasPermission('dashboard.update')
@@ -552,7 +491,7 @@ const DashboardsPage: NextPage = () => {
         (dashboard.owner_id === user?.id || hasPermission('dashboard.admin')),
       disabled: (dashboard) => dashboard.chart_count > 0 && dashboard.status === 'published'
     }
-  ], [hasPermission, router, workspace?.slug, user?.id]);
+  ], [hasPermission, router, currentWorkspace?.slug, user?.id]);
 
   // Filter options
   const filters: FilterOption[] = [
@@ -640,7 +579,7 @@ const DashboardsPage: NextPage = () => {
   const handleShareDashboard = async (dashboard: DashboardData) => {
     try {
       // Generate share link or open share dialog
-      const shareUrl = `${window.location.origin}/workspace/${workspace?.slug}/dashboard/${dashboard.slug}`;
+      const shareUrl = `${window.location.origin}/workspace/${currentWorkspace?.slug}/dashboard/${dashboard.slug}`;
       await navigator.clipboard.writeText(shareUrl);
       // Could also open a share dialog with more options
       console.log('Dashboard share URL copied to clipboard');
@@ -735,7 +674,7 @@ const DashboardsPage: NextPage = () => {
         <CommonTableLayout
           data={dashboards}
           loading={loading}
-          error={error}
+          error={error as any}
           columns={columns}
           actions={actions}
           title="All Dashboards"

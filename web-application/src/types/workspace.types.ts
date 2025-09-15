@@ -13,7 +13,7 @@ export interface WorkspaceStats {
   dashboard_count: number;
   dataset_count: number;
   chart_count: number;
-  data_source_count: number;
+  datasource_count: number;
   webview_count: number;  // ✅ ADDED: Include webviews in stats
 }
 export interface Workspace {
