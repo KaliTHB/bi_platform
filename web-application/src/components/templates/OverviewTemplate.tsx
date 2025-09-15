@@ -46,18 +46,11 @@ import WorkspaceLayout from '../layout/WorkspaceLayout';
 import { PermissionGate } from '../shared/PermissionGate';
 import { useAuth } from '../../hooks/useAuth';
 import { usePermissions } from '../../hooks/usePermissions';
+import {WorkspaceStats } from '@/types/workspace.types'
 
 // ✅ ONLY ADDITION: Import cleanup functions
 import { cleanExpiredItems, cleanStalePermissions } from '../../utils/storageUtils';
 
-// API Service imports (create these if they don't exist)
-interface WorkspaceStats {
-  dashboards: number;
-  datasets: number;
-  datasources: number;
-  charts: number;
-  webviews: number;
-}
 
 interface OverviewTemplateProps {
   title?: string;
@@ -72,11 +65,12 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
   
   // Local state
   const [stats, setStats] = useState<WorkspaceStats>({
-    dashboards: 0,
-    datasets: 0,
-    datasources: 0,
-    charts: 0,
-    webviews: 0
+    member_count:0,
+    dashboard_count: 0,
+    dataset_count: 0,
+    data_source_count: 0,
+    chart_count: 0,
+    webview_count: 0
   });
   const [statsLoading, setStatsLoading] = useState(true);
   const [showWorkspaceSelector, setShowWorkspaceSelector] = useState(false);
@@ -123,31 +117,34 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
         if (response.ok) {
           const data = await response.json();
           setStats({
-            dashboards: data.dashboards || 12,
-            datasets: data.datasets || 8,
-            datasources: data.datasources || 5,
-            charts: data.charts || 24,
-            webviews: data.webviews || 3
+            member_count : data.active_members || 12,
+            dashboard_count: data.active_dashboards || 12,
+            dataset_count : data.active_datasets || 8,
+            data_source_count: data.active_datasources || 5,
+            chart_count: data.active_charts || 24,
+            webview_count: data.active_webviews || 3
           });
         } else {
           // Fallback to mock data
           setStats({
-            dashboards: 12,
-            datasets: 8,
-            datasources: 5,
-            charts: 24,
-            webviews: 3
+            member_count:2,
+            dashboard_count: 12,
+            dataset_count: 8,
+            data_source_count: 5,
+            chart_count: 24,
+            webview_count: 3
           });
         }
       } catch (error) {
         console.error('Failed to load stats:', error);
         // Fallback to mock data
         setStats({
-          dashboards: 12,
-          datasets: 8,
-          datasources: 5,
-          charts: 24,
-          webviews: 3
+            member_count:2,
+            dashboard_count: 12,
+            dataset_count: 8,
+            data_source_count: 5,
+            chart_count: 24,
+            webview_count: 3
         });
       } finally {
         setStatsLoading(false);
@@ -247,35 +244,35 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
                     <Grid item xs={6} sm={2.4}>
                       <Box textAlign="center" p={1}>
                         <DashboardIcon color="primary" fontSize="large" />
-                        <Typography variant="h4">{stats.dashboards}</Typography>
+                        <Typography variant="h4">{stats.dashboard_count}</Typography>
                         <Typography variant="caption" color="textSecondary">Dashboards</Typography>
                       </Box>
                     </Grid>
                     <Grid item xs={6} sm={2.4}>
                       <Box textAlign="center" p={1}>
                         <DataObject color="secondary" fontSize="large" />
-                        <Typography variant="h4">{stats.datasets}</Typography>
+                        <Typography variant="h4">{stats.dataset_count}</Typography>
                         <Typography variant="caption" color="textSecondary">Datasets</Typography>
                       </Box>
                     </Grid>
                     <Grid item xs={6} sm={2.4}>
                       <Box textAlign="center" p={1}>
                         <Storage color="success" fontSize="large" />
-                        <Typography variant="h4">{stats.datasources}</Typography>
+                        <Typography variant="h4">{stats.data_source_count}</Typography>
                         <Typography variant="caption" color="textSecondary">Data Sources</Typography>
                       </Box>
                     </Grid>
                     <Grid item xs={6} sm={2.4}>
                       <Box textAlign="center" p={1}>
                         <TrendingUp color="warning" fontSize="large" />
-                        <Typography variant="h4">{stats.charts}</Typography>
+                        <Typography variant="h4">{stats.chart_count}</Typography>
                         <Typography variant="caption" color="textSecondary">Charts</Typography>
                       </Box>
                     </Grid>
                     <Grid item xs={6} sm={2.4}>
                       <Box textAlign="center" p={1}>
                         <WebviewIcon color="info" fontSize="large" />
-                        <Typography variant="h4">{stats.webviews}</Typography>
+                        <Typography variant="h4">{stats.webview_count}</Typography>
                         <Typography variant="caption" color="textSecondary">Webviews</Typography>
                       </Box>
                     </Grid>

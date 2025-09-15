@@ -7,11 +7,14 @@ export interface WorkspaceSettings {
   theme?: 'light' | 'dark' | 'auto';
 }
 
+// Update this interface in your types file (likely in api-services/src/types/workspace.types.ts)
 export interface WorkspaceStats {
-  user_count: number;
+  member_count: number;
   dashboard_count: number;
   dataset_count: number;
   chart_count: number;
+  data_source_count: number;
+  webview_count: number;  // ✅ ADDED: Include webviews in stats
 }
 export interface Workspace {
   id: string;
