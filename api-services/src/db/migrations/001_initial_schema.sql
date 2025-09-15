@@ -58,16 +58,29 @@ CREATE TABLE IF NOT EXISTS workspaces (
 );
 
 -- Permissions table
+-- public.permissions definition
+
+-- Drop table
+
+-- DROP TABLE public.permissions;
+
 CREATE TABLE permissions (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name VARCHAR(100) UNIQUE NOT NULL,
-  display_name VARCHAR(255) NOT NULL,
-  description TEXT,
-  category VARCHAR(50) NOT NULL,
-  resource_type VARCHAR(50),
-  is_system BOOLEAN DEFAULT false,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+	id uuid NOT NULL DEFAULT uuid_generate_v4(),
+	"name" varchar(100) NOT NULL,
+	display_name varchar(255) NOT NULL,
+	description text NULL,
+	category varchar(50) NOT NULL,
+	resource_type varchar(50) NULL,
+	"action" varchar(50) NULL,
+	is_system bool NULL DEFAULT false,
+	created_at timestamptz NULL DEFAULT now(),
+	is_active bool NULL DEFAULT true,
+	CONSTRAINT permissions_name_key UNIQUE (name),
+	CONSTRAINT permissions_pkey PRIMARY KEY (id)
 );
+
+CREATE INDEX idx_permissions_category ON public.permissions USING btree (category);
+CREATE INDEX idx_permissions_resource ON public.permissions USING btree (resource_type);
 
 -- Roles table
 CREATE TABLE roles (
@@ -104,17 +117,52 @@ CREATE INDEX IF NOT EXISTS idx_roles_name ON roles(name);
 CREATE INDEX IF NOT EXISTS idx_permissions_name ON permissions(name);
 
 -- Create user_role_assignments table
-CREATE TABLE IF NOT EXISTS user_role_assignments (
-  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES users(id),
-  role_id UUID REFERENCES roles(id),
-  is_active BOOLEAN DEFAULT true,
-  joined_at TIMESTAMPTZ DEFAULT NOW(),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE (workspace_id, user_id)
+CREATE TABLE public.user_role_assignments (
+    id uuid NOT NULL DEFAULT uuid_generate_v4(),
+    user_id uuid NOT NULL,
+    workspace_id uuid NOT NULL,
+    role_id uuid NOT NULL,
+    assigned_by uuid NULL,
+    assigned_at timestamptz NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at timestamptz NULL,
+    is_active bool NULL DEFAULT true,
+    created_at timestamptz NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamptz NULL DEFAULT CURRENT_TIMESTAMP,
+    last_accessed timestamptz NULL DEFAULT now(),
+
+    CONSTRAINT user_role_assignments_pkey PRIMARY KEY (id),
+
+    -- prevent duplicate role assignments per user/workspace/role
+    CONSTRAINT user_role_assignments_user_id_workspace_id_role_id_key 
+      UNIQUE (user_id, workspace_id, role_id),
+
+    -- foreign keys
+    CONSTRAINT user_role_assignments_user_id_fkey
+      FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE,
+    CONSTRAINT user_role_assignments_workspace_id_fkey
+      FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE,
+    CONSTRAINT user_role_assignments_role_id_fkey
+      FOREIGN KEY (role_id) REFERENCES public.roles(id) ON DELETE CASCADE,
+    CONSTRAINT user_role_assignments_assigned_by_fkey
+      FOREIGN KEY (assigned_by) REFERENCES public.users(id) ON DELETE SET NULL
 );
+
+
+CREATE INDEX idx_user_permissions_view_user_workspace ON public.user_role_assignments USING btree (user_id, workspace_id) WHERE (is_active = true);
+CREATE INDEX idx_user_role_assignments_user_workspace ON public.user_role_assignments USING btree (user_id, workspace_id) WHERE (is_active = true);
+
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_user_role_assignments_updated_at
+BEFORE UPDATE ON public.user_role_assignments
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
 
 -- Data sources table
 CREATE TABLE datasources (

@@ -260,6 +260,7 @@ CREATE OR REPLACE FUNCTION get_user_active_roles(
     expires_at TIMESTAMPTZ,
     permission_count INTEGER,
     is_admin_role BOOLEAN,
+    is_system BOOLEAN,
     is_expiring_soon BOOLEAN -- Within 7 days
 ) AS $$
 BEGIN
@@ -292,7 +293,8 @@ BEGIN
         r.id AS role_id,
         r.name AS role_name,
         r.display_name AS role_display_name,
-        r.level AS role_level,
+        r.role_level AS role_level,
+        r.is_system AS is_system,
         COALESCE(rpa.aggregated_permissions, '[]'::jsonb) AS role_permissions,
         ura.assigned_at,
         ura.expires_at,

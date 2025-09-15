@@ -11,6 +11,7 @@ import {
   logout as logoutAction,  // ✅ CORRECT: Use logout from authSlice
   updateToken
 } from '../store/slices/authSlice';
+import {authStorage, workspaceStorage} from '@/utils/storageUtils';
 import {
   setCurrentWorkspace,
   setAvailableWorkspaces,
@@ -152,18 +153,25 @@ export const useAuth = () => {
   };
 
   // Switch workspace function
-  const switchWorkspace = async (workspaceSlug: string): Promise<void> => {
+  const switchWorkspace = async (workspaceId: string): Promise<void> => {
     try {
-      console.log('🔄 useAuth: Switching workspace to:', workspaceSlug);
+      console.log('🔄 useAuth: Switching workspace to:', workspaceId);
       dispatch(setLoading(true));
+      // Get current context
+      const currentUser = authStorage.getUser();
+      const currentWorkspace = workspaceStorage.getCurrentWorkspace();
+
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/switch-workspace`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${auth.token}`,
+          'X-Workspace-Id': currentWorkspace?.id || '',
+          'X-Workspace-Slug': currentWorkspace?.slug || '',
+          'X-User-Id': currentUser?.user_id || ''
         },
-        body: JSON.stringify({ workspace_slug: workspaceSlug }),
+        body: JSON.stringify({ workspaceId: workspaceId }),
       });
 
       if (!response.ok) {

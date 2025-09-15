@@ -309,7 +309,7 @@ export class PermissionService {
             role_display_name as display_name,
             role_permissions as permissions,
             role_level as level,
-            (CASE WHEN is_system_role THEN true ELSE false END) as is_system
+            (CASE WHEN is_system THEN true ELSE false END) as is_system
         FROM get_user_active_roles($1, $2)
         ORDER BY role_level DESC, role_name;
       `, [userId, workspaceId]);

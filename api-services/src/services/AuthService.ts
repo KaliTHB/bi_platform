@@ -1023,7 +1023,7 @@ async getUserWorkspaces(userId: string): Promise<WorkspaceInfo[]> {
         w.created_at,
         w.updated_at,
         r.name as role,
-        r.level as role_level,
+        r.role_level,
         r.id as role_id,
         ura.joined_at,
         (SELECT COUNT(*) FROM user_role_assignments ura2 WHERE ura2.workspace_id = w.id AND ura2.is_active = true) as member_count,

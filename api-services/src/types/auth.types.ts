@@ -21,6 +21,7 @@ export interface User {
 export interface LoginRequest {
   username: string;
   password: string;
+  workspace_id?: string;
   workspace_slug?: string;
 }
 
@@ -87,6 +88,7 @@ export interface LoginCredentials {
   email?: string;
   username?: string;
   password: string;
+  workspace_id?: string;
   workspace_slug?: string;
 }
 
