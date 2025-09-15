@@ -215,6 +215,16 @@ export const workspaceStorage = {
   getWorkspacePreferences: (): any | null => 
     getStorageItem(STORAGE_KEYS.WORKSPACE_PREFERENCES),
 
+  // ✅ ADDED: Session data functions that were missing
+  setSessionData: (sessionData: any): boolean => 
+    setStorageItem(STORAGE_KEYS.SESSION_DATA, sessionData),
+  
+  getSessionData: (): any | null => 
+    getStorageItem(STORAGE_KEYS.SESSION_DATA),
+  
+  clearSessionData: (): any | null => 
+    removeStorageItem(STORAGE_KEYS.SESSION_DATA),
+
   clearWorkspace: (): void => {
     const currentWorkspace = workspaceStorage.getCurrentWorkspace();
     
