@@ -1,30 +1,36 @@
-// api-services/src/controllers/AuthController.ts - Complete Version
+// api-services/src/controllers/AuthController.ts
+// REPLACE YOUR ENTIRE FILE WITH THIS VERSION
+
 import { Response } from 'express';
-import { AuthenticatedRequest } from '../middleware/authentication';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 import { AuthService } from '../services/AuthService';
+import { PermissionService } from '../services/PermissionService';  // ✅ ADD THIS IMPORT
 import { logger } from '../utils/logger';
+import { AuthenticatedRequest } from '../types/express';
+import { db } from '../utils/database';
+import { CacheService } from '../services/CacheService';  // ✅ ADD THIS IMPORT
 
 export class AuthController {
   private authService: AuthService;
+  private permissionService: PermissionService;  // ✅ ADD THIS PROPERTY
 
-  constructor(authService: AuthService) {
-    this.authService = authService;
-    console.log('✅ AuthController initialized with AuthService');
+  constructor() {
+    this.authService = new AuthService(db);
+    // ✅ INITIALIZE PERMISSION SERVICE
+    this.permissionService = new PermissionService(db, new CacheService());
   }
 
   /**
-   * Login user with optional workspace
+   * User Login - Keep existing login logic
    * POST /api/auth/login
    */
   public login = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      console.log('🔑 AuthController: Login request received');
-      const { email, username, password, workspace_slug } = req.body;
-      const emailOrUsername = email || username;
+      const { identifier, password, workspace_slug } = req.body;
 
-      // Validate required fields
-      if (!emailOrUsername || !password) {
-        console.log('⚠️ AuthController: Missing credentials');
+      // Validate input
+      if (!identifier || !password) {
         res.status(400).json({
           success: false,
           message: 'Email/username and password are required',
@@ -34,21 +40,19 @@ export class AuthController {
       }
 
       logger.info('Login attempt', {
-        emailOrUsername,
-        workspaceSlug: workspace_slug,
+        identifier: identifier.toLowerCase(),
+        workspace_slug,
         ip: req.ip,
-        userAgent: req.get('User-Agent'),
         service: 'bi-platform-api'
       });
 
-      // Use AuthService to handle login
-      const result = await this.authService.login(emailOrUsername, password, workspace_slug);
+      // Attempt login using AuthService
+      const result = await this.authService.login(identifier, password, workspace_slug);
 
       if (!result.success) {
-        console.log('⚠️ AuthController: Login failed -', result.error);
         logger.warn('Login failed', {
-          emailOrUsername,
-          workspaceSlug: workspace_slug,
+          identifier: identifier.toLowerCase(),
+          workspace_slug,
           error: result.error,
           ip: req.ip,
           service: 'bi-platform-api'
@@ -56,23 +60,19 @@ export class AuthController {
 
         res.status(401).json({
           success: false,
-          message: result.error || 'Authentication failed',
-          error: 'AUTHENTICATION_FAILED'
+          message: result.message || 'Login failed',
+          error: result.error || 'AUTHENTICATION_FAILED'
         });
         return;
       }
 
-      console.log('✅ AuthController: Login successful');
       logger.info('Login successful', {
         userId: result.user?.id,
         email: result.user?.email,
         workspaceId: result.workspace?.id,
-        workspaceName: result.workspace?.name,
-        permissionCount: result.permissions?.length || 0,
         service: 'bi-platform-api'
       });
 
-      // Send success response
       res.status(200).json({
         success: true,
         message: 'Login successful',
@@ -108,8 +108,7 @@ export class AuthController {
       });
 
     } catch (error: any) {
-      console.error('❌ AuthController: Login error:', error);
-      logger.error('Login controller error:', {
+      logger.error('Login controller error', {
         error: error.message,
         stack: error.stack,
         ip: req.ip,
@@ -125,194 +124,28 @@ export class AuthController {
   };
 
   /**
-   * Switch user workspace
-   * POST /api/auth/switch-workspace
+   * ✅ UPDATED: Get User Permissions - NOW USES YOUR PERMISSION SERVICE
+   * GET /api/auth/permissions?workspace_id=xxx
    */
-  // api-services/src/controllers/AuthController.ts
-  /**
- * Switch user workspace
- * POST /api/auth/switch-workspace
- */
-public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  try {
-    console.log('🔄 AuthController: Switch workspace request received');
-    const userId = req.user?.user_id;
-    const userEmail = req.user?.email;
-    const { workspace_id } = req.body; // ✅ FIX: Expect workspace_id
-
-    // Validate authentication
-    if (!userId || !userEmail) {
-      console.log('⚠️ AuthController: Missing authentication');
-      logger.warn('Workspace switch requested without proper authentication', {
-        userId: userId || 'undefined',
-        userEmail: userEmail || 'undefined',
-        service: 'bi-platform-api'
-      });
-
-      res.status(401).json({
-        success: false,
-        message: 'Authentication required to switch workspace',
-        error: 'AUTHENTICATION_REQUIRED'
-      });
-      return;
-    }
-
-    // ✅ FIX: Validate workspace_id (not workspace_slug)
-    if (!workspace_id || typeof workspace_id !== 'string') {
-      console.log('⚠️ AuthController: Missing workspace_id');
-      logger.warn('Workspace switch without workspace_id', {
-        userId,
-        userEmail,
-        request_body: req.body,
-        service: 'bi-platform-api'
-      });
-
-      res.status(400).json({
-        success: false,
-        message: 'Workspace ID is required',
-        error: 'MISSING_WORKSPACE_ID'
-      });
-      return;
-    }
-
-    logger.info('Workspace switch attempt', {
-      userId,
-      userEmail,
-      workspaceId: workspace_id,
-      ip: req.ip,
-      service: 'bi-platform-api'
-    });
-
-    // Use AuthService to handle workspace switch
-    const result = await this.authService.switchWorkspace(userId, workspace_id);
-
-    if (!result.success) {
-      console.log('⚠️ AuthController: Workspace switch failed -', result.error);
-      logger.warn('Workspace switch failed', {
-        userId,
-        userEmail,
-        workspaceId: workspace_id,
-        error: result.error,
-        service: 'bi-platform-api'
-      });
-
-      const statusCode = result.error?.includes('not found') ? 404 : 
-                        result.error?.includes('denied') ? 403 : 400;
-
-      res.status(statusCode).json({
-        success: false,
-        message: result.error || 'Workspace switch failed',
-        error: 'WORKSPACE_SWITCH_FAILED'
-      });
-      return;
-    }
-
-    console.log('✅ AuthController: Workspace switch successful');
-    logger.info('Workspace switch successful', {
-      userId,
-      userEmail,
-      workspaceId: result.workspace?.id,
-      workspaceName: result.workspace?.name,
-      service: 'bi-platform-api'
-    });
-
-    res.status(200).json({
-      success: true,
-      message: 'Workspace switched successfully',
-      data: {
-        token: result.token,
-        workspace: result.workspace ? {
-          id: result.workspace.id,
-          name: result.workspace.name,
-          slug: result.workspace.slug,
-          display_name: result.workspace.display_name,
-          description: result.workspace.description,
-          logo_url: result.workspace.logo_url,
-          user_role: result.workspace.user_role,
-          member_count: result.workspace.member_count,
-          dashboard_count: result.workspace.dashboard_count,
-          dataset_count: result.workspace.dataset_count
-        } : undefined,
-        permissions: result.permissions || [],
-        switched_at: new Date().toISOString()
-      }
-    });
-
-  } catch (error: any) {
-    console.error('❌ AuthController: Switch workspace error:', error);
-    logger.error('Switch workspace controller error:', {
-      error: error.message,
-      stack: error.stack,
-      userId: req.user?.user_id,
-      service: 'bi-platform-api'
-    });
-
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error during workspace switch',
-      error: 'INTERNAL_SERVER_ERROR'
-    });
-  }
-};
-
-  /**
-   * Logout user
-   * POST /api/auth/logout
-   */
-  public logout = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  public getUserPermissions = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const userId = req.user?.user_id;
-      const userEmail = req.user?.email;
-
-      logger.info('Logout request', {
-        userId,
-        userEmail,
-        ip: req.ip,
-        service: 'bi-platform-api'
-      });
-
-      // For now, we just invalidate on client side
-      // In the future, we could maintain a token blacklist
-      
-      res.status(200).json({
-        success: true,
-        message: 'Logout successful',
-        data: {
-          logged_out_at: new Date().toISOString()
-        }
-      });
-
-    } catch (error: any) {
-      logger.error('Logout controller error:', {
-        error: error.message,
+      // ✅ DEBUG: Check authentication state
+      console.log('🔍 DEBUG:', {
+        hasReqUser: !!req.user,
         userId: req.user?.user_id,
-        service: 'bi-platform-api'
+        authHeader: !!req.headers.authorization
       });
 
-      res.status(500).json({
-        success: false,
-        message: 'Internal server error during logout',
-        error: 'INTERNAL_SERVER_ERROR'
-      });
-    }
-  };
+      if (!req.user) {
+        logger.error('AuthController: Authentication required', {
+          path: req.path,
+          hasAuthHeader: !!req.headers.authorization,
+          service: 'bi-platform-api'
+        });
 
-  /**
-   * GET /api/auth/permissions
-   * Get user permissions for current or specified workspace
-   * This method mirrors UserController.getUserPermissions but is accessible via auth routes
-   */
-  public async getUserPermissions(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const userId = req.user?.user_id;
-      const workspaceId = req.query.workspace_id as string || req.user?.workspace_id;
-
-      console.log('🔍 AuthController: Getting permissions for user:', { userId, workspaceId });
-
-      if (!userId) {
         res.status(401).json({
           success: false,
-          message: 'Authentication required to access permissions',
+          message: 'Authentication required',
           error: 'AUTHENTICATION_REQUIRED',
           permissions: [],
           roles: []
@@ -320,17 +153,41 @@ public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promi
         return;
       }
 
-      // If no workspace ID provided, try to find user's first workspace
+      const userId = req.user.user_id;
+      const workspaceId = req.query.workspace_id as string || req.user.workspace_id;
+
+      // Validate userId
+      if (!userId) {
+        logger.error('AuthController: Invalid user ID', {
+          reqUser: req.user,
+          service: 'bi-platform-api'
+        });
+
+        res.status(400).json({
+          success: false,
+          message: 'Invalid authentication token',
+          error: 'INVALID_USER_TOKEN',
+          permissions: [],
+          roles: []
+        });
+        return;
+      }
+
+      console.log('🔍 AuthController: Getting permissions for user:', { 
+        userId, 
+        workspaceId,
+        userEmail: req.user.email 
+      });
+
+      // If no workspace ID, get user's first workspace
       if (!workspaceId) {
         try {
-          console.log('🔍 AuthController: No workspace ID provided, finding user default workspace');
-          
           const userWorkspaces = await this.authService.getUserWorkspaces(userId);
           
           if (!userWorkspaces?.length) {
             res.status(400).json({
               success: false,
-              message: 'User has no accessible workspaces',
+              message: 'No accessible workspaces found',
               error: 'NO_WORKSPACES',
               permissions: [],
               roles: []
@@ -338,49 +195,55 @@ public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promi
             return;
           }
 
-          const firstWorkspaceId = userWorkspaces[0]?.id;
-          if (!firstWorkspaceId) {
-            res.status(400).json({
-              success: false,
-              message: 'Unable to determine workspace for permissions',
-              error: 'WORKSPACE_DETERMINATION_FAILED', 
-              permissions: [],
-              roles: []
-            });
-            return;
-          }
+          const firstWorkspace = userWorkspaces[0];
+          
+          // ✅ USE YOUR PERMISSION SERVICE
+          const effectivePermissions = await this.permissionService.getUserEffectivePermissions(
+            userId, 
+            firstWorkspace.id
+          );
 
-          // Get permissions for first workspace
-          const userPermissions = await this.authService.getUserPermissions(userId, firstWorkspaceId);
+          const userRoles = await this.permissionService.getUserRoles(userId, firstWorkspace.id);
+
+          // Check admin using your permission system
+          const isAdmin = await this.permissionService.hasPermission(userId, firstWorkspace.id, 'workspace.admin') ||
+                         effectivePermissions.includes('*');
+
+          console.log('✅ AuthController: Permissions retrieved using PermissionService:', {
+            userId,
+            workspaceId: firstWorkspace.id,
+            permissionCount: effectivePermissions.length,
+            roleCount: userRoles.length,
+            isAdmin
+          });
 
           res.status(200).json({
             success: true,
-            message: 'Permissions retrieved successfully using default workspace',
-            permissions: userPermissions.permissions || [],
-            roles: userPermissions.roles || [],
-            is_admin: userPermissions.is_admin || false,
-            role_level: userPermissions.role_level || 0,
+            message: 'Permissions retrieved successfully using PermissionService',
+            permissions: effectivePermissions,
+            roles: userRoles.map(role => role.name),
+            role_details: userRoles,
+            is_admin: isAdmin,
+            role_level: isAdmin ? 100 : 0,
             user_info: {
               user_id: userId,
-              email: req.user?.email,
-              workspace_id: firstWorkspaceId
+              email: req.user.email,
+              workspace_id: firstWorkspace.id
             },
-            workspace_used: firstWorkspaceId
+            workspace_used: firstWorkspace
           });
           return;
 
         } catch (workspaceError: any) {
-          console.error('❌ AuthController: Error finding user workspace:', workspaceError);
-          logger.error('AuthController: Error finding user workspace:', {
+          logger.error('AuthController: Error finding user workspace', {
             error: workspaceError.message,
-            stack: workspaceError.stack,
             userId,
             service: 'bi-platform-api'
           });
 
           res.status(400).json({
             success: false,
-            message: 'Workspace ID required to get permissions',
+            message: 'Workspace ID required',
             error: 'MISSING_WORKSPACE_ID',
             permissions: [],
             roles: []
@@ -389,37 +252,48 @@ public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promi
         }
       }
 
-      // Use AuthService to get permissions for specified workspace
-      console.log('🔍 AuthController: Getting permissions using AuthService for workspace:', workspaceId);
-      
+      // ✅ GET PERMISSIONS FOR SPECIFIC WORKSPACE USING YOUR PERMISSION SERVICE
       try {
-        const userPermissions = await this.authService.getUserPermissions(userId, workspaceId);
+        console.log('🔍 AuthController: Using PermissionService for workspace:', workspaceId);
 
-        console.log('✅ AuthController: Got permissions:', {
+        const effectivePermissions = await this.permissionService.getUserEffectivePermissions(
+          userId, 
+          workspaceId
+        );
+
+        const userRoles = await this.permissionService.getUserRoles(userId, workspaceId);
+
+        const isAdmin = await this.permissionService.hasPermission(userId, workspaceId, 'workspace.admin') ||
+                       await this.permissionService.hasPermission(userId, workspaceId, '*') ||
+                       effectivePermissions.includes('workspace.admin') ||
+                       effectivePermissions.includes('*');
+
+        console.log('✅ AuthController: PermissionService results:', {
           userId,
           workspaceId,
-          permissionCount: userPermissions.permissions?.length || 0,
-          roleCount: userPermissions.roles?.length || 0,
-          isAdmin: userPermissions.is_admin
+          permissionCount: effectivePermissions.length,
+          roleCount: userRoles.length,
+          isAdmin,
+          samplePermissions: effectivePermissions.slice(0, 5)
         });
 
         res.status(200).json({
           success: true,
-          message: 'Permissions retrieved successfully using AuthService',
-          permissions: userPermissions.permissions || [],
-          roles: userPermissions.roles || [],
-          is_admin: userPermissions.is_admin || false,
-          role_level: userPermissions.role_level || 0,
+          message: 'Permissions retrieved successfully using PermissionService',
+          permissions: effectivePermissions,
+          roles: userRoles.map(role => role.name),
+          role_details: userRoles,
+          is_admin: isAdmin,
+          role_level: isAdmin ? 100 : 0,
           user_info: {
             user_id: userId,
-            email: req.user?.email,
+            email: req.user.email,
             workspace_id: workspaceId
           }
         });
 
       } catch (permissionError: any) {
-        console.error('❌ AuthController: Error getting permissions from AuthService:', permissionError);
-        logger.error('AuthController: AuthService getUserPermissions error:', {
+        logger.error('AuthController: PermissionService error', {
           error: permissionError.message,
           stack: permissionError.stack,
           userId,
@@ -427,27 +301,25 @@ public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promi
           service: 'bi-platform-api'
         });
 
-        // Return empty permissions instead of failing
         res.status(200).json({
           success: true,
-          message: 'Permissions retrieved with limited access (error occurred)',
+          message: 'Permissions retrieved with limited access',
           permissions: [],
           roles: [],
+          role_details: [],
           is_admin: false,
           role_level: 0,
           user_info: {
             user_id: userId,
-            email: req.user?.email,
+            email: req.user.email,
             workspace_id: workspaceId
           },
-          warning: 'Could not retrieve full permissions'
+          warning: 'Could not retrieve full permissions from PermissionService'
         });
       }
 
     } catch (error: any) {
-      console.error('❌ AuthController: Get user permissions error:', error);
-      
-      logger.error('AuthController: Get user permissions error:', {
+      logger.error('AuthController: Get user permissions error', {
         error: error.message,
         stack: error.stack,
         userId: req.user?.user_id,
@@ -456,16 +328,155 @@ public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promi
 
       res.status(500).json({
         success: false,
-        message: 'Unable to retrieve permissions due to server error',
+        message: 'Unable to retrieve permissions',
         error: 'INTERNAL_SERVER_ERROR',
         permissions: [],
         roles: []
       });
     }
-  }
+  };
+
+  /**
+   * ✅ NEW: Check specific permission
+   * POST /api/auth/check-permission
+   */
+  public checkPermission = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const { permission, workspace_id } = req.body;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          has_permission: false
+        });
+        return;
+      }
+
+      if (!permission) {
+        res.status(400).json({
+          success: false,
+          message: 'Permission name required',
+          has_permission: false
+        });
+        return;
+      }
+
+      const workspaceId = workspace_id || req.user.workspace_id;
+      
+      if (!workspaceId) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace context required',
+          has_permission: false
+        });
+        return;
+      }
+
+      // ✅ USE YOUR PERMISSION SERVICE
+      const hasPermission = await this.permissionService.hasPermission(
+        userId,
+        workspaceId, 
+        permission
+      );
+
+      res.status(200).json({
+        success: true,
+        has_permission: hasPermission,
+        permission: permission,
+        user_id: userId,
+        workspace_id: workspaceId
+      });
+
+    } catch (error: any) {
+      logger.error('AuthController: Check permission error', {
+        error: error.message,
+        userId: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Permission check failed',
+        has_permission: false
+      });
+    }
+  };
+
+  /**
+   * ✅ NEW: Check multiple permissions
+   * POST /api/auth/check-permissions
+   */
+  public checkMultiplePermissions = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const { permissions, workspace_id } = req.body;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          permissions: {}
+        });
+        return;
+      }
+
+      if (!Array.isArray(permissions)) {
+        res.status(400).json({
+          success: false,
+          message: 'Permissions array required',
+          permissions: {}
+        });
+        return;
+      }
+
+      const workspaceId = workspace_id || req.user.workspace_id;
+      
+      if (!workspaceId) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace context required',
+          permissions: {}
+        });
+        return;
+      }
+
+      // ✅ CHECK ALL PERMISSIONS USING YOUR PERMISSION SERVICE
+      const permissionResults: { [key: string]: boolean } = {};
+      
+      for (const permission of permissions) {
+        permissionResults[permission] = await this.permissionService.hasPermission(
+          userId,
+          workspaceId,
+          permission
+        );
+      }
+
+      res.status(200).json({
+        success: true,
+        permissions: permissionResults,
+        user_id: userId,
+        workspace_id: workspaceId
+      });
+
+    } catch (error: any) {
+      logger.error('AuthController: Check multiple permissions error', {
+        error: error.message,
+        userId: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Permission check failed',
+        permissions: {}
+      });
+    }
+  };
   
   /**
-   * Get current user profile
+   * Get current user profile - KEEP EXISTING
    * GET /api/auth/me
    */
   public getCurrentUser = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
@@ -505,152 +516,199 @@ public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promi
             avatar_url: user.avatar_url,
             display_name: user.first_name && user.last_name 
               ? `${user.first_name} ${user.last_name}` 
-              : user.username,
+              : user?.username,
             is_active: user.is_active,
             last_login: user.last_login,
-            created_at: user.created_at,
-            updated_at: user.updated_at
+            created_at: user.created_at
           }
         }
       });
 
     } catch (error: any) {
-      logger.error('Get current user controller error:', {
+      logger.error('AuthController: Get current user error', {
         error: error.message,
+        stack: error.stack,
         userId: req.user?.user_id,
         service: 'bi-platform-api'
       });
 
       res.status(500).json({
         success: false,
-        message: 'Internal server error getting user profile',
+        message: 'Unable to retrieve user profile',
         error: 'INTERNAL_SERVER_ERROR'
       });
     }
   };
 
   /**
- * Refresh authentication token
- * POST /api/auth/refresh
- */
-public refreshToken = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  try {
-    const userId = req.user?.user_id;
-    const workspaceId = req.user?.workspace_id;
+   * Switch workspace - KEEP EXISTING
+   * POST /api/auth/switch-workspace
+   */
+  public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const userEmail = req.user?.email;
+      const { workspace_id } = req.body;
 
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: 'Authentication required to refresh token',
-        error: 'AUTHENTICATION_REQUIRED'
+      if (!userId || !userEmail) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+          error: 'AUTHENTICATION_REQUIRED'
+        });
+        return;
+      }
+
+      if (!workspace_id) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace ID is required',
+          error: 'MISSING_WORKSPACE_ID'
+        });
+        return;
+      }
+
+      const result = await this.authService.switchWorkspace(userId, workspace_id);
+
+      if (!result.success) {
+        res.status(400).json({
+          success: false,
+          message: result.message || 'Failed to switch workspace',
+          error: result.error || 'WORKSPACE_SWITCH_FAILED'
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Workspace switched successfully',
+        data: {
+          token: result.token,
+          workspace: result.workspace,
+          permissions: result.permissions || [],
+          user_info: {
+            user_id: userId,
+            email: userEmail,
+            workspace_id: workspace_id
+          }
+        }
       });
-      return;
-    }
 
-    // Get fresh user data
-    const user = await this.authService.getUserById(userId);
-    if (!user) {
-      res.status(404).json({
-        success: false,
-        message: 'User not found',
-        error: 'USER_NOT_FOUND'
+    } catch (error: any) {
+      logger.error('AuthController: Switch workspace error', {
+        error: error.message,
+        stack: error.stack,
+        userId: req.user?.user_id,
+        service: 'bi-platform-api'
       });
-      return;
-    }
 
-    // Check if user is still active
-    if (!user.is_active) {
-      res.status(403).json({
+      res.status(500).json({
         success: false,
-        message: 'User account is inactive',
-        error: 'USER_INACTIVE'
+        message: 'Internal server error',
+        error: 'INTERNAL_SERVER_ERROR'
       });
-      return;
     }
+  };
 
-    // Get workspace info if available
-    let workspaceInfo = null;
-    let userPermissions: { permissions: string[] } = { permissions: [] };
-    
-    if (workspaceId) {
-      try {
-        // Get workspace information (you'll need to implement this method or adjust based on your workspace service)
-        // workspaceInfo = await this.authService.getWorkspaceById(workspaceId);
-        
-        // For now, we'll get permissions and reconstruct basic workspace info from the user data
-        userPermissions = await this.authService.getUserPermissions(userId, workspaceId);
-        
-        // If you have workspace data available in the token, you can use it
-        workspaceInfo = {
-          id: workspaceId,
-          slug: req.user?.workspace_slug,
-          name: req.user?.workspace_slug, // fallback
-          display_name: req.user?.workspace_slug,
-          user_role: req.user?.workspace_role
-        };
-      } catch (error: any) {
-        logger.warn('Failed to get workspace info during token refresh:', {
-          error: error.message,
+  /**
+   * Refresh Token - KEEP EXISTING
+   * POST /api/auth/refresh
+   */
+  public refreshToken = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+      const workspaceId = req.user?.workspace_id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Invalid refresh token',
+          error: 'INVALID_REFRESH_TOKEN'
+        });
+        return;
+      }
+
+      const user = await this.authService.getUserById(userId);
+      if (!user) {
+        res.status(401).json({
+          success: false,
+          message: 'User not found',
+          error: 'USER_NOT_FOUND'
+        });
+        return;
+      }
+
+      let workspace = null;
+      if (workspaceId) {
+        workspace = await this.authService.getWorkspaceById(workspaceId);
+      }
+
+      const newToken = await this.authService.generateJWTToken(user, workspace);
+
+      res.status(200).json({
+        success: true,
+        message: 'Token refreshed successfully',
+        data: {
+          token: newToken,
+          expires_in: 15 * 60,
+          user_info: {
+            user_id: userId,
+            email: user.email,
+            workspace_id: workspaceId
+          }
+        }
+      });
+
+    } catch (error: any) {
+      logger.error('AuthController: Refresh token error', {
+        error: error.message,
+        stack: error.stack,
+        userId: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Token refresh failed',
+        error: 'REFRESH_FAILED'
+      });
+    }
+  };
+
+  /**
+   * Logout - KEEP EXISTING
+   * POST /api/auth/logout
+   */
+  public logout = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.user_id;
+
+      if (userId) {
+        logger.info('User logged out', {
           userId,
-          workspaceId,
+          ip: req.ip,
           service: 'bi-platform-api'
         });
-        // Continue without workspace info rather than failing
       }
+
+      res.status(200).json({
+        success: true,
+        message: 'Logged out successfully'
+      });
+
+    } catch (error: any) {
+      logger.error('AuthController: Logout error', {
+        error: error.message,
+        stack: error.stack,
+        userId: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.status(500).json({
+        success: false,
+        message: 'Logout failed',
+        error: 'LOGOUT_FAILED'
+      });
     }
-
-    // Generate new token with fresh permissions
-    const token = this.authService.generateAuthToken(user, workspaceInfo);
-
-    logger.info('Token refreshed successfully', {
-      userId: user.id,
-      email: user.email,
-      workspaceId,
-      permissionCount: userPermissions.permissions.length,
-      service: 'bi-platform-api'
-    });
-
-    res.status(200).json({
-      success: true,
-      message: 'Token refreshed successfully',
-      data: {
-        token,
-        user: {
-          user_id: user.id,
-          username: user.username,
-          email: user.email,
-          first_name: user.first_name,
-          last_name: user.last_name,
-          avatar_url: user.avatar_url,
-          display_name: user.first_name && user.last_name 
-            ? `${user.first_name} ${user.last_name}` 
-            : user.username
-        },
-        workspace: workspaceInfo ? {
-          id: workspaceInfo.id,
-          name: workspaceInfo.name,
-          slug: workspaceInfo.slug,
-          display_name: workspaceInfo.display_name,
-          user_role: workspaceInfo.user_role
-        } : null,
-        permissions: userPermissions.permissions || [],
-        refreshed_at: new Date().toISOString()
-      }
-    });
-
-  } catch (error: any) {
-    logger.error('Refresh token controller error:', {
-      error: error.message,
-      stack: error.stack,
-      userId: req.user?.user_id,
-      service: 'bi-platform-api'
-    });
-    
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error during token refresh',
-      error: 'INTERNAL_SERVER_ERROR'
-    });
-  }
-};
+  };
 }
