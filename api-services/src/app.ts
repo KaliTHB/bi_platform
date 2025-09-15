@@ -68,7 +68,7 @@ const corsOptions = {
     'Authorization',
     'X-Workspace-Id',
     'X-Workspace-Slug',
-    'x-workspace-slug',
+    'X-User-Id'
   ],
 };
 

@@ -55,8 +55,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Local state
   const [workspaceInitialized, setWorkspaceInitialized] = useState(false);
 
-  // ✅ FIXED: Corrected API base URL with /api prefix
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+  // ✅ FIXED: Corrected API base URL WITHOUT /api prefix
+  // The /api prefix is added by the workspaceApi.ts configuration
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
   // Manual async function to fetch workspaces
   const fetchWorkspaces = async (): Promise<any[]> => {
@@ -67,15 +68,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (!token) {
         throw new Error('No authentication token found');
       }
+
+      // Get current context
+      const currentUser = authStorage.getUser();
+      const currentWorkspace = workspaceStorage.getCurrentWorkspace();
       
-      // ✅ FIXED: Using correct endpoint /workspaces (API_BASE_URL already includes /api)
-      const response = await fetch(`${API_BASE_URL}/workspaces`, {
+      // ✅ FIXED: Using correct endpoint - API_BASE_URL + /api/workspaces
+      const response = await fetch(`${API_BASE_URL}/api/workspaces`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
+          'X-Workspace-Id': currentWorkspace?.id || '',
+          'X-Workspace-Slug': currentWorkspace?.slug || '',
+          'X-User-Id': currentUser?.user_id || ''
         },
       });
+
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -88,7 +97,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
       
       // ✅ FIXED: Handle both data.workspaces and data.data response formats
-      const workspaces = result.data?.workspaces || result.data || [];
+      const workspaces = result.data || [];
       
       // Update Redux state using synchronous action
       dispatch(setAvailableWorkspaces(workspaces));
@@ -106,23 +115,31 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   // Manual async function to switch workspace
-  const switchWorkspaceAsync = async (workspaceSlug: string): Promise<any> => {
+  const switchWorkspaceAsync = async (workspaceId: string): Promise<any> => {
     try {
-      console.log('🔄 AuthProvider: Switching workspace to:', workspaceSlug);
+      console.log('🔄 AuthProvider: Switching workspace to:', workspaceId);
       
       const token = authStorage.getToken();
       if (!token) {
         throw new Error('No authentication token found');
       }
       
-      // ✅ FIXED: Using correct endpoint for workspace switching
-      const response = await fetch(`${API_BASE_URL}/workspaces/switch`, {
+      // Get current context
+      const currentUser = authStorage.getUser();
+      const currentWorkspace = workspaceStorage.getCurrentWorkspace();
+
+      const response = await fetch(`${API_BASE_URL}/api/auth/switch-workspace`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
+          'X-Workspace-Id': currentWorkspace?.id || '',
+          'X-Workspace-Slug': currentWorkspace?.slug || '',
+          'X-User-Id': currentUser?.user_id || ''
         },
-        body: JSON.stringify({ slug: workspaceSlug }),
+        body: JSON.stringify({
+          workspaceId: workspaceId  // Change from workspaceSlug to workspaceId
+        })
       });
       
       if (!response.ok) {
@@ -135,31 +152,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         throw new Error(result.message || 'Failed to switch workspace');
       }
       
-      const newWorkspace = result.data?.workspace || result.data;
+      // Update token and workspace in storage and Redux
+      const { token: newToken, workspace: newWorkspace, permissions } = result.data;
       
-      // Update Redux state using synchronous action
-      dispatch(setCurrentWorkspace(newWorkspace));
-      
-      // Update storage
-      workspaceStorage.setCurrentWorkspace(newWorkspace);
-      
-      console.log('✅ AuthProvider: Workspace switched successfully');
-      return newWorkspace;
-      
-    } catch (error: any) {
-      console.error('❌ AuthProvider: Workspace switch failed:', error);
-      
-      // Fallback: try to find and switch locally
-      const workspaces = workspace.availableWorkspaces || [];
-      const targetWorkspace = workspaces.find((ws: any) => ws.slug === workspaceSlug);
-      
-      if (targetWorkspace) {
-        dispatch(setCurrentWorkspace(targetWorkspace));
-        workspaceStorage.setCurrentWorkspace(targetWorkspace);
-        console.log('✅ AuthProvider: Workspace switched (local fallback):', targetWorkspace.name);
-        return targetWorkspace;
+      if (newToken) {
+        authStorage.setToken(newToken);
+        dispatch(setCredentials({ user: auth.user, token: newToken, permissions }));
       }
       
+      if (newWorkspace) {
+        workspaceStorage.setCurrentWorkspace(newWorkspace);
+        dispatch(setCurrentWorkspace(newWorkspace));
+      }
+      
+      console.log('✅ AuthProvider: Workspace switched successfully');
+      return result;
+      
+    } catch (error: any) {
+      console.error('❌ AuthProvider: Error switching workspace:', error);
       throw error;
     }
   };
@@ -167,31 +177,36 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Login function
   const login = async (email: string, password: string): Promise<any> => {
     try {
-      console.log('🔐 AuthProvider: Logging in user:', email);
-      
-      // ✅ FIXED: Using correct auth endpoint
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      console.log('🔑 AuthProvider: Attempting login for:', email);
+
+      // ✅ FIXED: Using correct login endpoint
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ email, password }),
       });
-      
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Login failed');
+      }
+
       const result = await response.json();
       
-      if (!response.ok || !result.success) {
+      if (!result.success) {
         throw new Error(result.message || 'Login failed');
       }
-      
-      const { user, token } = result.data;
-      
-      // Store auth data
+
+      const { user, token, permissions } = result.data;
+
+      // Store credentials
       authStorage.setToken(token);
       authStorage.setUser(user);
       
       // Set auth credentials in Redux
-      dispatch(setCredentials({ user, token }));
+      dispatch(setCredentials({ user, token, permissions }));
       
       // Load workspaces after successful login
       await fetchWorkspaces();
@@ -215,7 +230,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (token) {
         try {
           // ✅ FIXED: Using correct logout endpoint
-          await fetch(`${API_BASE_URL}/auth/logout`, {
+          await fetch(`${API_BASE_URL}/api/auth/logout`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -253,7 +268,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return await switchWorkspaceAsync(workspaceSlug);
   };
 
-  // Get available workspaces function
+  // ✅ FIXED: Simplified getAvailableWorkspaces to avoid duplicate calls
   const getAvailableWorkspaces = async (): Promise<any[]> => {
     try {
       console.log('🔍 AuthProvider: Getting available workspaces');
@@ -263,13 +278,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return [];
       }
 
-      // Try to get from Redux state first
+      // Try to get from Redux state first to avoid unnecessary API calls
       if (workspace.availableWorkspaces && workspace.availableWorkspaces.length > 0) {
         console.log('📦 AuthProvider: Using workspaces from Redux state:', workspace.availableWorkspaces.length);
         return workspace.availableWorkspaces;
       }
 
-      // Fetch fresh from API
+      // Try to get from localStorage cache
+      const cachedWorkspaces = workspaceStorage.getAvailableWorkspaces();
+      if (cachedWorkspaces && cachedWorkspaces.length > 0) {
+        console.log('💾 AuthProvider: Using cached workspaces:', cachedWorkspaces.length);
+        dispatch(setAvailableWorkspaces(cachedWorkspaces));
+        return cachedWorkspaces;
+      }
+
+      // Fetch fresh from API only if no cached data
       return await fetchWorkspaces();
       
     } catch (error: any) {
@@ -281,11 +304,32 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Get default workspace function
   const getDefaultWorkspace = async (): Promise<any> => {
     try {
+      // ✅ FIXED: Use correct endpoint for getting default workspace
+      const response = await fetch(`${API_BASE_URL}/api/user/workspace/default`, {
+        headers: {
+          'Authorization': `Bearer ${authStorage.getToken()}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to get default workspace');
+      }
+
+      if (data.success && data.workspace) {
+        workspaceStorage.setCurrentWorkspace(data.workspace);
+        dispatch(setCurrentWorkspace(data.workspace));
+      }
+
+      return data;
+    } catch (error: any) {
+      console.error('❌ AuthProvider: Error getting default workspace:', error);
+      
+      // Fallback to first workspace from available workspaces
       const workspaces = await getAvailableWorkspaces();
       return workspaces.find((ws: any) => ws.is_default) || workspaces[0] || null;
-    } catch (error) {
-      console.error('❌ AuthProvider: Error getting default workspace:', error);
-      return null;
     }
   };
 
@@ -326,112 +370,60 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       try {
         console.log('🔄 AuthProvider: Initializing auth from storage');
         
-        // Clean up legacy keys on startup
-        workspaceStorage.migrateOldWorkspaceKeys?.();
+        const token = authStorage.getToken();
+        const user = authStorage.getUser();
         
-        // Get stored auth data using unified storage utilities
-        const storedToken = authStorage.getToken();
-        const storedUser = authStorage.getUser();
-        const storedWorkspace = workspaceStorage.getCurrentWorkspace();
-        
-        if (storedToken && storedUser) {
-          console.log('📦 AuthProvider: Found stored auth data');
+        if (token && user) {
+          console.log('🔄 AuthProvider: Restoring auth from storage');
           
-          // Set auth credentials in Redux
-          dispatch(setCredentials({ 
-            user: storedUser, 
-            token: storedToken 
-          }));
-
-          // Load workspaces manually
-          try {
-            const workspaces = await fetchWorkspaces();
-            
-            if (workspaces && workspaces.length > 0) {
-              console.log('✅ AuthProvider: Workspaces loaded:', workspaces.length);
-              
-              // If we have a stored workspace and it's still valid, restore it
-              if (storedWorkspace) {
-                const workspaceExists = workspaces.find(
-                  (ws: any) => ws.id === storedWorkspace.id
-                );
-                
-                if (workspaceExists) {
-                  dispatch(setCurrentWorkspace(storedWorkspace));
-                  console.log('🔄 AuthProvider: Restored workspace:', storedWorkspace.name);
-                } else {
-                  // Stored workspace no longer exists, select first available
-                  const firstWorkspace = workspaces[0];
-                  dispatch(setCurrentWorkspace(firstWorkspace));
-                  workspaceStorage.setCurrentWorkspace(firstWorkspace);
-                  console.log('🔄 AuthProvider: Auto-selected first workspace:', firstWorkspace.name);
-                }
-              } else {
-                // No stored workspace, select first available
-                const firstWorkspace = workspaces[0];
-                dispatch(setCurrentWorkspace(firstWorkspace));
-                workspaceStorage.setCurrentWorkspace(firstWorkspace);
-                console.log('🔄 AuthProvider: Auto-selected first workspace:', firstWorkspace.name);
-              }
-              
-              setWorkspaceInitialized(true);
-            }
-            
-          } catch (workspaceError) {
-            console.warn('⚠️ AuthProvider: Failed to load workspaces during init:', workspaceError);
+          // Set credentials in Redux
+          dispatch(setCredentials({ user, token }));
+          
+          // Try to restore workspaces from cache first
+          const cachedWorkspaces = workspaceStorage.getAvailableWorkspaces();
+          const cachedCurrentWorkspace = workspaceStorage.getCurrentWorkspace();
+          
+          if (cachedWorkspaces && cachedWorkspaces.length > 0) {
+            console.log('💾 AuthProvider: Restored workspaces from cache:', cachedWorkspaces.length);
+            dispatch(setAvailableWorkspaces(cachedWorkspaces));
           }
-        } else {
-          console.log('🔍 AuthProvider: No stored auth data found');
+          
+          if (cachedCurrentWorkspace) {
+            console.log('💾 AuthProvider: Restored current workspace from cache:', cachedCurrentWorkspace.slug);
+            dispatch(setCurrentWorkspace(cachedCurrentWorkspace));
+          }
+          
+          setWorkspaceInitialized(true);
         }
-        
       } catch (error) {
-        console.error('❌ AuthProvider: Auth initialization failed:', error);
+        console.error('❌ AuthProvider: Error initializing auth:', error);
       }
     };
 
     initializeAuth();
-  }, []); // Empty dependency array - run once on mount
+  }, [dispatch]);
 
+  // Context value
   const contextValue: AuthContextType = {
-    // Auth state
     isAuthenticated: auth.isAuthenticated,
     user: auth.user,
     workspace: workspace.currentWorkspace,
     permissions: auth.permissions || [],
-    loading: auth.isLoading || workspace.isLoading,
+    loading: auth.loading,
     isInitialized: auth.isInitialized,
     workspaceInitialized,
-
-    // Auth methods  
     login,
     logout,
     switchWorkspace,
     getAvailableWorkspaces,
     getDefaultWorkspace,
-    
-    // Permission methods
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,
-    
-    // Utility methods
     signOut,
     refreshAuth,
     loadWorkspaces,
   };
-
-  // Debug logging in development
-  if (process.env.NODE_ENV === 'development') {
-    console.log('AuthProvider context value:', {
-      isAuthenticated: contextValue.isAuthenticated,
-      authInitialized: contextValue.isInitialized,
-      workspaceInitialized: contextValue.workspaceInitialized,
-      hasUser: !!contextValue.user,
-      hasWorkspace: !!contextValue.workspace,
-      loading: contextValue.loading,
-      workspacesCount: workspace.availableWorkspaces?.length || 0,
-    });
-  }
 
   return (
     <AuthContext.Provider value={contextValue}>
@@ -440,12 +432,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   );
 };
 
-export const useAuth = (): AuthContextType => {
+export const useAuthContext = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error('useAuthContext must be used within an AuthProvider');
   }
   return context;
 };
-
-export default AuthProvider;

@@ -211,39 +211,43 @@ export const useAuth = () => {
 
   // Get available workspaces
   const getAvailableWorkspaces = async (): Promise<any[]> => {
-    try {
-      console.log('📋 useAuth: Getting available workspaces');
+  try {
+    console.log('📋 useAuth: Getting available workspaces');
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/user/workspaces`, {
-        headers: {
-          'Authorization': `Bearer ${auth.token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/user/workspaces`, {
+      headers: {
+        'Authorization': `Bearer ${auth.token}`,
+        'Content-Type': 'application/json',
+      },
+    });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `Failed to get workspaces: ${response.status}`);
-      }
-
-      const data = await response.json();
-      
-      if (!data.success) {
-        throw new Error(data.message || 'Failed to retrieve workspaces');
-      }
-
-      const workspaces = data.workspaces || [];
-      console.log('✅ useAuth: Retrieved workspaces:', workspaces.length);
-
-      dispatch(setAvailableWorkspaces(workspaces));
-      return workspaces;
-
-    } catch (error: any) {
-      console.error('❌ useAuth: Failed to get available workspaces:', error);
-      dispatch(setError(error.message || 'Failed to load workspaces'));
-      return [];
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || `Failed to get workspaces: ${response.status}`);
     }
-  };
+
+    const data = await response.json();
+    
+    if (!data.success) {
+      throw new Error(data.message || 'Failed to retrieve workspaces');
+    }
+
+    // ✅ FIXED: Extract workspaces from the correct field
+    // API returns data in { success: true, data: [...] } format
+    const workspaces = data.data || data.workspaces || [];
+    
+    console.log('✅ useAuth: Retrieved workspaces:', workspaces.length);
+    console.log('✅ useAuth: Workspaces data structure:', workspaces);
+
+    dispatch(setAvailableWorkspaces(workspaces));
+    return workspaces;
+
+  } catch (error: any) {
+    console.error('❌ useAuth: Failed to get available workspaces:', error);
+    dispatch(setError(error.message || 'Failed to load workspaces'));
+    return [];
+  }
+};
 
   // Verify token
   const verifyToken = async (): Promise<boolean> => {

@@ -198,6 +198,27 @@ CREATE OR REPLACE FUNCTION get_user_role_assignments(
 ) AS $$
 BEGIN
     RETURN QUERY
+    WITH role_permission_aggregates AS (
+        -- Aggregate permissions for each role
+        SELECT 
+            r.id as role_id,
+            COALESCE(
+                jsonb_agg(
+                    jsonb_build_object(
+                        'id', p.id,
+                        'name', p.name,
+                        'display_name', p.display_name,
+                        'description', p.description,
+                        'category', p.category
+                    ) ORDER BY p.name
+                ) FILTER (WHERE p.id IS NOT NULL), 
+                '[]'::jsonb
+            ) as aggregated_permissions
+        FROM roles r
+        LEFT JOIN role_permissions rp ON r.id = rp.role_id
+        LEFT JOIN permissions p ON rp.permission_id = p.id
+        GROUP BY r.id
+    )
     SELECT 
         ura.id AS assignment_id,
         ura.is_active AS assignment_active,
@@ -209,9 +230,10 @@ BEGIN
         r.is_active AS role_is_active,
         r.is_system AS is_system_role,
         r.level AS role_level,
-        r.permissions AS role_permissions
+        COALESCE(rpa.aggregated_permissions, '[]'::jsonb) AS role_permissions
     FROM user_role_assignments ura
     LEFT JOIN roles r ON ura.role_id = r.id
+    LEFT JOIN role_permission_aggregates rpa ON r.id = rpa.role_id
     WHERE ura.user_id = p_user_id 
       AND ura.workspace_id = p_workspace_id
     ORDER BY ura.assigned_at DESC;
@@ -222,6 +244,7 @@ $$ LANGUAGE plpgsql;
 -- Alternative Function: get_user_active_roles
 -- Returns only active role assignments (more commonly used)
 -- ===================================
+
 
 CREATE OR REPLACE FUNCTION get_user_active_roles(
     p_user_id UUID,
@@ -234,26 +257,72 @@ CREATE OR REPLACE FUNCTION get_user_active_roles(
     role_level INTEGER,
     role_permissions JSONB,
     assigned_at TIMESTAMPTZ,
-    expires_at TIMESTAMPTZ
+    expires_at TIMESTAMPTZ,
+    permission_count INTEGER,
+    is_admin_role BOOLEAN,
+    is_expiring_soon BOOLEAN -- Within 7 days
 ) AS $$
 BEGIN
     RETURN QUERY
+    WITH role_permission_aggregates AS (
+        -- Aggregate permissions for each active role
+        SELECT 
+            r.id as role_id,
+            COALESCE(
+                jsonb_agg(
+                    jsonb_build_object(
+                        'id', p.id,
+                        'name', p.name,
+                        'display_name', p.display_name,
+                        'description', p.description,
+                        'category', p.category
+                    ) ORDER BY p.category, p.name
+                ) FILTER (WHERE p.id IS NOT NULL), 
+                '[]'::jsonb
+            ) as aggregated_permissions,
+            COUNT(p.id) as permission_count
+        FROM roles r
+        LEFT JOIN role_permissions rp ON r.id = rp.role_id
+        LEFT JOIN permissions p ON rp.permission_id = p.id AND p.is_active = TRUE
+        WHERE r.is_active = TRUE
+        GROUP BY r.id
+    )
     SELECT 
         ura.id AS assignment_id,
         r.id AS role_id,
         r.name AS role_name,
         r.display_name AS role_display_name,
         r.level AS role_level,
-        r.permissions AS role_permissions,
+        COALESCE(rpa.aggregated_permissions, '[]'::jsonb) AS role_permissions,
         ura.assigned_at,
-        ura.expires_at
+        ura.expires_at,
+        COALESCE(rpa.permission_count, 0)::INTEGER AS permission_count,
+        
+        -- Enhanced admin role detection
+        CASE 
+            WHEN r.name ILIKE '%admin%' OR 
+                 r.name ILIKE '%owner%' OR 
+                 r.name ILIKE '%super%' OR
+                 r.level >= 80
+            THEN TRUE 
+            ELSE FALSE 
+        END AS is_admin_role,
+        
+        -- Expiring soon warning
+        CASE 
+            WHEN ura.expires_at IS NOT NULL AND ura.expires_at <= (CURRENT_TIMESTAMP + INTERVAL '7 days')
+            THEN TRUE 
+            ELSE FALSE 
+        END AS is_expiring_soon
+        
     FROM user_role_assignments ura
     INNER JOIN roles r ON ura.role_id = r.id
+    LEFT JOIN role_permission_aggregates rpa ON r.id = rpa.role_id
     WHERE ura.user_id = p_user_id 
       AND ura.workspace_id = p_workspace_id
       AND ura.is_active = TRUE
       AND r.is_active = TRUE
-      AND (ura.expires_at IS NULL OR ura.expires_at > NOW())
+      AND (ura.expires_at IS NULL OR ura.expires_at > CURRENT_TIMESTAMP)
     ORDER BY r.level DESC, r.name ASC;
 END;
 $$ LANGUAGE plpgsql;
@@ -278,54 +347,114 @@ CREATE OR REPLACE FUNCTION get_user_role_summary(
     is_expired BOOLEAN,
     days_until_expiry INTEGER,
     permission_count INTEGER,
-    is_admin_role BOOLEAN
+    is_admin_role BOOLEAN,
+    permission_categories TEXT[], -- Array of permission categories
+    has_critical_permissions BOOLEAN, -- If role has admin/delete permissions
+    assignment_status VARCHAR -- 'active', 'expired', 'expiring_soon'
 ) AS $$
 BEGIN
     RETURN QUERY
+    WITH role_permission_aggregates AS (
+        -- Aggregate permissions for each role with category analysis
+        SELECT 
+            r.id as role_id,
+            COALESCE(
+                jsonb_agg(
+                    jsonb_build_object(
+                        'id', p.id,
+                        'name', p.name,
+                        'display_name', p.display_name,
+                        'description', p.description,
+                        'category', p.category
+                    ) ORDER BY p.category, p.name
+                ) FILTER (WHERE p.id IS NOT NULL), 
+                '[]'::jsonb
+            ) as aggregated_permissions,
+            COUNT(p.id) as permission_count,
+            array_agg(DISTINCT p.category ORDER BY p.category) FILTER (WHERE p.category IS NOT NULL) as categories,
+            -- Check for critical permissions (admin, delete, update operations)
+            bool_or(
+                p.name ILIKE '%admin%' OR 
+                p.name ILIKE '%delete%' OR 
+                p.name ILIKE '%.admin' OR
+                p.category = 'admin'
+            ) as has_critical_perms
+        FROM roles r
+        LEFT JOIN role_permissions rp ON r.id = rp.role_id
+        LEFT JOIN permissions p ON rp.permission_id = p.id AND p.is_active = TRUE
+        GROUP BY r.id
+    )
     SELECT 
         ura.id AS assignment_id,
         r.id AS role_id,
         r.name AS role_name,
         r.display_name AS role_display_name,
         r.level AS role_level,
-        r.permissions AS role_permissions,
+        COALESCE(rpa.aggregated_permissions, '[]'::jsonb) AS role_permissions,
         ura.assigned_at,
         ura.expires_at,
         
-        -- Computed fields
+        -- Computed expiry fields
         CASE 
-            WHEN ura.expires_at IS NOT NULL AND ura.expires_at <= NOW() 
+            WHEN ura.expires_at IS NOT NULL AND ura.expires_at <= CURRENT_TIMESTAMP 
             THEN TRUE 
             ELSE FALSE 
         END AS is_expired,
         
         CASE 
             WHEN ura.expires_at IS NOT NULL 
-            THEN EXTRACT(DAYS FROM (ura.expires_at - NOW()))::INTEGER
+            THEN EXTRACT(DAYS FROM (ura.expires_at - CURRENT_TIMESTAMP))::INTEGER
             ELSE NULL 
         END AS days_until_expiry,
         
-        CASE 
-            WHEN r.permissions IS NOT NULL 
-            THEN jsonb_array_length(r.permissions)
-            ELSE 0 
-        END AS permission_count,
+        -- Permission analytics
+        COALESCE(rpa.permission_count, 0)::INTEGER AS permission_count,
         
+        -- Admin role detection (enhanced logic)
         CASE 
-            WHEN r.name ILIKE '%admin%' OR r.level >= 80 
+            WHEN r.name ILIKE '%admin%' OR 
+                 r.name ILIKE '%owner%' OR 
+                 r.name ILIKE '%super%' OR
+                 r.level >= 80 OR
+                 COALESCE(rpa.has_critical_perms, FALSE) = TRUE
             THEN TRUE 
             ELSE FALSE 
-        END AS is_admin_role
+        END AS is_admin_role,
+        
+        -- Permission categories
+        COALESCE(rpa.categories, ARRAY[]::TEXT[]) AS permission_categories,
+        
+        -- Critical permissions flag
+        COALESCE(rpa.has_critical_perms, FALSE) AS has_critical_permissions,
+        
+        -- Assignment status with more granular states
+        CASE 
+            WHEN ura.expires_at IS NOT NULL AND ura.expires_at <= CURRENT_TIMESTAMP THEN 'expired'
+            WHEN ura.expires_at IS NOT NULL AND ura.expires_at <= (CURRENT_TIMESTAMP + INTERVAL '7 days') THEN 'expiring_soon'
+            WHEN ura.is_active = FALSE THEN 'inactive'
+            WHEN r.is_active = FALSE THEN 'role_inactive'
+            ELSE 'active'
+        END AS assignment_status
         
     FROM user_role_assignments ura
     INNER JOIN roles r ON ura.role_id = r.id
+    LEFT JOIN role_permission_aggregates rpa ON r.id = rpa.role_id
     WHERE ura.user_id = p_user_id 
       AND ura.workspace_id = p_workspace_id
       AND ura.is_active = TRUE
       AND r.is_active = TRUE
-    ORDER BY r.level DESC, r.name ASC;
+    ORDER BY 
+        -- Priority ordering: active roles first, then by level, then by name
+        CASE 
+            WHEN ura.expires_at IS NOT NULL AND ura.expires_at <= CURRENT_TIMESTAMP THEN 2
+            WHEN ura.expires_at IS NOT NULL AND ura.expires_at <= (CURRENT_TIMESTAMP + INTERVAL '7 days') THEN 1
+            ELSE 0
+        END,
+        r.level DESC, 
+        r.name ASC;
 END;
 $$ LANGUAGE plpgsql;
+
 
 -- ===================================
 -- Function: check_user_has_role

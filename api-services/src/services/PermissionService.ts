@@ -303,21 +303,15 @@ export class PermissionService {
       }
 
       const result = await this.database.query(`
-        SELECT DISTINCT
-          r.id,
-          r.name,
-          r.display_name,
-          r.permissions,
-          r.level,
-          r.is_system
-        FROM user_role_assignments ura
-        JOIN roles r ON ura.role_id = r.id
-        WHERE ura.user_id = $1 
-          AND ura.workspace_id = $2 
-          AND ura.is_active = true
-          AND r.is_active = true
-          AND (ura.expires_at IS NULL OR ura.expires_at > NOW())
-        ORDER BY r.level DESC, r.name
+        SELECT 
+            role_id as id,
+            role_name as name,
+            role_display_name as display_name,
+            role_permissions as permissions,
+            role_level as level,
+            (CASE WHEN is_system_role THEN true ELSE false END) as is_system
+        FROM get_user_active_roles($1, $2)
+        ORDER BY role_level DESC, role_name;
       `, [userId, workspaceId]);
 
       // Process permissions (handle both string[] and JSONB)
