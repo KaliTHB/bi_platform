@@ -66,8 +66,209 @@ interface PermissionCheck {
 // ===================================
 
 export class PermissionService {
-  
-  constructor(private database: Pool) {}
+  private database: Pool;
+
+  constructor(database: Pool, cache?: any) {
+    // Comprehensive validation
+    if (!database) {
+      const error = new Error('PermissionService: Database connection is required but was null/undefined');
+      logger.error('❌ PermissionService constructor error:', error.message);
+      throw error;
+    }
+    
+    if (typeof database.query !== 'function') {
+      const error = new Error(`PermissionService: Invalid database connection - query method is ${typeof database.query}, expected function`);
+      logger.error('❌ PermissionService constructor error:', {
+        message: error.message,
+        databaseType: typeof database,
+        hasQuery: typeof database.query,
+        constructorName: database.constructor?.name,
+        isPool: database instanceof Pool
+      });
+      throw error;
+    }
+
+    // Test database connection immediately
+    database.query('SELECT 1 as test')
+      .then(() => {
+        logger.debug('✅ PermissionService: Database connection test successful');
+      })
+      .catch((err) => {
+        logger.warn('⚠️ PermissionService: Database connection test failed:', err.message);
+        // Don't throw here - let it fail later with better context
+      });
+
+    this.database = database;
+    
+    logger.info('✅ PermissionService: Initialized successfully', {
+      hasDatabase: !!this.database,
+      hasQuery: typeof this.database.query === 'function',
+      service: 'bi-platform-api'
+    });
+  }
+
+  // Add a helper method to test database connectivity
+  async testDatabaseConnection(): Promise<boolean> {
+    try {
+      const result = await this.database.query('SELECT NOW() as current_time');
+      logger.debug('✅ Database connection test passed', {
+        time: result.rows[0].current_time
+      });
+      return true;
+    } catch (error: any) {
+      logger.error('❌ Database connection test failed:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Get ALL roles in the system (both system and workspace-specific roles)
+   * This method fixes the original "getAllRoles is not a function" error
+   */
+  async getAllRoles(includeInactive: boolean = false): Promise<Role[]> {
+    try {
+      // Test database connection first
+      if (!await this.testDatabaseConnection()) {
+        throw new Error('Database connection is not available');
+      }
+
+      const cacheKey = `all_roles:${includeInactive}`;
+      
+      // Try cache first
+      try {
+        const cached = await cacheService.get<Role[]>(cacheKey);
+        if (cached && Array.isArray(cached)) {
+          logger.debug('📦 PermissionService: Cache hit for all roles');
+          return cached;
+        }
+      } catch (cacheError) {
+        logger.warn('⚠️ Cache error (continuing without cache):', cacheError);
+      }
+
+      logger.debug('🔍 PermissionService: Fetching all roles from database');
+
+      const query = `
+        SELECT 
+          id, 
+          workspace_id, 
+          name, 
+          display_name, 
+          description, 
+          permissions, 
+          is_system, 
+          is_active, 
+          level, 
+          created_by, 
+          created_at, 
+          updated_at
+        FROM roles 
+        WHERE ${includeInactive ? '1=1' : 'is_active = true'}
+        ORDER BY is_system DESC, level DESC, name ASC
+      `;
+
+      const result = await this.database.query(query);
+      
+      // Process permissions (handle both string[] and JSONB)
+      const roles = result.rows.map(row => ({
+        ...row,
+        permissions: Array.isArray(row.permissions) 
+          ? row.permissions 
+          : (typeof row.permissions === 'string' 
+              ? JSON.parse(row.permissions) 
+              : [])
+      }));
+      
+      // Try to cache for 30 minutes (roles don't change very often)
+      try {
+        await cacheService.set(cacheKey, roles, 1800);
+      } catch (cacheError) {
+        logger.warn('⚠️ Cache set error (data still returned):', cacheError);
+      }
+      
+      logger.info(`✅ PermissionService: Retrieved ${roles.length} roles successfully`);
+      return roles;
+      
+    } catch (error: any) {
+      logger.error('❌ PermissionService: Error getting all roles:', {
+        error: error.message,
+        stack: error.stack,
+        hasDatabase: !!this.database,
+        hasQuery: typeof this.database?.query === 'function'
+      });
+      
+      // Return empty array rather than throwing to prevent cascade failures
+      // This allows the UI to load even if there's a database issue
+      return [];
+    }
+  }
+
+  /**
+   * Get ALL permissions in the system (both system and custom)
+   * Updated with better error handling
+   */
+  async getAllPermissions(): Promise<Permission[]> {
+    try {
+      // Test database connection first
+      if (!await this.testDatabaseConnection()) {
+        throw new Error('Database connection is not available');
+      }
+
+      const cacheKey = 'all_permissions';
+      
+      // Try cache first
+      try {
+        const cached = await cacheService.get<Permission[]>(cacheKey);
+        if (cached && Array.isArray(cached)) {
+          logger.debug('📦 PermissionService: Cache hit for all permissions');
+          return cached;
+        }
+      } catch (cacheError) {
+        logger.warn('⚠️ Cache error (continuing without cache):', cacheError);
+      }
+
+      logger.debug('🔍 PermissionService: Fetching all permissions from database');
+
+      const result = await this.database.query(`
+        SELECT 
+          id, 
+          name, 
+          display_name, 
+          description, 
+          category, 
+          resource_type, 
+          action, 
+          is_system,
+          is_active,
+          created_at
+        FROM permissions 
+        WHERE is_active = true
+        ORDER BY category ASC, name ASC
+      `);
+      
+      const permissions = result.rows;
+      
+      // Try to cache for 30 minutes (permissions don't change very often)
+      try {
+        await cacheService.set(cacheKey, permissions, 1800);
+      } catch (cacheError) {
+        logger.warn('⚠️ Cache set error (data still returned):', cacheError);
+      }
+      
+      logger.info(`✅ PermissionService: Retrieved ${permissions.length} permissions successfully`);
+      return permissions;
+      
+    } catch (error: any) {
+      logger.error('❌ PermissionService: Error getting all permissions:', {
+        error: error.message,
+        stack: error.stack,
+        hasDatabase: !!this.database,
+        hasQuery: typeof this.database?.query === 'function'
+      });
+      
+      // Return empty array rather than throwing to prevent cascade failures
+      return [];
+    }
+  }
 
   /**
    * Get effective permissions for user in workspace
@@ -306,6 +507,68 @@ export class PermissionService {
       return [];
     }
   }
+
+  /**
+ * Get ALL roles in the system (both system and workspace-specific roles)
+ * This method should be added to fix the getAllRoles error
+ */
+async getAllRoles(includeInactive: boolean = false): Promise<Role[]> {
+  try {
+    const cacheKey = `all_roles:${includeInactive}`;
+    
+    // Try cache first
+    const cached = await cacheService.get<Role[]>(cacheKey);
+    if (cached) {
+      logger.debug('📦 PermissionService: Cache hit for all roles');
+      return cached;
+    }
+
+    logger.debug('🔍 PermissionService: Fetching all roles from database');
+
+    const query = `
+      SELECT 
+        id, 
+        workspace_id, 
+        name, 
+        display_name, 
+        description, 
+        permissions, 
+        is_system, 
+        is_active, 
+        level, 
+        created_by, 
+        created_at, 
+        updated_at
+      FROM roles 
+      WHERE ${includeInactive ? '1=1' : 'is_active = true'}
+      ORDER BY is_system DESC, level DESC, name ASC
+    `;
+
+    const result = await this.database.query(query);
+    
+    // Process permissions (handle both string[] and JSONB)
+    const roles = result.rows.map(row => ({
+      ...row,
+      permissions: Array.isArray(row.permissions) 
+        ? row.permissions 
+        : (typeof row.permissions === 'string' 
+            ? JSON.parse(row.permissions) 
+            : [])
+    }));
+    
+    // Cache for 30 minutes (roles don't change very often)
+    await cacheService.set(cacheKey, roles, 1800);
+    
+    logger.info(`✅ PermissionService: Retrieved ${roles.length} roles`);
+    return roles;
+    
+  } catch (error) {
+    logger.error('❌ PermissionService: Error getting all roles:', error);
+    
+    // Return empty array rather than throwing to prevent cascade failures
+    return [];
+  }
+}
 
   /**
    * Get all available system permissions
@@ -862,12 +1125,5 @@ export class PermissionService {
     }
   }
 }
-
-// Export singleton instance
-export const permissionService = new PermissionService(
-  // You'll need to inject your database pool here
-  // This should match how you're setting up your database connection
-  {} as Pool // Replace with your actual database pool
-);
 
 export default PermissionService;

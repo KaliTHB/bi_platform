@@ -1,4 +1,4 @@
-// api-services/src/routes/permissions.routes.ts - PAYLOAD-BASED VERSION
+// api-services/src/routes/permissions.routes.ts - FIXED VERSION WITH PROPER DB HANDLING
 import { Router, Response } from 'express';
 import { PermissionService } from '../services/PermissionService';
 import { authenticate } from '../middleware/authentication';
@@ -6,12 +6,38 @@ import { AuthenticatedRequest } from '../types/express';
 import { validateWorkspaceAccess } from '../middleware/workspace';
 import { requirePermission } from '../middleware/rbac';
 import { asyncHandler } from '../middleware/errorHandler';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
 // Apply authentication and admin checks to all routes
 router.use(authenticate);
 router.use(validateWorkspaceAccess);
+
+// Helper function to create PermissionService with validation
+function createPermissionService(req: AuthenticatedRequest): PermissionService {
+  // Validate app.locals.db
+  if (!req.app.locals.db) {
+    logger.error('❌ req.app.locals.db is undefined', {
+      hasLocals: !!req.app.locals,
+      localsKeys: Object.keys(req.app.locals),
+      service: 'bi-platform-api'
+    });
+    throw new Error('Database connection not available in app.locals');
+  }
+
+  if (typeof req.app.locals.db.query !== 'function') {
+    logger.error('❌ Database connection invalid - missing query method', {
+      dbType: typeof req.app.locals.db,
+      hasQuery: typeof req.app.locals.db.query,
+      service: 'bi-platform-api'
+    });
+    throw new Error('Invalid database connection');
+  }
+
+  // Create PermissionService with validated database
+  return new PermissionService(req.app.locals.db);
+}
 
 // ==================== ADMIN PERMISSION MANAGEMENT ====================
 // These routes are for ADMINS to manage the permission system
@@ -24,14 +50,29 @@ router.use(validateWorkspaceAccess);
 router.get('/',
   requirePermission(['role.read', 'admin']),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const permissionService = new PermissionService(req.app.locals.db, req.app.locals.cache);
-    const permissions = await permissionService.getAllPermissions();
+    try {
+      const permissionService = createPermissionService(req);
+      const permissions = await permissionService.getAllPermissions();
 
-    res.json({
-      success: true,
-      data: permissions,
-      message: 'System permissions retrieved successfully'
-    });
+      res.json({
+        success: true,
+        data: permissions,
+        message: 'System permissions retrieved successfully'
+      });
+    } catch (error: any) {
+      logger.error('Error in GET /api/permissions:', {
+        error: error.message,
+        stack: error.stack,
+        userId: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+      
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve permissions',
+        error: 'PERMISSION_FETCH_ERROR'
+      });
+    }
   })
 );
 
@@ -42,14 +83,28 @@ router.get('/',
 router.get('/system',
   requirePermission(['role.read', 'admin']),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const permissionService = new PermissionService(req.app.locals.db, req.app.locals.cache);
-    const permissions = await permissionService.getSystemPermissions();
+    try {
+      const permissionService = createPermissionService(req);
+      const permissions = await permissionService.getSystemPermissions();
 
-    res.json({
-      success: true,
-      data: permissions,
-      message: 'System permissions retrieved successfully'
-    });
+      res.json({
+        success: true,
+        data: permissions,
+        message: 'System permissions retrieved successfully'
+      });
+    } catch (error: any) {
+      logger.error('Error in GET /api/permissions/system:', {
+        error: error.message,
+        userId: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+      
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve system permissions',
+        error: 'SYSTEM_PERMISSION_FETCH_ERROR'
+      });
+    }
   })
 );
 
@@ -60,14 +115,43 @@ router.get('/system',
 router.get('/roles',
   requirePermission(['role.read', 'admin']),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const permissionService = new PermissionService(req.app.locals.db, req.app.locals.cache);
-    const roles = await permissionService.getAllRoles();
+    try {
+      const permissionService = createPermissionService(req);
+      
+      logger.info('Fetching all roles', {
+        userId: req.user?.user_id,
+        workspaceId: req.user?.workspace_id,
+        service: 'bi-platform-api'
+      });
 
-    res.json({
-      success: true,
-      data: roles,
-      message: 'Roles retrieved successfully'
-    });
+      const roles = await permissionService.getAllRoles();
+
+      logger.info('Successfully fetched roles', {
+        roleCount: roles.length,
+        userId: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+
+      res.json({
+        success: true,
+        data: roles,
+        message: 'Roles retrieved successfully'
+      });
+    } catch (error: any) {
+      logger.error('Error in GET /api/permissions/roles:', {
+        error: error.message,
+        stack: error.stack,
+        userId: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+      
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve roles',
+        error: 'ROLE_FETCH_ERROR',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
   })
 );
 
@@ -81,43 +165,57 @@ router.get('/roles',
 router.post('/roles/create',
   requirePermission(['role.create', 'admin']),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const permissionService = new PermissionService(req.app.locals.db, req.app.locals.cache);
-    const { name, description, permissions } = req.body;
-    const workspaceId = req.user?.workspace_id;
-    const createdBy = req.user?.user_id;
+    try {
+      const permissionService = createPermissionService(req);
+      const { name, description, permissions } = req.body;
+      const workspaceId = req.user?.workspace_id;
+      const createdBy = req.user?.user_id;
 
-    // Validate required fields
-    if (!name || !permissions || !Array.isArray(permissions)) {
-      res.status(400).json({
-        success: false,
-        message: 'Name and permissions array are required',
-        error: 'MISSING_REQUIRED_FIELDS'
+      // Validate required fields
+      if (!name || !permissions || !Array.isArray(permissions)) {
+        res.status(400).json({
+          success: false,
+          message: 'Name and permissions array are required',
+          error: 'MISSING_REQUIRED_FIELDS'
+        });
+        return;
+      }
+
+      if (!workspaceId || !createdBy) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace context required',
+          error: 'MISSING_WORKSPACE_CONTEXT'
+        });
+        return;
+      }
+
+      const role = await permissionService.createCustomRole(
+        workspaceId,
+        name,
+        description,
+        permissions,
+        createdBy
+      );
+
+      res.status(201).json({
+        success: true,
+        data: role,
+        message: 'Custom role created successfully'
       });
-      return;
-    }
-
-    if (!workspaceId || !createdBy) {
-      res.status(400).json({
-        success: false,
-        message: 'Workspace context required',
-        error: 'MISSING_WORKSPACE_CONTEXT'
+    } catch (error: any) {
+      logger.error('Error in POST /api/permissions/roles/create:', {
+        error: error.message,
+        userId: req.user?.user_id,
+        service: 'bi-platform-api'
       });
-      return;
+      
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create role',
+        error: 'ROLE_CREATE_ERROR'
+      });
     }
-
-    const role = await permissionService.createCustomRole(
-      workspaceId,
-      name,
-      description,
-      permissions,
-      createdBy
-    );
-
-    res.status(201).json({
-      success: true,
-      data: role,
-      message: 'Custom role created successfully'
-    });
   })
 );
 
@@ -129,31 +227,45 @@ router.post('/roles/create',
 router.put('/roles/update',
   requirePermission(['role.update', 'admin']),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const permissionService = new PermissionService(req.app.locals.db, req.app.locals.cache);
-    const { roleId, name, description, permissions } = req.body;
+    try {
+      const permissionService = createPermissionService(req);
+      const { roleId, name, description, permissions } = req.body;
 
-    // Validate required fields
-    if (!roleId) {
-      res.status(400).json({
-        success: false,
-        message: 'Role ID is required',
-        error: 'MISSING_ROLE_ID'
+      // Validate required fields
+      if (!roleId) {
+        res.status(400).json({
+          success: false,
+          message: 'Role ID is required',
+          error: 'MISSING_ROLE_ID'
+        });
+        return;
+      }
+
+      const updatedRole = await permissionService.updateCustomRole(
+        roleId,
+        name,
+        description,
+        permissions
+      );
+
+      res.json({
+        success: true,
+        data: updatedRole,
+        message: 'Role updated successfully'
       });
-      return;
+    } catch (error: any) {
+      logger.error('Error in PUT /api/permissions/roles/update:', {
+        error: error.message,
+        userId: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+      
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update role',
+        error: 'ROLE_UPDATE_ERROR'
+      });
     }
-
-    const updatedRole = await permissionService.updateCustomRole(
-      roleId,
-      name,
-      description,
-      permissions
-    );
-
-    res.json({
-      success: true,
-      data: updatedRole,
-      message: 'Role updated successfully'
-    });
   })
 );
 
@@ -165,25 +277,39 @@ router.put('/roles/update',
 router.delete('/roles/delete',
   requirePermission(['role.delete', 'admin']),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const permissionService = new PermissionService(req.app.locals.db, req.app.locals.cache);
-    const { roleId } = req.body;
+    try {
+      const permissionService = createPermissionService(req);
+      const { roleId } = req.body;
 
-    // Validate required fields
-    if (!roleId) {
-      res.status(400).json({
-        success: false,
-        message: 'Role ID is required',
-        error: 'MISSING_ROLE_ID'
+      // Validate required fields
+      if (!roleId) {
+        res.status(400).json({
+          success: false,
+          message: 'Role ID is required',
+          error: 'MISSING_ROLE_ID'
+        });
+        return;
+      }
+
+      await permissionService.deleteCustomRole(roleId);
+
+      res.json({
+        success: true,
+        message: 'Role deleted successfully'
       });
-      return;
+    } catch (error: any) {
+      logger.error('Error in DELETE /api/permissions/roles/delete:', {
+        error: error.message,
+        userId: req.user?.user_id,
+        service: 'bi-platform-api'
+      });
+      
+      res.status(500).json({
+        success: false,
+        message: 'Failed to delete role',
+        error: 'ROLE_DELETE_ERROR'
+      });
     }
-
-    await permissionService.deleteCustomRole(roleId);
-
-    res.json({
-      success: true,
-      message: 'Role deleted successfully'
-    });
   })
 );
 
@@ -197,269 +323,56 @@ router.delete('/roles/delete',
 router.post('/assign-role',
   requirePermission(['role.assign', 'admin']),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const permissionService = new PermissionService(req.app.locals.db, req.app.locals.cache);
-    const { userId, roleId, expiresAt } = req.body;
-    const workspaceId = req.user?.workspace_id;
-    const assignedBy = req.user?.user_id;
+    try {
+      const permissionService = createPermissionService(req);
+      const { userId, roleId, expiresAt } = req.body;
+      const workspaceId = req.user?.workspace_id;
+      const assignedBy = req.user?.user_id;
 
-    // Validate required fields
-    if (!userId || !roleId) {
-      res.status(400).json({
-        success: false,
-        message: 'User ID and Role ID are required',
-        error: 'MISSING_REQUIRED_FIELDS'
-      });
-      return;
-    }
+      // Validate required fields
+      if (!userId || !roleId) {
+        res.status(400).json({
+          success: false,
+          message: 'User ID and Role ID are required',
+          error: 'MISSING_REQUIRED_FIELDS'
+        });
+        return;
+      }
 
-    if (!workspaceId || !assignedBy) {
-      res.status(400).json({
-        success: false,
-        message: 'Workspace context required',
-        error: 'MISSING_WORKSPACE_CONTEXT'
-      });
-      return;
-    }
+      if (!workspaceId || !assignedBy) {
+        res.status(400).json({
+          success: false,
+          message: 'Workspace context required',
+          error: 'MISSING_WORKSPACE_CONTEXT'
+        });
+        return;
+      }
 
-    await permissionService.assignRoleToUser(
-      userId,
-      workspaceId,
-      roleId,
-      assignedBy,
-      expiresAt ? new Date(expiresAt) : undefined
-    );
-
-    res.json({
-      success: true,
-      message: 'Role assigned to user successfully',
-      data: {
+      await permissionService.assignRoleToUser(
         userId,
-        roleId,
         workspaceId,
+        roleId,
         assignedBy,
-        expiresAt: expiresAt || null
-      }
-    });
-  })
-);
+        expiresAt
+      );
 
-/**
- * POST /api/permissions/remove-role
- * Remove role from user (admin only)
- * Payload: { userId, roleId }
- */
-router.post('/remove-role',
-  requirePermission(['role.assign', 'admin']),
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const permissionService = new PermissionService(req.app.locals.db, req.app.locals.cache);
-    const { userId, roleId } = req.body;
-    const workspaceId = req.user?.workspace_id;
-
-    // Validate required fields
-    if (!userId || !roleId) {
-      res.status(400).json({
-        success: false,
-        message: 'User ID and Role ID are required',
-        error: 'MISSING_REQUIRED_FIELDS'
+      res.json({
+        success: true,
+        message: 'Role assigned to user successfully'
       });
-      return;
-    }
-
-    if (!workspaceId) {
-      res.status(400).json({
-        success: false,
-        message: 'Workspace context required',
-        error: 'MISSING_WORKSPACE_CONTEXT'
+    } catch (error: any) {
+      logger.error('Error in POST /api/permissions/assign-role:', {
+        error: error.message,
+        userId: req.user?.user_id,
+        service: 'bi-platform-api'
       });
-      return;
-    }
-
-    await permissionService.removeRoleFromUser(userId, workspaceId, roleId);
-
-    res.json({
-      success: true,
-      message: 'Role removed from user successfully',
-      data: {
-        userId,
-        roleId,
-        workspaceId
-      }
-    });
-  })
-);
-
-// ==================== BULK OPERATIONS (PAYLOAD-BASED) ====================
-
-/**
- * POST /api/permissions/bulk-assign
- * Bulk assign role to multiple users (admin only)
- * Payload: { userIds: string[], roleId: string, expiresAt? }
- */
-router.post('/bulk-assign',
-  requirePermission(['role.assign', 'admin']),
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const permissionService = new PermissionService(req.app.locals.db, req.app.locals.cache);
-    const { userIds, roleId, expiresAt } = req.body;
-    const workspaceId = req.user?.workspace_id;
-    const assignedBy = req.user?.user_id;
-
-    // Validate required fields
-    if (!userIds || !Array.isArray(userIds) || userIds.length === 0 || !roleId) {
-      res.status(400).json({
+      
+      res.status(500).json({
         success: false,
-        message: 'User IDs array and Role ID are required',
-        error: 'MISSING_REQUIRED_FIELDS'
+        message: 'Failed to assign role',
+        error: 'ROLE_ASSIGN_ERROR'
       });
-      return;
     }
-
-    if (!workspaceId || !assignedBy) {
-      res.status(400).json({
-        success: false,
-        message: 'Workspace context required',
-        error: 'MISSING_WORKSPACE_CONTEXT'
-      });
-      return;
-    }
-
-    const results = {
-      successful: [],
-      failed: []
-    };
-
-    // Process each user assignment
-    for (const userId of userIds) {
-      try {
-        await permissionService.assignRoleToUser(
-          userId,
-          workspaceId,
-          roleId,
-          assignedBy,
-          expiresAt ? new Date(expiresAt) : undefined
-        );
-        results.successful.push(userId);
-      } catch (error) {
-        results.failed.push({
-          userId,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
-      }
-    }
-
-    res.json({
-      success: true,
-      message: `Bulk assignment completed: ${results.successful.length} successful, ${results.failed.length} failed`,
-      data: results
-    });
-  })
-);
-
-/**
- * POST /api/permissions/bulk-remove
- * Bulk remove role from multiple users (admin only)
- * Payload: { userIds: string[], roleId: string }
- */
-router.post('/bulk-remove',
-  requirePermission(['role.assign', 'admin']),
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const permissionService = new PermissionService(req.app.locals.db, req.app.locals.cache);
-    const { userIds, roleId } = req.body;
-    const workspaceId = req.user?.workspace_id;
-
-    // Validate required fields
-    if (!userIds || !Array.isArray(userIds) || userIds.length === 0 || !roleId) {
-      res.status(400).json({
-        success: false,
-        message: 'User IDs array and Role ID are required',
-        error: 'MISSING_REQUIRED_FIELDS'
-      });
-      return;
-    }
-
-    if (!workspaceId) {
-      res.status(400).json({
-        success: false,
-        message: 'Workspace context required',
-        error: 'MISSING_WORKSPACE_CONTEXT'
-      });
-      return;
-    }
-
-    const results = {
-      successful: [],
-      failed: []
-    };
-
-    // Process each user role removal
-    for (const userId of userIds) {
-      try {
-        await permissionService.removeRoleFromUser(userId, workspaceId, roleId);
-        results.successful.push(userId);
-      } catch (error) {
-        results.failed.push({
-          userId,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
-      }
-    }
-
-    res.json({
-      success: true,
-      message: `Bulk removal completed: ${results.successful.length} successful, ${results.failed.length} failed`,
-      data: results
-    });
-  })
-);
-
-// ==================== QUERY ENDPOINTS (PAYLOAD-BASED) ====================
-
-/**
- * POST /api/permissions/check-user-permissions
- * Check specific permissions for a user (admin only)
- * Payload: { userId, permissions: string[] }
- */
-router.post('/check-user-permissions',
-  requirePermission(['admin']),
-  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const permissionService = new PermissionService(req.app.locals.db, req.app.locals.cache);
-    const { userId, permissions } = req.body;
-    const workspaceId = req.user?.workspace_id;
-
-    // Validate required fields
-    if (!userId || !permissions || !Array.isArray(permissions)) {
-      res.status(400).json({
-        success: false,
-        message: 'User ID and permissions array are required',
-        error: 'MISSING_REQUIRED_FIELDS'
-      });
-      return;
-    }
-
-    if (!workspaceId) {
-      res.status(400).json({
-        success: false,
-        message: 'Workspace context required',
-        error: 'MISSING_WORKSPACE_CONTEXT'
-      });
-      return;
-    }
-
-    const userPermissions = await permissionService.getUserEffectivePermissions(userId, workspaceId);
-    const permissionChecks = permissions.map(permission => ({
-      permission,
-      granted: userPermissions.includes(permission)
-    }));
-
-    res.json({
-      success: true,
-      data: {
-        userId,
-        workspaceId,
-        permissionChecks,
-        allGranted: permissionChecks.every(check => check.granted)
-      },
-      message: 'Permission check completed'
-    });
   })
 );
 
