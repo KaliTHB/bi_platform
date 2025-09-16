@@ -55,6 +55,7 @@ import CommonTableLayout, {
   FilterOption 
 } from '../../components/shared/CommonTableLayout';
 import { PermissionGate } from '../../components/shared/PermissionGate';
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 // Import hooks and services
 import { useAuth } from '../../hooks/useAuth';
@@ -158,7 +159,8 @@ const DashboardsPage: NextPage = () => {
     setError(null);
     console.log('🔄 Loading dashboards for workspace:', currentWorkspace?.id);
     
-    const token = localStorage.getItem('token');
+    const token = authStorage.getToken();
+    const user = authStorage.getUser();  
     if (!token) {
       throw new Error('Authentication required');
     }
@@ -171,6 +173,7 @@ const DashboardsPage: NextPage = () => {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
         'x-workspace-id': currentWorkspace?.id || '',  // ✅ CRITICAL: Use header instead of query
+        'x-user-id': user?.id || '',
         'Accept': 'application/json'
       }
     });
@@ -183,9 +186,6 @@ const DashboardsPage: NextPage = () => {
 
     if (!response.ok) {
       if (response.status === 401) {
-        // Handle authentication error
-        //localStorage.removeItem('token');
-        //localStorage.removeItem('user');
         router.push('/login');
         return;
       }

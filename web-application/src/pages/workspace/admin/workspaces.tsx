@@ -43,6 +43,7 @@ import CommonTableLayout, {
   FilterOption 
 } from '../../../components/shared/CommonTableLayout';
 import { PermissionGate } from '../../../components/shared/PermissionGate';
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 // Import hooks and services
 import { useAuth } from '../../../hooks/useAuth';
@@ -148,10 +149,10 @@ const WorkspacesAdminPage: NextPage = () => {
   try {
     setLoading(true);
     setError(null);
-
+    const token = authStorage.getToken();
     const response = await fetch('/api/admin/workspaces', {
       headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
+        'Authorization': `Bearer ${token}`
       }
     });
 
@@ -465,12 +466,12 @@ const WorkspacesAdminPage: NextPage = () => {
         : '/api/admin/workspaces';
       
       const method = editingWorkspace ? 'PUT' : 'POST';
-
+      const token = authStorage.getToken();
       const response = await fetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(formData)
       });
@@ -490,10 +491,11 @@ const WorkspacesAdminPage: NextPage = () => {
     if (!deletingWorkspace) return;
 
     try {
+      const token = authStorage.getToken();
       const response = await fetch(`/api/admin/workspaces/${deletingWorkspace.id}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         }
       });
 

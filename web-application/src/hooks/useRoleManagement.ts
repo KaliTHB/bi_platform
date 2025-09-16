@@ -1,6 +1,7 @@
 // File: ./src/hooks/useRoleManagement.ts
 
 import { useState, useCallback, useEffect } from 'react';
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 // Interfaces
 interface Permission {
@@ -109,7 +110,8 @@ export const useRoleManagement = (workspaceId?: string) => {
 
   // Helper function to get auth headers
   const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
+    const token = authStorage.getToken(); // ✅ Use storage utility
+
     return {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json'

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSelector } from 'react-redux';
 import { RootState } from '@/store';
 import { DataSource, CreateDataSourceRequest, UpdateDataSourceRequest, ConnectionTestResult } from '@/types/datasource.types';
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 // Export the interface so it can be imported by other files
 export interface UseDataSourcesResult {
@@ -28,7 +29,7 @@ export const useDataSources = (): UseDataSourcesResult => {
 
   // Helper function to get auth headers
   const getAuthHeaders = () => {
-    const token = auth.token || localStorage.getItem('token');
+    const token = auth.token ||  authStorage.getToken();
     return {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',

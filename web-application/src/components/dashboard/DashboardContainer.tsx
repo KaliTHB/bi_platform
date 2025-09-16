@@ -24,6 +24,7 @@ import {
   BarChart as ChartIcon,
   Settings as SettingsIcon
 } from '@mui/icons-material';
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 // ============================================================================
 // TYPES
@@ -109,10 +110,11 @@ interface DashboardContainerState {
 
 const fetchLiveDashboard = async (dashboardId: string): Promise<Dashboard> => {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-  
+  const token = authStorage.getToken(); // ✅ Use storage utility
+
   const response = await fetch(`${apiUrl}/api/v1/dashboards/${dashboardId}`, {
     headers: {
-      'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
   });

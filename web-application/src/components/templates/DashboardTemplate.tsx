@@ -28,6 +28,7 @@ import WorkspaceLayout from '../layout/WorkspaceLayout';
 import { DashboardContainer } from '@/components/dashboard/DashboardContainer';
 import { useAuth } from '../../hooks/useAuth';
 import { usePermissions } from '../../hooks/usePermissions';
+import { authStorage } from '@/utils/storageUtils';
 
 export interface DashboardTemplateProps {
   dashboardId: string;
@@ -104,7 +105,7 @@ const DashboardTemplate: React.FC<DashboardTemplateProps> = ({
         
         const response = await fetch(`/api/dashboards/${dashboardId}`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
+            'Authorization': `Bearer ${authStorage.getToken()}`
           }
         });
         

@@ -1,6 +1,7 @@
 // File: ./src/hooks/useSystemHealth.ts
 
 import { useState, useCallback } from 'react';
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 // Interfaces
 interface SystemMetrics {
@@ -156,7 +157,7 @@ export const useSystemHealth = (workspaceId?: string) => {
 
   // Helper function to get auth headers
   const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
+    const token = authStorage.getToken();
     return {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json'

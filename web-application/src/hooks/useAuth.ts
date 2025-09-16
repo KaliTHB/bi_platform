@@ -132,11 +132,9 @@ export const useAuth = () => {
     try {
       console.log('🚪 useAuth: Logging out');
 
-      // Clear localStorage
-      localStorage.removeItem(STORAGE_KEYS.TOKEN);
-      localStorage.removeItem(STORAGE_KEYS.USER);
-      localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
-      localStorage.removeItem(STORAGE_KEYS.PERMISSIONS);
+    // ✅ CORRECTED: Use storage utilities with actual method names
+    authStorage.clearAuth();              // ✅ Exists - clears token, user, permissions
+    workspaceStorage.clearWorkspace();
 
       // ✅ FIXED: Use correct Redux actions that actually exist
       dispatch(logoutAction());           // This exists in authSlice
@@ -184,8 +182,8 @@ export const useAuth = () => {
         // ✅ Update permissions in auth state
         dispatch(setPermissions(data.permissions));
         
-        // Update localStorage
-        localStorage.setItem(STORAGE_KEYS.PERMISSIONS, JSON.stringify(data.permissions));
+        // ✅ Use storage utility
+        authStorage.setPermissions(data.permissions);
         
         console.log('✅ User permissions updated:', data.permissions.length);
       }
@@ -200,22 +198,25 @@ export const useAuth = () => {
       dispatch(setLoading(true));
       dispatch(clearError());
 
-      // Get current context
-      const currentUser = authStorage.getUser();
-      const currentWorkspace = workspaceStorage.getCurrentWorkspace();
+      const currentUser = authStorage.getUser(); // ✅ Use storage utility
+      const currentWorkspace = workspaceStorage.getCurrentWorkspace(); // ✅ Use storage utility
+      const token = authStorage.getToken(); // ✅ Use storage utility
 
-      // ✅ FIX: Use the correct backend endpoint
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/switch-workspace`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${auth.token}`,
+          'Authorization': `Bearer ${token}`,
           'X-Workspace-Id': currentWorkspace?.id || '',
           'X-Workspace-Slug': currentWorkspace?.slug || '',
           'X-User-Id': currentUser?.user_id || ''
         },
         body: JSON.stringify({ 
-          workspace_id: workspaceId  // ✅ Use workspace_id not workspaceId
+          workspace_id: workspaceId
         }),
       });
 
@@ -237,27 +238,25 @@ export const useAuth = () => {
         user_info 
       } = data.data;
 
-      // ✅ CRITICAL FIX: Update both auth state AND workspace state
-      // Update localStorage with new context
-      localStorage.setItem(STORAGE_KEYS.TOKEN, newToken);
-      localStorage.setItem(STORAGE_KEYS.CURRENT_WORKSPACE, JSON.stringify(newWorkspace));
+      // ✅ CRITICAL FIX: Use storage utilities for all updates
+      authStorage.setToken(newToken);
+      workspaceStorage.setCurrentWorkspace(newWorkspace);
       
       if (newPermissions && newPermissions.length > 0) {
-        localStorage.setItem(STORAGE_KEYS.PERMISSIONS, JSON.stringify(newPermissions));
+        authStorage.setPermissions(newPermissions);
       }
 
-      // ✅ FIX: Update Redux auth state with new permissions
+      // Update Redux state
       dispatch(setCredentials({
-        user: currentUser, // Keep current user data
+        user: currentUser,
         token: newToken,
-        permissions: newPermissions || [], // ✅ CRITICAL: Set new permissions
+        permissions: newPermissions || [],
         workspace: newWorkspace
       }));
       
-      // ✅ FIX: Update workspace state
       dispatch(setCurrentWorkspace(newWorkspace));
 
-      // ✅ ADDITIONAL FIX: Fetch fresh permissions to ensure accuracy
+      // Fetch fresh permissions to ensure accuracy
       await fetchUserPermissions(workspaceId);
 
       console.log('✅ useAuth: Workspace switched successfully', {
@@ -316,7 +315,7 @@ export const useAuth = () => {
 
   // Verify token
   const verifyToken = async (): Promise<boolean> => {
-    const storedToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
+    const storedToken = authStorage.getToken();
     if (!storedToken) {
       console.log('🔍 useAuth: No stored token found');
       return false;

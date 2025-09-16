@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { Dataset } from '@/types/dataset.types';
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 // =============================================================================
 // Types and Interfaces
@@ -57,7 +58,7 @@ export const useDatasets = (): UseDatasetsResult => {
 
   // Helper function to get auth headers
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = authStorage.getToken();
     
     if (!token) {
       throw new Error('No authentication token found');

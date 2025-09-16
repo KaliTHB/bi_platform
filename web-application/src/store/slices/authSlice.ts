@@ -1,6 +1,7 @@
 // web-application/src/store/slices/authSlice.ts - FIXED initialization
 import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
 import { STORAGE_KEYS } from '@/constants/index';
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 interface User {
   id: string;

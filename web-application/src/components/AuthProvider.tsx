@@ -21,20 +21,6 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-// Helper function to clean up old workspace keys (for migration)
-const cleanupOldWorkspaceKeys = (): void => {
-  if (typeof window === 'undefined') return;
-  
-  const oldKeys = ['workspace', 'auth_workspace', 'selected_workspace_id'];
-  oldKeys.forEach(key => {
-    try {
-      localStorage.removeItem(key);
-    } catch (error) {
-      console.warn(`Failed to remove old key ${key}:`, error);
-    }
-  });
-};
-
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const dispatch = useAppDispatch();
   const { user, token, isAuthenticated, isLoading } = useAppSelector((state) => state.auth);
@@ -109,16 +95,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const logoutUser = () => {
-    // Clear localStorage with consolidated keys
-    //localStorage.removeItem(STORAGE_KEYS.TOKEN);
-    //localStorage.removeItem(STORAGE_KEYS.USER);
-    //localStorage.removeItem(STORAGE_KEYS.CURRENT_WORKSPACE);
-    authStorage.clearAll();
-    workspaceStorage.clearAll();
-    
-    // Clean up old workspace keys
-    
 
+    authStorage.clearAuth();  
+    workspaceStorage.clearWorkspace();    
+     
     dispatch(logout());
     dispatch(clearWorkspace());
   };

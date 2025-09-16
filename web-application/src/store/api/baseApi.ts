@@ -14,6 +14,7 @@ import {
   isServerError 
 } from '@/constants/api';
 import { STORAGE_KEYS } from '@/constants';
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 console.log('🔧 BaseAPI: Initialized with configuration:', {
   baseUrl: API_CONFIG.BASE_URL,
@@ -59,7 +60,7 @@ const baseQuery = fetchBaseQuery({
     } else {
       // Fallback to localStorage if Redux doesn't have token yet
       if (typeof window !== 'undefined') {
-        const fallbackToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
+        const fallbackToken = authStorage.getToken();
         if (fallbackToken) {
           headers.set('Authorization', `Bearer ${fallbackToken}`);
           console.log('🔑 BaseAPI: Using fallback token from localStorage');

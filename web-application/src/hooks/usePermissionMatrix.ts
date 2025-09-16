@@ -1,24 +1,8 @@
 // File: ./src/hooks/usePermissionMatrix.ts
 
 import { useState, useCallback } from 'react';
-
-interface User {
-  id: string;
-  username: string;
-  email: string;
-  first_name: string;
-  last_name: string;
-  roles: string[];
-  is_active: boolean;
-}
-
-interface Permission {
-  id: string;
-  name: string;
-  category: string;
-  description: string;
-  display_name?: string;
-}
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
+import {User, Permission} from '@/types/auth.types'
 
 interface UserPermissions {
   [userId: string]: {
@@ -53,7 +37,7 @@ export const usePermissionMatrix = (workspaceId: string) => {
       // Fetch users in the workspace
       const usersResponse = await fetch(`/api/workspaces/${workspaceId}/users`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${authStorage.getToken()}`,
           'Content-Type': 'application/json'
         }
       });
@@ -67,7 +51,7 @@ export const usePermissionMatrix = (workspaceId: string) => {
       // Fetch available permissions
       const permissionsResponse = await fetch(`/api/workspaces/${workspaceId}/permissions`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${authStorage.getToken()}`,
           'Content-Type': 'application/json'
         }
       });
@@ -81,7 +65,7 @@ export const usePermissionMatrix = (workspaceId: string) => {
       // Fetch current user permissions
       const userPermissionsResponse = await fetch(`/api/workspaces/${workspaceId}/user-permissions`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${authStorage.getToken()}`,
           'Content-Type': 'application/json'
         }
       });
@@ -154,7 +138,7 @@ export const usePermissionMatrix = (workspaceId: string) => {
       const response = await fetch(`/api/workspaces/${workspaceId}/user-permissions/bulk`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${authStorage.getToken()}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({

@@ -1,5 +1,6 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { RootState } from '../index';
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 // ✅ FIXED: Use proper workspace interface
 interface Workspace {
@@ -66,7 +67,7 @@ export const workspaceApi = createApi({
         headers.set('authorization', `Bearer ${token}`);
       } else {
         // Fallback to localStorage
-        const fallbackToken = localStorage.getItem('token');
+        const fallbackToken = authStorage.getToken();
         if (fallbackToken) {
           headers.set('authorization', `Bearer ${fallbackToken}`);
         }
@@ -106,7 +107,7 @@ export const workspaceApi = createApi({
       transformResponse: (response: WorkspaceResponse, meta, arg) => {
         // If a new token is provided, update localStorage
         if (response.data?.token) {
-          localStorage.setItem('token', response.data.token);
+          authStorage.setToken(response.data.token);
         }
         return response;
       },

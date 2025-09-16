@@ -40,6 +40,7 @@ import {
 // Import layout and components
 import WorkspaceLayout from '../../../components/layout/WorkspaceLayout';
 import { PermissionGate } from '../../../components/shared/PermissionGate';
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 // Import hooks
 import { useAuth } from '../../../hooks/useAuth';
@@ -157,9 +158,10 @@ const WorkspaceAdminSettingsPage: NextPage = () => {
   const loadSettings = async () => {
     try {
       setLoading(true);
+      const token = authStorage.getToken();
       const response = await fetch(`/api/workspaces/${workspace?.id}/settings`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         }
       });
 
@@ -180,12 +182,12 @@ const WorkspaceAdminSettingsPage: NextPage = () => {
     try {
       setLoading(true);
       setError(null);
-
+      const token = authStorage.getToken();
       const response = await fetch(`/api/workspaces/${workspace?.id}/settings`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ settings })
       });

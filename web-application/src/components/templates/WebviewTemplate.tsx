@@ -25,6 +25,7 @@ import {
 import { WebviewLayout } from '../layout/WebviewLayout';
 import { useWebview } from '../../hooks/useWebview';
 import { useAuth } from '../../hooks/useAuth';
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 interface WebviewTemplateProps {
   webviewName: string;
@@ -81,10 +82,10 @@ const WebviewTemplate: React.FC<WebviewTemplateProps> = ({
 
       try {
         setStatsLoading(true);
-        
+        const token = authStorage.getToken();
         const response = await fetch(`/api/webviews/${webviewConfig.id}/stats`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Authorization': `Bearer ${token}`,
           }
         });
         
