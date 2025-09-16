@@ -36,48 +36,99 @@ export class DashboardController {
   // ========================================================================
 
   async getDashboards(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { workspace_id } = req.user;
-      const { 
-        page = 1, 
-        limit = 20, 
-        category_id, 
-        created_by, 
-        is_public, 
-        is_featured, 
-        search,
-        include_charts = false 
-      } = req.query;
+      const startTime = Date.now();
+      
+      try {
+        const workspace_id = req.headers['x-workspace-id'] as string || req.user?.workspace_id;
+        
+        if (!workspace_id) {
+          logger.error('Missing workspace_id in dashboard request', {
+            service: 'bi-platform-api',
+            user_id: req.user?.id,
+            headers: req.headers
+          });
+          
+          res.status(400).json({
+            success: false,
+            message: 'Workspace ID is required'
+          });
+          return;
+        }
 
-      const options = {
-        page: parseInt(page as string),
-        limit: parseInt(limit as string),
-        filters: {
-          category_id: category_id as string,
-          created_by: created_by as string,
-          is_public: is_public === 'true',
-          is_featured: is_featured === 'true',
-          search: search as string
-        },
-        include_charts: include_charts === 'true'
-      };
+        const { 
+          page = 1, 
+          limit = 20, 
+          category_id, 
+          created_by, 
+          is_public, 
+          is_featured, 
+          search,
+          include_charts = false 
+        } = req.query;
 
-      const result = await this.dashboardService.getDashboards(workspace_id, options);
+        const options = {
+          page: parseInt(page as string, 10),
+          limit: parseInt(limit as string, 10),
+          filters: {
+            category_id: category_id as string,
+            created_by: created_by as string,
+            is_public: is_public === 'true' ? true : is_public === 'false' ? false : undefined,
+            is_featured: is_featured === 'true' ? true : is_featured === 'false' ? false : undefined,
+            search: search as string
+          },
+          include_charts: include_charts === 'true'
+        };
 
-      res.json({
-        success: true,
-        data: result.dashboards,
-        pagination: result.pagination,
-        message: 'Dashboards retrieved successfully'
-      });
-    } catch (error: any) {
-      logger.error('Error getting dashboards:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to retrieve dashboards'
-      });
+        logger.info('Dashboard list request processed', {
+          service: 'bi-platform-api',
+          user_id: req.user?.id,
+          workspace_id,
+          query: req.query,
+          parsed_options: options
+        });
+
+        const result = await this.dashboardService.getDashboards(workspace_id, options);
+
+        const duration = Date.now() - startTime;
+
+        logger.info('Dashboard list request completed', {
+          service: 'bi-platform-api',
+          user_id: req.user?.id,
+          workspace_id,
+          duration_ms: duration,
+          result_count: result.dashboards.length,
+          total: result.total,
+          page: result.page,
+          success: true
+        });
+
+        res.json({
+          success: true,
+          data: result.dashboards,
+          pagination: result.pagination,
+          message: `Retrieved ${result.dashboards.length} dashboard(s) successfully`
+        });
+
+      } catch (error: any) {
+        const duration = Date.now() - startTime;
+        
+        logger.error('Error in getDashboards controller', {
+          service: 'bi-platform-api',
+          user_id: req.user?.id,
+          workspace_id: req.headers['x-workspace-id'],
+          duration_ms: duration,
+          error: error.message,
+          stack: error.stack,
+          query: req.query
+        });
+        
+        res.status(500).json({
+          success: false,
+          message: 'Failed to retrieve dashboards',
+          error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        });
+      }
     }
-  }
 
   async createDashboard(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {

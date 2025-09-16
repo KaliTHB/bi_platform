@@ -1,62 +1,46 @@
 // web-application/src/pages/workspace/admin/categories.tsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { NextPage } from 'next';
 import { useRouter } from 'next/router';
 import {
   Box,
   Typography,
-  Chip,
-  IconButton,
+  Alert,
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions,
-  Button,
   TextField,
+  Grid,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  Alert,
-  Grid,
   FormControlLabel,
   Switch,
-  Avatar,
-  Tooltip
+  Button,
+  DialogActions,
+  Chip
 } from '@mui/material';
 import {
-  Category as CategoryIcon,
-  Add as AddIcon,
+  Visibility as ViewIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Visibility as ViewIcon,
-  ArrowUpward as MoveUpIcon,
-  ArrowDownward as MoveDownIcon,
-  Dashboard as DashboardIcon,
-  Palette as PaletteIcon,
-  FolderOpen as FolderIcon,
-  Folder as ClosedFolderIcon
+  Category as CategoryIcon
 } from '@mui/icons-material';
 
-// Import common components
-import WorkspaceLayout from '../../../components/layout/WorkspaceLayout';
-import CommonTableLayout, { 
-  TableColumn, 
-  TableAction, 
-  FilterOption 
-} from '../../../components/shared/CommonTableLayout';
-import { PermissionGate } from '../../../components/shared/PermissionGate';
-
-// Import hooks and services
+import { WorkspaceLayout } from '../../../components/layout/WorkspaceLayout';
+import { CommonTableLayout, BaseListItem, TableColumn, TableAction, FilterOption } from '../../../components/shared/CommonTableLayout';
 import { useAuth } from '../../../hooks/useAuth';
 import { usePermissions } from '../../../hooks/usePermissions';
+import { 
+  useGetCategoriesQuery,
+  useCreateCategoryMutation,
+  useUpdateCategoryMutation,
+  useDeleteCategoryMutation
+} from '../../../store/api/categoryApi';
 
-// Types
-interface CategoryData {
-  id: string;
-  name: string;
-  display_name: string;
-  description?: string;
+// Create a specific interface for our categories that extends BaseListItem
+interface CategoryListItem extends BaseListItem {
   icon?: string;
   color?: string;
   parent_category_id?: string;
@@ -68,18 +52,12 @@ interface CategoryData {
   sort_order: number;
   is_active: boolean;
   dashboard_count: number;
-  child_count: number;
-  level: number; // For hierarchy display
-  created_at: string;
-  updated_at: string;
-  created_by: string;
-  owner?: {
-    id: string;
-    name: string;
-    email: string;
-  };
+  children?: any[];
+  child_count?: number;
+  level?: number;
 }
 
+// Form data interface
 interface CategoryFormData {
   name: string;
   display_name: string;
@@ -87,15 +65,19 @@ interface CategoryFormData {
   icon: string;
   color: string;
   parent_category_id: string;
+  sort_order: number;
   is_active: boolean;
 }
 
 // Available icons for categories
 const CATEGORY_ICONS = [
-  { value: 'category', label: 'Category', icon: CategoryIcon },
-  { value: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
-  { value: 'folder', label: 'Folder', icon: FolderIcon },
-  { value: 'palette', label: 'Palette', icon: PaletteIcon }
+  { value: 'category', label: 'Category' },
+  { value: 'dashboard', label: 'Dashboard' },
+  { value: 'folder', label: 'Folder' },
+  { value: 'palette', label: 'Palette' },
+  { value: 'analytics', label: 'Analytics' },
+  { value: 'attach_money', label: 'Finance' },
+  { value: 'settings', label: 'Operations' }
 ];
 
 // Color options
@@ -110,14 +92,47 @@ const CategoriesAdminPage: NextPage = () => {
   const { workspace, user } = useAuth();
   const { hasPermission } = usePermissions();
 
-  // State management
-  const [categories, setCategories] = useState<CategoryData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // RTK Query hooks - REAL API CALLS
+  const { data: categoriesResponse = [], error: fetchError, isLoading, refetch } = useGetCategoriesQuery(
+    { workspaceId: workspace?.id }, 
+    { skip: !workspace?.id }
+  );
+  
+  const [createCategory, { isLoading: isCreating }] = useCreateCategoryMutation();
+  const [updateCategory, { isLoading: isUpdating }] = useUpdateCategoryMutation();
+  const [deleteCategory, { isLoading: isDeleting }] = useDeleteCategoryMutation();
+
+  // Transform API response to CategoryListItem format
+  const categories = useMemo((): CategoryListItem[] => {
+    return (categoriesResponse || []).map((cat: any): CategoryListItem => ({
+      // BaseListItem required fields
+      id: cat.id,
+      name: cat.name,
+      display_name: cat.display_name || cat.name,
+      description: cat.description || '',
+      created_at: cat.created_at || new Date().toISOString(),
+      updated_at: cat.updated_at || new Date().toISOString(),
+      workspace_id: workspace?.id || '',
+      owner: cat.owner,
+      
+      // Category-specific fields
+      icon: cat.icon,
+      color: cat.color,
+      parent_category_id: cat.parent_category_id,
+      parent_category: cat.parent_category,
+      sort_order: cat.sort_order || 0,
+      is_active: cat.is_active ?? true,
+      dashboard_count: cat.dashboard_count || 0,
+      children: cat.children || [],
+      child_count: cat.children?.length || 0,
+      level: cat.level || (cat.parent_category_id ? 1 : 0)
+    }));
+  }, [categoriesResponse, workspace?.id]);
+
+  // Local state
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<CategoryData | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<CategoryListItem | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   // Form state
   const [formData, setFormData] = useState<CategoryFormData>({
@@ -127,171 +142,25 @@ const CategoriesAdminPage: NextPage = () => {
     icon: 'category',
     color: '#1976d2',
     parent_category_id: '',
+    sort_order: 0,
     is_active: true
   });
 
-  // Load categories
-  useEffect(() => {
-    if (workspace?.id) {
-      loadCategories();
+  // Loading state
+  const loading = isLoading || isCreating || isUpdating || isDeleting;
+
+  // Handle API errors
+  React.useEffect(() => {
+    if (fetchError) {
+      const errorMessage = 'status' in fetchError 
+        ? `Failed to load categories: ${fetchError.status}`
+        : 'Failed to load categories';
+      setError(errorMessage);
     }
-  }, [workspace?.id]);
+  }, [fetchError]);
 
-  const loadCategories = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Mock data - replace with actual API call
-      const mockCategories: CategoryData[] = [
-        {
-          id: '1',
-          name: 'analytics',
-          display_name: 'Analytics',
-          description: 'Business intelligence and analytics dashboards',
-          icon: 'dashboard',
-          color: '#1976d2',
-          sort_order: 1,
-          is_active: true,
-          dashboard_count: 12,
-          child_count: 2,
-          level: 0,
-          created_at: '2024-01-01T00:00:00Z',
-          updated_at: '2024-01-15T10:30:00Z',
-          created_by: 'user1',
-          owner: {
-            id: 'user1',
-            name: 'John Doe',
-            email: 'john.doe@company.com'
-          }
-        },
-        {
-          id: '2',
-          name: 'sales-analytics',
-          display_name: 'Sales Analytics',
-          description: 'Sales performance and revenue tracking',
-          icon: 'palette',
-          color: '#2e7d32',
-          parent_category_id: '1',
-          parent_category: {
-            id: '1',
-            name: 'analytics',
-            display_name: 'Analytics'
-          },
-          sort_order: 1,
-          is_active: true,
-          dashboard_count: 5,
-          child_count: 0,
-          level: 1,
-          created_at: '2024-01-03T00:00:00Z',
-          updated_at: '2024-01-12T14:20:00Z',
-          created_by: 'user2',
-          owner: {
-            id: 'user2',
-            name: 'Jane Smith',
-            email: 'jane.smith@company.com'
-          }
-        },
-        {
-          id: '3',
-          name: 'marketing-analytics',
-          display_name: 'Marketing Analytics',
-          description: 'Campaign performance and customer insights',
-          icon: 'folder',
-          color: '#ed6c02',
-          parent_category_id: '1',
-          parent_category: {
-            id: '1',
-            name: 'analytics',
-            display_name: 'Analytics'
-          },
-          sort_order: 2,
-          is_active: true,
-          dashboard_count: 7,
-          child_count: 0,
-          level: 1,
-          created_at: '2024-01-05T00:00:00Z',
-          updated_at: '2024-01-14T16:45:00Z',
-          created_by: 'user1',
-          owner: {
-            id: 'user1',
-            name: 'John Doe',
-            email: 'john.doe@company.com'
-          }
-        },
-        {
-          id: '4',
-          name: 'operations',
-          display_name: 'Operations',
-          description: 'Operational metrics and system monitoring',
-          icon: 'category',
-          color: '#d32f2f',
-          sort_order: 2,
-          is_active: true,
-          dashboard_count: 4,
-          child_count: 0,
-          level: 0,
-          created_at: '2024-01-08T00:00:00Z',
-          updated_at: '2024-01-10T11:15:00Z',
-          created_by: 'user3',
-          owner: {
-            id: 'user3',
-            name: 'Mike Chen',
-            email: 'mike.chen@company.com'
-          }
-        },
-        {
-          id: '5',
-          name: 'financial',
-          display_name: 'Financial Reports',
-          description: 'Financial reporting and budget tracking',
-          icon: 'dashboard',
-          color: '#7b1fa2',
-          sort_order: 3,
-          is_active: false,
-          dashboard_count: 0,
-          child_count: 0,
-          level: 0,
-          created_at: '2024-01-10T00:00:00Z',
-          updated_at: '2024-01-11T09:30:00Z',
-          created_by: 'user2',
-          owner: {
-            id: 'user2',
-            name: 'Jane Smith',
-            email: 'jane.smith@company.com'
-          }
-        }
-      ];
-
-      // Sort by hierarchy and sort order
-      const sortedCategories = mockCategories.sort((a, b) => {
-        if (a.level !== b.level) return a.level - b.level;
-        return a.sort_order - b.sort_order;
-      });
-      
-      setCategories(sortedCategories);
-    } catch (error) {
-      console.error('Failed to load categories:', error);
-      setError('Failed to load categories. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Helper functions
-  const getCategoryIcon = (iconName: string) => {
-    const iconConfig = CATEGORY_ICONS.find(ic => ic.value === iconName);
-    const IconComponent = iconConfig?.icon || CategoryIcon;
-    return <IconComponent fontSize="small" />;
-  };
-
-  const getIndentedName = (category: CategoryData) => {
-    const indent = '  '.repeat(category.level);
-    return `${indent}${category.display_name}`;
-  };
-
-  // Event handlers
-  const handleCreateCategory = () => {
+  // Handle create/edit category
+  const handleCreateCategory = useCallback(() => {
     setSelectedCategory(null);
     setFormData({
       name: '',
@@ -300,304 +169,158 @@ const CategoriesAdminPage: NextPage = () => {
       icon: 'category',
       color: '#1976d2',
       parent_category_id: '',
+      sort_order: categories.length,
       is_active: true
     });
     setEditDialogOpen(true);
-  };
+  }, [categories.length]);
 
-  const handleEditCategory = (category: CategoryData) => {
+  const handleEditCategory = useCallback((category: CategoryListItem) => {
     setSelectedCategory(category);
     setFormData({
       name: category.name,
-      display_name: category.display_name,
+      display_name: category.display_name || category.name,
       description: category.description || '',
       icon: category.icon || 'category',
       color: category.color || '#1976d2',
       parent_category_id: category.parent_category_id || '',
-      is_active: category.is_active
+      sort_order: category.sort_order,
+      is_active: category.is_active ?? true
     });
     setEditDialogOpen(true);
-  };
+  }, []);
 
-  const handleDeleteCategory = (category: CategoryData) => {
-    setSelectedCategory(category);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleSaveCategory = async () => {
+  // Handle form submission
+  const handleSubmit = useCallback(async () => {
     try {
-      setSubmitting(true);
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      setError(null);
       
       if (selectedCategory) {
         // Update existing category
-        setCategories(prev => prev.map(cat => 
-          cat.id === selectedCategory.id 
-            ? { 
-                ...cat, 
-                ...formData,
-                updated_at: new Date().toISOString()
-              }
-            : cat
-        ));
+        await updateCategory({
+          id: selectedCategory.id,
+          updates: formData,
+          workspaceId: workspace?.id
+        }).unwrap();
       } else {
         // Create new category
-        const newCategory: CategoryData = {
-          id: `cat_${Date.now()}`,
+        await createCategory({
           ...formData,
-          dashboard_count: 0,
-          child_count: 0,
-          level: formData.parent_category_id ? 1 : 0,
-          sort_order: categories.length + 1,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          created_by: user?.id || '',
-          owner: {
-            id: user?.id || '',
-            name: user?.display_name || user?.username || 'Unknown',
-            email: user?.email || ''
-          }
-        };
-        setCategories(prev => [...prev, newCategory]);
+          workspaceId: workspace?.id
+        }).unwrap();
       }
       
       setEditDialogOpen(false);
-    } catch (error) {
-      setError('Failed to save category');
-    } finally {
-      setSubmitting(false);
+      await refetch(); // Refresh data
+    } catch (error: any) {
+      console.error('Category operation failed:', error);
+      setError(error?.data?.message || 'Operation failed. Please try again.');
     }
-  };
+  }, [selectedCategory, formData, createCategory, updateCategory, workspace?.id, refetch]);
 
-  const handleDeleteConfirm = async () => {
-    if (!selectedCategory) return;
-
-    try {
-      setSubmitting(true);
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setCategories(prev => prev.filter(cat => cat.id !== selectedCategory.id));
-      setDeleteDialogOpen(false);
-      setSelectedCategory(null);
-    } catch (error) {
-      setError('Failed to delete category');
-    } finally {
-      setSubmitting(false);
+  // Handle delete
+  const handleDeleteCategory = useCallback(async (category: CategoryListItem) => {
+    if (category.dashboard_count > 0) {
+      setError('Cannot delete category with dashboards. Move dashboards first.');
+      return;
     }
-  };
 
-  const handleMoveCategory = async (category: CategoryData, direction: 'up' | 'down') => {
-    try {
-      // Find categories at the same level
-      const sameLevelCategories = categories.filter(cat => 
-        cat.level === category.level && 
-        cat.parent_category_id === category.parent_category_id
-      );
-      
-      const currentIndex = sameLevelCategories.findIndex(cat => cat.id === category.id);
-      const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-      
-      if (newIndex < 0 || newIndex >= sameLevelCategories.length) return;
-      
-      // Swap sort orders
-      const targetCategory = sameLevelCategories[newIndex];
-      const newCategories = categories.map(cat => {
-        if (cat.id === category.id) return { ...cat, sort_order: targetCategory.sort_order };
-        if (cat.id === targetCategory.id) return { ...cat, sort_order: category.sort_order };
-        return cat;
-      });
-      
-      setCategories(newCategories.sort((a, b) => {
-        if (a.level !== b.level) return a.level - b.level;
-        return a.sort_order - b.sort_order;
-      }));
-    } catch (error) {
-      setError('Failed to move category');
+    if (window.confirm(`Are you sure you want to delete "${category.display_name}"?`)) {
+      try {
+        setError(null);
+        await deleteCategory({ 
+          id: category.id, 
+          workspaceId: workspace?.id 
+        }).unwrap();
+        await refetch(); // Refresh data
+      } catch (error: any) {
+        console.error('Delete failed:', error);
+        setError(error?.data?.message || 'Delete failed. Please try again.');
+      }
     }
-  };
+  }, [deleteCategory, workspace?.id, refetch]);
 
-  const handleRefresh = () => {
-    loadCategories();
-  };
+  const handleRefresh = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
 
-  // Get parent category options (exclude current category and its children)
-  const getParentOptions = () => {
-    return categories.filter(cat => 
-      cat.level === 0 && // Only top-level categories can be parents
-      cat.id !== selectedCategory?.id && // Can't be parent of itself
-      cat.is_active
-    );
-  };
-
-  // Table columns configuration
-  const columns: TableColumn<CategoryData>[] = useMemo(() => [
+  // Table columns configuration - explicitly typed
+  const columns = useMemo((): TableColumn<CategoryListItem>[] => [
     {
-      key: 'name',
+      key: 'display_name',
       label: 'Category',
       sortable: true,
-      render: (category) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, pl: category.level * 2 }}>
-          <Box sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center', 
-            width: 32, 
-            height: 32, 
-            borderRadius: 1, 
-            bgcolor: category.color || '#1976d2',
-            color: 'white'
-          }}>
-            {getCategoryIcon(category.icon || 'category')}
+      render: (category: CategoryListItem) => (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box
+            sx={{
+              width: 32,
+              height: 32,
+              borderRadius: 1,
+              backgroundColor: category.color || '#1976d2',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              fontSize: '0.875rem'
+            }}
+          >
+            <CategoryIcon fontSize="small" />
           </Box>
           <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="body2" fontWeight={500}>
-                {category.display_name}
-              </Typography>
-              {!category.is_active && (
-                <Chip label="Inactive" size="small" color="default" variant="outlined" />
-              )}
-              {category.child_count > 0 && (
-                <Chip label={`${category.child_count} children`} size="small" color="primary" variant="outlined" />
-              )}
-            </Box>
+            <Typography variant="body2" fontWeight={500}>
+              {category.display_name || category.name}
+            </Typography>
             <Typography variant="caption" color="text.secondary">
               {category.name}
             </Typography>
-            {category.description && (
-              <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>
-                {category.description}
-              </Typography>
-            )}
           </Box>
         </Box>
       )
     },
     {
-      key: 'hierarchy',
-      label: 'Hierarchy',
-      render: (category) => (
-        <Box>
-          {category.parent_category ? (
-            <>
-              <Typography variant="body2" color="text.secondary">
-                Parent: {category.parent_category.display_name}
-              </Typography>
-              <Chip 
-                label={`Level ${category.level + 1}`} 
-                size="small" 
-                color="secondary" 
-                variant="outlined"
-              />
-            </>
-          ) : (
-            <Chip 
-              label="Root Category" 
-              size="small" 
-              color="primary" 
-              variant="filled"
-            />
-          )}
-        </Box>
+      key: 'description',
+      label: 'Description',
+      render: (category: CategoryListItem) => (
+        <Typography variant="body2" color="text.secondary">
+          {category.description || 'No description'}
+        </Typography>
       )
     },
     {
       key: 'dashboard_count',
-      label: 'Usage',
+      label: 'Dashboards',
       sortable: true,
-      render: (category) => (
-        <Box sx={{ textAlign: 'center' }}>
-          <Typography variant="h6" color="primary.main">
-            {category.dashboard_count}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            dashboards
-          </Typography>
-          {category.child_count > 0 && (
-            <Typography variant="caption" display="block" color="text.secondary">
-              {category.child_count} subcategories
-            </Typography>
-          )}
-        </Box>
+      align: 'center',
+      render: (category: CategoryListItem) => (
+        <Chip
+          label={category.dashboard_count}
+          size="small"
+          variant="outlined"
+          color={category.dashboard_count > 0 ? 'primary' : 'default'}
+        />
       )
     },
     {
       key: 'sort_order',
-      label: 'Order',
+      label: 'Sort Order',
       sortable: true,
-      render: (category) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography variant="body2">
-            {category.sort_order}
-          </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-            <IconButton
-              size="small"
-              onClick={() => handleMoveCategory(category, 'up')}
-              disabled={categories.filter(c => 
-                c.level === category.level && 
-                c.parent_category_id === category.parent_category_id
-              )[0]?.id === category.id}
-            >
-              <MoveUpIcon fontSize="small" />
-            </IconButton>
-            <IconButton
-              size="small"
-              onClick={() => handleMoveCategory(category, 'down')}
-              disabled={categories.filter(c => 
-                c.level === category.level && 
-                c.parent_category_id === category.parent_category_id
-              ).slice(-1)[0]?.id === category.id}
-            >
-              <MoveDownIcon fontSize="small" />
-            </IconButton>
-          </Box>
-        </Box>
-      )
-    },
-    {
-      key: 'owner',
-      label: 'Owner',
-      sortable: true,
-      render: (category) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Avatar src={category.owner?.email} sx={{ width: 24, height: 24 }}>
-            {category.owner?.name?.charAt(0).toUpperCase()}
-          </Avatar>
-          <Typography variant="body2">
-            {category.owner?.name || 'Unknown'}
-          </Typography>
-        </Box>
-      )
-    },
-    {
-      key: 'updated_at',
-      label: 'Last Updated',
-      sortable: true,
-      render: (category) => (
-        <Box>
-          <Typography variant="body2">
-            {new Date(category.updated_at).toLocaleDateString()}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {new Date(category.updated_at).toLocaleTimeString()}
-          </Typography>
-        </Box>
+      align: 'center',
+      render: (category: CategoryListItem) => (
+        <Typography variant="body2">
+          {category.sort_order}
+        </Typography>
       )
     }
-  ], [categories]);
+  ], []);
 
-  // Table actions configuration
-  const actions: TableAction<CategoryData>[] = useMemo(() => [
+  // Table actions configuration - explicitly typed
+  const actions = useMemo((): TableAction<CategoryListItem>[] => [
     {
       label: 'View Category',
       icon: <ViewIcon fontSize="small" />,
       onClick: (category) => {
-        router.replace(`/workspace/${workspace?.slug}/dashboards?category=${category.id}`);
+        router.push(`/workspace/${workspace?.slug}/dashboards?category=${category.id}`);
       },
       color: 'primary'
     },
@@ -605,37 +328,28 @@ const CategoriesAdminPage: NextPage = () => {
       label: 'Edit Category',
       icon: <EditIcon fontSize="small" />,
       onClick: (category) => handleEditCategory(category),
-      show: (category) => hasPermission('category.update') && 
-        (category.owner?.id === user?.id || hasPermission('category.admin')),
+      show: () => hasPermission('category.update'),
       color: 'default'
     },
     {
       label: 'Delete Category',
       icon: <DeleteIcon fontSize="small" />,
       onClick: (category) => handleDeleteCategory(category),
-      show: (category) => hasPermission('category.delete') && 
-        (category.owner?.id === user?.id || hasPermission('category.admin')),
+      show: () => hasPermission('category.delete'),
       color: 'error',
-      disabled: (category) => category.dashboard_count > 0 || category.child_count > 0
+      disabled: (category) => category.dashboard_count > 0
     }
-  ], [hasPermission, router, workspace?.slug, user?.id]);
+  ], [hasPermission, router, workspace?.slug, handleEditCategory, handleDeleteCategory]);
 
   // Filter options
   const filters: FilterOption[] = [
     {
-      key: 'is_active',
-      label: 'Status',
+      key: 'dashboard_count',
+      label: 'Dashboard Count',
       options: [
-        { value: true, label: 'Active' },
-        { value: false, label: 'Inactive' }
-      ]
-    },
-    {
-      key: 'level',
-      label: 'Hierarchy Level',
-      options: [
-        { value: 0, label: 'Root Categories' },
-        { value: 1, label: 'Subcategories' }
+        { value: '0', label: 'Empty Categories' },
+        { value: '1', label: '1+ Dashboards' },
+        { value: '5', label: '5+ Dashboards' }
       ]
     }
   ];
@@ -660,8 +374,8 @@ const CategoriesAdminPage: NextPage = () => {
           </Alert>
         )}
 
-        {/* Categories Table */}
-        <CommonTableLayout
+        {/* Categories Table - Using explicit generic type */}
+        <CommonTableLayout<CategoryListItem>
           data={categories}
           loading={loading}
           error={error}
@@ -672,7 +386,7 @@ const CategoriesAdminPage: NextPage = () => {
           searchable={true}
           searchPlaceholder="Search categories by name or description..."
           filters={filters}
-          showCreateButton={true}
+          showCreateButton={hasPermission('category.create')}
           createButtonLabel="Add Category"
           onCreateClick={handleCreateCategory}
           onRefresh={handleRefresh}
@@ -697,7 +411,10 @@ const CategoriesAdminPage: NextPage = () => {
                   fullWidth
                   label="Category Name"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
+                  onChange={(e) => setFormData({ 
+                    ...formData, 
+                    name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') 
+                  })}
                   helperText="URL-safe name, lowercase letters and hyphens only"
                   required
                 />
@@ -723,16 +440,15 @@ const CategoriesAdminPage: NextPage = () => {
               </Grid>
               <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
-                  <InputLabel>Parent Category</InputLabel>
+                  <InputLabel>Icon</InputLabel>
                   <Select
-                    value={formData.parent_category_id}
-                    onChange={(e) => setFormData({ ...formData, parent_category_id: e.target.value })}
-                    label="Parent Category"
+                    value={formData.icon}
+                    onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
+                    label="Icon"
                   >
-                    <MenuItem value="">None (Root Category)</MenuItem>
-                    {getParentOptions().map((category) => (
-                      <MenuItem key={category.id} value={category.id}>
-                        {category.display_name}
+                    {CATEGORY_ICONS.map((icon) => (
+                      <MenuItem key={icon.value} value={icon.value}>
+                        {icon.label}
                       </MenuItem>
                     ))}
                   </Select>
@@ -740,46 +456,34 @@ const CategoriesAdminPage: NextPage = () => {
               </Grid>
               <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
-                  <InputLabel>Icon</InputLabel>
+                  <InputLabel>Color</InputLabel>
                   <Select
-                    value={formData.icon}
-                    onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
-                    label="Icon"
+                    value={formData.color}
+                    onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                    label="Color"
                   >
-                    {CATEGORY_ICONS.map((iconOption) => (
-                      <MenuItem key={iconOption.value} value={iconOption.value}>
+                    {CATEGORY_COLORS.map((color) => (
+                      <MenuItem key={color} value={color}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <iconOption.icon fontSize="small" />
-                          {iconOption.label}
+                          <Box sx={{ width: 20, height: 20, backgroundColor: color, borderRadius: 1 }} />
+                          {color}
                         </Box>
                       </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12}>
-                <Typography variant="subtitle2" gutterBottom>
-                  Category Color
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                  {CATEGORY_COLORS.map((color) => (
-                    <Box
-                      key={color}
-                      onClick={() => setFormData({ ...formData, color })}
-                      sx={{
-                        width: 32,
-                        height: 32,
-                        backgroundColor: color,
-                        borderRadius: 1,
-                        cursor: 'pointer',
-                        border: formData.color === color ? '2px solid #000' : '2px solid transparent',
-                        '&:hover': { transform: 'scale(1.1)' }
-                      }}
-                    />
-                  ))}
-                </Box>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Sort Order"
+                  value={formData.sort_order}
+                  onChange={(e) => setFormData({ ...formData, sort_order: parseInt(e.target.value) || 0 })}
+                  helperText="Lower numbers appear first"
+                />
               </Grid>
-              <Grid item xs={12}>
+              <Grid item xs={12} md={6}>
                 <FormControlLabel
                   control={
                     <Switch
@@ -787,7 +491,7 @@ const CategoriesAdminPage: NextPage = () => {
                       onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
                     />
                   }
-                  label="Active"
+                  label="Active Category"
                 />
               </Grid>
             </Grid>
@@ -797,50 +501,11 @@ const CategoriesAdminPage: NextPage = () => {
               Cancel
             </Button>
             <Button 
-              onClick={handleSaveCategory}
+              onClick={handleSubmit}
               variant="contained"
-              disabled={submitting}
+              disabled={loading || !formData.name || !formData.display_name}
             >
-              {submitting ? 'Saving...' : (selectedCategory ? 'Update Category' : 'Create Category')}
-            </Button>
-          </DialogActions>
-        </Dialog>
-
-        {/* Delete Category Dialog */}
-        <Dialog 
-          open={deleteDialogOpen} 
-          onClose={() => setDeleteDialogOpen(false)}
-          maxWidth="sm"
-          fullWidth
-        >
-          <DialogTitle>Delete Category</DialogTitle>
-          <DialogContent>
-            <Typography paragraph>
-              Are you sure you want to delete "{selectedCategory?.display_name}"?
-            </Typography>
-            {selectedCategory && (selectedCategory.dashboard_count > 0 || selectedCategory.child_count > 0) && (
-              <Alert severity="warning" sx={{ mb: 2 }}>
-                This category contains{' '}
-                <strong>{selectedCategory.dashboard_count}</strong> dashboards and{' '}
-                <strong>{selectedCategory.child_count}</strong> subcategories.
-                Please move or delete them first.
-              </Alert>
-            )}
-            <Typography variant="body2" color="text.secondary">
-              This action cannot be undone. Dashboards in this category will become uncategorized.
-            </Typography>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setDeleteDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleDeleteConfirm}
-              color="error"
-              variant="contained"
-              disabled={submitting || (selectedCategory?.dashboard_count || 0) > 0 || (selectedCategory?.child_count || 0) > 0}
-            >
-              {submitting ? 'Deleting...' : 'Delete Category'}
+              {selectedCategory ? 'Update' : 'Create'}
             </Button>
           </DialogActions>
         </Dialog>

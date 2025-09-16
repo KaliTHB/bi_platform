@@ -1,80 +1,8 @@
 // web-application/src/store/api/chartApi.ts - COMPLETE UPDATED VERSION
 import { baseApi } from './baseApi';
+import {ChartRefreshOptions, ChartExportOptions, ChartData, Chart } from '@/types/chart.types';
 
-// Types
-export interface Chart {
-  id: string;
-  workspace_id: string;
-  dashboard_id?: string;
-  name: string;
-  display_name: string;
-  description?: string;
-  chart_type: string;
-  chart_library: string;
-  config_json: Record<string, any>;
-  is_active: boolean;
-  version: number;
-  dataset_ids: string[];
-  position_json?: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-  created_at: string;
-  updated_at: string;
-  created_by: string;
-  owner?: {
-    id: string;
-    name: string;
-    email: string;
-  };
-  usage_count?: number;
-  last_accessed?: string;
-}
 
-export interface ChartData {
-  data: any[];
-  columns: Array<{ name: string; type: string; format?: string }>;
-  execution_time: number;
-  metadata: {
-    row_count: number;
-    execution_time_ms: number;
-    cache_hit: boolean;
-    query_hash: string;
-    generated_sql?: string;
-  };
-  query?: string;
-  parameters?: Record<string, any>;
-  cacheInfo?: {
-    hit: boolean;
-    key?: string;
-    ttl?: number;
-    createdAt?: string;
-  };
-}
-
-export interface ChartExportOptions {
-  format: 'png' | 'jpg' | 'svg' | 'pdf' | 'csv' | 'xlsx';
-  width?: number;
-  height?: number;
-  include_data?: boolean;
-  quality?: number;
-  backgroundColor?: string;
-  includeMetadata?: boolean;
-  filename?: string;
-  dimensions?: {
-    width: number;
-    height: number;
-  };
-}
-
-export interface ChartRefreshOptions {
-  force?: boolean;
-  showLoading?: boolean;
-  updateCache?: boolean;
-  timeout?: number;
-}
 
 // Chart API slice extending baseApi (shares the same middleware and reducer)
 export const chartApi = baseApi.injectEndpoints({

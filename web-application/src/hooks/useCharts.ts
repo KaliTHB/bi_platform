@@ -1,8 +1,18 @@
 // web-application/src/hooks/useCharts.ts
-import { useState, useEffect, useCallback } from 'react';
-import { Chart } from '@/types/chart.types';
-import { chartAPI } from '@/api/index';
-import { useWorkspace } from '@/hooks/useWorkspace';
+import { useCallback } from 'react';
+import { useSelector } from 'react-redux';
+import { RootState } from '@/store';
+import { Chart, ChartConfiguration } from '@/types/chart.types';
+
+// ✅ Use RTK Query hooks from the existing chartApi
+import {
+  useGetChartsQuery,
+  useLazyGetChartsQuery,
+  useCreateChartMutation,
+  useUpdateChartMutation,
+  useDeleteChartMutation,
+  useDuplicateChartMutation,
+} from '@/store/api/chartApi';
 
 interface UseChartsReturn {
   charts: Chart[];
@@ -16,164 +26,113 @@ interface UseChartsReturn {
 }
 
 export const useCharts = (dashboardId?: string): UseChartsReturn => {
-  const [charts, setCharts] = useState<Chart[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   
-  const { currentWorkspace } = useWorkspace();
+  // ✅ Get current workspace from Redux store
+  const currentWorkspace = useSelector((state: RootState) => state.workspace.currentWorkspace);
 
-  // Load charts function
-  const loadCharts = useCallback(async () => {
-    if (!currentWorkspace) return;
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const params: any = {
-        workspaceId: currentWorkspace.id
-      };
-
-      // If dashboardId is provided, filter by dashboard
-      if (dashboardId) {
-        params.dashboardId = dashboardId;
-      }
-
-      const response = await chartAPI.getCharts(params);
-      setCharts(response.charts || []);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load charts';
-      setError(errorMessage);
-      console.error('Failed to load charts:', err);
-    } finally {
-      setLoading(false);
+  // ✅ Use RTK Query to fetch charts
+  const {
+    data: chartsResponse,
+    isLoading,
+    error: queryError,
+    refetch,
+  } = useGetChartsQuery(
+    {
+      workspaceId: currentWorkspace?.id || '',
+      params: dashboardId ? { dashboard_id: dashboardId } : {},
+    },
+    {
+      skip: !currentWorkspace?.id, // Skip if no workspace
     }
-  }, [currentWorkspace, dashboardId]);
+  );
 
-  // Create chart function
+  // ✅ RTK Query mutation hooks
+  const [createChartMutation] = useCreateChartMutation();
+  const [updateChartMutation] = useUpdateChartMutation();
+  const [deleteChartMutation] = useDeleteChartMutation();
+  const [duplicateChartMutation] = useDuplicateChartMutation();
+
+  // Extract data from RTK Query response
+  const charts = chartsResponse?.charts || [];
+  const loading = isLoading;
+  const error = queryError ? (queryError as any).message || 'Failed to load charts' : null;
+
+  // ✅ Create chart function using RTK Query mutation
   const createChart = useCallback(async (chartData: Partial<Chart>): Promise<Chart | null> => {
     if (!currentWorkspace) return null;
 
     try {
-      setError(null);
-      
       const newChartData = {
         ...chartData,
         workspace_id: currentWorkspace.id,
         dashboard_id: dashboardId || chartData.dashboard_id,
-        is_active: true
+        is_active: true,
       };
 
-      const response = await chartAPI.createChart(newChartData);
+      const result = await createChartMutation(newChartData).unwrap();
       
-      if (response.chart) {
-        setCharts(prevCharts => [...prevCharts, response.chart]);
-        return response.chart;
+      if (result.success && result.chart) {
+        return result.chart;
       }
       
       return null;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to create chart';
-      setError(errorMessage);
+    } catch (err: any) {
       console.error('Failed to create chart:', err);
-      return null;
+      throw new Error(err.message || 'Failed to create chart');
     }
-  }, [currentWorkspace, dashboardId]);
+  }, [currentWorkspace, dashboardId, createChartMutation]);
 
-  // Update chart function
+  // ✅ Update chart function using RTK Query mutation
   const updateChart = useCallback(async (chartId: string, updates: Partial<Chart>): Promise<Chart | null> => {
     try {
-      setError(null);
+      const result = await updateChartMutation({ id: chartId, updates }).unwrap();
       
-      const response = await chartAPI.updateChart(chartId, updates);
-      
-      if (response.chart) {
-        setCharts(prevCharts => 
-          prevCharts.map(chart => 
-            chart.id === chartId ? response.chart : chart
-          )
-        );
-        return response.chart;
+      if (result.success && result.chart) {
+        return result.chart;
       }
       
       return null;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to update chart';
-      setError(errorMessage);
+    } catch (err: any) {
       console.error('Failed to update chart:', err);
-      return null;
+      throw new Error(err.message || 'Failed to update chart');
     }
-  }, []);
+  }, [updateChartMutation]);
 
-  // Delete chart function
+  // ✅ Delete chart function using RTK Query mutation
   const deleteChart = useCallback(async (chartId: string): Promise<boolean> => {
     try {
-      setError(null);
-      
-      await chartAPI.deleteChart(chartId);
-      
-      setCharts(prevCharts => 
-        prevCharts.filter(chart => chart.id !== chartId)
-      );
-      
-      return true;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to delete chart';
-      setError(errorMessage);
+      const result = await deleteChartMutation(chartId).unwrap();
+      return result.success;
+    } catch (err: any) {
       console.error('Failed to delete chart:', err);
-      return false;
+      throw new Error(err.message || 'Failed to delete chart');
     }
-  }, []);
+  }, [deleteChartMutation]);
 
-  // Duplicate chart function
+  // ✅ Duplicate chart function using RTK Query mutation
   const duplicateChart = useCallback(async (chartId: string): Promise<Chart | null> => {
-    if (!currentWorkspace) return null;
-
     try {
-      setError(null);
+      const result = await duplicateChartMutation(chartId).unwrap();
       
-      // Find the chart to duplicate
-      const originalChart = charts.find(chart => chart.id === chartId);
-      if (!originalChart) {
-        throw new Error('Chart not found');
-      }
-
-      // Create a new chart with duplicated data
-      const duplicatedChartData = {
-        ...originalChart,
-        name: `${originalChart.name} (Copy)`,
-        display_name: `${originalChart.display_name} (Copy)`,
-        id: undefined, // Remove ID so a new one gets generated
-        created_at: undefined,
-        updated_at: undefined,
-        created_by: undefined
-      };
-
-      const response = await chartAPI.createChart(duplicatedChartData);
-      
-      if (response.chart) {
-        setCharts(prevCharts => [...prevCharts, response.chart]);
-        return response.chart;
+      if (result.success && result.chart) {
+        return result.chart;
       }
       
       return null;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to duplicate chart';
-      setError(errorMessage);
+    } catch (err: any) {
       console.error('Failed to duplicate chart:', err);
-      return null;
+      throw new Error(err.message || 'Failed to duplicate chart');
     }
-  }, [currentWorkspace, charts]);
+  }, [duplicateChartMutation]);
 
-  // Refresh charts function
-  const refreshCharts = useCallback(async () => {
-    await loadCharts();
-  }, [loadCharts]);
-
-  // Load charts on mount and when dependencies change
-  useEffect(() => {
-    loadCharts();
-  }, [loadCharts]);
+  // ✅ Refresh charts function using RTK Query refetch
+  const refreshCharts = useCallback(async (): Promise<void> => {
+    try {
+      await refetch().unwrap();
+    } catch (err: any) {
+      console.error('Failed to refresh charts:', err);
+    }
+  }, [refetch]);
 
   return {
     charts,
@@ -183,7 +142,7 @@ export const useCharts = (dashboardId?: string): UseChartsReturn => {
     updateChart,
     deleteChart,
     duplicateChart,
-    refreshCharts
+    refreshCharts,
   };
 };
 

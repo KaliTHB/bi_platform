@@ -3,7 +3,8 @@
 
 import React from 'react';
 
-import {ColumnDefinition, Dataset } from '@/types/dataset.types';
+import {ColumnDefinition, Dataset,ColumnInfo } from '@/types/dataset.types';
+
 // =============================================================================
 // Core Chart Interfaces
 // =============================================================================
@@ -967,9 +968,10 @@ export interface CacheConfig {
  * Chart data structure returned from API
  * Enhanced version with metadata and execution info
  */
+
 export interface ChartData {
   data: any[];
-  columns: ColumnInfo[];
+  columns: ColumnInfo[] ;
   execution_time: number;
   metadata: ChartMetadata;
   query?: string;
@@ -1011,28 +1013,22 @@ export interface ChartRenderContext {
 /**
  * Chart export options
  */
+
 export interface ChartExportOptions {
   format: ExportFormat;
+  width?: number;
+  height?: number;
+  include_data?: boolean;
+  quality?: number;
+  backgroundColor?: string;
+  includeMetadata?: boolean;
   filename?: string;
   dimensions?: {
     width: number;
     height: number;
   };
-  quality?: number;
-  backgroundColor?: string;
-  includeData?: boolean;
-  includeMetadata?: boolean;
 }
 
-/**
- * Chart refresh options
- */
-export interface ChartRefreshOptions {
-  force?: boolean;
-  showLoading?: boolean;
-  updateCache?: boolean;
-  timeout?: number;
-}
 
 /**
  * Chart menu actions
@@ -1409,12 +1405,23 @@ export interface ChartFilter {
 export interface Chart {
   id: string;
   workspace_id: string;
+  dashboard_id?: string;
   name: string;
   display_name: string;
   description?: string;
-  type: 'bar' | 'line' | 'pie' | 'scatter' | 'area' | 'table' | 'metric' | 'funnel' | 'heatmap';
-  dataset_id: string;
-  query_config: QueryConfig;
+  chart_type: string;
+  chart_library: string;
+  config_json: Record<string, any>;
+  is_active: boolean;
+  version: number;
+  dataset_ids: string[];
+  position_json?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+   query_config: QueryConfig;
   visualization_config: VisualizationConfig;
   filters: ChartFilter[];
   tags: string[];
@@ -1423,6 +1430,13 @@ export interface Chart {
   updated_by?: string;
   created_at: Date;
   updated_at: Date;
+  owner?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  usage_count?: number;
+  last_accessed?: string;
 }
 
 /**
@@ -1566,6 +1580,9 @@ export interface ChartRefreshOptions {
   clearCache?: boolean;
   silent?: boolean;
   preserveSelection?: boolean;
+  showLoading?: boolean;
+  updateCache?: boolean;
+  timeout?: number;
 }
 
 /**

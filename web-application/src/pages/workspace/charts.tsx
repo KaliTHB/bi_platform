@@ -1,5 +1,5 @@
 // web-application/src/pages/workspace/charts.tsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { NextPage } from 'next';
 import { useRouter } from 'next/router';
 import {
@@ -22,7 +22,9 @@ import {
   Alert,
   Grid,
   Card,
-  CardContent
+  CardContent,
+  FormControlLabel,
+  Switch
 } from '@mui/material';
 import {
   BarChart as ChartIcon,
@@ -42,7 +44,7 @@ import {
   Update as UpdateIcon
 } from '@mui/icons-material';
 
-// Import common components
+// Use existing components
 import WorkspaceLayout from '../../components/layout/WorkspaceLayout';
 import CommonTableLayout, { 
   TableColumn, 
@@ -50,14 +52,20 @@ import CommonTableLayout, {
   FilterOption 
 } from '../../components/shared/CommonTableLayout';
 import { PermissionGate } from '../../components/shared/PermissionGate';
+import { ConfirmDialog } from '../../components/shared/ConfirmDialog';
 
-// Import hooks and services
+// Use existing hooks
 import { useAuth } from '../../hooks/useAuth';
 import { usePermissions } from '../../hooks/usePermissions';
+import useCharts from '../../hooks/useCharts'; // ✅ Use existing hook for live data
 
-// Types
+// ============================================================================
+// INTERFACES (Updated to match API response)
+// ============================================================================
+
 interface ChartData {
   id: string;
+  workspace_id: string;
   name: string;
   display_name: string;
   description?: string;
@@ -100,18 +108,34 @@ interface ChartFormData {
   is_active: boolean;
 }
 
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
 const ChartsPage: NextPage = () => {
   const router = useRouter();
   const { user, workspace } = useAuth();
   const { hasPermission } = usePermissions();
 
-  // State management
-  const [charts, setCharts] = useState<ChartData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // ✅ USE EXISTING HOOK FOR LIVE DATA (instead of local state)
+  const {
+    charts,
+    loading,
+    error,
+    createChart,
+    updateChart,
+    deleteChart,
+    duplicateChart,
+    refreshCharts
+  } = useCharts();
+
+  // Local UI state (keep existing dialogs and forms)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedChart, setSelectedChart] = useState<ChartData | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Form state for editing (keep existing)
   const [formData, setFormData] = useState<ChartFormData>({
     name: '',
     display_name: '',
@@ -121,130 +145,10 @@ const ChartsPage: NextPage = () => {
     chart_category: '',
     is_active: true
   });
-  const [submitting, setSubmitting] = useState(false);
 
-  // Load charts data
-  useEffect(() => {
-    if (workspace?.id) {
-      loadCharts();
-    }
-  }, [workspace?.id]);
-
-  const loadCharts = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Mock data for now - replace with actual API call
-      const mockCharts: ChartData[] = [
-        {
-          id: 'chart-1',
-          name: 'sales_revenue_chart',
-          display_name: 'Sales Revenue Trend',
-          description: 'Monthly sales revenue trending analysis',
-          chart_type: 'line',
-          chart_library: 'echarts',
-          chart_category: 'analytics',
-          config_json: {
-            title: 'Sales Revenue Trend',
-            xAxis: 'month',
-            yAxis: 'revenue',
-            aggregation: 'sum'
-          },
-          is_active: true,
-          version: 1,
-          dashboard_id: 'dashboard-1',
-          dashboard_name: 'Executive Dashboard',
-          dataset_ids: ['dataset-1', 'dataset-2'],
-          dataset_names: ['Sales Data', 'Revenue Data'],
-          position_json: { x: 0, y: 0, width: 6, height: 4 },
-          created_at: '2024-01-15T10:30:00Z',
-          updated_at: '2024-01-20T14:22:00Z',
-          created_by: 'user-1',
-          owner: {
-            id: 'user-1',
-            name: 'John Smith',
-            email: 'john.smith@company.com'
-          },
-          usage_count: 45,
-          last_accessed: '2024-01-20T09:15:00Z',
-          dashboard_count: 3
-        },
-        {
-          id: 'chart-2',
-          name: 'customer_segments_pie',
-          display_name: 'Customer Segments Distribution',
-          description: 'Customer distribution across different segments',
-          chart_type: 'pie',
-          chart_library: 'd3',
-          chart_category: 'demographics',
-          config_json: {
-            title: 'Customer Segments',
-            dataField: 'segment',
-            valueField: 'customer_count'
-          },
-          is_active: true,
-          version: 2,
-          dashboard_id: 'dashboard-2',
-          dashboard_name: 'Customer Analytics',
-          dataset_ids: ['dataset-3'],
-          dataset_names: ['Customer Data'],
-          position_json: { x: 6, y: 0, width: 6, height: 4 },
-          created_at: '2024-01-10T08:45:00Z',
-          updated_at: '2024-01-18T16:30:00Z',
-          created_by: 'user-2',
-          owner: {
-            id: 'user-2',
-            name: 'Sarah Johnson',
-            email: 'sarah.j@company.com'
-          },
-          usage_count: 28,
-          last_accessed: '2024-01-19T13:42:00Z',
-          dashboard_count: 2
-        },
-        {
-          id: 'chart-3',
-          name: 'inventory_levels_bar',
-          display_name: 'Inventory Levels by Category',
-          description: 'Current inventory levels across product categories',
-          chart_type: 'bar',
-          chart_library: 'plotly',
-          chart_category: 'operations',
-          config_json: {
-            title: 'Inventory Levels',
-            xAxis: 'category',
-            yAxis: 'inventory_count',
-            orientation: 'vertical'
-          },
-          is_active: false,
-          version: 1,
-          dashboard_id: 'dashboard-3',
-          dashboard_name: 'Operations Dashboard',
-          dataset_ids: ['dataset-4'],
-          dataset_names: ['Inventory Data'],
-          position_json: { x: 0, y: 4, width: 12, height: 3 },
-          created_at: '2024-01-05T12:15:00Z',
-          updated_at: '2024-01-12T10:20:00Z',
-          created_by: 'user-3',
-          owner: {
-            id: 'user-3',
-            name: 'Mike Chen',
-            email: 'mike.chen@company.com'
-          },
-          usage_count: 12,
-          last_accessed: '2024-01-15T11:30:00Z',
-          dashboard_count: 1
-        }
-      ];
-      
-      setCharts(mockCharts);
-    } catch (error) {
-      console.error('Failed to load charts:', error);
-      setError('Failed to load charts. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // ============================================================================
+  // HELPER FUNCTIONS (keep existing)
+  // ============================================================================
 
   // Chart type icon mapping
   const getChartTypeIcon = (chartType: string) => {
@@ -270,6 +174,83 @@ const ChartsPage: NextPage = () => {
     return colorMap[library] || 'default' as any;
   };
 
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const formatNumber = (num?: number) => {
+    return num ? num.toLocaleString() : '0';
+  };
+
+  // ============================================================================
+  // EVENT HANDLERS (updated to use live data)
+  // ============================================================================
+
+  const handleCreateChart = useCallback(() => {
+    router.push(`/workspace/${workspace?.slug}/chart-builder`);
+  }, [router, workspace]);
+
+  const handleDeleteChart = useCallback(async () => {
+    if (!selectedChart) return;
+    
+    setSubmitting(true);
+    try {
+      const success = await deleteChart(selectedChart.id);
+      if (success) {
+        setDeleteDialogOpen(false);
+        setSelectedChart(null);
+        console.log('Chart deleted successfully');
+      }
+    } catch (error) {
+      console.error('Failed to delete chart:', error);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [selectedChart, deleteChart]);
+
+  const handleUpdateChart = useCallback(async () => {
+    if (!selectedChart) return;
+    
+    setSubmitting(true);
+    try {
+      const updatedChart = await updateChart(selectedChart.id, formData);
+      if (updatedChart) {
+        setEditDialogOpen(false);
+        setSelectedChart(null);
+        console.log('Chart updated successfully');
+      }
+    } catch (error) {
+      console.error('Failed to update chart:', error);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [selectedChart, formData, updateChart]);
+
+  const handleDuplicateChart = useCallback(async (chartId: string) => {
+    try {
+      const duplicatedChart = await duplicateChart(chartId);
+      if (duplicatedChart) {
+        console.log('Chart duplicated successfully');
+      }
+    } catch (error) {
+      console.error('Failed to duplicate chart:', error);
+    }
+  }, [duplicateChart]);
+
+  const handleRefresh = useCallback(async () => {
+    await refreshCharts();
+  }, [refreshCharts]);
+
+  // ============================================================================
+  // TABLE CONFIGURATION (keep existing structure)
+  // ============================================================================
+
   // Table columns configuration
   const columns: TableColumn<ChartData>[] = useMemo(() => [
     {
@@ -278,7 +259,16 @@ const ChartsPage: NextPage = () => {
       sortable: true,
       render: (chart: ChartData) => (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 1, bgcolor: 'primary.light', color: 'primary.contrastText' }}>
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            width: 32, 
+            height: 32, 
+            borderRadius: 1, 
+            bgcolor: 'primary.light', 
+            color: 'primary.contrastText' 
+          }}>
             {getChartTypeIcon(chart.chart_type)}
           </Box>
           <Box>
@@ -339,18 +329,15 @@ const ChartsPage: NextPage = () => {
       sortable: true,
       render: (chart: ChartData) => (
         chart.dashboard_name ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <DashboardIcon fontSize="small" color="action" />
             <Typography variant="body2">
               {chart.dashboard_name}
             </Typography>
-            {chart.dashboard_count && chart.dashboard_count > 1 && (
-              <Chip label={`+${chart.dashboard_count - 1}`} size="small" variant="outlined" />
-            )}
           </Box>
         ) : (
           <Typography variant="body2" color="text.secondary">
-            No dashboard
+            Unassigned
           </Typography>
         )
       )
@@ -360,14 +347,40 @@ const ChartsPage: NextPage = () => {
       label: 'Datasets',
       render: (chart: ChartData) => (
         <Box>
-          {chart.dataset_names?.map((dataset, index) => (
-            <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+          {chart.dataset_names && chart.dataset_names.length > 0 ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <DatasetIcon fontSize="small" color="action" />
               <Typography variant="body2">
-                {dataset}
+                {chart.dataset_names.join(', ')}
               </Typography>
             </Box>
-          ))}
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              No datasets
+            </Typography>
+          )}
+        </Box>
+      )
+    },
+    {
+      key: 'updated_at',
+      label: 'Last Modified',
+      sortable: true,
+      render: (chart: ChartData) => (
+        <Box>
+          <Typography variant="body2">
+            {formatDate(chart.updated_at)}
+          </Typography>
+          {chart.owner && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+              <Avatar sx={{ width: 16, height: 16, fontSize: 10 }}>
+                {chart.owner.name.charAt(0)}
+              </Avatar>
+              <Typography variant="caption" color="text.secondary">
+                {chart.owner.name}
+              </Typography>
+            </Box>
+          )}
         </Box>
       )
     },
@@ -379,137 +392,95 @@ const ChartsPage: NextPage = () => {
       render: (chart: ChartData) => (
         <Box>
           <Typography variant="body2" fontWeight={500}>
-            {chart.usage_count || 0}
+            {formatNumber(chart.usage_count)}
           </Typography>
           <Typography variant="caption" color="text.secondary">
             views
           </Typography>
         </Box>
       )
-    },
-    {
-      key: 'owner',
-      label: 'Owner',
-      sortable: true,
-      render: (chart: ChartData) => (
-        <Box>
-          <Typography variant="body2" fontWeight={500}>
-            {chart.owner?.name || 'Unknown'}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {chart.owner?.email}
-          </Typography>
-        </Box>
-      )
-    },
-    {
-      key: 'updated_at',
-      label: 'Last Modified',
-      sortable: true,
-      render: (chart: ChartData) => (
-        <Box>
-          <Typography variant="body2">
-            {new Date(chart.updated_at).toLocaleDateString()}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {new Date(chart.updated_at).toLocaleTimeString()}
-          </Typography>
-        </Box>
-      )
     }
   ], []);
 
-  // Table actions
+  // Table actions configuration
   const actions: TableAction<ChartData>[] = useMemo(() => [
     {
-      label: 'View Chart',
-      icon: <ViewIcon fontSize="small" />,
+      label: 'View',
+      icon: <ViewIcon />,
+      onClick: (chart) => router.push(`/workspace/${workspace?.slug}/charts/${chart.id}`),
+      show: () => hasPermission('charts:read')
+    },
+    {
+      label: 'Edit',
+      icon: <EditIcon />,
       onClick: (chart) => {
-        if (chart.dashboard_id) {
-          router.replace(`/workspace/dashboard/${chart.dashboard_id}?highlight=${chart.id}`);
-        } else {
-          // Open chart preview in modal or new page
-          window.open(`/workspace/chart-preview/${chart.id}`, '_blank');
-        }
+        setSelectedChart(chart);
+        setFormData({
+          name: chart.name,
+          display_name: chart.display_name,
+          description: chart.description || '',
+          chart_type: chart.chart_type,
+          chart_library: chart.chart_library,
+          chart_category: chart.chart_category || '',
+          is_active: chart.is_active
+        });
+        setEditDialogOpen(true);
       },
+      show: () => hasPermission('charts:update'),
       color: 'primary'
     },
     {
-      label: 'Update Chart (Builder)',
-      icon: <UpdateIcon fontSize="small" />,
-      onClick: (chart) => {
-        router.replace(`/workspace/chart-builder?id=${chart.id}`);
-      },
-      color: 'info',
-      show: () => hasPermission('chart.update')
+      label: 'Duplicate',
+      icon: <DuplicateIcon />,
+      onClick: (chart) => handleDuplicateChart(chart.id),
+      show: () => hasPermission('charts:create'),
+      color: 'info'
     },
     {
-      label: 'Edit Chart (Form)',
-      icon: <EditIcon fontSize="small" />,
+      label: 'Delete',
+      icon: <DeleteIcon />,
       onClick: (chart) => {
-        handleEditChart(chart);
+        setSelectedChart(chart);
+        setDeleteDialogOpen(true);
       },
-      color: 'primary',
-      show: () => hasPermission('chart.update')
-    },
-    {
-      label: 'Duplicate Chart',
-      icon: <DuplicateIcon fontSize="small" />,
-      onClick: (chart) => {
-        handleDuplicateChart(chart);
-      },
-      color: 'secondary',
-      show: () => hasPermission('chart.create')
-    },
-    {
-      label: 'Chart Settings',
-      icon: <SettingsIcon fontSize="small" />,
-      onClick: (chart) => {
-        router.replace(`/workspace/charts/${chart.id}/settings`);
-      },
-      color: 'default',
-      show: () => hasPermission('chart.update')
-    },
-    {
-      label: 'Delete Chart',
-      icon: <DeleteIcon fontSize="small" />,
-      onClick: (chart) => {
-        handleDeleteChart(chart);
-      },
-      color: 'error',
-      show: (chart) => hasPermission('chart.delete') && (chart.created_by === user?.id || hasPermission('chart.admin')),
-      disabled: (chart) => chart.dashboard_count && chart.dashboard_count > 0
+      show: () => hasPermission('charts:delete'),
+      color: 'error'
     }
-  ], [hasPermission, router, workspace?.slug, user?.id]);
+  ], [workspace, hasPermission, router, handleDuplicateChart]);
 
-  // Filter options
-  const filters: FilterOption[] = [
+  // Filters for the table
+  const filters: FilterOption[] = useMemo(() => [
     {
       key: 'chart_type',
       label: 'Chart Type',
       options: [
+        { value: 'all', label: 'All Types' },
         { value: 'line', label: 'Line Chart' },
         { value: 'bar', label: 'Bar Chart' },
         { value: 'pie', label: 'Pie Chart' },
         { value: 'area', label: 'Area Chart' },
-        { value: 'scatter', label: 'Scatter Plot' }
+        { value: 'scatter', label: 'Scatter Plot' },
+        { value: 'heatmap', label: 'Heatmap' },
+        { value: 'gauge', label: 'Gauge' }
       ]
     },
     {
       key: 'chart_library',
       label: 'Library',
       options: [
+        { value: 'all', label: 'All Libraries' },
         { value: 'echarts', label: 'ECharts' },
         { value: 'd3', label: 'D3.js' },
         { value: 'plotly', label: 'Plotly' },
-        { value: 'recharts', label: 'Recharts' },
-        { value: 'chartjs', label: 'Chart.js' }
+        { value: 'chartjs', label: 'Chart.js' },
+        { value: 'recharts', label: 'Recharts' }
       ]
     },
     {
       key: 'is_active',
       label: 'Status',
       options: [
+        { value: 'all', label: 'All Status' },
         { value: 'true', label: 'Active' },
         { value: 'false', label: 'Inactive' }
       ]
@@ -518,97 +489,19 @@ const ChartsPage: NextPage = () => {
       key: 'chart_category',
       label: 'Category',
       options: [
+        { value: 'all', label: 'All Categories' },
         { value: 'analytics', label: 'Analytics' },
-        { value: 'demographics', label: 'Demographics' },
-        { value: 'operations', label: 'Operations' },
-        { value: 'financial', label: 'Financial' }
+        { value: 'financial', label: 'Financial' },
+        { value: 'operational', label: 'Operational' },
+        { value: 'marketing', label: 'Marketing' },
+        { value: 'sales', label: 'Sales' }
       ]
     }
-  ];
+  ], []);
 
-  // Handle chart actions
-  const handleCreateChart = () => {
-    router.replace(`/workspace/chart-builder`);
-  };
-
-  const handleEditChart = (chart: ChartData) => {
-    setSelectedChart(chart);
-    setFormData({
-      name: chart.name,
-      display_name: chart.display_name,
-      description: chart.description || '',
-      chart_type: chart.chart_type,
-      chart_library: chart.chart_library,
-      chart_category: chart.chart_category || '',
-      is_active: chart.is_active
-    });
-    setEditDialogOpen(true);
-  };
-
-  const handleDuplicateChart = async (chart: ChartData) => {
-    try {
-      // API call to duplicate chart
-      console.log('Duplicating chart:', chart.id);
-      // Refresh charts list after duplication
-      await loadCharts();
-    } catch (error) {
-      console.error('Failed to duplicate chart:', error);
-      setError('Failed to duplicate chart. Please try again.');
-    }
-  };
-
-  const handleDeleteChart = (chart: ChartData) => {
-    setSelectedChart(chart);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleFormSubmit = async () => {
-    if (!selectedChart) return;
-
-    try {
-      setSubmitting(true);
-      // API call to update chart
-      console.log('Updating chart:', selectedChart.id, formData);
-      
-      // Close dialog and refresh
-      setEditDialogOpen(false);
-      await loadCharts();
-    } catch (error) {
-      console.error('Failed to update chart:', error);
-      setError('Failed to update chart. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!selectedChart) return;
-
-    try {
-      setSubmitting(true);
-      
-      // API call to delete chart
-      // const response = await fetch(`/api/workspaces/charts/${selectedChart.id}`, {
-      //   method: 'DELETE'
-      // });
-      // if (!response.ok) throw new Error('Failed to delete chart');
-      
-      console.log('Deleting chart:', selectedChart.id);
-      
-      // Close dialog and refresh
-      setDeleteDialogOpen(false);
-      await loadCharts();
-    } catch (error) {
-      console.error('Failed to delete chart:', error);
-      setError('Failed to delete chart. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleRefresh = () => {
-    loadCharts();
-  };
+  // ============================================================================
+  // RENDER
+  // ============================================================================
 
   return (
     <WorkspaceLayout>
@@ -625,14 +518,14 @@ const ChartsPage: NextPage = () => {
 
         {/* Error Alert */}
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          <Alert severity="error" sx={{ mb: 2 }}>
             {error}
           </Alert>
         )}
 
-        {/* Charts Table */}
+        {/* ✅ USE EXISTING CommonTableLayout COMPONENT */}
         <CommonTableLayout
-          data={charts}
+          data={charts as ChartData[]}
           loading={loading}
           error={error}
           columns={columns}
@@ -642,13 +535,17 @@ const ChartsPage: NextPage = () => {
           searchable={true}
           searchPlaceholder="Search charts by name, type, or description..."
           filters={filters}
-          showCreateButton={true}
-          createButtonLabel="Add Chart"
+          showCreateButton={hasPermission('charts:create')}
+          createButtonLabel="Create Chart"
           onCreateClick={handleCreateChart}
           onRefresh={handleRefresh}
           pagination={true}
           itemsPerPage={25}
         />
+
+        {/* ============================================================================ */}
+        {/* EXISTING DIALOGS (keep all existing dialog components) */}
+        {/* ============================================================================ */}
 
         {/* Edit Chart Dialog */}
         <Dialog 
@@ -668,7 +565,6 @@ const ChartsPage: NextPage = () => {
                   label="Chart Name"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  helperText="Internal name for the chart"
                 />
               </Grid>
               <Grid item xs={12} md={6}>
@@ -677,66 +573,78 @@ const ChartsPage: NextPage = () => {
                   label="Display Name"
                   value={formData.display_name}
                   onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
-                  helperText="User-friendly display name"
                 />
               </Grid>
               <Grid item xs={12}>
                 <TextField
                   fullWidth
+                  label="Description"
                   multiline
                   rows={3}
-                  label="Description"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  helperText="Brief description of the chart"
                 />
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
                   <InputLabel>Chart Type</InputLabel>
                   <Select
                     value={formData.chart_type}
-                    onChange={(e) => setFormData({ ...formData, chart_type: e.target.value })}
                     label="Chart Type"
+                    onChange={(e) => setFormData({ ...formData, chart_type: e.target.value })}
                   >
                     <MenuItem value="line">Line Chart</MenuItem>
                     <MenuItem value="bar">Bar Chart</MenuItem>
                     <MenuItem value="pie">Pie Chart</MenuItem>
                     <MenuItem value="area">Area Chart</MenuItem>
                     <MenuItem value="scatter">Scatter Plot</MenuItem>
+                    <MenuItem value="heatmap">Heatmap</MenuItem>
+                    <MenuItem value="gauge">Gauge</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
-                  <InputLabel>Library</InputLabel>
+                  <InputLabel>Chart Library</InputLabel>
                   <Select
                     value={formData.chart_library}
+                    label="Chart Library"
                     onChange={(e) => setFormData({ ...formData, chart_library: e.target.value })}
-                    label="Library"
                   >
                     <MenuItem value="echarts">ECharts</MenuItem>
                     <MenuItem value="d3">D3.js</MenuItem>
                     <MenuItem value="plotly">Plotly</MenuItem>
-                    <MenuItem value="recharts">Recharts</MenuItem>
                     <MenuItem value="chartjs">Chart.js</MenuItem>
+                    <MenuItem value="recharts">Recharts</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
                   <InputLabel>Category</InputLabel>
                   <Select
                     value={formData.chart_category}
-                    onChange={(e) => setFormData({ ...formData, chart_category: e.target.value })}
                     label="Category"
+                    onChange={(e) => setFormData({ ...formData, chart_category: e.target.value })}
                   >
                     <MenuItem value="analytics">Analytics</MenuItem>
-                    <MenuItem value="demographics">Demographics</MenuItem>
-                    <MenuItem value="operations">Operations</MenuItem>
                     <MenuItem value="financial">Financial</MenuItem>
+                    <MenuItem value="operational">Operational</MenuItem>
+                    <MenuItem value="marketing">Marketing</MenuItem>
+                    <MenuItem value="sales">Sales</MenuItem>
                   </Select>
                 </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formData.is_active}
+                      onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+                    />
+                  }
+                  label="Active"
+                />
               </Grid>
             </Grid>
           </DialogContent>
@@ -745,46 +653,26 @@ const ChartsPage: NextPage = () => {
               Cancel
             </Button>
             <Button 
-              onClick={handleFormSubmit}
-              variant="contained"
-              disabled={submitting || !formData.name || !formData.display_name}
+              variant="contained" 
+              onClick={handleUpdateChart}
+              disabled={submitting}
             >
-              {submitting ? 'Updating...' : 'Update Chart'}
+              {submitting ? 'Saving...' : 'Save Changes'}
             </Button>
           </DialogActions>
         </Dialog>
 
         {/* Delete Confirmation Dialog */}
-        <Dialog 
-          open={deleteDialogOpen} 
+        <ConfirmDialog
+          open={deleteDialogOpen}
           onClose={() => setDeleteDialogOpen(false)}
-        >
-          <DialogTitle>Confirm Deletion</DialogTitle>
-          <DialogContent>
-            <Typography>
-              Are you sure you want to delete the chart "{selectedChart?.display_name}"?
-            </Typography>
-            {selectedChart?.dashboard_count && selectedChart.dashboard_count > 0 && (
-              <Alert severity="warning" sx={{ mt: 2 }}>
-                This chart is being used in {selectedChart.dashboard_count} dashboard(s). 
-                Deleting it will remove it from all dashboards.
-              </Alert>
-            )}
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setDeleteDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleDeleteConfirm}
-              color="error"
-              variant="contained"
-              disabled={submitting}
-            >
-              {submitting ? 'Deleting...' : 'Delete Chart'}
-            </Button>
-          </DialogActions>
-        </Dialog>
+          onConfirm={handleDeleteChart}
+          title="Delete Chart"
+          message={`Are you sure you want to delete "${selectedChart?.display_name}"? This action cannot be undone and will remove the chart from all dashboards.`}
+          confirmText="Delete"
+          confirmColor="error"
+          loading={submitting}
+        />
       </Box>
     </WorkspaceLayout>
   );

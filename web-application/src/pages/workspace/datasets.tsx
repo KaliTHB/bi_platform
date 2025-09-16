@@ -1,100 +1,63 @@
 // web-application/src/pages/workspace/datasets.tsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { NextPage } from 'next';
 import { useRouter } from 'next/router';
 import {
   Box,
   Typography,
-  Chip,
-  Avatar,
-  IconButton,
-  Tooltip,
+  Alert,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  Button,
   TextField,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  Alert,
-  Grid,
-  Card,
-  CardContent,
-  FormControlLabel,
+  Button,
   Switch,
-  LinearProgress,
-  CircularProgress
+  FormControlLabel,
+  Grid,
+  Chip
 } from '@mui/material';
-import {
-  Dataset as DatasetIcon,
-  TableChart as TableIcon,
-  Transform as TransformIcon,
-  QueryBuilder as QueryIcon,
-  ViewModule as ViewIcon,
-  Add as AddIcon,
+import { 
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Visibility as VisibilityIcon,
   Refresh as RefreshIcon,
-  PlayArrow as ExecuteIcon,
-  Settings as SettingsIcon,
-  Analytics as AnalyticsIcon,
-  Share as ShareIcon,
-  FileCopy as DuplicateIcon,
-  Schedule as ScheduleIcon,
-  CloudSync as SyncIcon,
-  Storage as StorageIcon,
-  Speed as SpeedIcon,
-  CheckCircle as CheckIcon,
-  Error as ErrorIcon,
-  Warning as WarningIcon,
-  Pause as PauseIcon,
-  Update as UpdateIcon
+  Visibility as ViewIcon,
+  Storage as StorageIcon
 } from '@mui/icons-material';
 
-// Import common components
-import WorkspaceLayout from '../../components/layout/WorkspaceLayout';
-import CommonTableLayout, { 
-  TableColumn, 
-  TableAction, 
-  FilterOption 
-} from '../../components/shared/CommonTableLayout';
-import { PermissionGate } from '../../components/shared/PermissionGate';
+// Use existing components
+import { WorkspaceLayout } from '@/components/layout/WorkspaceLayout';
+import { CommonTableLayout, TableColumn, TableAction } from '@/components/shared/CommonTableLayout';
+import { PermissionGate } from '@/components/shared/PermissionGate';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
-// Import hooks and services
-import { useAuth } from '../../hooks/useAuth';
-import { usePermissions } from '../../hooks/usePermissions';
+// Use existing hooks
+import { useAuth } from '@/hooks/useAuth';
+import { usePermissions } from '@/hooks/usePermissions';
+import useDatasets from '@/hooks/useDatasets'; // ✅ Use existing hook for live data
 
-// Types
+// ============================================================================
+// INTERFACES (Updated to match API response)
+// ============================================================================
+
 interface DatasetData {
   id: string;
+  workspace_id: string;
   name: string;
-  display_name: string;
+  display_name?: string;
   description?: string;
   type: 'table' | 'query' | 'transformation' | 'view';
-  status: 'active' | 'inactive' | 'draft' | 'error' | 'refreshing' | 'pending';
-  refresh_status: 'pending' | 'running' | 'completed' | 'failed';
+  status: string;
+  refresh_status?: string;
   datasource_ids: string[];
   datasource_names?: string[];
   parent_dataset_ids?: string[];
-  parent_dataset_names?: string[];
   base_query?: string;
-  transformation_stages?: any[];
-  schema_json?: {
-    columns: Array<{
-      name: string;
-      data_type: string;
-      is_nullable: boolean;
-      description?: string;
-    }>;
-  };
-  row_count?: number;
-  row_count_estimate?: number;
-  size_bytes?: number;
-  cache_ttl: number;
+  cache_ttl?: number;
   refresh_schedule?: {
     enabled: boolean;
     cron_expression?: string;
@@ -146,23 +109,36 @@ interface DatasetFormData {
   is_active: boolean;
 }
 
-// Main Page Component
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
 const DatasetsPage: NextPage = () => {
   const router = useRouter();
   const { workspace, user } = useAuth();
   const { hasPermission } = usePermissions();
 
-  // State management
-  const [datasets, setDatasets] = useState<DatasetData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // ✅ USE EXISTING HOOK FOR LIVE DATA (instead of local state)
+  const {
+    datasets,
+    loading,
+    error,
+    createDataset,
+    updateDataset,
+    deleteDataset,
+    refreshDataset,
+    refreshDatasets,
+    clearError
+  } = useDatasets();
+
+  // Local UI state (keep existing dialogs and forms)
   const [refreshingDatasets, setRefreshingDatasets] = useState<Set<string>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedDataset, setSelectedDataset] = useState<DatasetData | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Form state for editing
+  // Form state for editing (keep existing)
   const [formData, setFormData] = useState<DatasetFormData>({
     name: '',
     display_name: '',
@@ -175,691 +151,241 @@ const DatasetsPage: NextPage = () => {
     is_active: true
   });
 
-  // Mock data (replace with actual API calls)
-  useEffect(() => {
-    loadDatasets();
-  }, [workspace?.id]);
+  // ============================================================================
+  // EXISTING HELPER FUNCTIONS (keep these)
+  // ============================================================================
 
-  const loadDatasets = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return 'Never';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
-      // Mock data - replace with actual API call
-      const mockDatasets: DatasetData[] = [
-        {
-          id: '1',
-          name: 'customer_analytics',
-          display_name: 'Customer Analytics Dataset',
-          description: 'Comprehensive customer data including demographics, behavior, and transaction history',
-          type: 'table',
-          status: 'active',
-          refresh_status: 'completed',
-          datasource_ids: ['ds1'],
-          datasource_names: ['Production PostgreSQL'],
-          base_query: 'SELECT * FROM customers JOIN transactions ON customers.id = transactions.customer_id',
-          row_count: 125430,
-          row_count_estimate: 125430,
-          size_bytes: 52428800, // 50MB
-          cache_ttl: 3600,
-          refresh_schedule: {
-            enabled: true,
-            cron_expression: '0 2 * * *',
-            next_run: '2024-01-16T02:00:00Z'
-          },
-          last_refreshed: '2024-01-15T02:00:00Z',
-          is_active: true,
-          version: 3,
-          created_at: '2024-01-01T00:00:00Z',
-          updated_at: '2024-01-15T02:00:00Z',
-          created_by: 'user1',
-          owner_id: 'user1',
-          owner: {
-            id: 'user1',
-            name: 'John Doe',
-            email: 'john.doe@company.com'
-          },
-          schema_json: {
-            columns: [
-              { name: 'customer_id', data_type: 'integer', is_nullable: false },
-              { name: 'customer_name', data_type: 'varchar', is_nullable: false },
-              { name: 'email', data_type: 'varchar', is_nullable: false },
-              { name: 'registration_date', data_type: 'timestamp', is_nullable: false },
-              { name: 'total_spent', data_type: 'decimal', is_nullable: true }
-            ]
-          },
-          usage_stats: {
-            chart_count: 24,
-            dashboard_count: 8,
-            query_count: 456,
-            last_used: '2024-01-15T10:30:00Z',
-            daily_queries: 45,
-            weekly_queries: 278
-          },
-          data_quality: {
-            completeness_score: 98.5,
-            accuracy_score: 94.2,
-            consistency_score: 96.8,
-            last_checked: '2024-01-15T01:00:00Z'
-          },
-          metadata_json: {
-            tags: ['customers', 'analytics', 'production'],
-            documentation: 'Core customer dataset used for analytics and reporting',
-            quality_score: 96.5
-          }
-        },
-        {
-          id: '2',
-          name: 'sales_transformation',
-          display_name: 'Sales Performance Metrics',
-          description: 'Transformed sales data with calculated metrics and aggregations',
-          type: 'transformation',
-          status: 'active',
-          refresh_status: 'running',
-          datasource_ids: ['ds1', 'ds2'],
-          datasource_names: ['Production PostgreSQL', 'BigQuery Analytics'],
-          parent_dataset_ids: ['1'],
-          parent_dataset_names: ['Customer Analytics Dataset'],
-          transformation_stages: [
-            { type: 'aggregate', config: { groupBy: ['sales_rep', 'region'], metrics: ['total_sales', 'commission'] } },
-            { type: 'calculated_field', config: { name: 'conversion_rate', formula: 'deals_closed / leads_generated' } }
-          ],
-          row_count: 5240,
-          size_bytes: 2097152, // 2MB
-          cache_ttl: 1800,
-          refresh_schedule: {
-            enabled: true,
-            cron_expression: '0 */4 * * *',
-            next_run: '2024-01-15T16:00:00Z'
-          },
-          last_refreshed: '2024-01-15T12:00:00Z',
-          is_active: true,
-          version: 8,
-          created_at: '2024-01-05T00:00:00Z',
-          updated_at: '2024-01-15T12:30:00Z',
-          created_by: 'user2',
-          owner_id: 'user2',
-          owner: {
-            id: 'user2',
-            name: 'Jane Smith',
-            email: 'jane.smith@company.com'
-          },
-          usage_stats: {
-            chart_count: 15,
-            dashboard_count: 4,
-            query_count: 182,
-            last_used: '2024-01-15T11:45:00Z',
-            daily_queries: 28,
-            weekly_queries: 165
-          },
-          data_quality: {
-            completeness_score: 92.1,
-            accuracy_score: 89.7,
-            consistency_score: 94.3,
-            last_checked: '2024-01-15T11:00:00Z'
-          },
-          metadata_json: {
-            tags: ['sales', 'transformation', 'metrics'],
-            quality_score: 92.0
-          }
-        },
-        {
-          id: '3',
-          name: 'inventory_query',
-          display_name: 'Real-time Inventory Levels',
-          description: 'Custom query dataset showing current inventory levels across all warehouses',
-          type: 'query',
-          status: 'active',
-          refresh_status: 'failed',
-          datasource_ids: ['ds3'],
-          datasource_names: ['Warehouse MySQL'],
-          base_query: `
-            SELECT 
-              p.product_id,
-              p.product_name,
-              w.warehouse_name,
-              i.quantity_on_hand,
-              i.reserved_quantity,
-              i.available_quantity,
-              i.last_updated
-            FROM products p
-            JOIN inventory i ON p.product_id = i.product_id
-            JOIN warehouses w ON i.warehouse_id = w.warehouse_id
-            WHERE i.quantity_on_hand >= 0
-          `,
-          row_count: 0,
-          row_count_estimate: 15000,
-          cache_ttl: 300, // 5 minutes for real-time data
-          refresh_schedule: {
-            enabled: true,
-            cron_expression: '*/5 * * * *',
-            next_run: '2024-01-15T12:35:00Z'
-          },
-          last_refreshed: '2024-01-15T12:25:00Z',
-          is_active: false,
-          version: 2,
-          created_at: '2024-01-10T00:00:00Z',
-          updated_at: '2024-01-15T12:25:00Z',
-          created_by: 'user3',
-          owner_id: 'user3',
-          owner: {
-            id: 'user3',
-            name: 'Mike Chen',
-            email: 'mike.chen@company.com'
-          },
-          usage_stats: {
-            chart_count: 6,
-            dashboard_count: 2,
-            query_count: 89,
-            last_used: '2024-01-14T16:20:00Z',
-            daily_queries: 12,
-            weekly_queries: 67
-          },
-          metadata_json: {
-            tags: ['inventory', 'real-time', 'warehousing'],
-            quality_score: 87.3
-          }
-        }
-      ];
-      
-      setDatasets(mockDatasets);
-    } catch (error) {
-      console.error('Failed to load datasets:', error);
-      setError('Failed to load datasets. Please try again.');
-    } finally {
-      setLoading(false);
+  const formatNumber = (num?: number) => {
+    return num ? num.toLocaleString() : '0';
+  };
+
+  const getStatusColor = (status: string, isActive?: boolean) => {
+    if (!isActive) return 'default';
+    switch (status) {
+      case 'active': return 'success';
+      case 'error': return 'error';
+      case 'pending': return 'warning';
+      default: return 'default';
     }
   };
 
-  // Helper functions
-  const getTypeIcon = (type: string) => {
-    const iconMap: { [key: string]: React.ReactNode } = {
-      table: <TableIcon fontSize="small" />,
-      query: <QueryIcon fontSize="small" />,
-      transformation: <TransformIcon fontSize="small" />,
-      view: <ViewIcon fontSize="small" />
-    };
-    return iconMap[type] || <DatasetIcon fontSize="small" />;
-  };
+  // ============================================================================
+  // EVENT HANDLERS (updated to use live data)
+  // ============================================================================
 
-  const getStatusColor = (status: string) => {
-    const colorMap: { [key: string]: 'success' | 'warning' | 'error' | 'default' } = {
-      active: 'success',
-      inactive: 'default',
-      draft: 'warning',
-      error: 'error',
-      refreshing: 'info',
-      pending: 'default'
-    };
-    return colorMap[status] || 'default';
-  };
-
-  const getRefreshStatusInfo = (refreshStatus: string) => {
-    const statusMap: { [key: string]: { color: 'success' | 'warning' | 'error' | 'default', icon: React.ReactNode } } = {
-      completed: { color: 'success', icon: <CheckIcon fontSize="small" /> },
-      failed: { color: 'error', icon: <ErrorIcon fontSize="small" /> },
-      running: { color: 'default', icon: <CircularProgress size={12} /> },
-      pending: { color: 'warning', icon: <ScheduleIcon fontSize="small" /> }
-    };
-    return statusMap[refreshStatus] || { color: 'default', icon: <ScheduleIcon fontSize="small" /> };
-  };
-
-  const formatBytes = (bytes?: number) => {
-    if (!bytes) return 'Unknown';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  const formatDuration = (seconds: number) => {
-    if (seconds < 60) return `${seconds}s`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-    return `${Math.floor(seconds / 3600)}h`;
-  };
-
-  // Event handlers
-  const handleCreateDataset = () => {
-    router.replace(`/workspace/${workspace?.slug}/dataset-builder`);
-  };
-
-  const handleEditDataset = (dataset: DatasetData) => {
-    setSelectedDataset(dataset);
-    setFormData({
-      name: dataset.name,
-      display_name: dataset.display_name,
-      description: dataset.description || '',
-      type: dataset.type,
-      datasource_ids: dataset.datasource_ids,
-      parent_dataset_ids: dataset.parent_dataset_ids || [],
-      base_query: dataset.base_query || '',
-      cache_ttl: dataset.cache_ttl,
-      is_active: dataset.is_active
-    });
-    setEditDialogOpen(true);
-  };
-
-  const handleDeleteDataset = (dataset: DatasetData) => {
-    setSelectedDataset(dataset);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleRefreshDataset = async (dataset: DatasetData) => {
-    setRefreshingDatasets(prev => new Set([...prev, dataset.id]));
+  const handleRefreshDataset = useCallback(async (datasetId: string) => {
+    setRefreshingDatasets(prev => new Set(prev).add(datasetId));
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      // Update the dataset refresh status
-      setDatasets(prev => prev.map(ds => 
-        ds.id === dataset.id 
-          ? { 
-              ...ds, 
-              refresh_status: 'completed',
-              last_refreshed: new Date().toISOString(),
-              status: 'active'
-            }
-          : ds
-      ));
+      const success = await refreshDataset(datasetId);
+      if (success) {
+        console.log(`Dataset ${datasetId} refreshed successfully`);
+      }
     } catch (error) {
-      setDatasets(prev => prev.map(ds => 
-        ds.id === dataset.id 
-          ? { 
-              ...ds, 
-              refresh_status: 'failed',
-              status: 'error'
-            }
-          : ds
-      ));
+      console.error('Failed to refresh dataset:', error);
     } finally {
       setRefreshingDatasets(prev => {
         const newSet = new Set(prev);
-        newSet.delete(dataset.id);
+        newSet.delete(datasetId);
         return newSet;
       });
     }
-  };
+  }, [refreshDataset]);
 
-  const handleDuplicateDataset = (dataset: DatasetData) => {
-    router.replace(`/workspace/${workspace?.slug}/dataset-builder?duplicate=${dataset.id}`);
-  };
-
-  const handleToggleDatasetStatus = async (dataset: DatasetData) => {
-    try {
-      setSubmitting(true);
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setDatasets(prev => prev.map(ds =>
-        ds.id === dataset.id
-          ? { ...ds, is_active: !ds.is_active, status: !ds.is_active ? 'active' : 'inactive' }
-          : ds
-      ));
-    } catch (error) {
-      setError('Failed to update dataset status');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleDeleteConfirm = async () => {
+  const handleDeleteDataset = useCallback(async () => {
     if (!selectedDataset) return;
-
+    
+    setSubmitting(true);
     try {
-      setSubmitting(true);
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setDatasets(prev => prev.filter(ds => ds.id !== selectedDataset.id));
-      setDeleteDialogOpen(false);
-      setSelectedDataset(null);
+      const success = await deleteDataset(selectedDataset.id);
+      if (success) {
+        setDeleteDialogOpen(false);
+        setSelectedDataset(null);
+        console.log('Dataset deleted successfully');
+      }
     } catch (error) {
-      setError('Failed to delete dataset');
+      console.error('Failed to delete dataset:', error);
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [selectedDataset, deleteDataset]);
 
-  const handleUpdateDataset = async () => {
+  const handleUpdateDataset = useCallback(async () => {
     if (!selectedDataset) return;
-
+    
+    setSubmitting(true);
     try {
-      setSubmitting(true);
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setDatasets(prev => prev.map(ds =>
-        ds.id === selectedDataset.id
-          ? { 
-              ...ds, 
-              ...formData,
-              updated_at: new Date().toISOString()
-            }
-          : ds
-      ));
-      setEditDialogOpen(false);
-      setSelectedDataset(null);
+      const updatedDataset = await updateDataset(selectedDataset.id, formData);
+      if (updatedDataset) {
+        setEditDialogOpen(false);
+        setSelectedDataset(null);
+        console.log('Dataset updated successfully');
+      }
     } catch (error) {
-      setError('Failed to update dataset');
+      console.error('Failed to update dataset:', error);
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [selectedDataset, formData, updateDataset]);
 
-  const handleRefresh = () => {
-    loadDatasets();
-  };
+  const handleCreateDataset = useCallback(() => {
+    // Navigate to dataset builder or open create dialog
+    router.push(`/workspace/${workspace?.slug}/dataset-builder`);
+  }, [router, workspace]);
 
-  // Table columns configuration
-  const columns: TableColumn<DatasetData>[] = useMemo(() => [
+  const handleRefresh = useCallback(async () => {
+    await refreshDatasets();
+  }, [refreshDatasets]);
+
+  // ============================================================================
+  // TABLE CONFIGURATION (keep existing structure)
+  // ============================================================================
+
+  const columns: TableColumn<DatasetData>[] = [
     {
       key: 'name',
       label: 'Dataset',
       sortable: true,
-      render: (dataset: DatasetData) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Box sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center', 
-            width: 40, 
-            height: 40, 
-            borderRadius: 1, 
-            bgcolor: dataset.status === 'active' ? 'success.light' : 'warning.light', 
-            color: dataset.status === 'active' ? 'success.main' : 'warning.main' 
-          }}>
-            {getTypeIcon(dataset.type)}
-          </Box>
-          <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="body2" fontWeight={500}>
-                {dataset.display_name}
-              </Typography>
-              {!dataset.is_active && (
-                <Chip label="Inactive" size="small" color="default" variant="outlined" />
-              )}
-              {dataset.metadata_json?.quality_score && dataset.metadata_json.quality_score < 90 && (
-                <Chip label="Quality Alert" size="small" color="warning" variant="outlined" />
-              )}
-            </Box>
-            <Typography variant="caption" color="text.secondary">
-              {dataset.name}
-            </Typography>
-            {dataset.description && (
-              <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>
-                {dataset.description}
-              </Typography>
-            )}
-          </Box>
-        </Box>
-      )
-    },
-    {
-      key: 'type_and_status',
-      label: 'Type & Status',
-      sortable: true,
-      render: (dataset: DatasetData) => (
+      render: (dataset) => (
         <Box>
-          <Chip
-            label={dataset.type.toUpperCase()}
-            size="small"
-            variant="outlined"
-            icon={getTypeIcon(dataset.type)}
-            sx={{ mb: 0.5 }}
-          />
-          <br />
-          <Chip
-            label={dataset.status.toUpperCase()}
-            size="small"
-            color={getStatusColor(dataset.status)}
-            variant="filled"
-          />
-          <br />
-          {dataset.refresh_status && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
-              {getRefreshStatusInfo(dataset.refresh_status).icon}
-              <Typography variant="caption" color="text.secondary">
-                Refresh: {dataset.refresh_status}
-              </Typography>
-            </Box>
-          )}
+          <Typography variant="subtitle2" fontWeight={600}>
+            {dataset.display_name || dataset.name}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" noWrap>
+            {dataset.description || 'No description'}
+          </Typography>
         </Box>
       )
     },
     {
-      key: 'datasources',
+      key: 'type',
+      label: 'Type',
+      sortable: true,
+      render: (dataset) => (
+        <Chip 
+          label={dataset.type} 
+          size="small" 
+          variant="outlined"
+          color="primary"
+        />
+      )
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      sortable: true,
+      render: (dataset) => (
+        <Chip 
+          label={dataset.is_active ? (dataset.status || 'Active') : 'Inactive'} 
+          size="small" 
+          color={getStatusColor(dataset.status || 'active', dataset.is_active)}
+        />
+      )
+    },
+    {
+      key: 'datasource_names',
       label: 'Data Sources',
-      render: (dataset: DatasetData) => (
-        <Box>
-          {dataset.datasource_names?.map((datasource, index) => (
-            <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
-              <StorageIcon fontSize="small" color="action" />
-              <Typography variant="body2">
-                {datasource}
-              </Typography>
-            </Box>
-          ))}
-          {dataset.parent_dataset_names && dataset.parent_dataset_names.length > 0 && (
-            <Box sx={{ mt: 1 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
-                Dependencies:
-              </Typography>
-              {dataset.parent_dataset_names.map((parent, index) => (
-                <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
-                  <TransformIcon fontSize="small" color="secondary" />
-                  <Typography variant="caption" color="text.secondary">
-                    {parent}
-                  </Typography>
-                </Box>
-              ))}
-            </Box>
-          )}
-        </Box>
+      render: (dataset) => (
+        <Typography variant="body2">
+          {dataset.datasource_names?.join(', ') || 'N/A'}
+        </Typography>
       )
     },
     {
-      key: 'data_info',
-      label: 'Data Size & Quality',
+      key: 'updated_at',
+      label: 'Last Updated',
       sortable: true,
-      render: (dataset: DatasetData) => (
-        <Box>
-          <Typography variant="body2" fontWeight={500}>
-            {dataset.row_count?.toLocaleString() || dataset.row_count_estimate?.toLocaleString() || 'Unknown'} rows
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {formatBytes(dataset.size_bytes)}
-          </Typography>
-          {dataset.data_quality && (
-            <Box sx={{ mt: 0.5 }}>
-              <Typography variant="caption" color="text.secondary">
-                Quality: {dataset.data_quality.completeness_score.toFixed(1)}%
-              </Typography>
-            </Box>
-          )}
-          <Typography variant="caption" display="block" color="text.secondary">
-            Cache: {formatDuration(dataset.cache_ttl)}
-          </Typography>
-        </Box>
+      render: (dataset) => (
+        <Typography variant="body2">
+          {formatDate(dataset.updated_at)}
+        </Typography>
       )
     },
     {
       key: 'usage_stats',
       label: 'Usage',
-      sortable: false,
-      render: (dataset: DatasetData) => (
+      render: (dataset) => (
         dataset.usage_stats ? (
           <Box>
-            <Typography variant="body2" fontWeight={500}>
-              {dataset.usage_stats.chart_count} charts
+            <Typography variant="body2">
+              Charts: {formatNumber(dataset.usage_stats.chart_count)}
             </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {dataset.usage_stats.dashboard_count} dashboards
+            <Typography variant="body2" color="text.secondary">
+              Queries: {formatNumber(dataset.usage_stats.query_count)}
             </Typography>
-            <Typography variant="caption" display="block" color="text.secondary">
-              {dataset.usage_stats.query_count} queries
-            </Typography>
-            {dataset.usage_stats.last_used && (
-              <Typography variant="caption" display="block" color="text.secondary">
-                Used: {new Date(dataset.usage_stats.last_used).toLocaleDateString()}
-              </Typography>
-            )}
           </Box>
         ) : (
-          <Typography variant="body2" color="text.secondary">
-            No usage
-          </Typography>
+          <Typography variant="body2" color="text.secondary">N/A</Typography>
         )
       )
-    },
-    {
-      key: 'owner',
-      label: 'Owner',
-      sortable: true,
-      render: (dataset: DatasetData) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Avatar src={dataset.owner?.email} sx={{ width: 24, height: 24 }}>
-            {dataset.owner?.name?.charAt(0).toUpperCase()}
-          </Avatar>
-          <Typography variant="body2">
-            {dataset.owner?.name || 'Unknown'}
-          </Typography>
-        </Box>
-      )
-    },
-    {
-      key: 'last_refreshed',
-      label: 'Last Updated',
-      sortable: true,
-      render: (dataset: DatasetData) => (
-        <Box>
-          {dataset.last_refreshed ? (
-            <>
-              <Typography variant="body2">
-                {new Date(dataset.last_refreshed).toLocaleDateString()}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {new Date(dataset.last_refreshed).toLocaleTimeString()}
-              </Typography>
-            </>
-          ) : (
-            <Typography variant="body2" color="text.secondary">
-              Never
-            </Typography>
-          )}
-          {dataset.refresh_status === 'running' && (
-            <LinearProgress size="small" sx={{ mt: 0.5 }} />
-          )}
-          {dataset.refresh_schedule?.enabled && (
-            <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>
-              Auto-refresh enabled
-            </Typography>
-          )}
-        </Box>
-      )
     }
-  ], []);
+  ];
 
-  // Table actions configuration
-  const actions: TableAction<DatasetData>[] = useMemo(() => [
+  const actions: TableAction<DatasetData>[] = [
     {
-      label: 'Preview Data',
-      icon: <VisibilityIcon fontSize="small" />,
+      label: 'View',
+      icon: <ViewIcon />,
+      onClick: (dataset) => router.push(`/workspace/${workspace?.slug}/datasets/${dataset.id}`),
+      show: () => hasPermission('datasets:read')
+    },
+    {
+      label: 'Refresh',
+      icon: <RefreshIcon />,
+      onClick: (dataset) => handleRefreshDataset(dataset.id),
+      show: () => hasPermission('datasets:update'),
+      disabled: (dataset) => refreshingDatasets.has(dataset.id)
+    },
+    {
+      label: 'Edit',
+      icon: <EditIcon />,
       onClick: (dataset) => {
-        router.replace(`/workspace/${workspace?.slug}/datasets/${dataset.id}/preview`);
+        setSelectedDataset(dataset);
+        setFormData({
+          name: dataset.name,
+          display_name: dataset.display_name || '',
+          description: dataset.description || '',
+          type: dataset.type,
+          datasource_ids: dataset.datasource_ids || [],
+          parent_dataset_ids: dataset.parent_dataset_ids || [],
+          base_query: dataset.base_query || '',
+          cache_ttl: dataset.cache_ttl || 3600,
+          is_active: dataset.is_active
+        });
+        setEditDialogOpen(true);
       },
-      show: (dataset) => hasPermission('dataset.read') && dataset.status === 'active',
+      show: () => hasPermission('datasets:update'),
       color: 'primary'
     },
     {
-      label: 'Execute Query',
-      icon: <ExecuteIcon fontSize="small" />,
+      label: 'Delete',
+      icon: <DeleteIcon />,
       onClick: (dataset) => {
-        router.replace(`/workspace/${workspace?.slug}/sql-editor?dataset=${dataset.id}`);
+        setSelectedDataset(dataset);
+        setDeleteDialogOpen(true);
       },
-      show: (dataset) => hasPermission('dataset.read') && (dataset.type === 'query' || dataset.type === 'transformation'),
-      color: 'info'
-    },
-    {
-      label: 'Edit Dataset',
-      icon: <EditIcon fontSize="small" />,
-      onClick: (dataset) => handleEditDataset(dataset),
-      show: (dataset) => hasPermission('dataset.update') && 
-        (dataset.owner_id === user?.id || hasPermission('dataset.admin')),
-      color: 'default'
-    },
-    {
-      label: 'Refresh Dataset',
-      icon: <RefreshIcon fontSize="small" />,
-      onClick: (dataset) => handleRefreshDataset(dataset),
-      show: (dataset) => hasPermission('dataset.update') && dataset.status !== 'refreshing',
-      color: 'info',
-      disabled: (dataset) => refreshingDatasets.has(dataset.id) || dataset.refresh_status === 'running'
-    },
-    {
-      label: 'View Analytics',
-      icon: <AnalyticsIcon fontSize="small" />,
-      onClick: (dataset) => {
-        router.replace(`/workspace/${workspace?.slug}/datasets/${dataset.id}/analytics`);
-      },
-      show: (dataset) => hasPermission('dataset.read') && dataset.usage_stats,
-      color: 'info'
-    },
-    {
-      label: 'Duplicate Dataset',
-      icon: <DuplicateIcon fontSize="small" />,
-      onClick: (dataset) => handleDuplicateDataset(dataset),
-      show: () => hasPermission('dataset.create'),
-      color: 'secondary'
-    },
-    {
-      label: 'Dataset Settings',
-      icon: <SettingsIcon fontSize="small" />,
-      onClick: (dataset) => {
-        router.replace(`/workspace/${workspace?.slug}/datasets/${dataset.id}/settings`);
-      },
-      show: (dataset) => hasPermission('dataset.update') && 
-        (dataset.owner_id === user?.id || hasPermission('dataset.admin')),
-      color: 'default'
-    },
-    {
-      label: dataset => dataset.is_active ? 'Deactivate' : 'Activate',
-      icon: (dataset) => dataset.is_active ? <PauseIcon fontSize="small" /> : <CheckIcon fontSize="small" />,
-      onClick: (dataset) => handleToggleDatasetStatus(dataset),
-      show: () => hasPermission('dataset.update'),
-      color: (dataset) => dataset.is_active ? 'warning' : 'success'
-    },
-    {
-      label: 'Delete Dataset',
-      icon: <DeleteIcon fontSize="small" />,
-      onClick: (dataset) => handleDeleteDataset(dataset),
-      show: (dataset) => hasPermission('dataset.delete') && 
-        (dataset.owner_id === user?.id || hasPermission('dataset.admin')),
-      color: 'error',
-      disabled: (dataset) => (dataset.usage_stats?.chart_count || 0) > 0
+      show: () => hasPermission('datasets:delete'),
+      color: 'error'
     }
-  ], [hasPermission, router, workspace?.slug, user?.id, refreshingDatasets]);
+  ];
 
-  // Filter options
-  const filters: FilterOption[] = [
-    {
-      key: 'status',
-      label: 'Status',
-      options: [
-        { value: 'active', label: 'Active' },
-        { value: 'inactive', label: 'Inactive' },
-        { value: 'draft', label: 'Draft' },
-        { value: 'error', label: 'Error' },
-        { value: 'refreshing', label: 'Refreshing' }
-      ]
-    },
+  // Filters for the table
+  const filters = [
     {
       key: 'type',
-      label: 'Dataset Type',
+      label: 'Type',
       options: [
+        { value: 'all', label: 'All Types' },
         { value: 'table', label: 'Table' },
         { value: 'query', label: 'Query' },
         { value: 'transformation', label: 'Transformation' },
@@ -867,23 +393,26 @@ const DatasetsPage: NextPage = () => {
       ]
     },
     {
-      key: 'refresh_status',
-      label: 'Refresh Status',
+      key: 'status',
+      label: 'Status', 
       options: [
-        { value: 'completed', label: 'Completed' },
-        { value: 'failed', label: 'Failed' },
-        { value: 'running', label: 'Running' },
-        { value: 'pending', label: 'Pending' }
+        { value: 'all', label: 'All Status' },
+        { value: 'active', label: 'Active' },
+        { value: 'inactive', label: 'Inactive' }
       ]
     }
   ];
 
+  // ============================================================================
+  // RENDER
+  // ============================================================================
+
   return (
     <WorkspaceLayout>
       <Box sx={{ p: 3 }}>
-        {/* Header */}
+        {/* Page Header */}
         <Box sx={{ mb: 3 }}>
-          <Typography variant="h4" gutterBottom>
+          <Typography variant="h4" sx={{ fontWeight: 600, mb: 1 }}>
             Datasets
           </Typography>
           <Typography variant="body1" color="text.secondary">
@@ -893,16 +422,16 @@ const DatasetsPage: NextPage = () => {
 
         {/* Error Alert */}
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          <Alert severity="error" sx={{ mb: 2 }} onClose={clearError}>
             {error}
           </Alert>
         )}
 
-        {/* Datasets Table */}
+        {/* ✅ USE EXISTING CommonTableLayout COMPONENT */}
         <CommonTableLayout
-          data={datasets}
+          data={datasets as DatasetData[]}
           loading={loading}
-          error={error}
+          error={error as any}
           columns={columns}
           actions={actions}
           title="All Datasets"
@@ -910,13 +439,17 @@ const DatasetsPage: NextPage = () => {
           searchable={true}
           searchPlaceholder="Search datasets by name, type, or description..."
           filters={filters}
-          showCreateButton={true}
+          showCreateButton={hasPermission('datasets:create')}
           createButtonLabel="Add Dataset"
           onCreateClick={handleCreateDataset}
           onRefresh={handleRefresh}
           pagination={true}
           itemsPerPage={25}
         />
+
+        {/* ============================================================================ */}
+        {/* EXISTING DIALOGS (keep all existing dialog components) */}
+        {/* ============================================================================ */}
 
         {/* Edit Dataset Dialog */}
         <Dialog 
@@ -949,20 +482,20 @@ const DatasetsPage: NextPage = () => {
               <Grid item xs={12}>
                 <TextField
                   fullWidth
+                  label="Description"
                   multiline
                   rows={3}
-                  label="Description"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 />
               </Grid>
               <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
-                  <InputLabel>Dataset Type</InputLabel>
+                  <InputLabel>Type</InputLabel>
                   <Select
                     value={formData.type}
+                    label="Type"
                     onChange={(e) => setFormData({ ...formData, type: e.target.value as any })}
-                    label="Dataset Type"
                   >
                     <MenuItem value="table">Table</MenuItem>
                     <MenuItem value="query">Query</MenuItem>
@@ -974,25 +507,12 @@ const DatasetsPage: NextPage = () => {
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  type="number"
                   label="Cache TTL (seconds)"
+                  type="number"
                   value={formData.cache_ttl}
                   onChange={(e) => setFormData({ ...formData, cache_ttl: parseInt(e.target.value) || 3600 })}
                 />
               </Grid>
-              {(formData.type === 'query' || formData.type === 'transformation') && (
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    multiline
-                    rows={6}
-                    label="Base Query"
-                    value={formData.base_query}
-                    onChange={(e) => setFormData({ ...formData, base_query: e.target.value })}
-                    helperText="SQL query or transformation logic"
-                  />
-                </Grid>
-              )}
               <Grid item xs={12}>
                 <FormControlLabel
                   control={
@@ -1001,9 +521,22 @@ const DatasetsPage: NextPage = () => {
                       onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
                     />
                   }
-                  label="Dataset Active"
+                  label="Active"
                 />
               </Grid>
+              {formData.type === 'query' && (
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="Base Query"
+                    multiline
+                    rows={6}
+                    value={formData.base_query}
+                    onChange={(e) => setFormData({ ...formData, base_query: e.target.value })}
+                    placeholder="SELECT * FROM your_table WHERE..."
+                  />
+                </Grid>
+              )}
             </Grid>
           </DialogContent>
           <DialogActions>
@@ -1011,54 +544,26 @@ const DatasetsPage: NextPage = () => {
               Cancel
             </Button>
             <Button 
+              variant="contained" 
               onClick={handleUpdateDataset}
-              variant="contained"
               disabled={submitting}
             >
-              {submitting ? 'Updating...' : 'Update Dataset'}
+              {submitting ? 'Saving...' : 'Save Changes'}
             </Button>
           </DialogActions>
         </Dialog>
 
-        {/* Delete Dataset Dialog */}
-        <Dialog 
-          open={deleteDialogOpen} 
+        {/* Delete Confirmation Dialog */}
+        <ConfirmDialog
+          open={deleteDialogOpen}
           onClose={() => setDeleteDialogOpen(false)}
-          maxWidth="sm"
-          fullWidth
-        >
-          <DialogTitle>Delete Dataset</DialogTitle>
-          <DialogContent>
-            <Typography paragraph>
-              Are you sure you want to delete "{selectedDataset?.display_name || selectedDataset?.name}"?
-            </Typography>
-            {selectedDataset?.usage_stats && (selectedDataset.usage_stats.chart_count > 0 || selectedDataset.usage_stats.dashboard_count > 0) && (
-              <Alert severity="warning" sx={{ mb: 2 }}>
-                This dataset is currently being used by{' '}
-                <strong>{selectedDataset.usage_stats.chart_count}</strong> charts and{' '}
-                <strong>{selectedDataset.usage_stats.dashboard_count}</strong> dashboards.
-                Deleting it will affect these resources.
-              </Alert>
-            )}
-            <Typography variant="body2" color="text.secondary">
-              This action cannot be undone and may affect existing charts and dashboards.
-              Consider archiving it instead of deleting.
-            </Typography>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setDeleteDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleDeleteConfirm}
-              color="error"
-              variant="contained"
-              disabled={submitting}
-            >
-              {submitting ? 'Deleting...' : 'Delete Dataset'}
-            </Button>
-          </DialogActions>
-        </Dialog>
+          onConfirm={handleDeleteDataset}
+          title="Delete Dataset"
+          message={`Are you sure you want to delete "${selectedDataset?.display_name || selectedDataset?.name}"? This action cannot be undone.`}
+          confirmText="Delete"
+          confirmColor="error"
+          loading={submitting}
+        />
       </Box>
     </WorkspaceLayout>
   );
