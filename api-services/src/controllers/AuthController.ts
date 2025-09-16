@@ -4,12 +4,11 @@
 import { Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { AuthService } from '../services/AuthService';
 import { PermissionService } from '../services/PermissionService';  // ✅ ADD THIS IMPORT
 import { logger } from '../utils/logger';
 import { AuthenticatedRequest } from '../types/express';
-import { db } from '../utils/database';
-
+import { db,queryWithLogging } from '../utils/database';
+import { AuthService, AuthenticatedUser, WorkspaceInfo } from '../services/AuthService';
 export class AuthController {
   private authService: AuthService;
   private permissionService: PermissionService;  // ✅ ADD THIS PROPERTY
@@ -556,82 +555,174 @@ export class AuthController {
     }
   };
 
-  /**
-   * ✅ Switch Workspace
+   /**
+   * ✅ CORRECTED: Switch workspace - using proper AuthService method
    * POST /api/auth/switch-workspace
    */
   public switchWorkspace = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const userId = req.user?.user_id;
-      const userEmail = req.user?.email;
-      
-      // ✅ Accept either workspace_id or workspaceId from request body
-      const { workspace_id, workspaceId } = req.body;
-      const targetWorkspaceId = workspace_id || workspaceId;
+      const { workspace_id } = req.body;
+      const currentUserId = req.user?.user_id;
 
-      console.log('🔄 AuthController: Switch workspace request', {
-        userId,
-        targetWorkspaceId,
-        requestBody: req.body
-      });
+      console.log('🔄 AuthController: Switching workspace for user:', currentUserId, 'to workspace:', workspace_id);
 
-      if (!userId) {
+      if (!currentUserId) {
         res.status(401).json({
           success: false,
           message: 'Authentication required',
-          error: 'USER_NOT_AUTHENTICATED'
+          error: 'No user context found'
         });
         return;
       }
 
-      if (!targetWorkspaceId) {
+      if (!workspace_id) {
         res.status(400).json({
           success: false,
           message: 'Workspace ID is required',
-          error: 'WORKSPACE_ID_REQUIRED'
+          error: 'Missing workspace_id in request body'
         });
         return;
       }
 
-      // Use AuthService to switch workspace
-      const result = await this.authService.switchWorkspace(userId, targetWorkspaceId);
-
-      if (!result.success) {
-        res.status(400).json({
+      // ✅ Verify user has access to the target workspace
+      const userWorkspaceQuery = `
+        SELECT uw.*, w.name, w.slug, w.display_name, w.description, w.is_active,
+               w.created_at as w_created_at, w.updated_at as w_updated_at,
+               r.name as role, r.role_level, r.id as role_id,
+               uw.created_at as joined_at,
+               (SELECT COUNT(DISTINCT ura2.user_id) 
+                FROM user_role_assignments ura2 
+                WHERE ura2.workspace_id = w.id AND ura2.is_active = true) as member_count,
+               (SELECT COUNT(*) 
+                FROM dashboards d 
+                WHERE d.workspace_id = w.id AND d.is_active = true) as dashboard_count,
+               (SELECT COUNT(*) 
+                FROM datasets ds 
+                WHERE ds.workspace_id = w.id AND ds.is_active = true) as dataset_count
+        FROM user_role_assignments uw
+        JOIN workspaces w ON uw.workspace_id = w.id
+        JOIN roles r ON uw.role_id = r.id
+        WHERE uw.user_id = $1 AND uw.workspace_id = $2 
+          AND uw.is_active = true AND w.is_active = true
+      `;
+      
+      const userWorkspaceResults = await db.query(userWorkspaceQuery, [currentUserId, workspace_id]);
+      
+      if (!userWorkspaceResults.rows || userWorkspaceResults.rows.length === 0) {
+        res.status(403).json({
           success: false,
-          message: result.error || 'Workspace switch failed',
-          error: 'WORKSPACE_SWITCH_FAILED'
+          message: 'Access denied to workspace',
+          error: 'User does not have access to the specified workspace'
         });
         return;
       }
 
+      const workspaceData = userWorkspaceResults.rows[0];
+
+      // ✅ Get updated user information in AuthenticatedUser format
+      const userQuery = `
+        SELECT id as user_id, username, email, first_name, last_name, avatar_url, 
+               is_active, last_login, created_at, updated_at,
+               CONCAT(first_name, ' ', last_name) as display_name
+        FROM users 
+        WHERE id = $1 AND is_active = true
+      `;
+      
+      const userResults = await db.query(userQuery, [currentUserId]);
+      
+      if (!userResults.rows || userResults.rows.length === 0) {
+        res.status(404).json({
+          success: false,
+          message: 'User not found',
+          error: 'User account not found or inactive'
+        });
+        return;
+      }
+
+      const userData = userResults.rows[0];
+
+      // ✅ Create AuthenticatedUser object for generateAuthToken
+      const user: AuthenticatedUser = {
+        id: userData.user_id,
+        username: userData.username || '',
+        email: userData.email,
+        first_name: userData.first_name,
+        last_name: userData.last_name,
+        avatar_url: userData.avatar_url,
+        is_active: userData.is_active,
+        last_login: userData.last_login,
+        created_at: userData.created_at,
+        updated_at: userData.updated_at
+      };
+
+      // ✅ Create WorkspaceInfo object for generateAuthToken
+      const workspace: WorkspaceInfo = {
+        id: workspaceData.workspace_id,
+        name: workspaceData.name,
+        slug: workspaceData.slug,
+        description: workspaceData.description,
+        is_active: workspaceData.is_active,
+        created_at: workspaceData.w_created_at,
+        updated_at: workspaceData.w_updated_at,
+        role: workspaceData.role,
+        role_level: parseInt(workspaceData.role_level) || 0,
+        role_id: workspaceData.role_id,
+        member_count: parseInt(workspaceData.member_count) || 0,
+        dashboard_count: parseInt(workspaceData.dashboard_count) || 0,
+        dataset_count: parseInt(workspaceData.dataset_count) || 0,
+        joined_at: workspaceData.joined_at
+      };
+
+      // ✅ Get workspace-specific permissions
+      const permissions = await this.authService.getUserPermissions(currentUserId, workspace_id);
+      console.log('🔐 AuthController: Retrieved permissions for workspace:', permissions);
+
+      // ✅ CORRECTED: Generate new workspace-scoped token using AuthService
+      const token = await this.authService.generateAuthToken(user, workspace);
+
+      // ✅ Update user's last workspace access
+      const updateAccessQuery = `
+        UPDATE user_role_assignments 
+        SET updated_at = NOW() 
+        WHERE user_id = $1 AND workspace_id = $2
+      `;
+      
+      await db.query(updateAccessQuery, [currentUserId, workspace_id]);
+
+      // ✅ Return comprehensive response matching login structure
+      console.log('✅ AuthController: Workspace switch successful');
+      
       res.status(200).json({
         success: true,
-        message: 'Workspace switched successfully',
+        message: `Successfully switched to workspace: ${workspace.name}`,
         data: {
-          token: result.token,
-          workspace: result.workspace,
-          permissions: result.permissions || [], // ✅ CRITICAL: Always include permissions
-          user_info: {
-            user_id: userId,
-            email: userEmail,
-            workspace_id: targetWorkspaceId
-          }
+          token,
+          user: {
+            user_id: user.id,
+            username: user.username || undefined,
+            email: user.email,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            avatar_url: user.avatar_url || undefined,
+            display_name: userData.display_name || undefined,
+          },
+          workspace: {
+            id: workspace.id,
+            name: workspace.name,
+            slug: workspace.slug,
+            display_name: workspaceData.display_name
+          },
+          permissions
         }
       });
 
     } catch (error: any) {
-      logger.error('AuthController: Switch workspace error', {
-        error: error.message,
-        stack: error.stack,
-        userId: req.user?.user_id,
-        service: 'bi-platform-api'
-      });
-
+      console.error('❌ AuthController: Switch workspace error:', error);
+      
       res.status(500).json({
         success: false,
-        message: 'Internal server error',
-        error: 'INTERNAL_SERVER_ERROR'
+        message: 'Failed to switch workspace',
+        error: error.message || 'Internal server error during workspace switch'
       });
     }
   };
@@ -666,10 +757,10 @@ export class AuthController {
 
       let workspace = null;
       if (workspaceId) {
-        workspace = await this.authService.getWorkspaceById(workspaceId);
+        workspace = await this.authService.getWorkspaceById(workspaceId,userId);
       }
 
-      const newToken = await this.authService.generateJWTToken(user, workspace);
+      const newToken = await this.authService.generateAuthToken(user, workspace);
 
       res.status(200).json({
         success: true,

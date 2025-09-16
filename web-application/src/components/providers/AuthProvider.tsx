@@ -116,65 +116,94 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  // Manual async function to switch workspace
   const switchWorkspaceAsync = async (workspaceId: string): Promise<any> => {
-    try {
-      console.log('🔄 AuthProvider: Switching workspace to:', workspaceId);
-      
-      const token = authStorage.getToken();
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
-      
-      // Get current context
-      const currentUser = authStorage.getUser();
-      const currentWorkspace = workspaceStorage.getCurrentWorkspace();
-
-      const response = await fetch(`${API_BASE_URL}/api/auth/switch-workspace`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'X-Workspace-Id': currentWorkspace?.id || '',
-          'X-Workspace-Slug': currentWorkspace?.slug || '',
-          'X-User-Id': currentUser?.user_id || ''
-        },
-        body: JSON.stringify({
-          workspaceId: workspaceId  // Change from workspaceSlug to workspaceId
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.message || 'Failed to switch workspace');
-      }
-      
-      // Update token and workspace in storage and Redux
-      const { token: newToken, workspace: newWorkspace, permissions } = result.data;
-      
-      if (newToken) {
-        authStorage.setToken(newToken);
-        dispatch(setCredentials({ user: auth.user, token: newToken, permissions }));
-      }
-      
-      if (newWorkspace) {
-        workspaceStorage.setCurrentWorkspace(newWorkspace);
-        dispatch(setCurrentWorkspace(newWorkspace));
-      }
-      
-      console.log('✅ AuthProvider: Workspace switched successfully');
-      return result;
-      
-    } catch (error: any) {
-      console.error('❌ AuthProvider: Error switching workspace:', error);
-      throw error;
+  try {
+    console.log('🔄 AuthProvider: Switching workspace to:', workspaceId);
+    
+    const token = authStorage.getToken();
+    if (!token) {
+      throw new Error('No authentication token found');
     }
-  };
+    
+    // Get current context
+    const currentUser = authStorage.getUser();
+    const currentWorkspace = workspaceStorage.getCurrentWorkspace();
+
+    const response = await fetch(`${API_BASE_URL}/api/auth/switch-workspace`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'X-Workspace-Id': currentWorkspace?.id || '',
+        'X-Workspace-Slug': currentWorkspace?.slug || '',
+        'X-User-Id': currentUser?.user_id || ''
+      },
+      body: JSON.stringify({
+        workspace_id: workspaceId  // Send workspace_id as expected
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const result = await response.json();
+    
+    if (!result.success) {
+      throw new Error(result.message || 'Failed to switch workspace');
+    }
+
+    // ✅ UPDATED: Handle comprehensive response like login
+    if (result.data && result.data.user && result.data.token && result.data.workspace) {
+      const { user, token: newToken, workspace, permissions } = result.data;
+      
+      console.log('✅ AuthProvider: Switch workspace successful!');
+      console.log('🔑 New token received:', newToken ? 'Present' : 'Missing');
+      console.log('👤 User data:', user);
+      console.log('🏢 Workspace:', workspace);
+      console.log('🔐 Permissions:', permissions);
+      
+      // ✅ STORE ALL AUTHENTICATION DATA (same as login)
+      authStorage.setToken(newToken);
+      console.log('💾 New token stored in localStorage');
+      
+      authStorage.setUser(user);
+      console.log('💾 User data stored in localStorage');
+      
+      workspaceStorage.setCurrentWorkspace(workspace);
+      console.log('💾 Workspace data stored in localStorage');
+
+      if (permissions) {
+        authStorage.setPermissions(permissions);
+        console.log('💾 Permissions stored in localStorage');
+      }
+
+      // ✅ UPDATE REDUX STORE (same as login)
+      dispatch(setCredentials({ user, token: newToken, permissions }));
+      console.log('🔄 Redux credentials updated');
+      
+      dispatch(setCurrentWorkspace(workspace));
+      console.log('🔄 Redux workspace updated');
+      
+      console.log('✅ AuthProvider: All data stored successfully for workspace switch');
+      
+      return {
+        success: true,
+        workspace,
+        user,
+        permissions,
+        message: result.message
+      };
+      
+    } else {
+      throw new Error('Invalid workspace switch response structure');
+    }
+      
+  } catch (error: any) {
+    console.error('❌ AuthProvider: Error switching workspace:', error);
+    throw error;
+  }
+};
 
   // Login function
   const login= async (email: string, password: string): Promise<any> => {

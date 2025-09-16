@@ -47,6 +47,7 @@ import { PermissionGate } from '../shared/PermissionGate';
 import { useAuth } from '../../hooks/useAuth';
 import { usePermissions } from '../../hooks/usePermissions';
 import {WorkspaceStats } from '@/types/workspace.types'
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 // ✅ ONLY ADDITION: Import cleanup functions
 import { cleanExpiredItems, cleanStalePermissions } from '../../utils/storageUtils';
@@ -106,10 +107,10 @@ const OverviewTemplate: React.FC<OverviewTemplateProps> = ({
 
     try {
       setStatsLoading(true);
-      
+      const token = authStorage.getToken();
       const response = await fetch(`/api/workspaces/${currentWorkspace.id}/stats`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });

@@ -2,10 +2,15 @@
 // Fixed workspace slice using storage utilities instead of hard-coded keys
 
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import type { Workspace } from '@/types/auth';
+import type { Workspace,SwitchWorkspaceResponse } from '@/types/auth.types';
 import { workspaceStorage, authStorage } from '@/utils/storageUtils';
 import { API_ENDPOINTS, API_CONFIG } from '@/constants/api';
 import { SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants';
+import { 
+  setCredentials, 
+  logout as logoutAction, 
+  setError 
+} from '../../store/slices/authSlice';
 
 // ========================================
 // INTERFACES & TYPES
@@ -144,7 +149,7 @@ export const fetchAvailableWorkspaces = createAsyncThunk(
 );
 
 /**
- * ✅ FIXED: Switch to a different workspace - only send workspace_id
+ * ✅ UPDATED: Switch workspace with comprehensive data handling like login
  */
 export const switchWorkspace = createAsyncThunk(
   'workspace/switch',
@@ -166,7 +171,6 @@ export const switchWorkspace = createAsyncThunk(
         throw new Error('No authentication token found');
       }
       
-      // ✅ FIXED: Only send workspace_id in request body
       const response = await fetch(`${API_CONFIG.BASE_URL}${API_ENDPOINTS.WORKSPACES.SWITCH}`, {
         method: 'POST',
         headers: {
@@ -174,9 +178,8 @@ export const switchWorkspace = createAsyncThunk(
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          workspace_id: payload.workspaceId, // Only send workspace_id
+          workspace_id: payload.workspaceId,
         }),
-        timeout: API_CONFIG.TIMEOUT,
       });
       
       if (!response.ok) {
@@ -184,31 +187,70 @@ export const switchWorkspace = createAsyncThunk(
         throw new Error(errorData.error || ERROR_MESSAGES.WORKSPACE.SWITCH_FAILED || `HTTP ${response.status}`);
       }
       
-      const data: WorkspaceApiResponse = await response.json();
+      const data: SwitchWorkspaceResponse = await response.json();
       
-      if (!data.success || !data.data?.workspace) {
+      if (!data.success || !data.data) {
         throw new Error(data.error || 'Invalid workspace switch response');
       }
+
+      // ✅ UPDATED: Handle comprehensive response like login
+      const { user, token: newToken, workspace, permissions } = data.data;
       
-      const newWorkspace = data.data.workspace;
+      console.log('✅ WorkspaceSlice: Switch workspace successful!');
+      console.log('🔑 New token received:', newToken ? 'Present' : 'Missing');
+      console.log('👤 User data:', user);
+      console.log('🏢 Workspace:', workspace);
+      console.log('🔐 Permissions:', permissions);
       
-      // Persist workspace
-      workspaceStorage.setCurrentWorkspace(newWorkspace);
-      
-      // Update session data if present
-      if (data.data.session) {
-        const sessionData = workspaceStorage.getSessionData() || {};
-        workspaceStorage.setSessionData({
-          ...sessionData,
-          currentWorkspace: newWorkspace,
-          lastWorkspaceSwitch: Date.now(),
-        });
+      // Validate we have required data
+      if (!newToken) {
+        throw new Error('No authentication token received from server');
       }
       
-      console.log('✅ WorkspaceSlice: Successfully switched to workspace:', newWorkspace.name);
+      if (!user) {
+        throw new Error('No user data received from server');
+      }
+      
+      if (!workspace) {
+        throw new Error('No workspace data received from server');
+      }
+
+      // ✅ STORE ALL AUTHENTICATION DATA (same as login)
+      authStorage.setToken(newToken);
+      console.log('💾 New token stored in localStorage:', newToken.substring(0, 20) + '...');
+      
+      authStorage.setUser(user);
+      console.log('💾 User data stored in localStorage');
+      
+      workspaceStorage.setCurrentWorkspace(workspace);
+      console.log('💾 Workspace data stored in localStorage');
+
+      if (permissions) {
+        authStorage.setPermissions(permissions);
+        console.log('💾 Permissions stored in localStorage');
+      }
+
+      // ✅ UPDATE REDUX STORE (same as login)
+      dispatch(setCredentials({ user, token: newToken, permissions }));
+      console.log('🔄 Redux credentials updated');
+      
+      dispatch(setCurrentWorkspace(workspace));
+      console.log('🔄 Redux workspace updated');
+      
+      // Update session data
+      const sessionData = workspaceStorage.getSessionData() || {};
+      workspaceStorage.setSessionData({
+        ...sessionData,
+        currentWorkspace: workspace,
+        lastWorkspaceSwitch: Date.now(),
+      });
+      
+      console.log('✅ WorkspaceSlice: Successfully switched to workspace:', workspace.name);
       
       return {
-        workspace: newWorkspace,
+        workspace,
+        user,
+        permissions,
         switched: true,
         message: data.message || SUCCESS_MESSAGES.WORKSPACE.SWITCHED,
       };
@@ -219,6 +261,7 @@ export const switchWorkspace = createAsyncThunk(
     }
   }
 );
+
 
 
 /**

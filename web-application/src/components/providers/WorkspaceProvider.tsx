@@ -4,33 +4,34 @@ import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../store';
 import { setCurrentWorkspace } from '../../store/slices/workspaceSlice';
 import { useRouter } from 'next/router';
+import {Workspace} from '@/types/workspace.types';
 
-// Types
-interface Workspace {
-  id: string;
-  name: string;
-  slug: string;
-  display_name?: string;
-  description?: string;
-  logo_url?: string;
-  user_count?: number;
-  dashboard_count?: number;
-  dataset_count?: number;
-  is_default?: boolean;
-  role?: string;
-  created_at: string;
-  updated_at: string;
-  last_accessed?: string;
-  settings?: Record<string, any>;
-  is_active?: boolean;
-}
 
-interface WorkspaceContextType {
+export interface WorkspaceContextType {
+  // Current workspace state
   currentWorkspace: Workspace | null;
-  workspaces: Workspace[];
-  isLoading?: boolean;
-  error?: string | null;
+  availableWorkspaces: Workspace[];
   switchToFirstWorkspace: () => void;
+  // ✅ UPDATED: Include user and permissions context for workspace
+  currentUser: User | null;           // User context for current workspace
+  currentPermissions: string[];       // Workspace-specific permissions
+  
+  // Loading states
+  isLoading: boolean;
+  isSwitching: boolean;
+  
+  // Error handling
+  error: string | null;
+  
+  // Actions
+  switchWorkspace: (workspaceId: string) => Promise<void>;
+  fetchWorkspaces: () => Promise<Workspace[]>;
+  refreshWorkspaceContext: () => Promise<void>;
+  
+  // Permission checks
+  hasPermission: (permission: string) => boolean;
+  hasAnyPermission: (permissions: string[]) => boolean;
+  hasAllPermissions: (permissions: string[]) => boolean;
 }
 
 // Context creation with default values

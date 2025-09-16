@@ -324,16 +324,51 @@ export interface SwitchWorkspaceRequest {
   workspace_id: string; // Backend expects workspace_id, not slug
 }
 
-export interface SwitchWorkspaceResponse {
-  success: boolean;
-  data: {
-    workspace: Workspace;
-    permissions: string[];
-    token?: string;
-  };
-  message: string;
+// web-application/src/types/auth.types.ts
+
+// ============================================================================
+// WORKSPACE SWITCHING TYPES - UPDATED TO MATCH LOGIN RESPONSE
+// ============================================================================
+
+export interface SwitchWorkspaceRequest {
+  workspace_id: string;
 }
 
+// ✅ UPDATED: Match login response structure exactly
+export interface SwitchWorkspaceResponse {
+  success: boolean;
+  message: string;
+  data: {
+    token: string;              // New workspace-scoped token
+    user: {                     // Updated user context for workspace
+      user_id: string;
+      username?: string;
+      email: string;
+      first_name: string;
+      last_name: string;
+      avatar_url?: string;
+      display_name?: string;
+    };
+    workspace: {                // New current workspace
+      id: string;
+      name: string;
+      slug: string;
+      display_name?: string;
+    };
+    permissions: string[];      // Workspace-specific permissions
+  };
+  error?: string;
+}
+
+// RTK Query mutation result type
+export interface SwitchWorkspaceMutationResult {
+  data?: SwitchWorkspaceResponse;
+  error?: {
+    status: number;
+    data: AuthErrorResponse;
+    message?: string;
+  };
+}
 // ============================================================================
 // SESSION MANAGEMENT TYPES
 // ============================================================================
