@@ -112,7 +112,7 @@ const fetchLiveDashboard = async (dashboardId: string): Promise<Dashboard> => {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
   const token = authStorage.getToken(); // ✅ Use storage utility
 
-  const response = await fetch(`${apiUrl}/api/v1/dashboards/${dashboardId}`, {
+  const response = await fetch(`${apiUrl}/api/dashboards/${dashboardId}`, {
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',

@@ -1,14 +1,7 @@
-// src/pages/workspace/admin/user-management.tsx - Updated with Merged RBAC APIs
 import React, { useState, useMemo } from 'react';
-import { NextPage } from 'next';
-import { useRouter } from 'next/router';
 import {
   Box,
-  Container,
-  Typography,
   Button,
-  Chip,
-  Avatar,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -18,40 +11,34 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Chip,
+  IconButton,
   Switch,
   FormControlLabel,
-  Alert,
-  Tabs,
-  Tab,
-  Paper,
-  Grid,
-  CircularProgress,
-  OutlinedInput,
-  ListItemText,
-  Checkbox,
-  IconButton,
+  Typography,
+  Avatar,
   Tooltip,
-  Card,
-  CardContent,
+  Alert,
+  Autocomplete,
+  Tab,
+  Tabs,
+  Grid,
+  Paper,
   Divider
 } from '@mui/material';
 import {
-  Person as PersonIcon,
-  PersonAdd as PersonAddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Block as BlockIcon,
-  CheckCircle as ActiveIcon,
-  Security as RoleIcon,
-  Shield as PermissionIcon,
-  Add as AddIcon,
-  Email as EmailIcon,
-  Key as KeyIcon,
-  Group as GroupIcon,
-  Refresh as RefreshIcon,
-  AdminPanelSettings as AdminIcon,
-  Assignment as AssignIcon,
-  RemoveCircle as RevokeIcon
+  Add,
+  Edit,
+  Delete,
+  Person,
+  Email,
+  Business,
+  AdminPanelSettings,
+  Security,
+  Group,
+  Assignment,
+  Visibility,
+  Block
 } from '@mui/icons-material';
 
 // Import existing components
@@ -63,77 +50,54 @@ import CommonTableLayout, {
 } from '../../../components/shared/CommonTableLayout';
 import { PermissionGate } from '../../../components/shared/PermissionGate';
 
-// Import hooks and services
-import { useAuth } from '../../../hooks/useAuth';
-import { usePermissions } from '../../../hooks/usePermissions';
-import { useWorkspace } from '../../../hooks/useWorkspace';
+// ✅ FIXED: Import RTK Query APIs correctly
+import { userApi } from '../../../store/api/userApi';
+import { roleApi } from '../../../store/api/roleApi';
+import { permissionApi } from '../../../store/api/permissionApi';
 
-// Import merged RBAC API hooks
-import {
-  // Users API hooks
-  useGetUsersQuery,
-  useGetUserByIdQuery,
-  useGetUserPermissionsQuery,
-  useCreateUserMutation,
-  useUpdateUserMutation,
-  useDeactivateUserMutation,
-  useReactivateUserMutation,
-  useDeleteUserMutation,
-  useSearchUsersQuery,
-
-  // Merged Roles API hooks (roles + role assignments)
-  useGetWorkspaceRolesQuery,
-  useGetUserRoleAssignmentsQuery,
-  useCreateRoleMutation,
-  useUpdateRoleMutation,
-  useDeleteRoleMutation,
-  useAssignRoleToUserMutation,
-  useRemoveRoleAssignmentMutation,
-  useBulkAssignRolesMutation,
-  useGetAssignmentStatsQuery,
-
-  // Merged Permissions API hooks (permissions + permission assignments)
-  useGetPermissionsByCategoryQuery,
-  useGetRolePermissionAssignmentsQuery,
-  useAssignPermissionToRoleMutation,
-  useBulkAssignPermissionsMutation,
-  useRemovePermissionFromRoleMutation,
-} from '../../../store';
-
-import type { 
-  User, 
-  Role, 
-  Permission, 
-  UserRoleAssignment,
-  CreateUserRequest,
-  CreateRoleRequest,
-  AssignRoleToUserRequest
-} from '../../../types/rbac.types';
-
-// Enhanced interfaces for the component
-interface UserListItem extends BaseListItem {
-  username: string;
+// Types extending BaseListItem
+interface User extends BaseListItem {
+  id: string;
   email: string;
-  name: string;
+  first_name?: string;
+  last_name?: string;
+  avatar_url?: string;
   is_active: boolean;
-  last_login?: string;
-  created_at: string;
-  updated_at: string;
-  user_type?: 'internal' | 'external' | 'service_account';
+  roles?: string[];
+  permissions?: string[];
+  created_at?: string;
+  updated_at?: string;
+  // For display purposes
+  display_name?: string;
+  role_names?: string[];
+}
+
+interface Role extends BaseListItem {
+  id: string;
+  name: string;
+  description?: string;
+  permissions?: string[];
+  is_system?: boolean;
+  created_at?: string;
+  user_count?: number;
+}
+
+interface Permission extends BaseListItem {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  resource_type?: string;
+  action?: string;
 }
 
 interface UserFormData {
-  name: string;
   email: string;
+  first_name: string;
+  last_name: string;
   password: string;
+  roles: string[];
   is_active: boolean;
-  user_type: 'internal' | 'external' | 'service_account';
-}
-
-interface RoleFormData {
-  name: string;
-  description: string;
-  permission_ids: string[];
 }
 
 interface TabPanelProps {
@@ -142,878 +106,563 @@ interface TabPanelProps {
   value: number;
 }
 
-// Tab Panel Component
-const TabPanel: React.FC<TabPanelProps> = ({ children, value, index, ...other }) => {
+function TabPanel(props: TabPanelProps) {
+  const { children, value, index, ...other } = props;
   return (
     <div
       role="tabpanel"
       hidden={value !== index}
-      id={`user-management-tabpanel-${index}`}
-      aria-labelledby={`user-management-tab-${index}`}
+      id={`user-tabpanel-${index}`}
+      aria-labelledby={`user-tab-${index}`}
       {...other}
     >
-      {value === index && (
-        <Box sx={{ pt: 3 }}>
-          {children}
-        </Box>
-      )}
+      {value === index && <Box sx={{ p: 0 }}>{children}</Box>}
     </div>
   );
-};
+}
 
-const UserManagementPage: NextPage = () => {
-  const router = useRouter();
-  const { user: currentUser } = useAuth();
-  const { hasPermission } = usePermissions();
-  const { workspace } = useWorkspace();
-  const workspaceId = workspace?.id || '';
-
-  // Tab state
-  const [activeTab, setActiveTab] = useState(0);
-
-  // Dialog states
-  const [userDialogOpen, setUserDialogOpen] = useState(false);
-  const [roleDialogOpen, setRoleDialogOpen] = useState(false);
-  const [roleAssignDialogOpen, setRoleAssignDialogOpen] = useState(false);
-  const [permissionAssignDialogOpen, setPermissionAssignDialogOpen] = useState(false);
-
-  // Editing states
+const UserManagement: React.FC = () => {
+  // State management
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [editingRole, setEditingRole] = useState<Role | null>(null);
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
-
-  // Form data states
-  const [userFormData, setUserFormData] = useState<UserFormData>({
-    name: '',
+  const [currentTab, setCurrentTab] = useState(0);
+  const [formData, setFormData] = useState<UserFormData>({
     email: '',
+    first_name: '',
+    last_name: '',
     password: '',
+    roles: [],
     is_active: true,
-    user_type: 'internal',
   });
 
-  const [roleFormData, setRoleFormData] = useState<RoleFormData>({
-    name: '',
-    description: '',
-    permission_ids: [],
-  });
-
-  // ==================== DATA FETCHING ====================
-
-  // Fetch users with workspace filtering
+  // ✅ FIXED: Use RTK Query hooks correctly from API objects
   const { 
-    data: usersResponse, 
-    isLoading: usersLoading,
+    data: usersData, 
+    isLoading: usersLoading, 
     error: usersError,
     refetch: refetchUsers 
-  } = useGetUsersQuery({ 
-    workspace_id: workspaceId, 
-    is_active: true,
-    page: 1,
-    limit: 100 
+  } = userApi.useGetUsersQuery({
+    limit: 100,
+    is_active: true
   });
 
-  // Fetch workspace roles
   const { 
-    data: rolesResponse, 
-    isLoading: rolesLoading,
-    refetch: refetchRoles 
-  } = useGetWorkspaceRolesQuery(workspaceId);
+    data: rolesData, 
+    isLoading: rolesLoading 
+  } = roleApi.useGetRolesQuery({
+    limit: 50,
+    include_permissions: true
+  });
 
-  // Fetch permissions grouped by category
   const { 
-    data: permissionsByCategoryResponse,
+    data: permissionsData, 
     isLoading: permissionsLoading 
-  } = useGetPermissionsByCategoryQuery();
+  } = permissionApi.useGetPermissionsQuery({
+    limit: 100
+  });
 
-  // Fetch user role assignments for selected user
-  const { 
-    data: userRolesResponse 
-  } = useGetUserRoleAssignmentsQuery(
-    { userId: selectedUser?.id || '', workspaceId },
-    { skip: !selectedUser?.id }
-  );
+  // Mutation hooks
+  const [createUser, { isLoading: isCreating }] = userApi.useCreateUserMutation();
+  const [updateUser, { isLoading: isUpdating }] = userApi.useUpdateUserMutation();
+  const [deleteUser, { isLoading: isDeleting }] = userApi.useDeleteUserMutation();
+  const [assignRoleToUser] = roleApi.useAssignRoleToUserMutation();
+  const [removeRoleAssignment] = roleApi.useRemoveRoleAssignmentMutation();
 
-  // Fetch role permissions for selected role
-  const { 
-    data: rolePermissionsResponse 
-  } = useGetRolePermissionAssignmentsQuery(
-    selectedRole?.id || '',
-    { skip: !selectedRole?.id }
-  );
+  // Data processing with CommonTableLayout format
+  const users: User[] = useMemo(() => {
+    const rawUsers = usersData?.data || [];
+    return rawUsers.map(user => ({
+      ...user,
+      display_name: user.first_name && user.last_name 
+        ? `${user.first_name} ${user.last_name}` 
+        : user.email,
+      role_names: user.roles?.map(roleId => {
+        const role = (rolesData?.data || []).find(r => r.id === roleId);
+        return role?.name || roleId;
+      }) || []
+    }));
+  }, [usersData, rolesData]);
 
-  // Fetch assignment statistics
-  const { 
-    data: assignmentStatsResponse 
-  } = useGetAssignmentStatsQuery(workspaceId);
+  const roles: Role[] = useMemo(() => rolesData?.data || [], [rolesData]);
+  const permissions: Permission[] = useMemo(() => permissionsData?.data || [], [permissionsData]);
 
-  // ==================== MUTATIONS ====================
-
-  // User mutations
-  const [createUser, { isLoading: isCreatingUser }] = useCreateUserMutation();
-  const [updateUser, { isLoading: isUpdatingUser }] = useUpdateUserMutation();
-  const [deactivateUser] = useDeactivateUserMutation();
-  const [reactivateUser] = useReactivateUserMutation();
-  const [deleteUser] = useDeleteUserMutation();
-
-  // Role mutations
-  const [createRole, { isLoading: isCreatingRole }] = useCreateRoleMutation();
-  const [updateRole] = useUpdateRoleMutation();
-  const [deleteRole] = useDeleteRoleMutation();
-
-  // Assignment mutations
-  const [assignRoleToUser] = useAssignRoleToUserMutation();
-  const [removeRoleAssignment] = useRemoveRoleAssignmentMutation();
-  const [bulkAssignRoles] = useBulkAssignRolesMutation();
-  const [assignPermissionToRole] = useAssignPermissionToRoleMutation();
-  const [bulkAssignPermissions] = useBulkAssignPermissionsMutation();
-  const [removePermissionFromRole] = useRemovePermissionFromRoleMutation();
-
-  // ==================== DERIVED DATA ====================
-
-  const users = usersResponse?.data || [];
-  const roles = rolesResponse?.data || [];
-  const permissionsByCategory = permissionsByCategoryResponse?.data || [];
-  const userRoles = userRolesResponse?.data || [];
-  const rolePermissions = rolePermissionsResponse?.data || [];
-  const assignmentStats = assignmentStatsResponse?.data;
-
-  // ==================== HANDLERS ====================
-
-  // User handlers
+  // Event handlers
   const handleCreateUser = async () => {
     try {
-      await createUser(userFormData).unwrap();
-      setUserDialogOpen(false);
-      resetUserForm();
+      const userData = {
+        ...formData,
+        ...(formData.password && { password: formData.password })
+      };
+
+      let user;
+      if (editingUser) {
+        const { password, ...updateData } = userData;
+        const result = await updateUser({
+          id: editingUser.id,
+          updates: password ? userData : updateData
+        }).unwrap();
+        user = result.data;
+      } else {
+        const result = await createUser(userData).unwrap();
+        user = result.data;
+      }
+
+      // Handle role assignments
+      if (formData.roles.length > 0 && user) {
+        for (const roleId of formData.roles) {
+          try {
+            await assignRoleToUser({
+              userId: user.id,
+              roleId,
+              assignedBy: 'current-user',
+            }).unwrap();
+          } catch (roleError) {
+            console.error(`Failed to assign role ${roleId}:`, roleError);
+          }
+        }
+      }
+
+      setDialogOpen(false);
+      resetForm();
       refetchUsers();
     } catch (error) {
-      console.error('Failed to create user:', error);
+      console.error('Failed to save user:', error);
     }
   };
 
-  const handleUpdateUser = async () => {
-    if (!editingUser) return;
-    
-    try {
-      await updateUser({
-        id: editingUser.id,
-        ...userFormData
-      }).unwrap();
-      setUserDialogOpen(false);
-      resetUserForm();
-      refetchUsers();
-    } catch (error) {
-      console.error('Failed to update user:', error);
-    }
-  };
-
-  const handleDeactivateUser = async (userId: string) => {
-    try {
-      await deactivateUser(userId).unwrap();
-      refetchUsers();
-    } catch (error) {
-      console.error('Failed to deactivate user:', error);
-    }
-  };
-
-  const handleReactivateUser = async (userId: string) => {
-    try {
-      await reactivateUser(userId).unwrap();
-      refetchUsers();
-    } catch (error) {
-      console.error('Failed to reactivate user:', error);
-    }
-  };
-
-  // Role handlers
-  const handleCreateRole = async () => {
-    try {
-      await createRole({
-        workspace_id: workspaceId,
-        ...roleFormData
-      }).unwrap();
-      setRoleDialogOpen(false);
-      resetRoleForm();
-      refetchRoles();
-    } catch (error) {
-      console.error('Failed to create role:', error);
-    }
-  };
-
-  const handleUpdateRole = async () => {
-    if (!editingRole) return;
-
-    try {
-      await updateRole({
-        id: editingRole.id,
-        ...roleFormData
-      }).unwrap();
-      setRoleDialogOpen(false);
-      resetRoleForm();
-      refetchRoles();
-    } catch (error) {
-      console.error('Failed to update role:', error);
-    }
-  };
-
-  // Assignment handlers
-  const handleAssignRole = async (userId: string, roleId: string) => {
-    try {
-      await assignRoleToUser({
-        user_id: userId,
-        workspace_id: workspaceId,
-        role_id: roleId,
-      }).unwrap();
-      refetchUsers();
-    } catch (error) {
-      console.error('Failed to assign role:', error);
-    }
-  };
-
-  const handleRemoveRole = async (assignmentId: string) => {
-    try {
-      await removeRoleAssignment(assignmentId).unwrap();
-      refetchUsers();
-    } catch (error) {
-      console.error('Failed to remove role:', error);
-    }
-  };
-
-  const handleAssignPermission = async (roleId: string, permissionId: string) => {
-    try {
-      await assignPermissionToRole({
-        role_id: roleId,
-        permission_id: permissionId,
-      }).unwrap();
-    } catch (error) {
-      console.error('Failed to assign permission:', error);
-    }
-  };
-
-  const handleRemovePermission = async (roleId: string, permissionId: string) => {
-    try {
-      await removePermissionFromRole({
-        role_id: roleId,
-        permission_id: permissionId,
-      }).unwrap();
-    } catch (error) {
-      console.error('Failed to remove permission:', error);
-    }
-  };
-
-  // Form helpers
-  const resetUserForm = () => {
-    setUserFormData({
-      name: '',
-      email: '',
+  const handleEditUser = (user: User) => {
+    setEditingUser(user);
+    setFormData({
+      email: user.email,
+      first_name: user.first_name || '',
+      last_name: user.last_name || '',
       password: '',
+      roles: user.roles || [],
+      is_active: user.is_active,
+    });
+    setDialogOpen(true);
+  };
+
+  const handleDeleteUser = async (user: User) => {
+    if (window.confirm(`Are you sure you want to delete user ${user.email}?`)) {
+      try {
+        await deleteUser(user.id).unwrap();
+        refetchUsers();
+      } catch (error) {
+        console.error('Failed to delete user:', error);
+      }
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      email: '',
+      first_name: '',
+      last_name: '',
+      password: '',
+      roles: [],
       is_active: true,
-      user_type: 'internal',
     });
     setEditingUser(null);
   };
 
-  const resetRoleForm = () => {
-    setRoleFormData({
-      name: '',
-      description: '',
-      permission_ids: [],
-    });
-    setEditingRole(null);
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setCurrentTab(newValue);
   };
 
-  const openUserDialog = (user?: User) => {
-    if (user) {
-      setEditingUser(user);
-      setUserFormData({
-        name: user.name,
-        email: user.email,
-        password: '', // Don't pre-fill password
-        is_active: user.is_active,
-        user_type: 'internal', // Default, since this may not be in the user object
-      });
-    } else {
-      resetUserForm();
-    }
-    setUserDialogOpen(true);
-  };
-
-  const openRoleDialog = (role?: Role) => {
-    if (role) {
-      setEditingRole(role);
-      setRoleFormData({
-        name: role.name,
-        description: role.description,
-        permission_ids: role.permissions?.map(p => p.id) || [],
-      });
-    } else {
-      resetRoleForm();
-    }
-    setRoleDialogOpen(true);
-  };
-
-  // Table columns configuration
-  const userColumns: TableColumn[] = [
+  // Column definitions for CommonTableLayout
+  const userColumns: TableColumn<User>[] = [
     {
-      key: 'name',
-      label: 'Name',
+      key: 'avatar',
+      label: '',
+      width: 60,
+      render: (user) => (
+        <Avatar src={user.avatar_url} sx={{ width: 32, height: 32 }}>
+          {user.first_name 
+            ? user.first_name.charAt(0).toUpperCase() 
+            : user.email.charAt(0).toUpperCase()
+          }
+        </Avatar>
+      )
+    },
+    {
+      key: 'email',
+      label: 'Email',
+      width: 200,
       sortable: true,
-      render: (user: User) => (
-        <Box display="flex" alignItems="center">
-          <Avatar sx={{ mr: 2, width: 32, height: 32 }}>
-            <PersonIcon />
-          </Avatar>
-          <Box>
-            <Typography variant="body2" fontWeight="medium">
-              {user.name}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {user.email}
-            </Typography>
-          </Box>
+    },
+    {
+      key: 'display_name',
+      label: 'Name',
+      width: 180,
+      sortable: true,
+      render: (user) => user.display_name || user.email
+    },
+    {
+      key: 'roles',
+      label: 'Roles',
+      width: 250,
+      render: (user) => (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+          {user.role_names?.map((roleName, index) => (
+            <Chip 
+              key={`${user.id}-role-${index}`}
+              label={roleName} 
+              size="small" 
+              color="primary"
+              variant="outlined"
+            />
+          ))}
         </Box>
-      ),
+      )
     },
     {
       key: 'is_active',
       label: 'Status',
-      render: (user: User) => (
-        <Chip
-          icon={user.is_active ? <ActiveIcon /> : <BlockIcon />}
-          label={user.is_active ? 'Active' : 'Inactive'}
-          color={user.is_active ? 'success' : 'default'}
-          size="small"
+      width: 100,
+      sortable: true,
+      render: (user) => (
+        <Chip 
+          label={user.is_active ? 'Active' : 'Inactive'} 
+          color={user.is_active ? 'success' : 'default'} 
+          size="small" 
         />
-      ),
+      )
     },
     {
       key: 'created_at',
       label: 'Created',
+      width: 120,
       sortable: true,
-      render: (user: User) => new Date(user.created_at).toLocaleDateString(),
-    },
+      render: (user) => user.created_at 
+        ? new Date(user.created_at).toLocaleDateString() 
+        : '',
+    }
   ];
 
-  const userActions: TableAction[] = [
-    {
-      label: 'Assign Roles',
-      icon: <AssignIcon />,
-      onClick: (user: User) => {
-        setSelectedUser(user);
-        setRoleAssignDialogOpen(true);
-      },
-      show: (user: User) => hasPermission('role.assign'),
-    },
-    {
-      label: 'Edit',
-      icon: <EditIcon />,
-      onClick: (user: User) => openUserDialog(user),
-      show: (user: User) => hasPermission('user.update'),
-    },
-    {
-      label: user => user.is_active ? 'Deactivate' : 'Activate',
-      icon: user => user.is_active ? <BlockIcon /> : <ActiveIcon />,
-      onClick: (user: User) => 
-        user.is_active ? handleDeactivateUser(user.id) : handleReactivateUser(user.id),
-      show: (user: User) => hasPermission('user.update'),
-    },
-  ];
-
-  const roleColumns: TableColumn[] = [
+  const roleColumns: TableColumn<Role>[] = [
     {
       key: 'name',
-      label: 'Role',
+      label: 'Role Name',
+      width: 200,
       sortable: true,
-      render: (role: Role) => (
-        <Box display="flex" alignItems="center">
-          <RoleIcon sx={{ mr: 1, color: 'primary.main' }} />
-          <Box>
-            <Typography variant="body2" fontWeight="medium">
-              {role.name}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {role.description}
-            </Typography>
-          </Box>
-        </Box>
-      ),
     },
     {
-      key: 'is_system_role',
-      label: 'Type',
-      render: (role: Role) => (
-        <Chip
-          label={role.is_system_role ? 'System' : 'Custom'}
-          color={role.is_system_role ? 'primary' : 'secondary'}
-          size="small"
-        />
-      ),
+      key: 'description',
+      label: 'Description',
+      width: 300,
     },
     {
       key: 'permissions',
       label: 'Permissions',
-      render: (role: Role) => (
-        <Typography variant="body2">
-          {role.permissions?.length || 0} permissions
-        </Typography>
-      ),
+      width: 120,
+      render: (role) => `${role.permissions?.length || 0} permissions`,
     },
+    {
+      key: 'is_system',
+      label: 'Type',
+      width: 100,
+      render: (role) => (
+        <Chip 
+          label={role.is_system ? 'System' : 'Custom'} 
+          color={role.is_system ? 'default' : 'primary'} 
+          size="small" 
+        />
+      )
+    },
+    {
+      key: 'created_at',
+      label: 'Created',
+      width: 120,
+      sortable: true,
+      render: (role) => role.created_at 
+        ? new Date(role.created_at).toLocaleDateString() 
+        : '',
+    }
   ];
 
-  const roleActions: TableAction[] = [
+  const permissionColumns: TableColumn<Permission>[] = [
     {
-      label: 'Manage Permissions',
-      icon: <PermissionIcon />,
-      onClick: (role: Role) => {
-        setSelectedRole(role);
-        setPermissionAssignDialogOpen(true);
-      },
-      show: (role: Role) => hasPermission('role.update'),
+      key: 'name',
+      label: 'Permission',
+      width: 250,
+      sortable: true,
+    },
+    {
+      key: 'category',
+      label: 'Category',
+      width: 120,
+      render: (permission) => (
+        <Chip 
+          label={permission.category || 'General'} 
+          size="small" 
+          variant="outlined"
+        />
+      )
+    },
+    {
+      key: 'resource_type',
+      label: 'Resource',
+      width: 120,
+    },
+    {
+      key: 'action',
+      label: 'Action',
+      width: 100,
+    },
+    {
+      key: 'description',
+      label: 'Description',
+      width: 300,
+    }
+  ];
+
+  // Actions for CommonTableLayout
+  const userActions: TableAction<User>[] = [
+    {
+      label: 'View',
+      icon: <Visibility />,
+      onClick: (user) => console.log('View user:', user),
     },
     {
       label: 'Edit',
-      icon: <EditIcon />,
-      onClick: (role: Role) => openRoleDialog(role),
-      show: (role: Role) => hasPermission('role.update') && !role.is_system_role,
+      icon: <Edit />,
+      onClick: handleEditUser,
+      permission: 'user:update',
     },
     {
       label: 'Delete',
-      icon: <DeleteIcon />,
-      onClick: async (role: Role) => {
-        if (window.confirm(`Are you sure you want to delete the role "${role.name}"?`)) {
-          try {
-            await deleteRole(role.id).unwrap();
-            refetchRoles();
-          } catch (error) {
-            console.error('Failed to delete role:', error);
-          }
-        }
-      },
-      show: (role: Role) => hasPermission('role.delete') && !role.is_system_role,
+      icon: <Delete />,
+      onClick: handleDeleteUser,
+      permission: 'user:delete',
       color: 'error',
-    },
+    }
   ];
 
-  if (usersLoading || rolesLoading) {
+  const roleActions: TableAction<Role>[] = [
+    {
+      label: 'View',
+      icon: <Visibility />,
+      onClick: (role) => console.log('View role:', role),
+    },
+    {
+      label: 'Edit',
+      icon: <Edit />,
+      onClick: (role) => console.log('Edit role:', role),
+      permission: 'role:update',
+    }
+  ];
+
+  const permissionActions: TableAction<Permission>[] = [
+    {
+      label: 'View',
+      icon: <Visibility />,
+      onClick: (permission) => console.log('View permission:', permission),
+    }
+  ];
+
+  // Loading and error handling
+  if (usersError) {
     return (
       <WorkspaceLayout>
-        <Container maxWidth="xl">
-          <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-            <CircularProgress />
-          </Box>
-        </Container>
+        <Box p={3}>
+          <Alert severity="error">
+            Error loading users: {JSON.stringify(usersError)}
+          </Alert>
+        </Box>
       </WorkspaceLayout>
     );
   }
 
+  const isLoading = usersLoading || rolesLoading || permissionsLoading;
+
   return (
     <WorkspaceLayout>
-      <Container maxWidth="xl">
-        <Box mb={3}>
-          <Typography variant="h4" gutterBottom>
-            User & Role Management
-          </Typography>
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            Manage users, roles, and permissions for {workspace?.name}
-          </Typography>
-
-          {/* Statistics Cards */}
-          {assignmentStats && (
-            <Grid container spacing={3} sx={{ mb: 3 }}>
-              <Grid item xs={12} sm={6} md={3}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6">{assignmentStats.users_with_roles}</Typography>
-                    <Typography variant="body2" color="text.secondary">Users with Roles</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6">{assignmentStats.active_assignments}</Typography>
-                    <Typography variant="body2" color="text.secondary">Active Assignments</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6">{assignmentStats.total_assignments}</Typography>
-                    <Typography variant="body2" color="text.secondary">Total Assignments</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6">{assignmentStats.recent_activity}</Typography>
-                    <Typography variant="body2" color="text.secondary">Recent Activity</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-            </Grid>
-          )}
+      <Box>
+        {/* Header */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
+          <Typography variant="h4">User Management</Typography>
+          <PermissionGate permission="user:create">
+            <Button
+              variant="contained"
+              startIcon={<Add />}
+              onClick={() => setDialogOpen(true)}
+            >
+              Add User
+            </Button>
+          </PermissionGate>
         </Box>
 
-        <Paper>
+        {/* Tabs */}
+        <Paper sx={{ width: '100%', mb: 2 }}>
           <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-            <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
+            <Tabs value={currentTab} onChange={handleTabChange}>
               <Tab 
-                label={
-                  <Box display="flex" alignItems="center">
-                    <PersonIcon sx={{ mr: 1 }} />
-                    Users ({users.length})
-                  </Box>
-                } 
+                label={`Users (${users.length})`} 
+                icon={<Person />} 
+                iconPosition="start"
               />
               <Tab 
-                label={
-                  <Box display="flex" alignItems="center">
-                    <RoleIcon sx={{ mr: 1 }} />
-                    Roles ({roles.length})
-                  </Box>
-                } 
+                label={`Roles (${roles.length})`} 
+                icon={<Group />} 
+                iconPosition="start"
               />
               <Tab 
-                label={
-                  <Box display="flex" alignItems="center">
-                    <PermissionIcon sx={{ mr: 1 }} />
-                    Permissions
-                  </Box>
-                } 
+                label={`Permissions (${permissions.length})`} 
+                icon={<Security />} 
+                iconPosition="start"
               />
             </Tabs>
           </Box>
 
           {/* Users Tab */}
-          <TabPanel value={activeTab} index={0}>
-            <PermissionGate permissions={['user.read']} fallback={<Alert severity="warning">Insufficient permissions to view users</Alert>}>
-              <Box mb={2} display="flex" justifyContent="space-between" alignItems="center">
-                <Typography variant="h6">Users</Typography>
-                <PermissionGate permissions={['user.create']}>
-                  <Button
-                    variant="contained"
-                    startIcon={<PersonAddIcon />}
-                    onClick={() => openUserDialog()}
-                  >
-                    Add User
-                  </Button>
-                </PermissionGate>
-              </Box>
-
-              <CommonTableLayout
-                title='USERS'
-                items={users}
-                columns={userColumns}
-                actions={userActions}
-                loading={usersLoading}
-                emptyMessage="No users found"
-                searchPlaceholder="Search users..."
-              />
-            </PermissionGate>
+          <TabPanel value={currentTab} index={0}>
+            <CommonTableLayout<User>
+              title="Users"
+              items={users}
+              columns={userColumns}
+              actions={userActions}
+              loading={usersLoading}
+              onItemClick={(user) => console.log('Selected user:', user)}
+              searchPlaceholder="Search users..."
+              emptyStateText="No users found"
+            />
           </TabPanel>
 
           {/* Roles Tab */}
-          <TabPanel value={activeTab} index={1}>
-            <PermissionGate permissions={['role.read']} fallback={<Alert severity="warning">Insufficient permissions to view roles</Alert>}>
-              <Box mb={2} display="flex" justifyContent="space-between" alignItems="center">
-                <Typography variant="h6">Roles</Typography>
-                <PermissionGate permissions={['role.create']}>
-                  <Button
-                    variant="contained"
-                    startIcon={<AddIcon />}
-                    onClick={() => openRoleDialog()}
-                  >
-                    Create Role
-                  </Button>
-                </PermissionGate>
-              </Box>
-
-              <CommonTableLayout
-                title='ROLES'
-                items={roles}
-                columns={roleColumns}
-                actions={roleActions}
-                loading={rolesLoading}
-                emptyMessage="No roles found"
-                searchPlaceholder="Search roles..."
-              />
-            </PermissionGate>
+          <TabPanel value={currentTab} index={1}>
+            <CommonTableLayout<Role>
+              title="Roles"
+              items={roles}
+              columns={roleColumns}
+              actions={roleActions}
+              loading={rolesLoading}
+              onItemClick={(role) => console.log('Selected role:', role)}
+              searchPlaceholder="Search roles..."
+              emptyStateText="No roles found"
+            />
           </TabPanel>
 
           {/* Permissions Tab */}
-          <TabPanel value={activeTab} index={2}>
-            <PermissionGate permissions={['role.read']} fallback={<Alert severity="warning">Insufficient permissions to view permissions</Alert>}>
-              <Typography variant="h6" gutterBottom>System Permissions</Typography>
-              
-              {permissionsByCategory.map((category) => (
-                <Card key={category.category} sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom sx={{ textTransform: 'capitalize' }}>
-                      {category.category} Permissions
-                    </Typography>
-                    <Grid container spacing={2}>
-                      {category.permissions.map((permission) => (
-                        <Grid item xs={12} sm={6} md={4} key={permission.id}>
-                          <Box>
-                            <Typography variant="body2" fontWeight="medium">
-                              {permission.name}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {permission.description}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </CardContent>
-                </Card>
-              ))}
-            </PermissionGate>
+          <TabPanel value={currentTab} index={2}>
+            <CommonTableLayout<Permission>
+              title="Permissions"
+              items={permissions}
+              columns={permissionColumns}
+              actions={permissionActions}
+              loading={permissionsLoading}
+              onItemClick={(permission) => console.log('Selected permission:', permission)}
+              searchPlaceholder="Search permissions..."
+              emptyStateText="No permissions found"
+            />
           </TabPanel>
         </Paper>
 
-        {/* User Dialog */}
-        <Dialog open={userDialogOpen} onClose={() => setUserDialogOpen(false)} maxWidth="sm" fullWidth>
-          <DialogTitle>{editingUser ? 'Edit User' : 'Create New User'}</DialogTitle>
+        {/* Create/Edit User Dialog */}
+        <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
+          <DialogTitle>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Person />
+              {editingUser ? 'Edit User' : 'Create User'}
+            </Box>
+          </DialogTitle>
           <DialogContent>
-            <Box display="flex" flexDirection="column" gap={2} pt={1}>
-              <TextField
-                label="Full Name"
-                value={userFormData.name}
-                onChange={(e) => setUserFormData({ ...userFormData, name: e.target.value })}
-                fullWidth
-                required
-              />
-              <TextField
-                label="Email"
-                type="email"
-                value={userFormData.email}
-                onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
-                fullWidth
-                required
-              />
-              {!editingUser && (
+            <Grid container spacing={2} sx={{ pt: 1 }}>
+              <Grid item xs={12} md={6}>
                 <TextField
-                  label="Password"
-                  type="password"
-                  value={userFormData.password}
-                  onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
+                  label="Email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   fullWidth
                   required
                 />
-              )}
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={userFormData.is_active}
-                    onChange={(e) => setUserFormData({ ...userFormData, is_active: e.target.checked })}
-                  />
-                }
-                label="Active"
-              />
-            </Box>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setUserDialogOpen(false)}>Cancel</Button>
-            <Button
-              onClick={editingUser ? handleUpdateUser : handleCreateUser}
-              variant="contained"
-              disabled={isCreatingUser || isUpdatingUser}
-            >
-              {isCreatingUser || isUpdatingUser ? 'Saving...' : (editingUser ? 'Update' : 'Create')}
-            </Button>
-          </DialogActions>
-        </Dialog>
-
-        {/* Role Dialog */}
-        <Dialog open={roleDialogOpen} onClose={() => setRoleDialogOpen(false)} maxWidth="md" fullWidth>
-          <DialogTitle>{editingRole ? 'Edit Role' : 'Create New Role'}</DialogTitle>
-          <DialogContent>
-            <Box display="flex" flexDirection="column" gap={2} pt={1}>
-              <TextField
-                label="Role Name"
-                value={roleFormData.name}
-                onChange={(e) => setRoleFormData({ ...roleFormData, name: e.target.value })}
-                fullWidth
-                required
-              />
-              <TextField
-                label="Description"
-                value={roleFormData.description}
-                onChange={(e) => setRoleFormData({ ...roleFormData, description: e.target.value })}
-                multiline
-                rows={3}
-                fullWidth
-              />
-              
-              <Typography variant="subtitle1" gutterBottom>Permissions</Typography>
-              <Box maxHeight={300} overflow="auto">
-                {permissionsByCategory.map((category) => (
-                  <Box key={category.category} mb={2}>
-                    <Typography variant="subtitle2" sx={{ textTransform: 'capitalize', mb: 1 }}>
-                      {category.category}
-                    </Typography>
-                    <Grid container spacing={1}>
-                      {category.permissions.map((permission) => (
-                        <Grid item xs={12} sm={6} key={permission.id}>
-                          <FormControlLabel
-                            control={
-                              <Checkbox
-                                checked={roleFormData.permission_ids.includes(permission.id)}
-                                onChange={(e) => {
-                                  const newPermissionIds = e.target.checked
-                                    ? [...roleFormData.permission_ids, permission.id]
-                                    : roleFormData.permission_ids.filter(id => id !== permission.id);
-                                  setRoleFormData({ ...roleFormData, permission_ids: newPermissionIds });
-                                }}
-                              />
-                            }
-                            label={
-                              <Box>
-                                <Typography variant="body2">{permission.name}</Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {permission.description}
-                                </Typography>
-                              </Box>
-                            }
-                          />
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setRoleDialogOpen(false)}>Cancel</Button>
-            <Button
-              onClick={editingRole ? handleUpdateRole : handleCreateRole}
-              variant="contained"
-              disabled={isCreatingRole}
-            >
-              {isCreatingRole ? 'Saving...' : (editingRole ? 'Update' : 'Create')}
-            </Button>
-          </DialogActions>
-        </Dialog>
-
-        {/* Role Assignment Dialog */}
-        <Dialog open={roleAssignDialogOpen} onClose={() => setRoleAssignDialogOpen(false)} maxWidth="sm" fullWidth>
-          <DialogTitle>Assign Roles to {selectedUser?.name}</DialogTitle>
-          <DialogContent>
-            <Box pt={1}>
-              <Typography variant="subtitle2" gutterBottom>Current Roles</Typography>
-              <Box mb={2}>
-                {userRoles.map((assignment) => (
-                  <Chip
-                    key={assignment.id}
-                    label={assignment.role?.name}
-                    onDelete={() => handleRemoveRole(assignment.id)}
-                    deleteIcon={<RevokeIcon />}
-                    color="primary"
-                    size="small"
-                    sx={{ mr: 1, mb: 1 }}
-                  />
-                ))}
-                {userRoles.length === 0 && (
-                  <Typography variant="body2" color="text.secondary">No roles assigned</Typography>
-                )}
-              </Box>
-
-              <Divider sx={{ my: 2 }} />
-
-              <Typography variant="subtitle2" gutterBottom>Available Roles</Typography>
-              <Box>
-                {roles
-                  .filter(role => !userRoles.some(assignment => assignment.role_id === role.id))
-                  .map((role) => (
-                    <Button
-                      key={role.id}
-                      variant="outlined"
-                      size="small"
-                      onClick={() => selectedUser && handleAssignRole(selectedUser.id, role.id)}
-                      startIcon={<AssignIcon />}
-                      sx={{ mr: 1, mb: 1 }}
-                    >
-                      {role.name}
-                    </Button>
-                  ))}
-              </Box>
-            </Box>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setRoleAssignDialogOpen(false)}>Close</Button>
-          </DialogActions>
-        </Dialog>
-
-        {/* Permission Assignment Dialog */}
-        <Dialog open={permissionAssignDialogOpen} onClose={() => setPermissionAssignDialogOpen(false)} maxWidth="md" fullWidth>
-          <DialogTitle>Manage Permissions for {selectedRole?.name}</DialogTitle>
-          <DialogContent>
-            <Box pt={1}>
-              <Typography variant="subtitle2" gutterBottom>Current Permissions</Typography>
-              <Box mb={2} maxHeight={200} overflow="auto">
-                <Grid container spacing={1}>
-                  {rolePermissions.map((assignment) => (
-                    <Grid item xs={12} sm={6} key={assignment.id}>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  label={editingUser ? "New Password (leave empty to keep current)" : "Password"}
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  fullWidth
+                  required={!editingUser}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  label="First Name"
+                  value={formData.first_name}
+                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                  fullWidth
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  label="Last Name"
+                  value={formData.last_name}
+                  onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                  fullWidth
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <Autocomplete
+                  multiple
+                  options={roles}
+                  getOptionLabel={(option) => option.name}
+                  value={roles.filter(role => formData.roles.includes(role.id))}
+                  onChange={(event, newValue) => {
+                    setFormData({ 
+                      ...formData, 
+                      roles: newValue.map(role => role.id) 
+                    });
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Roles"
+                      placeholder="Select roles"
+                    />
+                  )}
+                  renderTags={(value, getTagProps) =>
+                    value.map((option, index) => (
                       <Chip
-                        label={assignment.permission?.name}
-                        onDelete={() => selectedRole && assignment.permission && 
-                          handleRemovePermission(selectedRole.id, assignment.permission.id)}
-                        deleteIcon={<RevokeIcon />}
-                        color="primary"
-                        size="small"
-                        sx={{ width: '100%' }}
+                        variant="outlined"
+                        label={option.name}
+                        {...getTagProps({ index })}
+                        key={option.id}
                       />
-                    </Grid>
-                  ))}
-                </Grid>
-                {rolePermissions.length === 0 && (
-                  <Typography variant="body2" color="text.secondary">No permissions assigned</Typography>
-                )}
-              </Box>
-
-              <Divider sx={{ my: 2 }} />
-
-              <Typography variant="subtitle2" gutterBottom>Available Permissions</Typography>
-              <Box maxHeight={300} overflow="auto">
-                {permissionsByCategory.map((category) => (
-                  <Box key={category.category} mb={2}>
-                    <Typography variant="body2" fontWeight="medium" sx={{ textTransform: 'capitalize', mb: 1 }}>
-                      {category.category}
-                    </Typography>
-                    <Grid container spacing={1}>
-                      {category.permissions
-                        .filter(permission => !rolePermissions.some(rp => rp.permission?.id === permission.id))
-                        .map((permission) => (
-                          <Grid item xs={12} sm={6} key={permission.id}>
-                            <Button
-                              variant="outlined"
-                              size="small"
-                              onClick={() => selectedRole && handleAssignPermission(selectedRole.id, permission.id)}
-                              startIcon={<AddIcon />}
-                              sx={{ width: '100%', justifyContent: 'flex-start' }}
-                            >
-                              {permission.name}
-                            </Button>
-                          </Grid>
-                        ))}
-                    </Grid>
-                  </Box>
-                ))}
-              </Box>
-            </Box>
+                    ))
+                  }
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formData.is_active}
+                      onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+                    />
+                  }
+                  label="Active User"
+                />
+              </Grid>
+            </Grid>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setPermissionAssignDialogOpen(false)}>Close</Button>
+            <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button 
+              onClick={handleCreateUser} 
+              variant="contained"
+              disabled={isCreating || isUpdating || !formData.email}
+              startIcon={editingUser ? <Edit /> : <Add />}
+            >
+              {editingUser ? 'Update User' : 'Create User'}
+            </Button>
           </DialogActions>
         </Dialog>
-      </Container>
+      </Box>
     </WorkspaceLayout>
   );
 };
 
-export default UserManagementPage;
+export default UserManagement;

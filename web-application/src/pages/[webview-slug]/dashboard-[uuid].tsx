@@ -128,7 +128,7 @@ const WebviewDashboardPage: React.FC<DashboardPageProps> = ({
     try {
       // Try public endpoint first
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-      const response = await fetch(`${apiUrl}/api/v1/webviews/${webviewSlug}/dashboards/${dashboardId}`);
+      const response = await fetch(`${apiUrl}/api/webviews/${webviewSlug}/dashboards/${dashboardId}`);
       
       if (!response.ok) {
         throw new Error('Dashboard not found or access denied');
@@ -446,7 +446,7 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     
     try {
       const response = await fetch(
-        `${apiUrl}/api/v1/webviews/${webviewSlug}/dashboards/${dashboardId}`,
+        `${apiUrl}/api/webviews/${webviewSlug}/dashboards/${dashboardId}`,
         {
           method: 'GET',
           headers: {

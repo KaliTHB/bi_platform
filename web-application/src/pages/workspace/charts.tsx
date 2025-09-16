@@ -588,7 +588,7 @@ const ChartsPage: NextPage = () => {
       setSubmitting(true);
       
       // API call to delete chart
-      // const response = await fetch(`/api/v1/workspaces/charts/${selectedChart.id}`, {
+      // const response = await fetch(`/api/workspaces/charts/${selectedChart.id}`, {
       //   method: 'DELETE'
       // });
       // if (!response.ok) throw new Error('Failed to delete chart');

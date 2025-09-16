@@ -264,10 +264,6 @@ export default function LoginPage() {
           authStorage.setPermissions(permissions);
           console.log('💾 Permissions stored in localStorage');
         }
-
-        // ✅ CLEANUP OLD WORKSPACE KEYS
-        
-        console.log('🧹 Cleaned up old workspace keys');
         
         // ✅ Update Redux store
         dispatch(setCredentials({ user, token, permissions }));

@@ -115,7 +115,9 @@ export class AuthController {
             user_role: result.workspace.user_role,
             member_count: result.workspace.member_count,
             dashboard_count: result.workspace.dashboard_count,
-            dataset_count: result.workspace.dataset_count
+            dataset_count: result.workspace.dataset_count,
+            datasource_count: result.workspace.datasource_count,
+            chart_count: result.workspace.chart_count,
           } : undefined,
           permissions: result.permissions || [],
           login_at: new Date().toISOString()

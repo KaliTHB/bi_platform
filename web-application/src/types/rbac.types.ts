@@ -1,4 +1,4 @@
-// File: web-application/src/types/rbac.types.ts
+// web-application/src/types/rbac.types.ts - FIXED VERSION
 // Role-Based Access Control (RBAC) Type Definitions
 
 /**
@@ -8,10 +8,12 @@ export interface Permission {
   id: string;
   name: string;
   description: string;
+  display_name?: string;
   category: 'system' | 'workspace' | 'dataset' | 'dashboard' | 'chart' | 'export' | 'admin' | 'webview' | 'category';
   resource_type?: string;
   action: 'create' | 'read' | 'update' | 'delete' | 'admin' | 'share' | 'export';
   is_system?: boolean;
+  is_active?: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -50,8 +52,10 @@ export interface CreateRoleRequest {
   display_name?: string;
   description?: string;
   permissions: string[];
+  permission_ids?: string[]; // Alternative field name for permission IDs
   is_system_role?: boolean;
   level?: number;
+  workspace_id?: string;
 }
 
 /**
@@ -62,13 +66,15 @@ export interface UpdateRoleRequest {
   display_name?: string;
   description?: string;
   permissions?: string[];
+  permission_ids?: string[]; // Alternative field name for permission IDs
   is_system_role?: boolean;
   level?: number;
   is_active?: boolean;
 }
 
 /**
- * Role Query Filters
+ * Role Query Filters - FIXED VERSION
+ * Added missing include_permissions and other commonly needed filters
  */
 export interface RoleQueryFilters {
   search?: string;
@@ -79,6 +85,19 @@ export interface RoleQueryFilters {
   limit?: number;
   sort_by?: 'name' | 'display_name' | 'created_at' | 'updated_at' | 'user_count';
   sort_order?: 'asc' | 'desc';
+  
+  // ✅ MISSING PROPERTIES ADDED:
+  include_permissions?: boolean; // Include permission details in response
+  include_users?: boolean; // Include user count/details
+  include_stats?: boolean; // Include usage statistics
+  workspace_id?: string; // Filter by workspace
+  category?: string; // Filter by permission category
+  user_id?: string; // Filter roles assigned to specific user
+  has_users?: boolean; // Filter roles that have/don't have users
+  created_after?: string; // Filter by creation date
+  created_before?: string; // Filter by creation date
+  level_min?: number; // Filter by minimum role level
+  level_max?: number; // Filter by maximum role level
 }
 
 /**
@@ -116,6 +135,7 @@ export interface AssignRoleToUserRequest {
   user_id: string;
   role_id: string;
   expires_at?: string;
+  workspace_id?: string;
 }
 
 /**
@@ -125,6 +145,7 @@ export interface BulkAssignRolesRequest {
   user_ids: string[];
   role_id: string;
   expires_at?: string;
+  workspace_id?: string;
 }
 
 /**
@@ -136,19 +157,50 @@ export interface UpdateRoleAssignmentRequest {
 }
 
 /**
- * Role Assignment Query Filters
+ * Role Assignment Query Filters - Enhanced
  */
 export interface RoleAssignmentQueryFilters {
   user_id?: string;
   role_id?: string;
+  workspace_id?: string;
   is_active?: boolean;
   expires_before?: string;
   expires_after?: string;
   assigned_by?: string;
+  assigned_after?: string;
+  assigned_before?: string;
   page?: number;
   limit?: number;
   sort_by?: 'assigned_at' | 'expires_at' | 'user_name' | 'role_name';
   sort_order?: 'asc' | 'desc';
+  
+  // ✅ ADDITIONAL FILTERS:
+  include_user_details?: boolean;
+  include_role_details?: boolean;
+  include_assigner_details?: boolean;
+  status?: 'active' | 'expired' | 'pending' | 'all';
+}
+
+/**
+ * Permission Query Filters - Enhanced
+ */
+export interface PermissionQueryFilters {
+  search?: string;
+  category?: Permission['category'];
+  resource_type?: string;
+  action?: Permission['action'];
+  is_system?: boolean;
+  is_active?: boolean;
+  page?: number;
+  limit?: number;
+  sort_by?: 'name' | 'description' | 'category' | 'created_at';
+  sort_order?: 'asc' | 'desc';
+  
+  // ✅ ADDITIONAL FILTERS:
+  role_id?: string; // Filter permissions by role
+  user_id?: string; // Filter permissions available to user
+  workspace_id?: string; // Filter by workspace context
+  has_roles?: boolean; // Filter permissions that are/aren't assigned to roles
 }
 
 /**
@@ -159,6 +211,61 @@ export interface PermissionCategory {
   display_name: string;
   description: string;
   permissions: Permission[];
+  count?: number;
+}
+
+/**
+ * Role Permission Assignment Interface
+ */
+export interface RolePermissionAssignment {
+  id: string;
+  role_id: string;
+  permission_id: string;
+  workspace_id: string;
+  assigned_by: string;
+  assigned_at: string;
+  is_active: boolean;
+  
+  // Expanded role information
+  role_name?: string;
+  role_display_name?: string;
+  role_description?: string;
+  
+  // Expanded permission information
+  permission_name?: string;
+  permission_description?: string;
+  permission_category?: string;
+  
+  // Expanded assigner information
+  assigned_by_name?: string;
+  assigned_by_email?: string;
+}
+
+/**
+ * Assign Permission to Role Request
+ */
+export interface AssignPermissionToRoleRequest {
+  role_id: string;
+  permission_id: string;
+  workspace_id?: string;
+}
+
+/**
+ * Remove Permission from Role Request
+ */
+export interface RemovePermissionFromRoleRequest {
+  role_id: string;
+  permission_id: string;
+}
+
+/**
+ * Bulk Assign Permissions Request
+ */
+export interface BulkAssignPermissionsRequest {
+  role_id: string;
+  permission_ids: string[];
+  replace_existing?: boolean;
+  workspace_id?: string;
 }
 
 /**
@@ -179,6 +286,7 @@ export interface UserPermissionsSummary {
  */
 export interface RoleAnalytics {
   role_id: string;
+  role_name: string;
   user_count: number;
   active_assignments: number;
   expired_assignments: number;
@@ -187,6 +295,36 @@ export interface RoleAnalytics {
     permission: string;
     usage_count: number;
   }[];
+  created_at: string;
+  last_used: string;
+}
+
+/**
+ * User Query Filters - Enhanced
+ */
+export interface UserQueryFilters {
+  search?: string;
+  is_active?: boolean;
+  role_id?: string;
+  workspace_id?: string;
+  department?: string;
+  region?: string;
+  team?: string;
+  page?: number;
+  limit?: number;
+  sort_by?: 'username' | 'email' | 'first_name' | 'last_name' | 'created_at' | 'last_login';
+  sort_order?: 'asc' | 'desc';
+  
+  // ✅ ADDITIONAL USER FILTERS:
+  include_roles?: boolean;
+  include_permissions?: boolean;
+  include_profile?: boolean;
+  has_roles?: boolean;
+  created_after?: string;
+  created_before?: string;
+  last_login_after?: string;
+  last_login_before?: string;
+  user_type?: string;
 }
 
 /**
@@ -202,6 +340,7 @@ export interface PaginatedResponse<T> {
     has_next: boolean;
     has_previous: boolean;
   };
+  filters_applied?: Record<string, any>;
 }
 
 /**
@@ -213,6 +352,7 @@ export interface ApiResponse<T> {
   message?: string;
   errors?: string[];
   timestamp?: string;
+  request_id?: string;
 }
 
 /**
@@ -228,6 +368,7 @@ export interface BulkOperationResponse {
     error: string;
   }[];
   message: string;
+  details?: Record<string, any>;
 }
 
 /**
@@ -253,6 +394,7 @@ export interface PermissionCheckResponse {
   }[];
   has_all_permissions: boolean;
   has_any_permission: boolean;
+  checked_at: string;
 }
 
 /**
@@ -311,122 +453,65 @@ export enum SystemPermissions {
   DASHBOARD_EXPORT = 'dashboard.export',
   DASHBOARD_ADMIN = 'dashboard.admin',
   
-  // Chart permissions
+  // Chart permissions  
   CHART_READ = 'chart.read',
   CHART_CREATE = 'chart.create',
   CHART_UPDATE = 'chart.update',
   CHART_DELETE = 'chart.delete',
-  CHART_SHARE = 'chart.share',
-  CHART_EXPORT = 'chart.export',
   
   // Category permissions
   CATEGORY_READ = 'category.read',
   CATEGORY_CREATE = 'category.create',
   CATEGORY_UPDATE = 'category.update',
   CATEGORY_DELETE = 'category.delete',
-  CATEGORY_ADMIN = 'category.admin',
   
   // Webview permissions
   WEBVIEW_READ = 'webview.read',
   WEBVIEW_CREATE = 'webview.create',
   WEBVIEW_UPDATE = 'webview.update',
   WEBVIEW_DELETE = 'webview.delete',
-  WEBVIEW_ADMIN = 'webview.admin',
+  WEBVIEW_ACCESS = 'webview.access',
   
   // Export permissions
-  EXPORT_DATA = 'export.data',
-  EXPORT_DASHBOARD = 'export.dashboard',
-  EXPORT_CHART = 'export.chart',
+  EXPORT_CREATE = 'export.create',
+  EXPORT_DOWNLOAD = 'export.download',
+  EXPORT_ADMIN = 'export.admin',
+}
+
+/**
+ * User Interface - Enhanced
+ */
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  avatar_url?: string;
+  roles: Role[];
+  is_active: boolean;
+  last_login?: string;
+  created_at: string;
+  updated_at: string;
   
-  // Audit permissions
-  AUDIT_READ = 'audit.read',
-  AUDIT_ADMIN = 'audit.admin',
+  // RLS-related fields for Row Level Security policies
+  department?: string;
+  region?: string;
+  level?: string;
+  location?: string;
+  team?: string;
+  cost_center?: string;
+  manager_id?: string;
+  
+  // Generic profile data for extensibility
+  profile_data?: Record<string, any>;
+  user_type?: string;
+  permissions?: string[]; // Effective permissions when included
 }
 
 /**
- * Permission Categories Enum
+ * Create User Request - Enhanced
  */
-export enum PermissionCategories {
-  SYSTEM = 'system',
-  WORKSPACE = 'workspace',
-  USER = 'user',
-  ROLE = 'role',
-  DATASET = 'dataset',
-  DASHBOARD = 'dashboard',
-  CHART = 'chart',
-  CATEGORY = 'category',
-  WEBVIEW = 'webview',
-  EXPORT = 'export',
-  AUDIT = 'audit'
-}
-
-/**
- * Role Template for quick role creation
- */
-export interface RoleTemplate {
-  name: string;
-  display_name: string;
-  description: string;
-  permissions: SystemPermissions[];
-  level: RoleLevel;
-  is_system_role: boolean;
-}
-
-/**
- * Pre-defined Role Templates
- */
-export const DEFAULT_ROLE_TEMPLATES: RoleTemplate[] = [
-  {
-    name: 'viewer',
-    display_name: 'Viewer',
-    description: 'Can view dashboards and charts',
-    permissions: [
-      SystemPermissions.WORKSPACE_READ,
-      SystemPermissions.DASHBOARD_READ,
-      SystemPermissions.CHART_READ,
-      SystemPermissions.DATASET_READ,
-      SystemPermissions.CATEGORY_READ,
-      SystemPermissions.WEBVIEW_READ
-    ],
-    level: RoleLevel.VIEWER,
-    is_system_role: true
-  },
-  {
-    name: 'editor',
-    display_name: 'Editor',
-    description: 'Can create and edit dashboards and charts',
-    permissions: [
-      SystemPermissions.WORKSPACE_READ,
-      SystemPermissions.DASHBOARD_READ,
-      SystemPermissions.DASHBOARD_CREATE,
-      SystemPermissions.DASHBOARD_UPDATE,
-      SystemPermissions.DASHBOARD_SHARE,
-      SystemPermissions.CHART_READ,
-      SystemPermissions.CHART_CREATE,
-      SystemPermissions.CHART_UPDATE,
-      SystemPermissions.CHART_SHARE,
-      SystemPermissions.DATASET_READ,
-      SystemPermissions.CATEGORY_READ,
-      SystemPermissions.WEBVIEW_READ,
-      SystemPermissions.EXPORT_DATA,
-      SystemPermissions.EXPORT_DASHBOARD,
-      SystemPermissions.EXPORT_CHART
-    ],
-    level: RoleLevel.EDITOR,
-    is_system_role: true
-  },
-  {
-    name: 'admin',
-    display_name: 'Admin',
-    description: 'Full administrative access to workspace',
-    permissions: Object.values(SystemPermissions).filter(
-      perm => !perm.startsWith('system.')
-    ),
-    level: RoleLevel.WORKSPACE_ADMIN,
-    is_system_role: true
-  }
-];
-
 export interface CreateUserRequest {
   username: string;
   email: string;
@@ -445,8 +530,13 @@ export interface CreateUserRequest {
   cost_center?: string;
   manager_id?: string;
   profile_data?: Record<string, any>;
+  user_type?: string;
+  avatar_url?: string;
 }
 
+/**
+ * Update User Request - Enhanced
+ */
 export interface UpdateUserRequest {
   username?: string;
   email?: string;
@@ -466,84 +556,83 @@ export interface UpdateUserRequest {
   cost_center?: string;
   manager_id?: string;
   profile_data?: Record<string, any>;
-}
-
-export interface UserRoleAssignment {
-  id: string;
-  user_id: string;
-  role_id: string;
-  workspace_id: string;
-  assigned_by: string;
-  assigned_at: string;
-  expires_at?: string;
-  is_active: boolean;
-}
-
-// Add these missing types to your rbac.types.ts file:
-
-/**
- * Permission Query Filters
- */
-export interface PermissionQueryFilters {
-  search?: string;
-  category?: Permission['category'];
-  resource_type?: string;
-  action?: Permission['action'];
-  is_system?: boolean;
-  page?: number;
-  limit?: number;
-  sort_by?: 'name' | 'description' | 'category' | 'created_at';
-  sort_order?: 'asc' | 'desc';
+  user_type?: string;
 }
 
 /**
- * Role Permission Assignment Interface
+ * Assignment Statistics
  */
-export interface RolePermissionAssignment {
-  id: string;
-  role_id: string;
-  permission_id: string;
-  workspace_id: string;
-  assigned_by: string;
-  assigned_at: string;
-  is_active: boolean;
-  
-  // Expanded role information
-  role_name?: string;
-  role_display_name?: string;
-  role_description?: string;
-  
-  // Expanded permission information
-  permission_name?: string;
-  permission_description?: string;
-  permission_category?: string;
-  
-  // Expanded assigner information
-  assigned_by_name?: string;
-  assigned_by_email?: string;
+export interface AssignmentStats {
+  total_users: number;
+  active_users: number;
+  total_roles: number;
+  system_roles: number;
+  custom_roles: number;
+  total_assignments: number;
+  active_assignments: number;
+  expired_assignments: number;
+  recent_assignments: UserRoleAssignment[];
+  role_distribution: {
+    role_name: string;
+    user_count: number;
+  }[];
+  permission_coverage: {
+    permission: string;
+    role_count: number;
+    user_count: number;
+  }[];
 }
 
-/**
- * Assign Permission to Role Request
- */
-export interface AssignPermissionToRoleRequest {
-  role_id: string;
-  permission_id: string;
-}
-
-/**
- * Remove Permission from Role Request
- */
-export interface RemovePermissionFromRoleRequest {
-  role_id: string;
-  permission_id: string;
-}
-
-/**
- * Bulk Assign Permissions Request
- */
-export interface BulkAssignPermissionsRequest {
-  role_id: string;
-  permission_ids: string[];
-  replace_existing?: boolean;
-}
+// Default system roles
+export const DEFAULT_SYSTEM_ROLES: Partial<Role>[] = [
+  {
+    name: 'workspace_admin',
+    display_name: 'Workspace Administrator',
+    description: 'Full administrative access to workspace',
+    permissions: [
+      SystemPermissions.WORKSPACE_ADMIN,
+      SystemPermissions.USER_READ,
+      SystemPermissions.USER_CREATE,
+      SystemPermissions.USER_UPDATE,
+      SystemPermissions.USER_DELETE,
+      SystemPermissions.ROLE_READ,
+      SystemPermissions.ROLE_CREATE,
+      SystemPermissions.ROLE_UPDATE,
+      SystemPermissions.ROLE_DELETE,
+    ],
+    level: RoleLevel.WORKSPACE_ADMIN,
+    is_system_role: true
+  },
+  {
+    name: 'editor',
+    display_name: 'Editor', 
+    description: 'Can create and edit dashboards and datasets',
+    permissions: [
+      SystemPermissions.DASHBOARD_READ,
+      SystemPermissions.DASHBOARD_CREATE,
+      SystemPermissions.DASHBOARD_UPDATE,
+      SystemPermissions.DATASET_READ,
+      SystemPermissions.DATASET_CREATE,
+      SystemPermissions.DATASET_UPDATE,
+      SystemPermissions.CHART_READ,
+      SystemPermissions.CHART_CREATE,
+      SystemPermissions.CHART_UPDATE,
+    ],
+    level: RoleLevel.EDITOR,
+    is_system_role: true
+  },
+  {
+    name: 'viewer',
+    display_name: 'Viewer',
+    description: 'Read-only access to dashboards and data',
+    permissions: [
+      SystemPermissions.DASHBOARD_READ,
+      SystemPermissions.DATASET_READ,
+      SystemPermissions.CHART_READ,
+      SystemPermissions.WEBVIEW_READ,
+      SystemPermissions.WEBVIEW_ACCESS,
+    ],
+    level: RoleLevel.VIEWER,
+    is_system_role: true
+  }
+];

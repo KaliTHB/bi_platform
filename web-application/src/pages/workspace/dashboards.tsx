@@ -556,7 +556,7 @@ const DashboardsPage: NextPage = () => {
   const handleDuplicateDashboard = async (dashboard: DashboardData) => {
     try {
       // API call to duplicate dashboard
-      // const response = await fetch(`/api/v1/workspaces/dashboards/${dashboard.id}/duplicate`, {
+      // const response = await fetch(`/api/workspaces/dashboards/${dashboard.id}/duplicate`, {
       //   method: 'POST',
       //   headers: { 'Content-Type': 'application/json' },
       //   body: JSON.stringify({ 
@@ -601,7 +601,7 @@ const DashboardsPage: NextPage = () => {
       setSubmitting(true);
       
       // API call to update dashboard
-      // const response = await fetch(`/api/v1/workspaces/dashboards/${selectedDashboard.id}`, {
+      // const response = await fetch(`/api/workspaces/dashboards/${selectedDashboard.id}`, {
       //   method: 'PATCH',
       //   headers: { 'Content-Type': 'application/json' },
       //   body: JSON.stringify(formData)
@@ -628,7 +628,7 @@ const DashboardsPage: NextPage = () => {
       setSubmitting(true);
       
       // API call to delete dashboard
-      // const response = await fetch(`/api/v1/workspaces/dashboards/${selectedDashboard.id}`, {
+      // const response = await fetch(`/api/workspaces/dashboards/${selectedDashboard.id}`, {
       //   method: 'DELETE'
       // });
       // if (!response.ok) throw new Error('Failed to delete dashboard');

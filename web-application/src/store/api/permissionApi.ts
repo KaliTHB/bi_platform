@@ -15,7 +15,7 @@ import type {
 export const permissionApi = createApi({
   reducerPath: 'permissionApi',
   baseQuery: fetchBaseQuery({
-    baseUrl: '/api/v1/',
+    baseUrl: '/api/',
     prepareHeaders: (headers, { getState }) => {
       const state = getState() as RootState;
       const token = state.auth.token;

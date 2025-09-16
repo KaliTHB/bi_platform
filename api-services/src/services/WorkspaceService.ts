@@ -722,7 +722,7 @@ async getUserWorkspaces(userId: string): Promise<Workspace[]> {
 }
 
   /**
- * Get a workspace by ID or slug for a specific user
+ * Get a workspace by ID  for a specific user
  * Fixed version to resolve PostgreSQL DISTINCT/ORDER BY error
  */
 async getWorkspaceById(workspaceId: string, userId: string): Promise<Workspace | null> {
@@ -763,7 +763,7 @@ async getWorkspaceById(workspaceId: string, userId: string): Promise<Workspace |
       INNER JOIN user_role_assignments ura ON w.id = ura.workspace_id
       LEFT JOIN roles r ON ura.role_id = r.id 
       WHERE ura.user_id = $1 
-        AND (w.id = $2 OR w.slug = $2)
+        AND (w.id = $2)
         AND ura.is_active = true 
         AND w.is_active = true
       GROUP BY w.id, w.name, w.slug, w.display_name, w.description, 
@@ -961,7 +961,7 @@ async getWorkspaceById(workspaceId: string, userId: string): Promise<Workspace |
         FROM user_role_assignments ura
         INNER JOIN workspaces w ON ura.workspace_id = w.id
         WHERE ura.user_id = $1 
-          AND (w.id = $2 OR w.slug = $2)
+          AND (w.id = $2)
           AND ura.is_active = true
           AND w.is_active = true
         LIMIT 1

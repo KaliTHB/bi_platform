@@ -18,7 +18,7 @@ import type {
 export const roleApi = createApi({
   reducerPath: 'roleApi',
   baseQuery: fetchBaseQuery({
-    baseUrl: '/api/v1/',
+    baseUrl: '/api/',
     prepareHeaders: (headers, { getState }) => {
       const state = getState() as RootState;
       const token = state.auth.token;

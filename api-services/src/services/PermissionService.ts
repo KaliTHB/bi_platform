@@ -258,6 +258,56 @@ export class PermissionService {
   }
 
   /**
+   * Get ALL permissions in the system (both system and custom)
+   * This is the missing method that was causing the error!
+   */
+  async getAllPermissions(): Promise<Permission[]> {
+    try {
+      const cacheKey = 'all_permissions';
+      
+      // Try cache first
+      const cached = await cacheService.get<Permission[]>(cacheKey);
+      if (cached) {
+        logger.debug('📦 PermissionService: Cache hit for all permissions');
+        return cached;
+      }
+
+      logger.debug('🔍 PermissionService: Fetching all permissions from database');
+
+      const result = await this.database.query(`
+        SELECT 
+          id, 
+          name, 
+          display_name, 
+          description, 
+          category, 
+          resource_type, 
+          action, 
+          is_system,
+          is_active,
+          created_at
+        FROM permissions 
+        WHERE is_active = true
+        ORDER BY category ASC, name ASC
+      `);
+      
+      const permissions = result.rows;
+      
+      // Cache for 30 minutes (permissions don't change very often)
+      await cacheService.set(cacheKey, permissions, 1800);
+      
+      logger.info(`✅ PermissionService: Retrieved ${permissions.length} permissions`);
+      return permissions;
+      
+    } catch (error) {
+      logger.error('❌ PermissionService: Error getting all permissions:', error);
+      
+      // Return empty array rather than throwing to prevent cascade failures
+      return [];
+    }
+  }
+
+  /**
    * Get all available system permissions
    */
   async getSystemPermissions(): Promise<Permission[]> {
