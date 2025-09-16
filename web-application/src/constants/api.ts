@@ -372,6 +372,34 @@ export const HTTP_STATUS = {
 export type HttpStatus = typeof HTTP_STATUS[keyof typeof HTTP_STATUS];
 
 // ========================================
+// HTTP STATUS CODE RANGES
+// ========================================
+export const HTTP_STATUS_RANGES = {
+  INFORMATIONAL: {
+    min: 100,
+    max: 199
+  },
+  SUCCESS: {
+    min: 200,
+    max: 299
+  },
+  REDIRECTION: {
+    min: 300,
+    max: 399
+  },
+  CLIENT_ERROR: {
+    min: 400,
+    max: 499
+  },
+  SERVER_ERROR: {
+    min: 500,
+    max: 599
+  }
+} as const;
+
+export type HttpStatusRange = typeof HTTP_STATUS_RANGES[keyof typeof HTTP_STATUS_RANGES];
+
+// ========================================
 // UTILITY FUNCTIONS
 // ========================================
 

@@ -78,9 +78,9 @@ const baseQuery = fetchBaseQuery({
     }
     
     // Add request tracking for debugging
-    if (process.env.NODE_ENV === 'development') {
-      headers.set('X-Request-Id', `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
-    }
+    //if (process.env.NODE_ENV === 'development') {
+    //  headers.set('X-Request-Id', `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+    //}
     
     return headers;
   },
