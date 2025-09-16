@@ -1,9 +1,12 @@
-// web-application/src/components/dashboard/DashboardContainer.tsx - ENHANCED WITH EMBEDDED CSS
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+// web-application/src/components/dashboard/DashboardContainer.tsx
+// Enhanced with chart loading states - using existing ChartContainer component
+
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
   Container,
   Typography,
+  Grid,
   IconButton,
   Tooltip,
   Chip,
@@ -12,36 +15,33 @@ import {
   Button,
   Skeleton,
   Paper,
-  Snackbar,
-  Card,
-  CardContent
+  LinearProgress
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
   Fullscreen as FullscreenIcon,
   FullscreenExit as FullscreenExitIcon,
   Dashboard as DashboardIcon,
-  BarChart as ChartIcon,
   Settings as SettingsIcon,
-  Warning as WarningIcon,
-  ErrorOutline as ErrorIcon,
-  GridView as GridIcon
+  PlayArrow as PlayIcon,
+  Pause as PauseIcon
 } from '@mui/icons-material';
 
-// React Grid Layout imports - PRESERVED
-import { Responsive, WidthProvider, Layouts, Layout } from 'react-grid-layout';
-import 'react-grid-layout/css/styles.css';
-import 'react-resizable/css/styles.css';
-
+// Import your existing ChartContainer component
+import {ChartContainer} from './ChartContainer';
+import { ChartContainerProps } from '@/types/chart.types';
 import { authStorage, workspaceStorage } from '@/utils/storageUtils';
-import { ChartContainer } from './ChartContainer';
-
-// Make ResponsiveGridLayout responsive - PRESERVED
-const ResponsiveGridLayout = WidthProvider(Responsive);
 
 // ============================================================================
-// ENHANCED TYPES - PRESERVING ORIGINAL STRUCTURE
+// TYPES - Enhanced with loading states
 // ============================================================================
+
+interface ChartLoadingState {
+  loading: boolean;
+  loaded: boolean;
+  error: string | null;
+  retryCount: number;
+}
 
 interface DashboardChart {
   id: string;
@@ -81,14 +81,6 @@ interface Dashboard {
       enabled: boolean;
       interval: number;
     };
-    expected_chart_count?: number; // NEW: Fixed number of chart slots
-    grid_settings?: {
-      cols: { lg: number; md: number; sm: number; xs: number; xxs: number };
-      breakpoints: { lg: number; md: number; sm: number; xs: number; xxs: number };
-      margin: [number, number];
-      containerPadding: [number, number];
-      rowHeight: number;
-    };
   };
   theme_config: {
     primary_color?: string;
@@ -110,513 +102,363 @@ interface DashboardContainerProps {
   showFilters?: boolean;
   autoRefresh?: boolean;
   refreshInterval?: number;
-  expectedChartCount?: number; // NEW: Override expected chart count
+  
+  // Enhanced props for loading strategy
+  loadingStrategy?: 'immediate' | 'on-demand' | 'progressive';
+  progressiveDelay?: number;
+  showLoadingProgress?: boolean;
+  
   onFullscreenChange?: (fullscreen: boolean) => void;
   onChartInteraction?: (event: any) => void;
   onError?: (error: string) => void;
-  onLayoutChange?: (layouts: Layouts) => void; // NEW: Layout change handler
   className?: string;
-  style?: React.CSSProperties;
-}
-
-// NEW: Enhanced state management for error tracking
-interface DashboardState {
-  dashboard: Dashboard | null;
-  loading: boolean;
-  error: string | null;
-  lastRefresh: Date | null;
-  failedCharts: Set<string>;
-  chartErrors: Map<string, { error: string; timestamp: Date; retryCount: number }>;
-  retryAttempts: number;
-}
-
-interface ApiFailureNotification {
-  show: boolean;
-  message: string;
-  severity: 'error' | 'warning' | 'info';
 }
 
 // ============================================================================
-// ENHANCED DASHBOARD CONTAINER COMPONENT WITH REACT-GRID-LAYOUT
+// DASHBOARD CONTAINER COMPONENT - Enhanced with existing ChartContainer
 // ============================================================================
 
 export const DashboardContainer: React.FC<DashboardContainerProps> = ({
   dashboardId,
-  workspaceId: propWorkspaceId,
+  workspaceId,
   fullscreen = false,
   showFilters = true,
-  autoRefresh: propAutoRefresh = false,
-  refreshInterval: propRefreshInterval = 30000,
-  expectedChartCount = 6, // NEW: Default expected chart count
+  autoRefresh = false,
+  refreshInterval = 30000,
+  loadingStrategy = 'on-demand',
+  progressiveDelay = 500,
+  showLoadingProgress = true,
   onFullscreenChange,
   onChartInteraction,
   onError,
-  onLayoutChange,
-  className,
-  style,
+  className
 }) => {
+  
   // ============================================================================
-  // ENHANCED STATE MANAGEMENT
+  // STATE - Enhanced with chart loading states
   // ============================================================================
 
-  const [state, setState] = useState<DashboardState>({
+  const [state, setState] = useState<{
+    dashboard: Dashboard | null;
+    loading: boolean;
+    error: string | null;
+  }>({
     dashboard: null,
-    loading: false,
-    error: null,
-    lastRefresh: null,
-    failedCharts: new Set(),
-    chartErrors: new Map(),
-    retryAttempts: 0
+    loading: true,
+    error: null
   });
 
-  const [autoRefreshActive, setAutoRefreshActive] = useState(propAutoRefresh);
-  const [notification, setNotification] = useState<ApiFailureNotification>({
-    show: false,
-    message: '',
-    severity: 'info'
-  });
-
-  // NEW: Grid layout state
-  const [layouts, setLayouts] = useState<Layouts>({});
-  const [currentBreakpoint, setCurrentBreakpoint] = useState('lg');
-
-  // Refs for cleanup and request management
-  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const retryTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  // New chart loading state management
+  const [chartLoadingStates, setChartLoadingStates] = useState<Record<string, ChartLoadingState>>({});
+  const [autoRefreshActive, setAutoRefreshActive] = useState(autoRefresh);
 
   // ============================================================================
-  // GRID LAYOUT CONFIGURATION - PRESERVED FROM ORIGINAL
+  // CHART LOADING STATE MANAGEMENT
   // ============================================================================
 
-  const defaultGridSettings = {
-    cols: { lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 },
-    breakpoints: { lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 },
-    margin: [16, 16] as [number, number],
-    containerPadding: [16, 16] as [number, number],
-    rowHeight: 60
-  };
-
-  const gridSettings = useMemo(() => {
-    return state.dashboard?.config_json?.grid_settings || defaultGridSettings;
-  }, [state.dashboard?.config_json?.grid_settings]);
-
-  // ============================================================================
-  // ENHANCED API FUNCTIONS WITH RETRY LOGIC - PRESERVED FROM PREVIOUS
-  // ============================================================================
-
-  const workspaceId = propWorkspaceId || workspaceStorage.getCurrentWorkspace()?.id;
-  const authToken = authStorage.getToken();
-
-  const loadDashboard = useCallback(async (forceRefresh = false) => {
-    // Cleanup previous request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-
-    setState(prev => ({ 
-      ...prev, 
-      loading: true, 
-      error: null,
-      retryAttempts: forceRefresh ? 0 : prev.retryAttempts
+  const updateChartState = useCallback((chartId: string, updates: Partial<ChartLoadingState>) => {
+    setChartLoadingStates(prev => ({
+      ...prev,
+      [chartId]: {
+        loading: false,
+        loaded: false,
+        error: null,
+        retryCount: 0,
+        ...prev[chartId],
+        ...updates
+      }
     }));
+  }, []);
 
+  const setChartLoading = useCallback((chartId: string, loading: boolean) => {
+    updateChartState(chartId, { 
+      loading,
+      ...(loading && { error: null }) // Clear error when starting to load
+    });
+  }, [updateChartState]);
+
+  const setChartLoaded = useCallback((chartId: string) => {
+    updateChartState(chartId, {
+      loading: false,
+      loaded: true,
+      error: null
+    });
+  }, [updateChartState]);
+
+  const setChartError = useCallback((chartId: string, error: string) => {
+    updateChartState(chartId, {
+      loading: false,
+      error,
+      retryCount: (chartLoadingStates[chartId]?.retryCount || 0) + 1
+    });
+  }, [updateChartState, chartLoadingStates]);
+
+  // ============================================================================
+  // COMPUTED VALUES - Enhanced with loading stats
+  // ============================================================================
+
+  const totalChartsCount = state.dashboard?.charts?.length || 0;
+  const visibleCharts = useMemo(() => 
+    state.dashboard?.charts?.filter(chart => chart.is_visible) || []
+  , [state.dashboard?.charts]);
+
+  const loadingStats = useMemo(() => {
+    const states = Object.values(chartLoadingStates);
+    const total = visibleCharts.length;
+    const loading = states.filter(s => s.loading).length;
+    const loaded = states.filter(s => s.loaded).length;
+    const errors = states.filter(s => s.error).length;
+    const progress = total > 0 ? Math.round((loaded / total) * 100) : 0;
+    
+    return { total, loading, loaded, errors, progress };
+  }, [chartLoadingStates, visibleCharts.length]);
+
+  // ============================================================================
+  // LOADING STRATEGY IMPLEMENTATION - Simplified to prevent duplicate API calls
+  // ============================================================================
+
+  // We don't need these functions anymore since ChartContainer handles loading
+  // Just keep them for potential future use or remove entirely
+
+  // ============================================================================
+  // EVENT HANDLERS - Simplified to work with ChartContainer's natural behavior
+  // ============================================================================
+
+  const loadDashboard = useCallback(async () => {
+    setState(prev => ({ ...prev, loading: true, error: null }));
+    
     try {
-      const response = await fetch(`/api/dashboards/${dashboardId}${forceRefresh ? '?refresh=true' : ''}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-          'x-workspace-id': workspaceId || '',
+      // Replace with your actual dashboard API call
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Mock dashboard data - replace with actual API call
+      const mockDashboard: Dashboard = {
+        id: dashboardId,
+        name: 'Sales Dashboard',
+        display_name: 'Sales Performance Dashboard',
+        description: 'Comprehensive sales performance dashboard with key metrics and trends',
+        config_json: {
+          auto_refresh: { enabled: true, interval: 30000 }
         },
-        signal: abortController.signal,
-      });
-
-      if (!response.ok) {
-        let errorMessage = `Failed to load dashboard (${response.status})`;
-        
-        switch (response.status) {
-          case 404:
-            errorMessage = 'Dashboard not found';
-            break;
-          case 403:
-            errorMessage = 'Access denied to this dashboard';
-            break;
-          case 500:
-            errorMessage = 'Server error loading dashboard';
-            break;
-        }
-        
-        throw new Error(errorMessage);
-      }
-
-      const dashboardData = await response.json();
-
-      if (!abortController.signal.aborted) {
-        setState(prev => ({
-          ...prev,
-          dashboard: dashboardData.dashboard || dashboardData,
-          loading: false,
-          error: null,
-          lastRefresh: new Date(),
-          retryAttempts: 0
-        }));
-
-        console.log('✅ Dashboard loaded successfully:', dashboardData.dashboard?.display_name);
-      }
-    } catch (err) {
-      if (!abortController.signal.aborted) {
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
-        
-        setState(prev => ({
-          ...prev,
-          loading: false,
-          error: errorMessage,
-          retryAttempts: prev.retryAttempts + 1
-        }));
-
-        // Auto-retry for recoverable errors
-        if (state.retryAttempts < 3 && !errorMessage.includes('404') && !errorMessage.includes('403')) {
-          const retryDelay = Math.min(1000 * Math.pow(2, state.retryAttempts), 10000);
-          
-          setTimeout(() => {
-            console.log(`🔄 Retrying dashboard load (attempt ${state.retryAttempts + 1}/3)...`);
-            loadDashboard(true);
-          }, retryDelay);
-        }
-
-        onError?.(errorMessage);
-        console.error('❌ Dashboard load error:', err);
-      }
-    }
-  }, [dashboardId, workspaceId, authToken, onError, state.retryAttempts]);
-
-  // ============================================================================
-  // NEW: CHART ERROR TRACKING - PRESERVED FROM PREVIOUS
-  // ============================================================================
-
-  const handleChartError = useCallback((chartId: string, error: string) => {
-    setState(prev => {
-      const newFailedCharts = new Set(prev.failedCharts);
-      const newChartErrors = new Map(prev.chartErrors);
-      
-      newFailedCharts.add(chartId);
-      
-      const existingError = newChartErrors.get(chartId);
-      newChartErrors.set(chartId, {
-        error,
-        timestamp: new Date(),
-        retryCount: (existingError?.retryCount || 0) + 1
-      });
-
-      return {
-        ...prev,
-        failedCharts: newFailedCharts,
-        chartErrors: newChartErrors
-      };
-    });
-
-    // Show notification for chart errors
-    setNotification({
-      show: true,
-      message: `Chart "${chartId}" failed to load`,
-      severity: 'error'
-    });
-
-    console.error(`❌ Chart ${chartId} error:`, error);
-  }, []);
-
-  const handleChartRetry = useCallback((chartId: string) => {
-    setState(prev => {
-      const newFailedCharts = new Set(prev.failedCharts);
-      const newChartErrors = new Map(prev.chartErrors);
-      
-      newFailedCharts.delete(chartId);
-      newChartErrors.delete(chartId);
-
-      return {
-        ...prev,
-        failedCharts: newFailedCharts,
-        chartErrors: newChartErrors
-      };
-    });
-
-    setNotification({
-      show: true,
-      message: `Retrying chart: ${chartId}`,
-      severity: 'info'
-    });
-
-    console.log(`🔄 Retrying chart: ${chartId}`);
-  }, []);
-
-  // ============================================================================
-  // ENHANCED CHART LAYOUT WITH FIXED POSITIONS AND GRID SUPPORT
-  // ============================================================================
-
-  const stableChartLayout = useMemo(() => {
-    const charts = state.dashboard?.charts || [];
-    const expectedCount = state.dashboard?.config_json?.expected_chart_count || expectedChartCount;
-    const layout: DashboardChart[] = [...charts];
-
-    // Fill missing slots with placeholders to maintain consistent layout
-    while (layout.length < expectedCount) {
-      const index = layout.length;
-      const chartsPerRow = Math.floor(gridSettings.cols.lg / 3); // 4 charts per row (3 cols each)
-      const colIndex = index % chartsPerRow;
-      const rowIndex = Math.floor(index / chartsPerRow);
-      
-      layout.push({
-        id: `placeholder-${index}`,
-        chart_id: `placeholder-${index}`,
-        dashboard_id: dashboardId,
-        position: {
-          x: colIndex * 3, // 3 columns each
-          y: rowIndex * 4, // 4 rows height
-          width: 3,
-          height: 4,
+        theme_config: {
+          primary_color: '#1976d2',
+          background_color: '#f5f5f5'
         },
-        title: `Chart Slot ${index + 1}`,
-        order_index: index,
-        is_visible: true,
-        chart: {
-          id: `placeholder-${index}`,
-          name: `placeholder-${index}`,
-          display_name: `Chart Slot ${index + 1}`,
-          chart_type: 'placeholder',
-          config_json: {},
-          dataset_ids: [],
-          is_active: false,
-          version: 1,
-          created_by: 'system',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }
-      });
-    }
-
-    return layout;
-  }, [state.dashboard?.charts, state.dashboard?.config_json?.expected_chart_count, expectedChartCount, dashboardId, gridSettings.cols.lg]);
-
-  // ============================================================================
-  // CONVERT TO GRID LAYOUT FORMAT
-  // ============================================================================
-
-  const gridLayoutItems = useMemo(() => {
-    const layoutItems: Layout[] = stableChartLayout.map((chart) => ({
-      i: chart.chart_id,
-      x: chart.position.x,
-      y: chart.position.y,
-      w: chart.position.width,
-      h: chart.position.height,
-      minW: 2,
-      minH: 2,
-      maxW: gridSettings.cols.lg,
-      maxH: 12,
-      static: chart.chart_id.startsWith('placeholder-'), // Make placeholders static
-    }));
-
-    return layoutItems;
-  }, [stableChartLayout, gridSettings.cols.lg]);
-
-  // ============================================================================
-  // EXISTING FUNCTIONALITY PRESERVED
-  // ============================================================================
-
-  useEffect(() => {
-    if (dashboardId) {
-      loadDashboard();
-    }
-
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      if (refreshIntervalRef.current) {
-        clearInterval(refreshIntervalRef.current);
-      }
-      // Cleanup retry timeouts
-      retryTimeoutsRef.current.forEach(timeout => clearTimeout(timeout));
-      retryTimeoutsRef.current.clear();
-    };
-  }, [dashboardId, loadDashboard]);
-
-  useEffect(() => {
-    if (autoRefreshActive && propRefreshInterval) {
-      refreshIntervalRef.current = setInterval(() => {
-        console.log('🔄 Auto-refreshing dashboard...');
-        loadDashboard(true);
-      }, propRefreshInterval);
-
-      return () => {
-        if (refreshIntervalRef.current) {
-          clearInterval(refreshIntervalRef.current);
-        }
+        charts: [
+          {
+            id: 'chart-1',
+            chart_id: 'chart-1',
+            dashboard_id: dashboardId,
+            position: { x: 0, y: 0, width: 6, height: 4 },
+            title: 'Monthly Revenue Trend',
+            order_index: 1,
+            is_visible: true,
+            chart: {
+              id: 'chart-1',
+              name: 'revenue_trend',
+              display_name: 'Monthly Revenue Trend',
+              chart_type: 'line',
+              config_json: {},
+              dataset_ids: ['revenue-data'],
+              is_active: true,
+              version: 1,
+              created_by: 'user-1',
+              created_at: '2024-01-01',
+              updated_at: '2024-01-01'
+            }
+          },
+          {
+            id: 'chart-2',
+            chart_id: 'chart-2',
+            dashboard_id: dashboardId,
+            position: { x: 6, y: 0, width: 6, height: 4 },
+            title: 'Sales by Region',
+            order_index: 2,
+            is_visible: true,
+            chart: {
+              id: 'chart-2',
+              name: 'sales_by_region',
+              display_name: 'Sales by Region',
+              chart_type: 'bar',
+              config_json: {},
+              dataset_ids: ['regional-sales'],
+              is_active: true,
+              version: 1,
+              created_by: 'user-1',
+              created_at: '2024-01-01',
+              updated_at: '2024-01-01'
+            }
+          },
+          {
+            id: 'chart-3',
+            chart_id: 'chart-3',
+            dashboard_id: dashboardId,
+            position: { x: 0, y: 4, width: 12, height: 4 },
+            title: 'Top Performing Products',
+            order_index: 3,
+            is_visible: true,
+            chart: {
+              id: 'chart-3',
+              name: 'top_products',
+              display_name: 'Top Performing Products',
+              chart_type: 'pie',
+              config_json: {},
+              dataset_ids: ['product-performance'],
+              is_active: true,
+              version: 1,
+              created_by: 'user-1',
+              created_at: '2024-01-01',
+              updated_at: '2024-01-01'
+            }
+          }
+        ],
+        tabs: [],
+        global_filters: [],
+        is_public: false,
+        status: 'published',
+        created_at: '2024-01-01',
+        updated_at: '2024-01-01'
       };
+      
+      setState(prev => ({ ...prev, dashboard: mockDashboard, loading: false }));
+      
+    } catch (error: any) {
+      setState(prev => ({ 
+        ...prev, 
+        loading: false, 
+        error: error?.message || 'Failed to load dashboard' 
+      }));
+      onError?.(error?.message || 'Failed to load dashboard');
     }
-  }, [autoRefreshActive, propRefreshInterval, loadDashboard]);
+  }, [dashboardId, onError]);
 
   const handleFullscreenToggle = useCallback(() => {
     onFullscreenChange?.(!fullscreen);
   }, [fullscreen, onFullscreenChange]);
 
-  const handleChartClick = useCallback((chartId: string) => {
-    console.log('📊 Chart clicked:', chartId);
-    onChartInteraction?.({ type: 'click', chartId });
+  const handleChartClick = useCallback((chart: any) => {
+    console.log('📊 Chart clicked:', chart.id);
+    onChartInteraction?.({ type: 'click', chartId: chart.id });
   }, [onChartInteraction]);
+
+  const handleChartLoad = useCallback((chartId: string, metadata: any) => {
+    console.log('📊 Chart loaded:', chartId, metadata);
+    setChartLoaded(chartId);
+  }, [setChartLoaded]);
+
+  const handleChartError = useCallback((chartId: string, error: string) => {
+    console.log('📊 Chart error:', chartId, error);
+    setChartError(chartId, error);
+  }, [setChartError]);
 
   const toggleAutoRefresh = () => {
     setAutoRefreshActive(!autoRefreshActive);
     console.log(`🔄 Auto-refresh ${!autoRefreshActive ? 'enabled' : 'disabled'}`);
   };
 
-  const refreshAllCharts = useCallback(() => {
-    setState(prev => ({
-      ...prev,
-      failedCharts: new Set(),
-      chartErrors: new Map()
-    }));
-    loadDashboard(true);
-    
-    setNotification({
-      show: true,
-      message: 'Refreshing all charts...',
-      severity: 'info'
+  const handleLoadAllCharts = useCallback(() => {
+    // Just trigger a re-render, let ChartContainer handle loading
+    visibleCharts.forEach(chart => {
+      updateChartState(chart.chart_id, { loading: false, loaded: false, error: null });
     });
-  }, [loadDashboard]);
+  }, [visibleCharts, updateChartState]);
 
   // ============================================================================
-  // GRID LAYOUT EVENT HANDLERS
+  // EFFECTS - Simplified to not interfere with ChartContainer loading
   // ============================================================================
 
-  const handleLayoutChange = useCallback((layout: Layout[], layouts: Layouts) => {
-    setLayouts(layouts);
-    onLayoutChange?.(layouts);
-    
-    // Optional: Save layout changes to backend
-    console.log('📐 Layout changed:', layout);
-  }, [onLayoutChange]);
+  useEffect(() => {
+    loadDashboard();
+  }, [dashboardId]);
 
-  const handleBreakpointChange = useCallback((breakpoint: string) => {
-    setCurrentBreakpoint(breakpoint);
-    console.log('📱 Breakpoint changed:', breakpoint);
-  }, []);
+  // No need to manually trigger loading strategies - ChartContainer handles it based on props
 
   // ============================================================================
-  // ENHANCED RENDER HELPERS
+  // RENDER HELPERS - Using existing ChartContainer
   // ============================================================================
 
-  const renderChart = (chartData: DashboardChart) => {
-    const isPlaceholder = chartData.chart_id.startsWith('placeholder-');
-    const hasError = state.failedCharts.has(chartData.chart_id);
-    const chartError = state.chartErrors.get(chartData.chart_id);
+  const renderChart = (dashboardChart: DashboardChart) => {
+    const chartState = chartLoadingStates[dashboardChart.chart_id] || {
+      loading: false,
+      loaded: false,
+      error: null,
+      retryCount: 0
+    };
 
-    if (isPlaceholder) {
-      return (
-        <div key={chartData.chart_id} className="grid-item-card">
-          <Card sx={{ 
-            height: '100%',
-            border: '2px dashed',
-            borderColor: 'divider',
-            bgcolor: 'action.hover',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            <CardContent sx={{ 
-              textAlign: 'center',
-              color: 'text.secondary'
-            }}>
-              <DashboardIcon sx={{ fontSize: 48, mb: 1, opacity: 0.5 }} />
-              <Typography variant="h6" gutterBottom>
-                {chartData.title}
-              </Typography>
-              <Typography variant="body2">
-                Chart slot available
-              </Typography>
-            </CardContent>
-          </Card>
-        </div>
-      );
-    }
+    // Calculate grid size based on position width
+    const getGridSize = (width: number) => {
+      if (width >= 12) return 12;
+      if (width >= 8) return 8;
+      if (width >= 6) return 6;
+      return 12;
+    };
+
+    // Create props for your existing ChartContainer - Simplified to prevent duplicate API calls
+    const chartContainerProps: ChartContainerProps = {
+      // Core required props
+      chart: {
+        ...dashboardChart.chart,
+        // Convert DashboardChart.chart to Chart type
+        workspace_id: workspaceId || '',
+        dashboard_id: dashboardId,
+        chart_library: dashboardChart.chart.config_json?.chart_library || 'echarts',
+        position_json: dashboardChart.position,
+        query_config: dashboardChart.chart.config_json?.query_config || {},
+        visualization_config: dashboardChart.chart.config_json?.visualization_config || {},
+        filters: [],
+        tags: [],
+        is_public: false,
+        updated_by: dashboardChart.chart.created_by,
+        created_at: new Date(dashboardChart.chart.created_at),
+        updated_at: new Date(dashboardChart.chart.updated_at),
+        owner: {
+          id: dashboardChart.chart.created_by,
+          name: 'Chart Owner',
+          email: 'owner@example.com'
+        }
+      },
+      
+      // Context props
+      workspaceId,
+      dashboardId,
+      
+      // Dimensions based on position
+      dimensions: {
+        width: '100%',
+        height: dashboardChart.position.height * 60
+      },
+      
+      // Event handlers - just track what ChartContainer reports back
+      onChartLoad: (chartId: string, metadata: any) => handleChartLoad(chartId, metadata),
+      onChartError: (chartId: string, error: string) => handleChartError(chartId, error),
+      onChartClick: handleChartClick,
+      onChartDoubleClick: handleChartClick,
+      
+      // Auto-refresh settings
+      autoRefresh: autoRefreshActive,
+      refreshInterval: autoRefreshActive ? refreshInterval : undefined,
+      
+      // Let ChartContainer handle loading based on strategy
+      refreshOnMount: loadingStrategy === 'immediate',
+      lazy: loadingStrategy === 'on-demand',
+      
+      // Display
+      className: 'dashboard-chart-container'
+    };
 
     return (
-      <div key={chartData.chart_id} className="grid-item-card">
-        <Card sx={{ 
-          height: '100%',
-          border: hasError ? '2px solid' : '1px solid',
-          borderColor: hasError ? 'error.main' : 'divider',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column'
-        }}>
-          {/* Enhanced Chart Header */}
-          <Box sx={{ 
-            p: 2, 
-            borderBottom: 1, 
-            borderColor: 'divider',
-            bgcolor: hasError ? 'error.light' : 'background.paper',
-            minHeight: 60
-          }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography variant="h6" component="h3" sx={{
-                color: hasError ? 'error.contrastText' : 'text.primary'
-              }}>
-                {chartData.title}
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                <Chip 
-                  label={chartData.chart.chart_type} 
-                  size="small" 
-                  variant="outlined"
-                  color={hasError ? "error" : "primary"}
-                />
-                {hasError && (
-                  <Tooltip title={`Error: ${chartError?.error}`}>
-                    <IconButton 
-                      size="small" 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleChartRetry(chartData.chart_id);
-                      }}
-                      sx={{ color: 'inherit' }}
-                    >
-                      <RefreshIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                )}
-              </Box>
-            </Box>
-          </Box>
-          
-          {/* Chart Content - Use Enhanced ChartContainer */}
-          <Box sx={{ flex: 1, minHeight: 0 }}>
-            <ChartContainer
-              chart={chartData.chart}
-              workspaceId={workspaceId}
-              dashboardId={dashboardId}
-              dimensions={{
-                width: '100%',
-                height: '100%'
-              }}
-              onChartError={handleChartError}
-              onChartLoad={(chartId) => handleChartRetry(chartId)}
-              onError={(error) => handleChartError(chartData.chart_id, typeof error === 'string' ? error : error.message)}
-              className="dashboard-chart-container"
-              // Enable resilient error handling
-              maxRetries={3}
-              retryDelay={1000}
-              showErrorInCard={true}
-              gridItem={true}
-              resizeObserver={true}
-              onClick={() => handleChartClick(chartData.chart_id)}
-            />
-          </Box>
-        </Card>
-      </div>
+      <Grid 
+        item 
+        xs={12} 
+        md={getGridSize(dashboardChart.position.width)}
+        key={dashboardChart.id}
+        sx={{ 
+          order: dashboardChart.order_index || 999
+        }}
+      >
+        {/* Use your existing ChartContainer component */}
+        <ChartContainer {...chartContainerProps} />
+      </Grid>
     );
   };
 
@@ -640,9 +482,6 @@ export const DashboardContainer: React.FC<DashboardContainerProps> = ({
         <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
           This dashboard doesn't have any charts yet.
         </Typography>
-        <Button variant="contained" color="primary">
-          Add Charts
-        </Button>
       </Box>
     );
   };
@@ -661,70 +500,34 @@ export const DashboardContainer: React.FC<DashboardContainerProps> = ({
           </Box>
         </Box>
         
-        <Box sx={{ minHeight: 600 }}>
-          <Skeleton variant="rectangular" width="100%" height={600} />
-        </Box>
+        <Grid container spacing={3}>
+          {[1, 2, 3, 4].map((i) => (
+            <Grid item xs={12} md={6} key={i}>
+              <Box sx={{ height: 240 }}>
+                <Skeleton variant="rectangular" height="100%" />
+              </Box>
+            </Grid>
+          ))}
+        </Grid>
       </Box>
     );
   };
 
   // ============================================================================
-  // ENHANCED ERROR SUMMARY
-  // ============================================================================
-
-  const renderErrorSummary = () => {
-    const errorCount = state.failedCharts.size;
-    
-    if (errorCount === 0) return null;
-
-    return (
-      <Alert 
-        severity={errorCount > Math.ceil(stableChartLayout.length / 2) ? "error" : "warning"} 
-        sx={{ mb: 3 }}
-        action={
-          <Button color="inherit" size="small" onClick={refreshAllCharts}>
-            <RefreshIcon sx={{ mr: 1 }} />
-            Retry All
-          </Button>
-        }
-        icon={errorCount > Math.ceil(stableChartLayout.length / 2) ? <ErrorIcon /> : <WarningIcon />}
-      >
-        <Typography variant="body2">
-          {errorCount === 1 
-            ? 'One chart is experiencing issues'
-            : `${errorCount} charts are experiencing issues`
-          }
-          {errorCount > Math.ceil(stableChartLayout.length / 2) && 
-            '. This may indicate a service interruption.'
-          }
-        </Typography>
-      </Alert>
-    );
-  };
-
-  // ============================================================================
-  // COMPUTED VALUES
-  // ============================================================================
-
-  const totalChartsCount = stableChartLayout.length;
-  const activeChartsCount = stableChartLayout.filter(c => !c.chart_id.startsWith('placeholder-')).length;
-  const failedChartsCount = state.failedCharts.size;
-
-  // ============================================================================
-  // MAIN RENDER WITH REACT-GRID-LAYOUT
+  // MAIN RENDER - Enhanced with loading progress
   // ============================================================================
 
   if (state.loading) {
     return (
-      <Box sx={{ height: '100%' }} className={className} style={style}>
+      <Box sx={{ height: '100%' }}>
         {renderLoadingState()}
       </Box>
     );
   }
 
-  if (state.error && !state.dashboard) {
+  if (state.error) {
     return (
-      <Box sx={{ p: 3 }} className={className} style={style}>
+      <Box sx={{ p: 3 }}>
         <Alert severity="error" sx={{ mb: 2 }}>
           <Typography variant="h6" gutterBottom>
             Dashboard Error
@@ -733,13 +536,8 @@ export const DashboardContainer: React.FC<DashboardContainerProps> = ({
             {state.error}
           </Typography>
         </Alert>
-        <Button 
-          variant="outlined" 
-          onClick={() => loadDashboard(true)} 
-          startIcon={<RefreshIcon />}
-          disabled={state.loading}
-        >
-          {state.retryAttempts > 0 ? `Retry (${state.retryAttempts}/3)` : 'Try Again'}
+        <Button variant="outlined" onClick={() => loadDashboard()} startIcon={<RefreshIcon />}>
+          Try Again
         </Button>
       </Box>
     );
@@ -747,7 +545,7 @@ export const DashboardContainer: React.FC<DashboardContainerProps> = ({
 
   if (!state.dashboard) {
     return (
-      <Box sx={{ p: 3 }} className={className} style={style}>
+      <Box sx={{ p: 3 }}>
         <Alert severity="warning">
           <Typography variant="body2">
             Dashboard not found
@@ -761,57 +559,136 @@ export const DashboardContainer: React.FC<DashboardContainerProps> = ({
     <Box 
       sx={{ 
         height: '100%',
-        bgcolor: state.dashboard.theme_config.background_color || 'background.default',
-        p: 2
+        bgcolor: state.dashboard.theme_config.background_color || 'background.default'
       }}
-      className={`dashboard-container ${className || ''}`}
-      style={style}
+      className={className}
     >
-      {/* Enhanced Dashboard Header */}
+      {/* Unified Dashboard Header */}
       <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Box>
-            <Typography variant="h4" component="h1" gutterBottom>
-              {state.dashboard.display_name}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {state.dashboard.description}
-            </Typography>
-            <Box sx={{ mt: 1, display: 'flex', gap: 2, alignItems: 'center' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          {/* Left: Dashboard Info & Stats */}
+          <Box sx={{ flex: 1, mr: 2 }}>
+            {/* Title & Description */}
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="h4" component="h1" gutterBottom>
+                {state.dashboard.display_name || state.dashboard.name}
+              </Typography>
+              {state.dashboard.description && (
+                <Typography variant="body1" color="text.secondary">
+                  {state.dashboard.description}
+                </Typography>
+              )}
+            </Box>
+            
+            {/* Stats & Progress in one row */}
+            <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+              {/* Chart Stats */}
               <Chip 
+                label={`${totalChartsCount} Charts`} 
                 size="small" 
-                label={`${totalChartsCount} slots`} 
-                color="default"
-                icon={<GridIcon />}
+                variant="outlined" 
               />
-              <Chip 
-                size="small" 
-                label={`${activeChartsCount} active`} 
-                color="primary"
-              />
-              {failedChartsCount > 0 && (
+              
+              {/* Loading Stats - only show if there's activity */}
+              {loadingStats.loading > 0 && (
                 <Chip 
+                  label={`${loadingStats.loading} Loading`} 
                   size="small" 
-                  label={`${failedChartsCount} errors`} 
+                  color="primary"
+                />
+              )}
+              {loadingStats.loaded > 0 && (
+                <Chip 
+                  label={`${loadingStats.loaded} Loaded`} 
+                  size="small" 
+                  color="success"
+                />
+              )}
+              {loadingStats.errors > 0 && (
+                <Chip 
+                  label={`${loadingStats.errors} Errors`} 
+                  size="small" 
                   color="error"
                 />
               )}
-              {state.lastRefresh && (
-                <Typography variant="caption" color="text.secondary">
-                  Updated: {state.lastRefresh.toLocaleTimeString()}
-                </Typography>
+
+              {/* Loading Strategy - only show if not default */}
+              {loadingStrategy !== 'on-demand' && (
+                <Chip 
+                  label={`${loadingStrategy.charAt(0).toUpperCase() + loadingStrategy.slice(1)} Loading`} 
+                  size="small" 
+                  variant="outlined"
+                  color="secondary"
+                />
+              )}
+
+              {/* Auto-refresh indicator */}
+              {autoRefreshActive && (
+                <Chip 
+                  label={`Auto-refresh: ${Math.round(refreshInterval / 1000)}s`} 
+                  size="small" 
+                  color="info"
+                  variant="outlined"
+                />
+              )}
+
+              {/* Inline Progress Bar - compact version */}
+              {showLoadingProgress && loadingStats.loading > 0 && (
+                <Box sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: 1,
+                  ml: 1,
+                  minWidth: 120 
+                }}>
+                  <LinearProgress 
+                    variant="determinate" 
+                    value={loadingStats.progress} 
+                    sx={{ 
+                      height: 6, 
+                      borderRadius: 3,
+                      flexGrow: 1,
+                      minWidth: 60
+                    }}
+                  />
+                  <Typography variant="caption" color="text.secondary" sx={{ minWidth: 35 }}>
+                    {loadingStats.progress}%
+                  </Typography>
+                </Box>
               )}
             </Box>
           </Box>
 
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Tooltip title={autoRefreshActive ? 'Disable auto-refresh' : 'Enable auto-refresh'}>
-              <IconButton onClick={toggleAutoRefresh} color={autoRefreshActive ? 'primary' : 'default'}>
-                <RefreshIcon />
+          {/* Right: Dashboard Controls */}
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+            <Tooltip title={autoRefreshActive ? 'Disable Auto-refresh' : 'Enable Auto-refresh'}>
+              <IconButton 
+                onClick={toggleAutoRefresh}
+                color={autoRefreshActive ? 'primary' : 'default'}
+                size="small"
+              >
+                {autoRefreshActive ? <PauseIcon /> : <PlayIcon />}
               </IconButton>
             </Tooltip>
-            <Tooltip title={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
-              <IconButton onClick={handleFullscreenToggle}>
+            
+            <Tooltip title="Refresh Dashboard">
+              <IconButton 
+                onClick={() => loadDashboard()}
+                size="small"
+                disabled={state.loading}
+              >
+                <RefreshIcon sx={{ 
+                  animation: state.loading ? 'spin 1s linear infinite' : 'none' 
+                }} />
+              </IconButton>
+            </Tooltip>
+            
+            <Tooltip title={fullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}>
+              <IconButton 
+                onClick={handleFullscreenToggle} 
+                color="primary"
+                size="small"
+              >
                 {fullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
               </IconButton>
             </Tooltip>
@@ -819,57 +696,27 @@ export const DashboardContainer: React.FC<DashboardContainerProps> = ({
         </Box>
       </Paper>
 
-      {/* Error Summary */}
-      {renderErrorSummary()}
-
-      {/* React Grid Layout - MAIN DASHBOARD GRID */}
-      <Box sx={{ minHeight: 600 }}>
-        {stableChartLayout.length === 0 ? (
-          renderEmptyDashboard()
+      {/* Dashboard Content - Using existing ChartContainer components */}
+      <Box sx={{ px: 3, pb: 3 }}>
+        {state.dashboard.charts && state.dashboard.charts.length > 0 ? (
+          <Grid container spacing={3}>
+            {state.dashboard.charts
+              .filter(chart => chart.is_visible)
+              .sort((a, b) => a.order_index - b.order_index)
+              .map(renderChart)}
+          </Grid>
         ) : (
-          <ResponsiveGridLayout
-            className="dashboard-grid-layout"
-            layouts={layouts}
-            breakpoints={gridSettings.breakpoints}
-            cols={gridSettings.cols}
-            rowHeight={gridSettings.rowHeight}
-            margin={gridSettings.margin}
-            containerPadding={gridSettings.containerPadding}
-            onLayoutChange={handleLayoutChange}
-            onBreakpointChange={handleBreakpointChange}
-            isDraggable={!fullscreen} // Disable dragging in fullscreen
-            isResizable={!fullscreen} // Disable resizing in fullscreen
-            useCSSTransforms={true}
-            preventCollision={false}
-            autoSize={true}
-          >
-            {gridLayoutItems.map((layoutItem) => {
-              const chartData = stableChartLayout.find(c => c.chart_id === layoutItem.i);
-              return chartData ? renderChart(chartData) : null;
-            })}
-          </ResponsiveGridLayout>
+          renderEmptyDashboard()
         )}
       </Box>
 
-      {/* Enhanced Notification System */}
-      <Snackbar
-        open={notification.show}
-        autoHideDuration={4000}
-        onClose={() => setNotification(prev => ({ ...prev, show: false }))}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-      >
-        <Alert 
-          severity={notification.severity} 
-          onClose={() => setNotification(prev => ({ ...prev, show: false }))}
-          sx={{ width: '100%' }}
-        >
-          {notification.message}
-        </Alert>
-      </Snackbar>
-
-      {/* EMBEDDED CSS STYLES */}
-      <style jsx global>{`
-        /* ============================================================================ */
+      {/* CSS for animations */}
+      <style jsx>{`
+       @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+		 /* ============================================================================ */
         /* REACT GRID LAYOUT STYLES - ENHANCED FOR DASHBOARD BUILDER */
         /* ============================================================================ */
         
@@ -1184,3 +1031,5 @@ export const DashboardContainer: React.FC<DashboardContainerProps> = ({
     </Box>
   );
 };
+
+export default DashboardContainer;
