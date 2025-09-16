@@ -1,8 +1,11 @@
-// web-application/src/middleware/apiMiddleware.ts - FIXED VERSION
+// bi_platform/web-application/src/middleware/apiMiddleware.ts
+// Updated to use auth storage and workspace storage utilities
+
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 import { store } from '@/store';
 import { logout, setCredentials } from '@/store/slices/authSlice';
-import { clearWorkspaces } from '@/store/slices/workspaceSlice';
+import { clearWorkspaces, setCurrentWorkspace } from '@/store/slices/workspaceSlice';
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
 
 export interface ApiError {
   code: string;
@@ -18,8 +21,10 @@ interface RefreshResponse {
     user: any;
     workspace?: any;
     permissions?: string[];
+    expires_in?: number;
   };
   message?: string;
+  error?: string;
 }
 
 interface QueueItem {
@@ -46,9 +51,10 @@ class ApiMiddleware {
   }
 
   private setupInterceptors() {
-    // Request interceptor
+    // Request interceptor using storage utilities
     this.api.interceptors.request.use(
       (config: InternalAxiosRequestConfig) => {
+        // Use auth storage utility to get token
         const token = this.getToken();
         const workspaceId = this.getWorkspaceId();
         
@@ -56,12 +62,23 @@ class ApiMiddleware {
           config.headers.Authorization = `Bearer ${token}`;
         }
         
+        // Use workspace storage to get workspace context
         if (workspaceId) {
           config.headers['X-Workspace-Id'] = workspaceId;
         }
+
+        // Add workspace slug for additional context
+        const currentWorkspace = workspaceStorage.getCurrentWorkspace();
+        if (currentWorkspace?.slug) {
+          config.headers['X-Workspace-Slug'] = currentWorkspace.slug;
+        }
         
         if (process.env.NODE_ENV === 'development') {
-          console.log(`🚀 API Request: ${config.method?.toUpperCase()} ${config.url}`);
+          console.log(`🚀 API Request: ${config.method?.toUpperCase()} ${config.url}`, {
+            hasToken: !!token,
+            workspaceId,
+            workspaceSlug: currentWorkspace?.slug
+          });
         }
         
         return config;
@@ -69,7 +86,7 @@ class ApiMiddleware {
       (error) => Promise.reject(this.handleRequestError(error))
     );
 
-    // Response interceptor with improved token refresh
+    // Response interceptor with improved token refresh using storage utilities
     this.api.interceptors.response.use(
       (response: AxiosResponse) => {
         if (process.env.NODE_ENV === 'development') {
@@ -85,88 +102,31 @@ class ApiMiddleware {
           const errorData = error.response.data as any;
           const errorCode = errorData?.error;
           
-          console.log('🔍 401 error detected:', { errorCode, canRefresh: errorData?.can_refresh });
-          
-          // Only try refresh if the backend indicates it's possible
-          if ((errorCode === 'TOKEN_EXPIRED' || errorCode === 'TOKEN_INVALID') && errorData?.can_refresh) {
-            
-            if (!this.isRefreshing) {
-              this.isRefreshing = true;
-              originalRequest._retry = true;
+          console.log('🔍 401 error detected:', { 
+            errorCode, 
+            canRefresh: errorData?.can_refresh,
+            url: originalRequest.url 
+          });
 
-              try {
-                // Use shared refresh promise to prevent multiple simultaneous refreshes
-                if (!this.refreshPromise) {
-                  this.refreshPromise = this.refreshToken();
-                }
-                
-                const refreshResponse = await this.refreshPromise;
-                
-                if (refreshResponse?.success && refreshResponse?.data?.token) {
-                  console.log('✅ Token refreshed successfully');
-                  
-                  // Update Redux store
-                  store.dispatch(setCredentials({
-                    user: refreshResponse.data.user,
-                    token: refreshResponse.data.token,
-                    workspace: refreshResponse.data.workspace,
-                    permissions: refreshResponse.data.permissions,
-                  }));
-
-                  // Update localStorage
-                  if (typeof window !== 'undefined') {
-                    localStorage.setItem('token', refreshResponse.data.token);
-                  }
-
-                  // Process all queued requests
-                  this.processQueue(null, refreshResponse.data.token);
-                  
-                  // Retry original request
-                  if (originalRequest.headers) {
-                    originalRequest.headers.Authorization = `Bearer ${refreshResponse.data.token}`;
-                  }
-                  
-                  return this.api(originalRequest);
-                } else {
-                  throw new Error(refreshResponse?.message || 'Token refresh failed');
-                }
-                
-              } catch (refreshError: any) {
-                console.error('❌ Token refresh failed:', refreshError.message);
-                
-                // Process queue with error
-                this.processQueue(refreshError, null);
-                
-                // Handle auth error (logout and redirect)
-                this.handleAuthError();
-                
-                return Promise.reject(refreshError);
-                
-              } finally {
-                this.isRefreshing = false;
-                this.refreshPromise = null; // Reset the promise
-              }
-              
-            } else {
-              // Queue request while refresh is in progress
-              console.log('🔄 Token refresh in progress, queueing request...');
-              
-              return new Promise((resolve, reject) => {
-                this.failedQueue.push({
-                  resolve: (token: string) => {
-                    if (originalRequest.headers) {
-                      originalRequest.headers.Authorization = `Bearer ${token}`;
-                    }
-                    resolve(this.api(originalRequest));
-                  },
-                  reject,
-                });
-              });
-            }
+          // Handle different types of 401 errors
+          if (errorCode === 'TOKEN_EXPIRED' && errorData?.can_refresh !== false) {
+            return this.handleTokenRefresh(originalRequest);
           } else {
-            // Can't refresh or other auth error - handle immediately
-            console.log('❌ Auth error that cannot be refreshed, logging out');
-            this.handleAuthError();
+            // Token is invalid or refresh not possible
+            console.log('🚫 Token invalid, logging out');
+            this.handleLogout();
+            return Promise.reject(this.handleResponseError(error));
+          }
+        }
+
+        // Handle 403 Workspace Access Denied
+        if (error.response?.status === 403) {
+          const errorData = error.response.data as any;
+          if (errorData?.error === 'WORKSPACE_ACCESS_DENIED') {
+            console.log('🏢 Workspace access denied');
+            // Clear workspace data but keep auth
+            workspaceStorage.clearWorkspace();
+            store.dispatch(clearWorkspaces());
           }
         }
 
@@ -175,38 +135,102 @@ class ApiMiddleware {
     );
   }
 
-  private async refreshToken(): Promise<RefreshResponse> {
+  private async handleTokenRefresh(originalRequest: any): Promise<any> {
+    if (this.isRefreshing) {
+      // If already refreshing, queue the request
+      return new Promise((resolve, reject) => {
+        this.failedQueue.push({ resolve, reject });
+      }).then(token => {
+        originalRequest.headers.Authorization = `Bearer ${token}`;
+        return this.api(originalRequest);
+      }).catch(err => {
+        return Promise.reject(err);
+      });
+    }
+
+    originalRequest._retry = true;
+    this.isRefreshing = true;
+
     try {
       console.log('🔄 Attempting token refresh...');
       
-      const currentToken = this.getToken();
-      if (!currentToken) {
-        throw new Error('No current token available for refresh');
+      // Get refresh token from auth storage
+      const refreshToken = authStorage.getRefreshToken();
+      if (!refreshToken) {
+        throw new Error('No refresh token available');
       }
 
-      const refreshResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/refresh`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${currentToken}`,
+      // Attempt token refresh
+      const refreshResponse = await this.refreshToken(refreshToken);
+      
+      if (refreshResponse.success && refreshResponse.data?.token) {
+        const newToken = refreshResponse.data.token;
+        const userData = refreshResponse.data.user;
+        const workspaceData = refreshResponse.data.workspace;
+        const permissions = refreshResponse.data.permissions || [];
+        const expiresIn = refreshResponse.data.expires_in || 24 * 60 * 60 * 1000; // 24 hours default
+
+        // Update auth storage with new token and expiry
+        const expiry = Date.now() + (expiresIn * 1000); // Convert seconds to milliseconds
+        authStorage.setToken(newToken, expiry);
+        authStorage.setUser(userData);
+        
+        // Update permissions in storage
+        if (workspaceData?.id) {
+          authStorage.setPermissions(permissions, workspaceData.id);
+          workspaceStorage.setCurrentWorkspace(workspaceData);
         }
-      });
 
-      if (!refreshResponse.ok) {
-        throw new Error(`Token refresh failed with status: ${refreshResponse.status}`);
+        // Update Redux store
+        store.dispatch(setCredentials({
+          user: userData,
+          token: newToken,
+          workspace: workspaceData,
+          permissions
+        }));
+
+        // Process failed queue
+        this.processQueue(null, newToken);
+        
+        console.log('✅ Token refreshed successfully');
+        
+        // Retry the original request with new token
+        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        return this.api(originalRequest);
+        
+      } else {
+        throw new Error(refreshResponse.error || 'Token refresh failed');
       }
-
-      const data: RefreshResponse = await refreshResponse.json();
+    } catch (refreshError) {
+      console.log('❌ Token refresh failed:', refreshError);
       
-      if (!data.success || !data.data?.token) {
-        console.error('❌ Invalid refresh response:', data);
-        throw new Error(data.message || 'Invalid refresh response format');
-      }
-
-      return data;
+      // Process failed queue with error
+      this.processQueue(refreshError, null);
       
+      // Handle logout
+      this.handleLogout();
+      
+      return Promise.reject(refreshError);
+    } finally {
+      this.isRefreshing = false;
+      this.refreshPromise = null;
+    }
+  }
+
+  private async refreshToken(refreshToken: string): Promise<RefreshResponse> {
+    try {
+      const response = await axios.post(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/auth/refresh`,
+        { refresh_token: refreshToken },
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 10000
+        }
+      );
+      
+      return response.data;
     } catch (error: any) {
-      console.error('❌ Token refresh error:', error.message);
+      console.log('Refresh token request failed:', error.response?.data || error.message);
       throw error;
     }
   }
@@ -215,69 +239,64 @@ class ApiMiddleware {
     this.failedQueue.forEach(({ resolve, reject }) => {
       if (error) {
         reject(error);
-      } else if (token) {
-        resolve(token);
       } else {
-        reject(new Error('No token available'));
+        resolve(token!);
       }
     });
     
     this.failedQueue = [];
   }
 
-  private handleAuthError() {
-    console.log('🚪 Handling authentication error - clearing session');
+  private handleLogout() {
+    console.log('🚪 Handling logout - clearing all storage');
+    
+    // Clear all storage using utilities
+    authStorage.clearAuth();
+    workspaceStorage.clearWorkspace();
     
     // Clear Redux state
     store.dispatch(logout());
     store.dispatch(clearWorkspaces());
     
-    // Clear localStorage
+    // Redirect to login if in browser
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      localStorage.removeItem('workspace');
-      localStorage.removeItem('selected_workspace_id');
-    }
-    
-    // Redirect to login with a small delay to prevent redirect loops
-    if (typeof window !== 'undefined') {
-      setTimeout(() => {
-        // Check if already on login page to prevent redirect loops
-        if (!window.location.pathname.includes('/login')) {
-          window.location.href = '/login';
-        }
-      }, 100);
+      const currentPath = window.location.pathname;
+      if (!currentPath.startsWith('/login')) {
+        window.location.href = `/login?returnUrl=${encodeURIComponent(currentPath)}`;
+      }
     }
   }
 
+  // Use auth storage utility to get token
   private getToken(): string | null {
-    // Try Redux store first
-    const state = store.getState();
-    if (state.auth.token && state.auth.token !== 'null' && state.auth.token !== 'undefined') {
-      return state.auth.token;
+    try {
+      const state = store.getState();
+      if (state.auth.token) {
+        return state.auth.token;
+      }
+      
+      // Fallback to storage utility
+      return authStorage.getToken();
+    } catch (error) {
+      // If Redux store is not available, use storage utility
+      return authStorage.getToken();
     }
-    
-    // Fallback to localStorage
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('token');
-      return token && token !== 'null' && token !== 'undefined' ? token : null;
-    }
-    
-    return null;
   }
 
+  // Use workspace storage utility to get workspace ID
   private getWorkspaceId(): string | null {
-    const state = store.getState();
-    if (state.workspace.current?.id) {
-      return state.workspace.current.id;
+    try {
+      const state = store.getState();
+      if (state.workspace.current?.id) {
+        return state.workspace.current.id;
+      }
+    } catch (error) {
+      // Redux store not available, fallback to storage
     }
     
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('selected_workspace_id');
-    }
-    
-    return null;
+    // Fallback to workspace storage utility
+    const currentWorkspace = workspaceStorage.getCurrentWorkspace();
+    return currentWorkspace?.id || null;
   }
 
   private handleRequestError(error: any): ApiError {
@@ -318,6 +337,7 @@ class ApiMiddleware {
     }
   }
 
+  // Public methods
   public getInstance(): AxiosInstance {
     return this.api;
   }
@@ -325,6 +345,68 @@ class ApiMiddleware {
   public async request<T = any>(config: any): Promise<T> {
     const response = await this.api.request(config);
     return response.data;
+  }
+
+  // Method to manually refresh token
+  public async forceTokenRefresh(): Promise<boolean> {
+    try {
+      const refreshToken = authStorage.getRefreshToken();
+      if (!refreshToken) {
+        throw new Error('No refresh token available');
+      }
+
+      const refreshResponse = await this.refreshToken(refreshToken);
+      
+      if (refreshResponse.success && refreshResponse.data?.token) {
+        const newToken = refreshResponse.data.token;
+        const userData = refreshResponse.data.user;
+        const workspaceData = refreshResponse.data.workspace;
+        const permissions = refreshResponse.data.permissions || [];
+        const expiresIn = refreshResponse.data.expires_in || 24 * 60 * 60 * 1000;
+
+        // Update storage
+        const expiry = Date.now() + (expiresIn * 1000);
+        authStorage.setToken(newToken, expiry);
+        authStorage.setUser(userData);
+        
+        if (workspaceData?.id) {
+          authStorage.setPermissions(permissions, workspaceData.id);
+          workspaceStorage.setCurrentWorkspace(workspaceData);
+        }
+
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Force token refresh failed:', error);
+      this.handleLogout();
+      return false;
+    }
+  }
+
+  // Method to check if token is about to expire
+  public isTokenExpiringSoon(): boolean {
+    const token = authStorage.getToken();
+    if (!token) return true;
+
+    // Check if token expires in less than 5 minutes
+    const tokenData = authStorage.getUser(); // This might contain expiry info
+    // You might need to decode JWT token to get expiry
+    // For now, assume it's valid if we have it
+    return false;
+  }
+
+  // Method to get current session info
+  public getSessionInfo() {
+    return {
+      token: authStorage.getToken(),
+      user: authStorage.getUser(),
+      workspace: workspaceStorage.getCurrentWorkspace(),
+      permissions: authStorage.getPermissions(),
+      isAuthenticated: authStorage.isAuthenticated(),
+      availableWorkspaces: workspaceStorage.getAvailableWorkspaces()
+    };
   }
 }
 

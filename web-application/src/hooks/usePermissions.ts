@@ -1,26 +1,28 @@
-// web-application/src/hooks/usePermissions.ts - COMPLETE VERSION
+// web-application/src/hooks/usePermissions.ts - FIXED VERSION
 
 import { useEffect, useMemo, useCallback } from 'react';
 import { useAppDispatch, useAppSelector } from './redux';
 import { useAuth } from './useAuth';
 import { useWorkspace } from './useWorkspace';
 import {
+  useLazySearchPermissionsQuery,
+  useGetPermissionsQuery
+} from '@/store/api/permissionApi';
+import {
   useGetCurrentUserPermissionsQuery,
   useLazyGetCurrentUserPermissionsQuery,
   useRefreshUserPermissionsMutation,
-  useLazySearchPermissionsQuery,
-  useGetAllPermissionsQuery,
-  useCheckPermissionsMutation
-} from '@/store/api/permissionApi';
+  useLazyCheckUserPermissionsQuery
+} from '@/store/api/authApi';
 import {
   setPermissions,
-  setLoading as setPermissionLoading,
-  clearError as clearPermissionError,
-  setError as setPermissionError
+  setPermissionLoading,
+  clearPermissionError,
+  setPermissionError
 } from '@/store/slices/permissionSlice';
 import {
   setPermissions as setAuthPermissions,
-  setError as setAuthError,
+  clearError as clearAuthError,
   refreshUserPermissions,
   loadUserPermissions
 } from '@/store/slices/authSlice';
@@ -122,7 +124,7 @@ export const usePermissions = (options: UsePermissionsOptions = {}): UsePermissi
   const {
     data: allPermissionsData,
     isLoading: allPermissionsLoading
-  } = useGetAllPermissionsQuery(undefined, {
+  } = useGetPermissionsQuery(undefined, {
     skip: !isAuthenticated,
   });
 
@@ -134,8 +136,10 @@ export const usePermissions = (options: UsePermissionsOptions = {}): UsePermissi
     isLoading: refreshingPermissions 
   }] = useRefreshUserPermissionsMutation();
 
-  const [checkPermissionsMutation] = useCheckPermissionsMutation();
-  const [searchPermissions] = useLazySearchPermissionsQuery();
+  const [checkUserPermissionsQuery] = useLazyCheckUserPermissionsQuery();
+  
+  // ✅ FIX: Rename the RTK Query hook to avoid conflict
+  const [searchPermissionsQuery] = useLazySearchPermissionsQuery();
 
   // ✅ Combined permission data with proper deduplication
   const permissions = useMemo(() => {
@@ -164,15 +168,15 @@ export const usePermissions = (options: UsePermissionsOptions = {}): UsePermissi
   const error = permissionError || (permissionsQueryError as any)?.message || null;
 
   // ✅ Better permission loaded check
-  const permissionsLoaded = !!(
+  const permissionsLoaded = !(
     (permissions.length > 0) || 
     (isAuthenticated && !isLoading && currentWorkspace?.id)
   );
 
   // All system permissions
   const allSystemPermissions = useMemo(() => {
-    return allPermissionsData?.permissions || [];
-  }, [allPermissionsData?.permissions]);
+    return allPermissionsData?.data || [];
+  }, [allPermissionsData?.data]);
 
   // ✅ CRITICAL: Auto-load permissions on initial authentication
   useEffect(() => {
@@ -191,6 +195,49 @@ export const usePermissions = (options: UsePermissionsOptions = {}): UsePermissi
       loadPermissions();
     }
   }, [isAuthenticated, currentWorkspace?.id, permissions.length, isLoading, permissionsData, autoLoad]);
+
+  // ========================================
+  // PERMISSION CHECKING METHODS
+  // ========================================
+
+  // Check if user has a specific permission
+  const hasPermission = useCallback((permission: string): boolean => {
+    if (!permission || !permissions.length) return false;
+    
+    // Direct match
+    if (permissions.includes(permission)) return true;
+    
+    // Wildcard match (e.g., 'admin.*' matches 'admin.users')
+    const wildcardPermissions = permissions.filter(p => p.endsWith('.*'));
+    return wildcardPermissions.some(wildcard => {
+      const prefix = wildcard.slice(0, -2); // Remove '.*'
+      return permission.startsWith(prefix + '.');
+    });
+  }, [permissions]);
+
+  // Check if user has any of the specified permissions
+  const hasAnyPermission = useCallback((permissionsToCheck: string[]): boolean => {
+    if (!permissionsToCheck.length || !permissions.length) return false;
+    return permissionsToCheck.some(permission => hasPermission(permission));
+  }, [hasPermission, permissions]);
+
+  // Check if user has all specified permissions
+  const hasAllPermissions = useCallback((permissionsToCheck: string[]): boolean => {
+    if (!permissionsToCheck.length) return true;
+    if (!permissions.length) return false;
+    return permissionsToCheck.every(permission => hasPermission(permission));
+  }, [hasPermission, permissions]);
+
+  // Check if user has permissions matching a pattern
+  const hasPermissionPattern = useCallback((pattern: string): boolean => {
+    if (!pattern || !permissions.length) return false;
+    
+    // Convert pattern to regex (e.g., 'admin.*' becomes /^admin\..+$/)
+    const regexPattern = pattern.replace(/\./g, '\\.').replace(/\*/g, '.+');
+    const regex = new RegExp(`^${regexPattern}$`);
+    
+    return permissions.some(permission => regex.test(permission));
+  }, [permissions]);
 
   // ========================================
   // PERMISSION MANAGEMENT METHODS
@@ -250,104 +297,84 @@ export const usePermissions = (options: UsePermissionsOptions = {}): UsePermissi
     } catch (error: any) {
       console.error('❌ usePermissions: Failed to load permissions:', error);
       
-      const errorMessage = error.message || 'Failed to load permissions';
+      const errorMessage = error.message || 'Failed to load user permissions';
       dispatch(setPermissionError(errorMessage));
-      dispatch(setAuthError(errorMessage));
+      dispatch(clearAuthError()); // Clear any previous auth errors
+      
       return [];
     } finally {
       dispatch(setPermissionLoading(false));
     }
   }, [isAuthenticated, token, user?.id, currentWorkspace?.id, enableCaching, dispatch, loadPermissionsLazy]);
 
-  // Refresh permissions with cache invalidation using storage utilities
+  // Refresh permissions from server
   const refreshPermissions = useCallback(async (): Promise<void> => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !currentWorkspace?.id) return;
 
     try {
       console.log('🔄 usePermissions: Refreshing permissions...');
-      dispatch(setPermissionLoading(true));
-      
-      // Clear cached permissions using authStorage
+
+      // Clear cache first
+      authStorage.clearPermissions(currentWorkspace.id);
+
+      // Use mutation to refresh
+      const result = await refreshPermissionsMutation({
+        workspaceId: currentWorkspace.id
+      }).unwrap();
+
+      const refreshedPermissions = result.permissions || [];
+
+      // Update cache
       if (enableCaching) {
-        authStorage.clearPermissions(currentWorkspace?.id);
+        authStorage.setPermissions(refreshedPermissions, currentWorkspace.id);
       }
-      
-      // Use the auth slice refresh method
-      await dispatch(refreshUserPermissions({ workspaceId: currentWorkspace?.id })).unwrap();
-      
-      await refetchPermissions();
-      
-      // Reload permissions
-      await loadPermissions();
-      
-      console.log('✅ usePermissions: Permissions refreshed successfully');
+
+      // Update state
+      dispatch(setPermissions(refreshedPermissions));
+      dispatch(setAuthPermissions(refreshedPermissions));
+
+      console.log('✅ usePermissions: Permissions refreshed:', refreshedPermissions.length);
     } catch (error: any) {
       console.error('❌ usePermissions: Failed to refresh permissions:', error);
       const errorMessage = error.message || 'Failed to refresh permissions';
       dispatch(setPermissionError(errorMessage));
-      dispatch(setAuthError(errorMessage));
-    } finally {
-      dispatch(setPermissionLoading(false));
     }
-  }, [isAuthenticated, enableCaching, currentWorkspace?.id, dispatch, refreshUserPermissions, refetchPermissions, loadPermissions]);
+  }, [isAuthenticated, currentWorkspace?.id, refreshPermissionsMutation, enableCaching, dispatch]);
 
   // Clear permissions
   const clearPermissions = useCallback((): void => {
-    console.log('🔄 usePermissions: Clearing permissions...');
+    console.log('🧹 usePermissions: Clearing permissions...');
     
-    if (enableCaching) {
-      authStorage.clearPermissions(currentWorkspace?.id);
+    // Clear from storage
+    if (currentWorkspace?.id) {
+      authStorage.clearPermissions(currentWorkspace.id);
+    } else {
+      authStorage.clearPermissions(); // Clear all
     }
     
+    // Clear from state
     dispatch(setPermissions([]));
     dispatch(setAuthPermissions([]));
-  }, [enableCaching, currentWorkspace?.id, dispatch]);
+  }, [currentWorkspace?.id, dispatch]);
 
-  // ========================================
-  // PERMISSION CHECK METHODS
-  // ========================================
-
-  // Check single permission
-  const hasPermission = useCallback((permission: string): boolean => {
-    if (!permissions.length) {
-      console.warn(`⚠️ usePermissions: No permissions loaded when checking: ${permission}`);
-      return false;
-    }
-    return permissions.includes(permission);
-  }, [permissions]);
-
-  // Check if user has any of the required permissions
-  const hasAnyPermission = useCallback((requiredPermissions: string[]): boolean => {
-    if (!permissions.length || !requiredPermissions.length) return false;
-    return requiredPermissions.some(perm => permissions.includes(perm));
-  }, [permissions]);
-
-  // Check if user has all required permissions
-  const hasAllPermissions = useCallback((requiredPermissions: string[]): boolean => {
-    if (!permissions.length || !requiredPermissions.length) return false;
-    return requiredPermissions.every(perm => permissions.includes(perm));
-  }, [permissions]);
-
-  // Pattern-based permission checking (e.g., "dashboard.*", "user.create")
-  const hasPermissionPattern = useCallback((pattern: string): boolean => {
-    if (!permissions.length) return false;
-    
-    const regexPattern = new RegExp(
-      '^' + pattern.replace(/\*/g, '.*').replace(/\./g, '\\.') + '$'
-    );
-    
-    return permissions.some(permission => regexPattern.test(permission));
-  }, [permissions]);
-
-  // Batch permission checking
+  // Batch check permissions on server
   const checkPermissionsBatch = useCallback(async (permissionsToCheck: string[]): Promise<PermissionCheck[]> => {
+    if (!permissionsToCheck.length) return [];
+    if (!currentWorkspace?.id) {
+      return permissionsToCheck.map(permission => ({
+        permission,
+        granted: false,
+        reason: 'No workspace selected'
+      }));
+    }
+
     try {
-      const result = await checkPermissionsMutation({
+      const result = await checkUserPermissionsQuery({
         permissions: permissionsToCheck,
-        workspaceId: currentWorkspace?.id
+        workspaceId: currentWorkspace.id
       }).unwrap();
 
-      return result.data?.results || permissionsToCheck.map(permission => ({
+      return result.checks || permissionsToCheck.map(permission => ({
         permission,
         granted: hasPermission(permission),
         reason: hasPermission(permission) ? 'Granted' : 'Not granted'
@@ -362,16 +389,18 @@ export const usePermissions = (options: UsePermissionsOptions = {}): UsePermissi
         reason: hasPermission(permission) ? 'Granted' : 'Not granted'
       }));
     }
-  }, [checkPermissionsMutation, currentWorkspace?.id, hasPermission]);
+  }, [checkUserPermissionsQuery, currentWorkspace?.id, hasPermission]);
 
   // ========================================
   // SEARCH AND DISCOVERY METHODS
   // ========================================
 
-  // Search permissions by query
-  const searchPermissionsQuery = useCallback(async (query: string): Promise<PermissionSearchResult[]> => {
+  // ✅ FIX: Search permissions by query with renamed function
+  const searchPermissions = useCallback(async (query: string): Promise<PermissionSearchResult[]> => {
+    if (!query.trim()) return [];
+
     try {
-      const result = await searchPermissions({ query }).unwrap();
+      const result = await searchPermissionsQuery({ query }).unwrap();
       return result.permissions || [];
     } catch (error) {
       console.error('❌ usePermissions: Search failed:', error);
@@ -383,7 +412,7 @@ export const usePermissions = (options: UsePermissionsOptions = {}): UsePermissi
         p.description?.toLowerCase().includes(query.toLowerCase())
       ).slice(0, 20);
     }
-  }, [searchPermissions, allSystemPermissions]);
+  }, [searchPermissionsQuery, allSystemPermissions]);
 
   // Get permissions by category
   const getPermissionsByCategory = useCallback((category: string): string[] => {
@@ -501,8 +530,8 @@ export const usePermissions = (options: UsePermissionsOptions = {}): UsePermissi
     refreshPermissions,
     clearPermissions,
     
-    // Search and discovery methods
-    searchPermissions: searchPermissionsQuery,
+    // Search and discovery methods - ✅ FIX: Now uses the correct function
+    searchPermissions,
     getPermissionsByCategory,
     getPermissionsByResource,
     getAllCategories,

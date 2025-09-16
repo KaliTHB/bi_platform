@@ -1,95 +1,93 @@
-// web-application/src/store/slices/authSlice.ts - COMPLETE VERSION
+// web-application/src/store/slices/authSlice.ts
+// Complete authentication slice using RTK with constants
 
-import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
-import { STORAGE_KEYS } from '@/constants/index';
-import { authStorage, workspaceStorage } from '@/utils/storageUtils';
+import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
+import type { User, LoginCredentials, AuthState, PermissionResponse } from '@/types/auth.types';
+import { 
+  authStorage, 
+  workspaceStorage,
+  tokenStorage 
+} from '@/utils/storageUtils';
+import { 
+  API_ENDPOINTS, 
+  API_CONFIG, 
+  HTTP_STATUS,
+  HTTP_METHODS,
+  isSuccessStatus 
+} from '@/constants/api';
+import { 
+  STORAGE_KEYS,
+  ERROR_MESSAGES,
+  SUCCESS_MESSAGES,
+  AUTH_CONSTANTS,
+  ROLE_LEVELS
+} from '@/constants';
 
-// Types
-interface User {
-  id: string;
-  user_id: string;
-  email: string;
-  first_name: string;
-  last_name: string;
-  username?: string;
-  avatar_url?: string;
-  is_active: boolean;
-  last_login?: string;
-  created_at: string;
-  updated_at: string;
+// ========================================
+// INTERFACES & TYPES
+// ========================================
+
+interface LoginPayload {
+  user: User;
+  token: string;
+  refreshToken?: string;
 }
 
-interface Workspace {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
+interface SetCredentialsPayload {
+  user: User;
+  token: string;
+  refreshToken?: string;
 }
 
-interface AuthState {
-  user: User | null;
-  token: string | null;
-  permissions: string[];
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  error: string | null;
-  lastLoginAt: string | null;
-  isInitialized: boolean;
-  refreshTokenExpiry: number | null;
-  loginAttempts: number;
-  isAccountLocked: boolean;
-  accountLockUntil: number | null;
-}
-
-interface LoginCredentials {
-  email: string;
-  password: string;
-  remember?: boolean;
+interface RefreshTokenResponse {
+  success: boolean;
+  data?: {
+    token: string;
+    user?: User;
+    expires_at?: string;
+  };
+  message?: string;
 }
 
 interface LoginResponse {
   success: boolean;
-  token: string;
-  refresh_token?: string;
-  user: User;
-  permissions?: string[];
-  workspace?: Workspace;
-  expires_at?: number;
+  data?: {
+    user: User;
+    token: string;
+    refreshToken?: string;
+    workspace?: any;
+    expires_at?: string;
+  };
   message?: string;
 }
 
-interface PermissionResponse {
-  success: boolean;
+interface LoadPermissionsPayload {
   permissions: string[];
-  roles?: string[];
-  is_admin?: boolean;
-  role_level?: number;
-  user_info?: {
-    user_id: string;
-    email: string;
-    workspace_id: string;
-  };
-  workspace_used?: string;
-  warning?: string;
-  message?: string;
+  workspaceId?: string;
+  roles?: any[];
+  isAdmin?: boolean;
+  roleLevel?: number;
+  userInfo?: any;
 }
+
+// ========================================
+// INITIAL STATE
+// ========================================
 
 const initialState: AuthState = {
   user: null,
   token: null,
+  refreshToken: null,
   permissions: [],
+  roles: [],
   isAuthenticated: false,
-  isLoading: true,
-  error: null,
-  lastLoginAt: null,
+  isLoading: false,
   isInitialized: false,
-  refreshTokenExpiry: null,
-  loginAttempts: 0,
-  isAccountLocked: false,
-  accountLockUntil: null,
+  error: null,
+  lastLoginTime: null,
+  tokenExpiresAt: null,
+  isAdmin: false,
+  roleLevel: ROLE_LEVELS.USER
 };
 
 // ========================================
@@ -99,16 +97,19 @@ const initialState: AuthState = {
 /**
  * Login user with credentials
  */
-export const loginUser = createAsyncThunk(
-  'auth/loginUser',
-  async (credentials: LoginCredentials, { rejectWithValue }) => {
+export const loginAsync = createAsyncThunk(
+  'auth/login',
+  async (credentials: LoginCredentials, { rejectWithValue, dispatch }) => {
     try {
-      console.log('🔍 Auth: Logging in user...', credentials.email);
+      console.log('🔐 AuthSlice: Starting login process...', { email: credentials.email });
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/login`, {
-        method: 'POST',
+      const url = `${API_CONFIG.BASE_URL}${API_ENDPOINTS.AUTH.LOGIN}`;
+      
+      const response = await fetch(url, {
+        method: HTTP_METHODS.POST,
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
         body: JSON.stringify(credentials),
       });
@@ -120,107 +121,118 @@ export const loginUser = createAsyncThunk(
 
       const data: LoginResponse = await response.json();
       
-      if (!data.success || !data.token || !data.user) {
-        throw new Error(data.message || 'Invalid login response');
+      if (!data.success || !data.data) {
+        throw new Error(data.message || ERROR_MESSAGES.LOGIN_FAILED);
       }
 
-      console.log('✅ Auth: Login successful', {
-        user: data.user.email,
-        hasToken: !!data.token,
-        permissionCount: data.permissions?.length || 0
+      const { user, token, refreshToken, workspace, expires_at } = data.data;
+
+      // Store using storage utilities with constants
+      authStorage.setUser(user);
+      authStorage.setToken(token);
+      
+      if (refreshToken) {
+        authStorage.setRefreshToken(refreshToken);
+      }
+      
+      if (expires_at) {
+        authStorage.setTokenExpiry(expires_at);
+      }
+
+      // Store workspace if provided
+      if (workspace) {
+        workspaceStorage.setCurrentWorkspace(workspace);
+      }
+
+      console.log('✅ AuthSlice: Login successful', {
+        userId: user.id,
+        email: user.email,
+        workspace: workspace?.slug,
+        hasRefreshToken: !!refreshToken
       });
 
-      return data;
+      return { 
+        user, 
+        token, 
+        refreshToken,
+        workspace,
+        tokenExpiresAt: expires_at 
+      };
 
     } catch (error: any) {
-      console.error('❌ Auth: Login failed:', error);
-      return rejectWithValue(error.message || 'Login failed');
+      console.error('❌ AuthSlice: Login failed:', error);
+      return rejectWithValue(error.message || ERROR_MESSAGES.LOGIN_FAILED);
     }
   }
 );
 
 /**
- * Validate existing token
+ * Refresh authentication token
  */
-export const validateToken = createAsyncThunk(
-  'auth/validateToken',
-  async (_, { rejectWithValue }) => {
+export const refreshTokenAsync = createAsyncThunk(
+  'auth/refreshToken',
+  async (_, { getState, rejectWithValue }) => {
     try {
-      const token = authStorage.getToken();
-      const storedUser = authStorage.getUser();
-      const storedPermissions = authStorage.getPermissions();
+      const state = getState() as any;
+      const currentRefreshToken = state.auth.refreshToken || authStorage.getRefreshToken();
       
-      if (!token || !storedUser) {
-        throw new Error('No stored credentials found');
+      if (!currentRefreshToken) {
+        throw new Error(ERROR_MESSAGES.NO_REFRESH_TOKEN);
       }
 
-      console.log('🔍 Auth: Validating token with backend...');
+      console.log('🔄 AuthSlice: Refreshing token...');
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/verify`, {
-        method: 'GET',
+      const url = `${API_CONFIG.BASE_URL}${API_ENDPOINTS.AUTH.REFRESH_TOKEN}`;
+      
+      const response = await fetch(url, {
+        method: HTTP_METHODS.POST,
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentRefreshToken}`,
         },
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.log('❌ Auth: Token validation failed with status:', response.status);
-        throw new Error(errorData.message || `Token validation failed: ${response.status}`);
+        throw new Error(errorData.message || `Token refresh failed: ${response.status}`);
       }
 
-      const data = await response.json();
+      const data: RefreshTokenResponse = await response.json();
       
-      if (!data.success || !data.user) {
-        console.log('❌ Auth: Invalid token response structure:', data);
-        throw new Error('Invalid token response');
+      if (!data.success || !data.data?.token) {
+        throw new Error(data.message || ERROR_MESSAGES.TOKEN_REFRESH_FAILED);
       }
 
-      let permissions: string[] = [];
+      const { token, user, expires_at } = data.data;
+
+      // Update storage
+      authStorage.setToken(token);
       
-      if (data.permissions && Array.isArray(data.permissions)) {
-        permissions = data.permissions;
-        console.log('✅ Auth: Using permissions from backend response:', permissions.length);
-      } else if (storedPermissions && Array.isArray(storedPermissions)) {
-        permissions = storedPermissions;
-        console.log('✅ Auth: Using permissions from storage:', permissions.length);
-      } else {
-        console.warn('⚠️ Auth: No permissions found, using empty array');
-        permissions = [];
+      if (user) {
+        authStorage.setUser(user);
+      }
+      
+      if (expires_at) {
+        authStorage.setTokenExpiry(expires_at);
       }
 
-      // Update storage with fresh permissions if available
-      if (data.permissions && Array.isArray(data.permissions)) {
-        authStorage.setPermissions(data.permissions);
-      }
+      console.log('✅ AuthSlice: Token refreshed successfully');
 
-      console.log('✅ Auth: Token validation successful', {
-        user: data.user.email,
-        workspace: data.workspace?.name || 'none',
-        permissionsCount: permissions.length
-      });
-
-      return {
-        user: data.user,
-        token,
-        permissions,
-        workspace: data.workspace
+      return { 
+        token, 
+        user,
+        tokenExpiresAt: expires_at 
       };
 
     } catch (error: any) {
-      console.error('❌ Auth: Token validation error:', error);
-      
-      // Clear invalid stored data using storage utilities
-      authStorage.clearAuth();
-      
-      return rejectWithValue(error.message || 'Token validation failed');
+      console.error('❌ AuthSlice: Token refresh failed:', error);
+      return rejectWithValue(error.message || ERROR_MESSAGES.TOKEN_REFRESH_FAILED);
     }
   }
 );
 
 /**
- * Load user permissions for specific workspace
+ * Load user permissions for current or specified workspace
  */
 export const loadUserPermissions = createAsyncThunk(
   'auth/loadUserPermissions',
@@ -230,17 +242,17 @@ export const loadUserPermissions = createAsyncThunk(
       const token = state.auth.token;
       
       if (!token) {
-        throw new Error('No authentication token available');
+        throw new Error(ERROR_MESSAGES.NOT_AUTHENTICATED);
       }
 
-      console.log('🔍 Auth: Loading user permissions...', { workspaceId });
+      console.log('🔍 AuthSlice: Loading user permissions...', { workspaceId });
 
-      const url = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/permissions${
+      const url = `${API_CONFIG.BASE_URL}${API_ENDPOINTS.AUTH.PERMISSIONS}${
         workspaceId ? `?workspace_id=${workspaceId}` : ''
       }`;
 
       const response = await fetch(url, {
-        method: 'GET',
+        method: HTTP_METHODS.GET,
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -255,15 +267,15 @@ export const loadUserPermissions = createAsyncThunk(
       const data: PermissionResponse = await response.json();
       
       if (!data.success) {
-        throw new Error(data.message || 'Permission loading failed');
+        throw new Error(data.message || ERROR_MESSAGES.PERMISSIONS_LOAD_FAILED);
       }
 
       const permissions = data.permissions || [];
       
-      // Store using authStorage utility
+      // Store using authStorage utility with constants
       authStorage.setPermissions(permissions, workspaceId);
 
-      console.log('✅ Auth: Permissions loaded successfully:', {
+      console.log('✅ AuthSlice: Permissions loaded successfully:', {
         count: permissions.length,
         workspaceId,
         sample: permissions.slice(0, 3),
@@ -276,13 +288,13 @@ export const loadUserPermissions = createAsyncThunk(
         workspaceId,
         roles: data.roles || [],
         isAdmin: data.is_admin || false,
-        roleLevel: data.role_level || 0,
+        roleLevel: data.role_level || ROLE_LEVELS.USER,
         userInfo: data.user_info
       };
 
     } catch (error: any) {
-      console.error('❌ Auth: Permission loading error:', error);
-      return rejectWithValue(error.message || 'Failed to load permissions');
+      console.error('❌ AuthSlice: Permission loading error:', error);
+      return rejectWithValue(error.message || ERROR_MESSAGES.PERMISSIONS_LOAD_FAILED);
     }
   }
 );
@@ -292,356 +304,150 @@ export const loadUserPermissions = createAsyncThunk(
  */
 export const refreshUserPermissions = createAsyncThunk(
   'auth/refreshUserPermissions',
-  async ({ workspaceId }: { workspaceId?: string }, { dispatch, rejectWithValue }) => {
-    try {
-      console.log('🔄 Auth: Refreshing user permissions...', { workspaceId });
-
-      // Clear cached permissions
-      authStorage.clearPermissions(workspaceId);
-      
-      // Reload permissions
-      const result = await dispatch(loadUserPermissions({ workspaceId }));
-      
-      if (loadUserPermissions.rejected.match(result)) {
-        throw new Error(result.payload as string);
-      }
-
-      console.log('✅ Auth: Permissions refreshed successfully');
-      return result.payload;
-
-    } catch (error: any) {
-      console.error('❌ Auth: Permission refresh error:', error);
-      return rejectWithValue(error.message || 'Failed to refresh permissions');
-    }
-  }
-);
-
-/**
- * Refresh authentication token
- */
-export const refreshAuthToken = createAsyncThunk(
-  'auth/refreshAuthToken',
-  async (_, { rejectWithValue, getState }) => {
-    try {
-      const state = getState() as any;
-      const refreshToken = authStorage.getRefreshToken();
-      
-      if (!refreshToken) {
-        throw new Error('No refresh token available');
-      }
-
-      console.log('🔄 Auth: Refreshing authentication token...');
-
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/refresh`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Token refresh failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-      
-      if (!data.success || !data.token) {
-        throw new Error(data.message || 'Token refresh failed');
-      }
-
-      // Update stored token
-      authStorage.setToken(data.token, data.expires_at);
-      if (data.refresh_token) {
-        authStorage.setRefreshToken(data.refresh_token);
-      }
-
-      console.log('✅ Auth: Token refreshed successfully');
-
-      return {
-        token: data.token,
-        refreshToken: data.refresh_token,
-        expiresAt: data.expires_at
-      };
-
-    } catch (error: any) {
-      console.error('❌ Auth: Token refresh error:', error);
-      
-      // Clear invalid tokens
-      authStorage.clearAuth();
-      
-      return rejectWithValue(error.message || 'Token refresh failed');
-    }
-  }
-);
-
-/**
- * Update user profile
- */
-export const updateUserProfile = createAsyncThunk(
-  'auth/updateUserProfile',
-  async (updates: Partial<User>, { rejectWithValue, getState }) => {
+  async ({ workspaceId }: { workspaceId?: string }, { rejectWithValue, getState }) => {
     try {
       const state = getState() as any;
       const token = state.auth.token;
       
       if (!token) {
-        throw new Error('No authentication token available');
+        throw new Error(ERROR_MESSAGES.NOT_AUTHENTICATED);
       }
 
-      console.log('🔄 Auth: Updating user profile...');
+      console.log('🔄 AuthSlice: Refreshing user permissions...', { workspaceId });
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/user/profile`, {
-        method: 'PUT',
+      // Clear cached permissions first
+      authStorage.clearPermissions(workspaceId);
+
+      const url = `${API_CONFIG.BASE_URL}${API_ENDPOINTS.AUTH.REFRESH_PERMISSIONS}${
+        workspaceId ? `?workspace_id=${workspaceId}` : ''
+      }`;
+
+      const response = await fetch(url, {
+        method: HTTP_METHODS.POST,
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(updates),
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Profile update failed: ${response.status}`);
+        throw new Error(errorData.message || `Permission refresh failed: ${response.status}`);
       }
 
-      const data = await response.json();
+      const data: PermissionResponse = await response.json();
       
       if (!data.success) {
-        throw new Error(data.message || 'Profile update failed');
+        throw new Error(data.message || ERROR_MESSAGES.PERMISSIONS_REFRESH_FAILED);
       }
 
-      console.log('✅ Auth: Profile updated successfully');
+      const permissions = data.permissions || [];
+      
+      // Store refreshed permissions
+      authStorage.setPermissions(permissions, workspaceId);
 
-      return data.user || updates;
+      console.log('✅ AuthSlice: Permissions refreshed successfully:', {
+        count: permissions.length,
+        workspaceId
+      });
+
+      return { 
+        permissions, 
+        workspaceId,
+        roles: data.roles || [],
+        isAdmin: data.is_admin || false,
+        roleLevel: data.role_level || ROLE_LEVELS.USER
+      };
 
     } catch (error: any) {
-      console.error('❌ Auth: Profile update error:', error);
-      return rejectWithValue(error.message || 'Profile update failed');
+      console.error('❌ AuthSlice: Permission refresh error:', error);
+      return rejectWithValue(error.message || ERROR_MESSAGES.PERMISSIONS_REFRESH_FAILED);
     }
   }
 );
 
 /**
- * Logout user
+ * Initialize auth state from storage
  */
-export const logoutUser = createAsyncThunk(
-  'auth/logoutUser',
-  async (_, { rejectWithValue, getState }) => {
+export const initializeAuth = createAsyncThunk(
+  'auth/initialize',
+  async (_, { dispatch, rejectWithValue }) => {
     try {
-      const state = getState() as any;
-      const token = state.auth.token;
-      
-      console.log('🔄 Auth: Logging out user...');
+      console.log('🔧 AuthSlice: Initializing auth state from storage...');
 
-      // Try to call logout endpoint if token exists
-      if (token) {
-        try {
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/logout`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-          });
-          
-          if (!response.ok) {
-            console.warn('⚠️ Auth: Logout endpoint failed, proceeding with local cleanup');
-          }
-        } catch (error) {
-          console.warn('⚠️ Auth: Logout endpoint error, proceeding with local cleanup:', error);
+      // Get stored data using storage utilities with constants
+      const storedUser = authStorage.getUser();
+      const storedToken = authStorage.getToken();
+      const storedRefreshToken = authStorage.getRefreshToken();
+      const tokenExpiry = authStorage.getTokenExpiry();
+      
+      if (!storedUser || !storedToken) {
+        console.log('ℹ️ AuthSlice: No stored credentials found');
+        return { initialized: true };
+      }
+
+      // Check token expiry
+      if (tokenExpiry && new Date(tokenExpiry) <= new Date()) {
+        console.log('⚠️ AuthSlice: Stored token expired, attempting refresh...');
+        
+        if (storedRefreshToken) {
+          // Try to refresh token
+          await dispatch(refreshTokenAsync()).unwrap();
+        } else {
+          // Clear expired credentials
+          authStorage.clearAuth();
+          throw new Error(ERROR_MESSAGES.TOKEN_EXPIRED);
         }
       }
 
-      // Clear all stored data regardless of API response
-      authStorage.clearAuth();
-      workspaceStorage.clearWorkspace();
+      console.log('✅ AuthSlice: Auth initialized from storage', {
+        userId: storedUser.id,
+        email: storedUser.email,
+        hasRefreshToken: !!storedRefreshToken
+      });
 
-      console.log('✅ Auth: Logout completed');
-
-      return true;
+      return {
+        user: storedUser,
+        token: storedToken,
+        refreshToken: storedRefreshToken,
+        tokenExpiresAt: tokenExpiry,
+        initialized: true
+      };
 
     } catch (error: any) {
-      console.error('❌ Auth: Logout error:', error);
-      
-      // Still clear local data even if API fails
-      authStorage.clearAuth();
-      workspaceStorage.clearWorkspace();
-      
-      return rejectWithValue(error.message || 'Logout failed');
+      console.error('❌ AuthSlice: Auth initialization error:', error);
+      return rejectWithValue(error.message || ERROR_MESSAGES.AUTH_INIT_FAILED);
     }
   }
 );
 
 // ========================================
-// SLICE DEFINITION
+// AUTH SLICE
 // ========================================
 
 const authSlice = createSlice({
   name: 'auth',
   initialState,
   reducers: {
-    // Set credentials directly (for login success)
-    setCredentials: (state, action: PayloadAction<{ 
-      user: User; 
-      token: string; 
-      permissions?: string[];
-      workspace?: any;
-      refreshToken?: string;
-      expiresAt?: number;
-    }>) => {
-      const { user, token, permissions, workspace, refreshToken, expiresAt } = action.payload;
+    // Set user credentials manually
+    setCredentials: (state, action: PayloadAction<SetCredentialsPayload>) => {
+      const { user, token, refreshToken } = action.payload;
       
-      console.log('🔄 Redux: Setting credentials', {
-        user: user?.email,
-        token: token ? 'present' : 'missing',
-        permissionCount: permissions?.length || 0
-      });
-
       state.user = user;
       state.token = token;
-      state.permissions = permissions || [];
+      state.refreshToken = refreshToken || state.refreshToken;
       state.isAuthenticated = true;
       state.isLoading = false;
       state.error = null;
-      state.lastLoginAt = new Date().toISOString();
-      state.isInitialized = true;
-      state.loginAttempts = 0;
-      state.isAccountLocked = false;
-      state.accountLockUntil = null;
-      state.refreshTokenExpiry = expiresAt || null;
-
-      // Store using authStorage utilities
-      authStorage.setToken(token, expiresAt);
-      authStorage.setUser(user);
-      authStorage.setPermissions(permissions || []);
+      state.lastLoginTime = Date.now();
       
-      if (refreshToken) {
-        authStorage.setRefreshToken(refreshToken);
-      }
-      
-      // Store workspace if provided
-      if (workspace) {
-        workspaceStorage.setCurrentWorkspace(workspace);
-      }
+      console.log('✅ AuthSlice: Credentials set', { userId: user.id, email: user.email });
     },
 
-    // Logout (clear all auth state)
-    logout: (state) => {
-      console.log('🔄 Redux: Logging out user');
-      
-      // Clear all auth and workspace data using storage utilities
-      authStorage.clearAuth();
-      
-      // Reset state to initial values
-      state.user = null;
-      state.token = null;
-      state.permissions = [];
-      state.isAuthenticated = false;
-      state.isLoading = false;
-      state.error = null;
-      state.lastLoginAt = null;
-      state.isInitialized = true;
-      state.refreshTokenExpiry = null;
-      state.loginAttempts = 0;
-      state.isAccountLocked = false;
-      state.accountLockUntil = null;
-    },
-    
-    // Initialize auth from storage
-    initializeAuth: (state) => {
-      if (typeof window === 'undefined') {
-        state.isLoading = false;
-        state.isInitialized = true;
-        return;
-      }
-
-      try {
-        console.log('🔄 Redux: Initializing auth from storage utilities');
-        
-        const storedToken = authStorage.getToken();
-        const storedUser = authStorage.getUser();
-        const storedPermissions = authStorage.getPermissions();
-
-        console.log('📦 Redux: Storage check', {
-          hasToken: !!storedToken,
-          hasUser: !!storedUser,
-          hasPermissions: !!storedPermissions
-        });
-        
-        if (storedToken && storedUser) {
-          try {
-            let permissions: string[] = [];
-            
-            if (storedPermissions && Array.isArray(storedPermissions)) {
-              permissions = storedPermissions;
-            } else {
-              // Initialize empty permissions if none found
-              authStorage.setPermissions([]);
-              permissions = [];
-            }
-            
-            console.log('🔄 Redux: Restoring auth from storage', {
-              user: storedUser.email,
-              hasToken: !!storedToken,
-              permissionCount: permissions.length
-            });
-            
-            state.token = storedToken;
-            state.user = storedUser;
-            state.permissions = permissions;
-            state.isAuthenticated = true;
-            state.isLoading = false;
-            state.isInitialized = true;
-            state.error = null;
-          } catch (parseError) {
-            console.error('❌ Redux: Error processing stored auth data', parseError);
-            
-            // Clear corrupted data using storage utilities
-            authStorage.clearAuth();
-          
-            state.isLoading = false;
-            state.isInitialized = true;
-            state.isAuthenticated = false;
-            state.error = 'Stored auth data was corrupted and has been cleared';
-          }
-        } else {
-          console.log('📭 Redux: No stored auth data found');
-          // Initialize empty permissions
-          authStorage.setPermissions([]);
-          state.isLoading = false;
-          state.isInitialized = true;
-          state.isAuthenticated = false;
-        }
-      } catch (error: any) {
-        console.error('❌ Redux: Error initializing auth from storage', error);
-        // Ensure permissions are initialized even on error
-        authStorage.setPermissions([]);
-        state.isLoading = false;
-        state.isInitialized = true;
-        state.error = error.message || 'Auth initialization failed';
-      }
-    },
-
-    // Set permissions directly
+    // Set permissions manually
     setPermissions: (state, action: PayloadAction<string[]>) => {
-      console.log('🔄 Redux: Setting permissions', {
-        count: action.payload?.length || 0,
-        sample: action.payload?.slice(0, 3) || []
-      });
-      state.permissions = action.payload || [];
-    },
-
-    // Clear permissions
-    clearPermissions: (state) => {
-      console.log('🔄 Redux: Clearing permissions');
-      state.permissions = [];
-    },
-
-    // Clear error
-    clearError: (state) => {
-      state.error = null;
+      state.permissions = action.payload;
+      console.log('🔑 AuthSlice: Permissions set', { count: action.payload.length });
     },
 
     // Set loading state
@@ -649,138 +455,124 @@ const authSlice = createSlice({
       state.isLoading = action.payload;
     },
 
-    // Increment login attempts
-    incrementLoginAttempts: (state) => {
-      state.loginAttempts += 1;
-      
-      // Lock account after 5 failed attempts
-      if (state.loginAttempts >= 5) {
-        state.isAccountLocked = true;
-        state.accountLockUntil = Date.now() + (30 * 60 * 1000); // 30 minutes
-      }
+    // Set error
+    setError: (state, action: PayloadAction<string>) => {
+      state.error = action.payload;
+      state.isLoading = false;
+      console.error('❌ AuthSlice: Error set:', action.payload);
     },
 
-    // Reset login attempts
-    resetLoginAttempts: (state) => {
-      state.loginAttempts = 0;
-      state.isAccountLocked = false;
-      state.accountLockUntil = null;
+    // Clear error
+    clearError: (state) => {
+      state.error = null;
     },
 
-    // Update user profile in state
-    updateUserInState: (state, action: PayloadAction<Partial<User>>) => {
+    // Update user profile
+    updateUser: (state, action: PayloadAction<Partial<User>>) => {
       if (state.user) {
         state.user = { ...state.user, ...action.payload };
         authStorage.setUser(state.user);
+        console.log('👤 AuthSlice: User profile updated');
       }
     },
+
+    // Update token expiry
+    setTokenExpiry: (state, action: PayloadAction<string>) => {
+      state.tokenExpiresAt = action.payload;
+      authStorage.setTokenExpiry(action.payload);
+    },
+
+    // Mark as initialized
+    setInitialized: (state, action: PayloadAction<boolean>) => {
+      state.isInitialized = action.payload;
+    },
+
+    // Logout action
+    logout: (state) => {
+      // Clear state
+      Object.assign(state, initialState);
+      state.isInitialized = true; // Keep initialized as true
+      
+      // Clear storage using utilities
+      authStorage.clearAuth();
+      workspaceStorage.clearAll();
+      
+      console.log('🚪 AuthSlice: User logged out');
+    }
   },
-  
+
+  // ========================================
+  // EXTRA REDUCERS FOR ASYNC THUNKS
+  // ========================================
   extraReducers: (builder) => {
+    // Login async thunk
     builder
-      // ========================================
-      // LOGIN USER CASES
-      // ========================================
-      .addCase(loginUser.pending, (state) => {
+      .addCase(loginAsync.pending, (state) => {
         state.isLoading = true;
         state.error = null;
       })
-      .addCase(loginUser.fulfilled, (state, action) => {
-        const { user, token, permissions, workspace } = action.payload;
-        
-        console.log('✅ Redux: Login successful', {
-          user: user.email,
-          hasToken: !!token,
-          permissionCount: permissions?.length || 0
-        });
+      .addCase(loginAsync.fulfilled, (state, action) => {
+        const { user, token, refreshToken, tokenExpiresAt } = action.payload;
         
         state.user = user;
         state.token = token;
-        state.permissions = permissions || [];
+        state.refreshToken = refreshToken || null;
+        state.tokenExpiresAt = tokenExpiresAt || null;
         state.isAuthenticated = true;
         state.isLoading = false;
         state.error = null;
-        state.lastLoginAt = new Date().toISOString();
-        state.isInitialized = true;
-        state.loginAttempts = 0;
-        state.isAccountLocked = false;
-        state.accountLockUntil = null;
-
-        // Store using storage utilities
-        authStorage.setToken(token);
-        authStorage.setUser(user);
-        authStorage.setPermissions(permissions || []);
-        
-        if (workspace) {
-          workspaceStorage.setCurrentWorkspace(workspace);
-        }
+        state.lastLoginTime = Date.now();
       })
-      .addCase(loginUser.rejected, (state, action) => {
+      .addCase(loginAsync.rejected, (state, action) => {
         state.isLoading = false;
-        state.isAuthenticated = false;
         state.error = action.payload as string;
-        state.loginAttempts += 1;
-        
-        // Lock account after 5 failed attempts
-        if (state.loginAttempts >= 5) {
-          state.isAccountLocked = true;
-          state.accountLockUntil = Date.now() + (30 * 60 * 1000);
-        }
-      })
-
-      // ========================================
-      // VALIDATE TOKEN CASES
-      // ========================================
-      .addCase(validateToken.pending, (state) => {
-        state.isLoading = true;
-        state.error = null;
-      })
-      .addCase(validateToken.fulfilled, (state, action) => {
-        const { user, token, permissions, workspace } = action.payload;
-        
-        console.log('✅ Redux: Token validation successful', {
-          user: user.email,
-          hasToken: !!token,
-          permissionCount: permissions?.length || 0
-        });
-        
-        state.user = user;
-        state.token = token;
-        state.permissions = permissions || [];
-        state.isAuthenticated = true;
-        state.isLoading = false;
-        state.error = null;
-        state.lastLoginAt = new Date().toISOString();
-        state.isInitialized = true;
-
-        // Store using storage utilities
-        authStorage.setToken(token);
-        authStorage.setUser(user);
-        authStorage.setPermissions(permissions || []);
-        
-        if (workspace) {
-          workspaceStorage.setCurrentWorkspace(workspace);
-        }
-      })
-      .addCase(validateToken.rejected, (state, action) => {
-        state.isLoading = false;
         state.isAuthenticated = false;
         state.user = null;
         state.token = null;
-        state.permissions = [];
-        state.error = action.payload as string;
-        state.isInitialized = true;
       })
 
-      // ========================================
-      // LOAD USER PERMISSIONS CASES
-      // ========================================
+    // Refresh token async thunk
+    builder
+      .addCase(refreshTokenAsync.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(refreshTokenAsync.fulfilled, (state, action) => {
+        const { token, user, tokenExpiresAt } = action.payload;
+        
+        state.token = token;
+        state.tokenExpiresAt = tokenExpiresAt || null;
+        
+        if (user) {
+          state.user = user;
+        }
+        
+        state.isLoading = false;
+        state.error = null;
+      })
+      .addCase(refreshTokenAsync.rejected, (state, action) => {
+        // On refresh failure, logout user
+        Object.assign(state, initialState);
+        state.isInitialized = true;
+        state.error = action.payload as string;
+        
+        // Clear storage
+        authStorage.clearAuth();
+      })
+
+    // Load permissions async thunk
+    builder
       .addCase(loadUserPermissions.pending, (state) => {
         state.isLoading = true;
+        state.error = null;
       })
       .addCase(loadUserPermissions.fulfilled, (state, action) => {
-        const { permissions } = action.payload;
+        const { permissions, roles, isAdmin, roleLevel } = action.payload;
+        
         state.permissions = permissions;
+        state.roles = roles || [];
+        state.isAdmin = isAdmin || false;
+        state.roleLevel = roleLevel || ROLE_LEVELS.USER;
         state.isLoading = false;
         state.error = null;
       })
@@ -789,16 +581,19 @@ const authSlice = createSlice({
         state.error = action.payload as string;
       })
 
-      // ========================================
-      // REFRESH USER PERMISSIONS CASES
-      // ========================================
+    // Refresh permissions async thunk
+    builder
       .addCase(refreshUserPermissions.pending, (state) => {
         state.isLoading = true;
+        state.error = null;
       })
       .addCase(refreshUserPermissions.fulfilled, (state, action) => {
-        if (action.payload && action.payload.permissions) {
-          state.permissions = action.payload.permissions;
-        }
+        const { permissions, roles, isAdmin, roleLevel } = action.payload;
+        
+        state.permissions = permissions;
+        state.roles = roles || [];
+        state.isAdmin = isAdmin || false;
+        state.roleLevel = roleLevel || ROLE_LEVELS.USER;
         state.isLoading = false;
         state.error = null;
       })
@@ -807,69 +602,32 @@ const authSlice = createSlice({
         state.error = action.payload as string;
       })
 
-      // ========================================
-      // REFRESH AUTH TOKEN CASES
-      // ========================================
-      .addCase(refreshAuthToken.pending, (state) => {
+    // Initialize auth async thunk
+    builder
+      .addCase(initializeAuth.pending, (state) => {
         state.isLoading = true;
-      })
-      .addCase(refreshAuthToken.fulfilled, (state, action) => {
-        const { token, expiresAt } = action.payload;
-        state.token = token;
-        state.refreshTokenExpiry = expiresAt || null;
-        state.isLoading = false;
         state.error = null;
       })
-      .addCase(refreshAuthToken.rejected, (state, action) => {
-        state.isLoading = false;
-        state.isAuthenticated = false;
-        state.user = null;
-        state.token = null;
-        state.permissions = [];
-        state.error = action.payload as string;
-      })
-
-      // ========================================
-      // UPDATE USER PROFILE CASES
-      // ========================================
-      .addCase(updateUserProfile.pending, (state) => {
-        state.isLoading = true;
-      })
-      .addCase(updateUserProfile.fulfilled, (state, action) => {
-        if (state.user) {
-          state.user = { ...state.user, ...action.payload };
-          authStorage.setUser(state.user);
+      .addCase(initializeAuth.fulfilled, (state, action) => {
+        const { user, token, refreshToken, tokenExpiresAt, initialized } = action.payload;
+        
+        if (user && token) {
+          state.user = user;
+          state.token = token;
+          state.refreshToken = refreshToken || null;
+          state.tokenExpiresAt = tokenExpiresAt || null;
+          state.isAuthenticated = true;
         }
+        
+        state.isInitialized = true;
         state.isLoading = false;
         state.error = null;
       })
-      .addCase(updateUserProfile.rejected, (state, action) => {
+      .addCase(initializeAuth.rejected, (state, action) => {
+        state.isInitialized = true;
         state.isLoading = false;
         state.error = action.payload as string;
-      })
-
-      // ========================================
-      // LOGOUT USER CASES
-      // ========================================
-      .addCase(logoutUser.pending, (state) => {
-        state.isLoading = true;
-      })
-      .addCase(logoutUser.fulfilled, (state) => {
-        // Reset to initial state
-        return {
-          ...initialState,
-          isInitialized: true,
-          isLoading: false,
-        };
-      })
-      .addCase(logoutUser.rejected, (state, action) => {
-        // Still logout locally even if API fails
-        return {
-          ...initialState,
-          isInitialized: true,
-          isLoading: false,
-          error: action.payload as string,
-        };
+        state.isAuthenticated = false;
       });
   },
 });
@@ -878,28 +636,32 @@ const authSlice = createSlice({
 // EXPORTS
 // ========================================
 
-export const { 
-  setCredentials, 
-  logout, 
-  initializeAuth,
+// Export actions
+export const {
+  setCredentials,
   setPermissions,
-  clearPermissions,
-  clearError,
   setLoading,
-  incrementLoginAttempts,
-  resetLoginAttempts,
-  updateUserInState,
+  setError,
+  clearError,
+  updateUser,
+  setTokenExpiry,
+  setInitialized,
+  logout
 } = authSlice.actions;
 
-// Selectors
+// Export selectors for convenience
 export const selectAuth = (state: { auth: AuthState }) => state.auth;
-export const selectIsAuthenticated = (state: { auth: AuthState }) => state.auth.isAuthenticated;
 export const selectUser = (state: { auth: AuthState }) => state.auth.user;
+export const selectToken = (state: { auth: AuthState }) => state.auth.token;
 export const selectPermissions = (state: { auth: AuthState }) => state.auth.permissions;
+export const selectIsAuthenticated = (state: { auth: AuthState }) => state.auth.isAuthenticated;
 export const selectIsLoading = (state: { auth: AuthState }) => state.auth.isLoading;
 export const selectError = (state: { auth: AuthState }) => state.auth.error;
+export const selectIsAdmin = (state: { auth: AuthState }) => state.auth.isAdmin;
+export const selectRoleLevel = (state: { auth: AuthState }) => state.auth.roleLevel;
 
+// Export reducer as default
 export default authSlice.reducer;
 
-// Export types for use in components
-export type { User, Workspace, AuthState, LoginCredentials };
+// Type exports for convenience
+export type { AuthState, LoginPayload, SetCredentialsPayload };
