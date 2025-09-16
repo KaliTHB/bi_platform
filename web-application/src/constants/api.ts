@@ -11,7 +11,7 @@ const HEADERS: Record<string, string> = {
 
 export const API_CONFIG = {
   // ✅ FIXED: Ensure correct API base URL with /api prefix
-  BASE_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api',
+  BASE_URL: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api`,
   TIMEOUT: 30000, // 30 seconds
   RETRY_ATTEMPTS: 3,
   RETRY_DELAY: 1000, // 1 second

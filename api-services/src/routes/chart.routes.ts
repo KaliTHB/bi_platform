@@ -11,8 +11,8 @@ const chartController = new ChartController();
 // Apply authentication to all routes
 router.use(authenticate);
 
-// Get all charts in workspace
-router.get('/charts',
+// Get all charts in workspace - FIXED: Changed from '/charts' to '/'
+router.get('/',
   validateWorkspaceAccess,
   requireWorkspaceRole(['viewer', 'analyst', 'editor', 'admin', 'owner']),
   asyncHandler(chartController.getCharts.bind(chartController))

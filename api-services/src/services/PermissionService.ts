@@ -508,67 +508,75 @@ export class PermissionService {
     }
   }
 
-  /**
- * Get ALL roles in the system (both system and workspace-specific roles)
- * This method should be added to fix the getAllRoles error
- */
-async getAllRoles(includeInactive: boolean = false): Promise<Role[]> {
-  try {
-    const cacheKey = `all_roles:${includeInactive}`;
-    
-    // Try cache first
-    const cached = await cacheService.get<Role[]>(cacheKey);
-    if (cached) {
-      logger.debug('📦 PermissionService: Cache hit for all roles');
-      return cached;
+
+   /**
+   * ✅ MISSING METHOD: Check if user has permission in workspace
+   * This is the method that ChartController and other controllers expect!
+   * It's a wrapper around hasPermission() with the return format controllers expect
+   */
+  async checkUserPermission(
+    userId: string,
+    workspaceId: string,
+    permission: string
+  ): Promise<{ hasPermission: boolean; reason?: string; permissions?: string[] }> {
+    try {
+      logger.debug(`🔍 PermissionService.checkUserPermission: Checking ${permission} for user ${userId} in workspace ${workspaceId}`);
+      
+      // Use existing hasPermission method
+      const hasPermission = await this.hasPermission(userId, workspaceId, permission);
+      
+      if (hasPermission) {
+        return {
+          hasPermission: true,
+          reason: `User has permission: ${permission}`
+        };
+      } else {
+        // Get user's actual permissions for better error messaging
+        const userPermissions = await this.getUserEffectivePermissions(userId, workspaceId);
+        return {
+          hasPermission: false,
+          reason: `User does not have permission: ${permission}. Available: ${userPermissions.slice(0, 10).join(', ')}${userPermissions.length > 10 ? '...' : ''}`,
+          permissions: userPermissions
+        };
+      }
+    } catch (error) {
+      logger.error(`❌ PermissionService.checkUserPermission: Error checking permission ${permission} for user ${userId}:`, error);
+      return {
+        hasPermission: false,
+        reason: `Error checking permission: ${error.message}`
+      };
     }
-
-    logger.debug('🔍 PermissionService: Fetching all roles from database');
-
-    const query = `
-      SELECT 
-        id, 
-        workspace_id, 
-        name, 
-        display_name, 
-        description, 
-        permissions, 
-        is_system, 
-        is_active, 
-        level, 
-        created_by, 
-        created_at, 
-        updated_at
-      FROM roles 
-      WHERE ${includeInactive ? '1=1' : 'is_active = true'}
-      ORDER BY is_system DESC, level DESC, name ASC
-    `;
-
-    const result = await this.database.query(query);
-    
-    // Process permissions (handle both string[] and JSONB)
-    const roles = result.rows.map(row => ({
-      ...row,
-      permissions: Array.isArray(row.permissions) 
-        ? row.permissions 
-        : (typeof row.permissions === 'string' 
-            ? JSON.parse(row.permissions) 
-            : [])
-    }));
-    
-    // Cache for 30 minutes (roles don't change very often)
-    await cacheService.set(cacheKey, roles, 1800);
-    
-    logger.info(`✅ PermissionService: Retrieved ${roles.length} roles`);
-    return roles;
-    
-  } catch (error) {
-    logger.error('❌ PermissionService: Error getting all roles:', error);
-    
-    // Return empty array rather than throwing to prevent cascade failures
-    return [];
   }
-}
+
+  /**
+   * ✅ BATCH PERMISSION CHECK: Check multiple permissions at once
+   * Useful for controllers that need to check multiple permissions
+   */
+  async checkUserPermissions(
+    userId: string,
+    workspaceId: string,
+    permissions: string[]
+  ): Promise<{ [permission: string]: boolean }> {
+    try {
+      const userPermissions = await this.getUserEffectivePermissions(userId, workspaceId);
+      
+      const results: { [permission: string]: boolean } = {};
+      for (const permission of permissions) {
+        results[permission] = userPermissions.includes(permission);
+      }
+      
+      return results;
+    } catch (error) {
+      logger.error(`❌ PermissionService.checkUserPermissions: Error checking permissions for user ${userId}:`, error);
+      
+      // Return all false on error
+      const results: { [permission: string]: boolean } = {};
+      for (const permission of permissions) {
+        results[permission] = false;
+      }
+      return results;
+    }
+  }
 
   /**
    * Get all available system permissions

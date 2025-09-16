@@ -1,4 +1,4 @@
-// api-services/src/routes/datasource.routes.ts
+// api-services/src/routes/datasource.routes.ts - FIXED VERSION
 import express, { Router } from 'express';
 import { DataSourceController } from '../controllers/DataSourceController';
 import { authenticate, AuthenticatedRequest } from '../middleware/authentication';
@@ -19,65 +19,73 @@ router.post('/test-connection',
 );
 
 // 📊 WORKSPACE-SPECIFIC ROUTES
-// All routes below require workspace access
-router.use('/:workspaceId', validateWorkspaceAccess);
+// FIXED: Remove the redundant /datasources path since we're already mounted at /api/datasources
 
-// Get all datasources in workspace
-router.get('/datasources',
+// Get all datasources in workspace - FIXED: Changed from '/datasources' to '/'
+router.get('/',
+  validateWorkspaceAccess,
   requireWorkspaceRole(['viewer', 'analyst', 'editor', 'admin', 'owner']),
   asyncHandler(dataSourceController.getDataSources.bind(dataSourceController))
 );
 
-// Create new datasource
-router.post('/:workspaceId/datasources',
+// Create new datasource - FIXED: Changed from '/:workspaceId/datasources' to '/'
+router.post('/',
+  validateWorkspaceAccess,
   requireWorkspaceRole(['editor', 'admin', 'owner']),
   asyncHandler(dataSourceController.createDataSource.bind(dataSourceController))
 );
 
-// Get specific datasource
-router.get('/:workspaceId/datasources/:id',
+// Get specific datasource - FIXED: Changed from '/:workspaceId/datasources/:id' to '/:id'
+router.get('/:id',
+  validateWorkspaceAccess,
   requireWorkspaceRole(['viewer', 'analyst', 'editor', 'admin', 'owner']),
   asyncHandler(dataSourceController.getDataSource.bind(dataSourceController))
 );
 
-// Update datasource
-router.put('/:workspaceId/datasources/:id',
+// Update datasource - FIXED: Changed from '/:workspaceId/datasources/:id' to '/:id'
+router.put('/:id',
+  validateWorkspaceAccess,
   requireWorkspaceRole(['editor', 'admin', 'owner']),
   asyncHandler(dataSourceController.updateDataSource.bind(dataSourceController))
 );
 
-// Delete datasource
-router.delete('/:workspaceId/datasources/:id',
+// Delete datasource - FIXED: Changed from '/:workspaceId/datasources/:id' to '/:id'
+router.delete('/:id',
+  validateWorkspaceAccess,
   requireWorkspaceRole(['admin', 'owner']),
   asyncHandler(dataSourceController.deleteDataSource.bind(dataSourceController))
 );
 
 // 🔍 CONNECTION & TESTING ROUTES
 
-// Test existing datasource connection
-router.post('/:workspaceId/datasources/:id/test',
+// Test existing datasource connection - FIXED: Changed from '/:workspaceId/datasources/:id/test' to '/:id/test'
+router.post('/:id/test',
+  validateWorkspaceAccess,
   requireWorkspaceRole(['editor', 'admin', 'owner']),
   asyncHandler(dataSourceController.testConnection.bind(dataSourceController))
 );
 
 // 📈 ANALYTICS & USAGE ROUTES
 
-// Get datasource usage statistics
-router.get('/:workspaceId/datasources/:id/usage',
+// Get datasource usage statistics - FIXED: Changed from '/:workspaceId/datasources/:id/usage' to '/:id/usage'
+router.get('/:id/usage',
+  validateWorkspaceAccess,
   requireWorkspaceRole(['viewer', 'analyst', 'editor', 'admin', 'owner']),
   asyncHandler(dataSourceController.getUsageStats.bind(dataSourceController))
 );
 
 // 🗂️ SCHEMA ROUTES
 
-// Get datasource schema
-router.get('/:workspaceId/datasources/:id/schema',
+// Get datasource schema - FIXED: Changed from '/:workspaceId/datasources/:id/schema' to '/:id/schema'
+router.get('/:id/schema',
+  validateWorkspaceAccess,
   requireWorkspaceRole(['viewer', 'analyst', 'editor', 'admin', 'owner']),
   asyncHandler(dataSourceController.getSchema.bind(dataSourceController))
 );
 
-// Refresh datasource schema (force refresh from source)
-router.post('/:workspaceId/datasources/:id/schema/refresh',
+// Refresh datasource schema - FIXED: Changed from '/:workspaceId/datasources/:id/schema/refresh' to '/:id/schema/refresh'
+router.post('/:id/schema/refresh',
+  validateWorkspaceAccess,
   requireWorkspaceRole(['analyst', 'editor', 'admin', 'owner']),
   asyncHandler(async (req, res) => {
     // Set refresh=true in query and call getSchema
@@ -88,20 +96,22 @@ router.post('/:workspaceId/datasources/:id/schema/refresh',
 
 // 🔍 QUERY EXECUTION ROUTES
 
-// Execute query on datasource
-router.post('/:workspaceId/datasources/:id/query',
+// Execute query on datasource - FIXED: Changed from '/:workspaceId/datasources/:id/query' to '/:id/query'
+router.post('/:id/query',
+  validateWorkspaceAccess,
   requireWorkspaceRole(['analyst', 'editor', 'admin', 'owner']),
   asyncHandler(dataSourceController.executeQuery.bind(dataSourceController))
 );
 
 // 📋 ADDITIONAL MANAGEMENT ROUTES
 
-// Get datasource connection history
-router.get('/:workspaceId/datasources/:id/connection-history',
+// Get datasource connection history - FIXED: Changed from '/:workspaceId/datasources/:id/connection-history' to '/:id/connection-history'
+router.get('/:id/connection-history',
+  validateWorkspaceAccess,
   requireWorkspaceRole(['editor', 'admin', 'owner']),
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     try {
-      const { workspaceId, id } = req.params;
+      const { id } = req.params;
       const { page = 1, limit = 20 } = req.query;
 
       // This would get connection test history from database
@@ -131,13 +141,14 @@ router.get('/:workspaceId/datasources/:id/connection-history',
   })
 );
 
-// Get query execution history
-router.get('/:workspaceId/datasources/:id/query-history',
+// Get query execution history - FIXED: Changed from '/:workspaceId/datasources/:id/query-history' to '/:id/query-history'
+router.get('/:id/query-history',
+  validateWorkspaceAccess,
   requireWorkspaceRole(['analyst', 'editor', 'admin', 'owner']),
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     try {
-      const { workspaceId, id } = req.params;
-      const { page = 1, limit = 50, user_id, success_only } = req.query;
+      const { id } = req.params;
+      const { page = 1, limit = 20, status, date_from, date_to } = req.query;
 
       // This would get query execution history from database
       // For now, return empty structure
@@ -149,11 +160,10 @@ router.get('/:workspaceId/datasources/:id/query-history',
           total: 0,
           pages: 0
         },
-        summary: {
-          total_queries: 0,
-          successful_queries: 0,
-          failed_queries: 0,
-          avg_execution_time: 0
+        filters: {
+          status,
+          date_from,
+          date_to
         }
       };
 
@@ -172,50 +182,13 @@ router.get('/:workspaceId/datasources/:id/query-history',
   })
 );
 
-// Clone datasource (create a copy with different name)
-router.post('/:workspaceId/datasources/:id/clone',
-  requireWorkspaceRole(['editor', 'admin', 'owner']),
-  asyncHandler(async (req: AuthenticatedRequest, res) => {
-    try {
-      const { workspaceId, id } = req.params;
-      const { name, description } = req.body;
-
-      if (!name) {
-        return res.status(400).json({
-          success: false,
-          message: 'Name is required for cloning',
-          errors: [{ code: 'VALIDATION_ERROR', message: 'Name field is required' }]
-        });
-      }
-
-      // This would implement the actual cloning logic
-      // For now, return success message
-      res.status(201).json({
-        success: true,
-        message: 'Datasource cloned successfully',
-        cloned_datasource: {
-          id: 'new-cloned-id',
-          name,
-          description: description || `Cloned from existing datasource`,
-          original_id: id
-        }
-      });
-    } catch (error: any) {
-      res.status(500).json({
-        success: false,
-        message: 'Failed to clone datasource',
-        errors: [{ code: 'CLONE_DATASOURCE_FAILED', message: error.message }]
-      });
-    }
-  })
-);
-
-// Export datasource configuration (without sensitive data)
-router.get('/:workspaceId/datasources/:id/export',
+// Export datasource configuration - FIXED: Changed from '/:workspaceId/datasources/:id/export' to '/:id/export'
+router.get('/:id/export',
+  validateWorkspaceAccess,
   requireWorkspaceRole(['admin', 'owner']),
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     try {
-      const { workspaceId, id } = req.params;
+      const { id } = req.params;
       const { include_config = false } = req.query;
 
       // This would get the datasource and create export data
@@ -251,12 +224,12 @@ router.get('/:workspaceId/datasources/:id/export',
   })
 );
 
-// Import datasource configuration
-router.post('/:workspaceId/datasources/import',
+// Import datasource configuration - FIXED: Changed from '/:workspaceId/datasources/import' to '/import'
+router.post('/import',
+  validateWorkspaceAccess,
   requireWorkspaceRole(['admin', 'owner']),
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     try {
-      const { workspaceId } = req.params;
       const { datasource_config, overwrite_existing = false } = req.body;
 
       if (!datasource_config) {
@@ -288,12 +261,12 @@ router.post('/:workspaceId/datasources/import',
   })
 );
 
-// Bulk operations on datasources
-router.post('/:workspaceId/datasources/bulk',
+// Bulk operations on datasources - FIXED: Changed from '/:workspaceId/datasources/bulk' to '/bulk'
+router.post('/bulk',
+  validateWorkspaceAccess,
   requireWorkspaceRole(['admin', 'owner']),
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     try {
-      const { workspaceId } = req.params;
       const { action, datasource_ids, parameters } = req.body;
 
       if (!action || !datasource_ids || !Array.isArray(datasource_ids)) {
