@@ -1,10 +1,13 @@
-// api-services/src/controllers/WebviewController.ts
+// api-services/src/controllers/WebviewController.ts - FIXED VERSION
 import { Request, Response } from 'express';
 import { WebviewService } from '../services/WebviewService';
 import { CategoryService } from '../services/CategoryService';
 import { AnalyticsService } from '../services/AnalyticsService';
 import { PermissionService } from '../services/PermissionService';
 import { logger } from '../utils/logger';
+
+// Import database connection directly (same pattern as other fixed controllers)
+import { db } from '../utils/database';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -31,10 +34,43 @@ export class WebviewController {
   private permissionService: PermissionService;
 
   constructor() {
+    console.log('🔧 WebviewController: Starting initialization...');
+    
+    // Validate database connection first
+    if (!db) {
+      const error = new Error('WebviewController: Database connection is required but was null/undefined');
+      logger.error('❌ WebviewController constructor error:', error.message);
+      throw error;
+    }
+    
+    if (typeof db.query !== 'function') {
+      const error = new Error(`WebviewController: Invalid database connection - query method is ${typeof db.query}, expected function`);
+      logger.error('❌ WebviewController constructor error:', {
+        message: error.message,
+        databaseType: typeof db,
+        hasQuery: typeof db.query,
+        constructorName: db.constructor?.name
+      });
+      throw error;
+    }
+
+    console.log('✅ WebviewController: Database connection validated');
+    
+    // Initialize services
     this.webviewService = new WebviewService();
     this.categoryService = new CategoryService();
     this.analyticsService = new AnalyticsService();
-    this.permissionService = new PermissionService();
+    this.permissionService = new PermissionService(db); // ✅ Pass database connection
+    
+    logger.info('✅ WebviewController: Initialized successfully', {
+      hasWebviewService: !!this.webviewService,
+      hasCategoryService: !!this.categoryService,
+      hasAnalyticsService: !!this.analyticsService,
+      hasPermissionService: !!this.permissionService,
+      service: 'bi-platform-api'
+    });
+    
+    console.log('✅ WebviewController: Initialization complete');
   }
 
   // ========== PUBLIC ENDPOINTS (No Authentication Required) ==========
@@ -100,8 +136,8 @@ export class WebviewController {
       logger.error('Get public webview categories error:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to retrieve categories',
-        errors: [{ code: 'GET_PUBLIC_CATEGORIES_FAILED', message: error.message }]
+        message: 'Failed to retrieve public webview categories',
+        errors: [{ code: 'GET_PUBLIC_WEBVIEW_CATEGORIES_FAILED', message: error.message }]
       });
     }
   }
@@ -110,14 +146,35 @@ export class WebviewController {
   async getPublicDashboard(req: Request, res: Response): Promise<void> {
     try {
       const { webviewId, dashboardId } = req.params;
+      const { include_charts = true } = req.query;
 
-      const dashboard = await this.webviewService.getPublicDashboard(webviewId, dashboardId);
+      // Verify webview is public
+      const webview = await this.webviewService.getWebview(webviewId, null, {
+        public_access: true
+      });
+
+      if (!webview || !webview.is_public) {
+        res.status(404).json({
+          success: false,
+          message: 'Public webview not found',
+          errors: [{ code: 'WEBVIEW_NOT_FOUND', message: 'Webview not found or not publicly accessible' }]
+        });
+        return;
+      }
+
+      const dashboard = await this.webviewService.getPublicDashboard(
+        webviewId,
+        dashboardId,
+        {
+          include_charts: include_charts === 'true'
+        }
+      );
 
       if (!dashboard) {
         res.status(404).json({
           success: false,
-          message: 'Dashboard not found or not accessible',
-          errors: [{ code: 'DASHBOARD_NOT_ACCESSIBLE', message: 'Dashboard not found or not publicly accessible' }]
+          message: 'Dashboard not found',
+          errors: [{ code: 'DASHBOARD_NOT_FOUND', message: 'Dashboard not found in this webview' }]
         });
         return;
       }
@@ -131,28 +188,38 @@ export class WebviewController {
       logger.error('Get public dashboard error:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to retrieve dashboard',
+        message: 'Failed to retrieve public dashboard',
         errors: [{ code: 'GET_PUBLIC_DASHBOARD_FAILED', message: error.message }]
       });
     }
   }
 
-  // Log public activity (analytics)
+  // Log public activity
   async logPublicActivity(req: Request, res: Response): Promise<void> {
     try {
       const { webviewId } = req.params;
       const activityData = req.body as ActivityLogRequest;
 
-      // Add IP address and user agent from request
-      const enrichedActivity = {
-        ...activityData,
-        webview_id: webviewId,
-        ip_address: req.ip || req.connection.remoteAddress,
-        user_agent: req.get('User-Agent'),
-        timestamp: new Date()
-      };
+      // Verify webview is public
+      const webview = await this.webviewService.getWebview(webviewId, null, {
+        public_access: true
+      });
 
-      await this.analyticsService.logPublicActivity(enrichedActivity);
+      if (!webview || !webview.is_public) {
+        res.status(404).json({
+          success: false,
+          message: 'Public webview not found',
+          errors: [{ code: 'WEBVIEW_NOT_FOUND', message: 'Webview not found or not publicly accessible' }]
+        });
+        return;
+      }
+
+      await this.analyticsService.logPublicActivity(webviewId, {
+        ...activityData,
+        user_agent: req.get('User-Agent'),
+        ip_address: req.ip,
+        timestamp: new Date().toISOString()
+      });
 
       res.status(200).json({
         success: true,
@@ -163,53 +230,43 @@ export class WebviewController {
       res.status(500).json({
         success: false,
         message: 'Failed to log activity',
-        errors: [{ code: 'LOG_ACTIVITY_FAILED', message: error.message }]
+        errors: [{ code: 'LOG_PUBLIC_ACTIVITY_FAILED', message: error.message }]
       });
     }
   }
 
-  // ========== PROTECTED ENDPOINTS (Authentication Required) ==========
+  // ========== AUTHENTICATED ENDPOINTS ==========
 
-  // Get all webviews (workspace-scoped)
+  // Get all webviews for workspace
   async getWebviews(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { workspace_id } = req.user;
       const { 
         page = 1, 
         limit = 20, 
-        search,
-        status,
-        created_by,
-        sort_by = 'updated_at',
-        sort_order = 'desc',
-        include_stats = false
+        search, 
+        is_public,
+        include_categories = false,
+        include_stats = false 
       } = req.query;
 
-      const options = {
-        page: parseInt(page as string),
-        limit: parseInt(limit as string),
-        filters: {
-          search: search as string,
-          status: status as string,
-          created_by: created_by as string
-        },
-        sort_by: sort_by as string,
-        sort_order: sort_order as 'asc' | 'desc',
+      const webviews = await this.webviewService.getWebviews(workspace_id, {
+        page: Number(page),
+        limit: Number(limit),
+        search: search as string,
+        is_public: is_public === 'true' ? true : is_public === 'false' ? false : undefined,
+        include_categories: include_categories === 'true',
         include_stats: include_stats === 'true'
-      };
-
-      const result = await this.webviewService.getWebviews(workspace_id, options);
+      });
 
       res.status(200).json({
         success: true,
-        webviews: result.webviews,
+        webviews: webviews.webviews,
         pagination: {
-          page: result.page,
-          limit: result.limit,
-          total: result.total,
-          pages: result.pages,
-          has_next: result.has_next,
-          has_prev: result.has_prev
+          page: webviews.page,
+          limit: webviews.limit,
+          total: webviews.total,
+          pages: webviews.pages
         },
         message: 'Webviews retrieved successfully'
       });
@@ -226,26 +283,30 @@ export class WebviewController {
   // Create new webview
   async createWebview(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      const { id: userId, workspace_id } = req.user;
+      const { workspace_id, id: userId } = req.user;
       const webviewData = req.body;
 
       // Validate required fields
-      if (!webviewData.name || !webviewData.webview_name) {
+      if (!webviewData.name || !webviewData.display_name) {
         res.status(400).json({
           success: false,
-          message: 'Webview name and URL name are required',
-          errors: [{ code: 'VALIDATION_ERROR', message: 'name and webview_name fields are required' }]
+          message: 'Missing required fields',
+          errors: [{ code: 'VALIDATION_ERROR', message: 'Name and display_name are required' }]
         });
         return;
       }
 
-      // Validate webview_name format (URL-safe)
-      const webviewNameRegex = /^[a-z0-9-_]+$/;
-      if (!webviewNameRegex.test(webviewData.webview_name)) {
-        res.status(400).json({
+      // Check if webview name already exists in workspace
+      const existingWebview = await this.webviewService.getWebviewByName(
+        webviewData.name,
+        { workspace_id }
+      );
+
+      if (existingWebview) {
+        res.status(409).json({
           success: false,
-          message: 'Invalid webview name format',
-          errors: [{ code: 'INVALID_WEBVIEW_NAME', message: 'Webview name must contain only lowercase letters, numbers, hyphens, and underscores' }]
+          message: 'Webview with this name already exists',
+          errors: [{ code: 'DUPLICATE_NAME', message: 'A webview with this name already exists in your workspace' }]
         });
         return;
       }
@@ -330,22 +391,9 @@ export class WebviewController {
       const { workspace_id } = req.user;
       const updateData = req.body;
 
-      // Validate webview_name format if provided
-      if (updateData.webview_name) {
-        const webviewNameRegex = /^[a-z0-9-_]+$/;
-        if (!webviewNameRegex.test(updateData.webview_name)) {
-          res.status(400).json({
-            success: false,
-            message: 'Invalid webview name format',
-            errors: [{ code: 'INVALID_WEBVIEW_NAME', message: 'Webview name must contain only lowercase letters, numbers, hyphens, and underscores' }]
-          });
-          return;
-        }
-      }
-
-      const webview = await this.webviewService.updateWebview(id, workspace_id, updateData);
-
-      if (!webview) {
+      // Check if webview exists in workspace
+      const existingWebview = await this.webviewService.getWebview(id, workspace_id);
+      if (!existingWebview) {
         res.status(404).json({
           success: false,
           message: 'Webview not found',
@@ -354,27 +402,37 @@ export class WebviewController {
         return;
       }
 
+      // If updating name, check for duplicates
+      if (updateData.name && updateData.name !== existingWebview.name) {
+        const duplicateWebview = await this.webviewService.getWebviewByName(
+          updateData.name,
+          { workspace_id }
+        );
+
+        if (duplicateWebview) {
+          res.status(409).json({
+            success: false,
+            message: 'Webview with this name already exists',
+            errors: [{ code: 'DUPLICATE_NAME', message: 'A webview with this name already exists in your workspace' }]
+          });
+          return;
+        }
+      }
+
+      const updatedWebview = await this.webviewService.updateWebview(id, updateData);
+
       res.status(200).json({
         success: true,
-        webview,
+        webview: updatedWebview,
         message: 'Webview updated successfully'
       });
     } catch (error: any) {
       logger.error('Update webview error:', error);
-      
-      if (error.code === 'WEBVIEW_NAME_EXISTS') {
-        res.status(409).json({
-          success: false,
-          message: 'Webview with this name already exists',
-          errors: [{ code: 'DUPLICATE_NAME', message: error.message }]
-        });
-      } else {
-        res.status(500).json({
-          success: false,
-          message: 'Failed to update webview',
-          errors: [{ code: 'UPDATE_WEBVIEW_FAILED', message: error.message }]
-        });
-      }
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update webview',
+        errors: [{ code: 'UPDATE_WEBVIEW_FAILED', message: error.message }]
+      });
     }
   }
 
@@ -383,18 +441,19 @@ export class WebviewController {
     try {
       const { id } = req.params;
       const { workspace_id } = req.user;
-      const { force = false } = req.query;
 
-      const result = await this.webviewService.deleteWebview(id, workspace_id, force === 'true');
-
-      if (!result.success) {
+      // Check if webview exists in workspace
+      const existingWebview = await this.webviewService.getWebview(id, workspace_id);
+      if (!existingWebview) {
         res.status(404).json({
           success: false,
-          message: result.message || 'Webview not found',
-          errors: [{ code: 'WEBVIEW_NOT_FOUND', message: result.message || 'Webview does not exist or access denied' }]
+          message: 'Webview not found',
+          errors: [{ code: 'WEBVIEW_NOT_FOUND', message: 'Webview does not exist or access denied' }]
         });
         return;
       }
+
+      await this.webviewService.deleteWebview(id);
 
       res.status(200).json({
         success: true,
@@ -410,7 +469,7 @@ export class WebviewController {
     }
   }
 
-  // Get webview by name (protected)
+  // Get webview by name
   async getWebviewByName(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { webviewName } = req.params;
@@ -426,7 +485,7 @@ export class WebviewController {
         res.status(404).json({
           success: false,
           message: 'Webview not found',
-          errors: [{ code: 'WEBVIEW_NOT_FOUND', message: 'Webview not found in this workspace' }]
+          errors: [{ code: 'WEBVIEW_NOT_FOUND', message: 'Webview with this name does not exist in your workspace' }]
         });
         return;
       }
@@ -446,7 +505,7 @@ export class WebviewController {
     }
   }
 
-  // Get webview categories (protected)
+  // Get webview categories
   async getWebviewCategories(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
@@ -457,11 +516,21 @@ export class WebviewController {
         include_inactive = false 
       } = req.query;
 
+      // Verify webview exists in workspace
+      const webview = await this.webviewService.getWebview(id, workspace_id);
+      if (!webview) {
+        res.status(404).json({
+          success: false,
+          message: 'Webview not found',
+          errors: [{ code: 'WEBVIEW_NOT_FOUND', message: 'Webview does not exist or access denied' }]
+        });
+        return;
+      }
+
       const categories = await this.categoryService.getWebviewCategories(id, {
         search: search as string,
         include_dashboards: include_dashboards === 'true',
-        include_inactive: include_inactive === 'true',
-        workspace_id
+        include_inactive: include_inactive === 'true'
       });
 
       res.status(200).json({
@@ -473,8 +542,8 @@ export class WebviewController {
       logger.error('Get webview categories error:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to retrieve categories',
-        errors: [{ code: 'GET_CATEGORIES_FAILED', message: error.message }]
+        message: 'Failed to retrieve webview categories',
+        errors: [{ code: 'GET_WEBVIEW_CATEGORIES_FAILED', message: error.message }]
       });
     }
   }
@@ -484,17 +553,20 @@ export class WebviewController {
     try {
       const { id } = req.params;
       const { workspace_id } = req.user;
-      const { 
-        start_date, 
-        end_date, 
-        include_detailed = false 
-      } = req.query;
+      const { period = '7d' } = req.query;
 
-      const stats = await this.analyticsService.getWebviewStats(id, workspace_id, {
-        start_date: start_date as string,
-        end_date: end_date as string,
-        include_detailed: include_detailed === 'true'
-      });
+      // Verify webview exists in workspace
+      const webview = await this.webviewService.getWebview(id, workspace_id);
+      if (!webview) {
+        res.status(404).json({
+          success: false,
+          message: 'Webview not found',
+          errors: [{ code: 'WEBVIEW_NOT_FOUND', message: 'Webview does not exist or access denied' }]
+        });
+        return;
+      }
+
+      const stats = await this.analyticsService.getWebviewStats(id, period as string);
 
       res.status(200).json({
         success: true,
@@ -511,24 +583,32 @@ export class WebviewController {
     }
   }
 
-  // Log webview activity (protected)
+  // Log webview activity
   async logWebviewActivity(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const { id: userId, workspace_id } = req.user;
+      const { workspace_id, id: userId } = req.user;
       const activityData = req.body as ActivityLogRequest;
 
-      const enrichedActivity = {
-        ...activityData,
-        webview_id: id,
-        workspace_id,
-        user_id: userId,
-        ip_address: req.ip || req.connection.remoteAddress,
-        user_agent: req.get('User-Agent'),
-        timestamp: new Date()
-      };
+      // Verify webview exists in workspace
+      const webview = await this.webviewService.getWebview(id, workspace_id);
+      if (!webview) {
+        res.status(404).json({
+          success: false,
+          message: 'Webview not found',
+          errors: [{ code: 'WEBVIEW_NOT_FOUND', message: 'Webview does not exist or access denied' }]
+        });
+        return;
+      }
 
-      await this.analyticsService.logWebviewActivity(enrichedActivity);
+      await this.analyticsService.logWebviewActivity(id, {
+        ...activityData,
+        user_id: userId,
+        workspace_id,
+        user_agent: req.get('User-Agent'),
+        ip_address: req.ip,
+        timestamp: new Date().toISOString()
+      });
 
       res.status(200).json({
         success: true,
@@ -552,15 +632,26 @@ export class WebviewController {
       const { 
         start_date, 
         end_date, 
-        metrics,
-        group_by = 'day' 
+        group_by = 'day',
+        metrics = 'views,interactions' 
       } = req.query;
 
-      const analytics = await this.analyticsService.getWebviewAnalytics(id, workspace_id, {
+      // Verify webview exists in workspace
+      const webview = await this.webviewService.getWebview(id, workspace_id);
+      if (!webview) {
+        res.status(404).json({
+          success: false,
+          message: 'Webview not found',
+          errors: [{ code: 'WEBVIEW_NOT_FOUND', message: 'Webview does not exist or access denied' }]
+        });
+        return;
+      }
+
+      const analytics = await this.analyticsService.getWebviewAnalytics(id, {
         start_date: start_date as string,
         end_date: end_date as string,
-        metrics: metrics ? (metrics as string).split(',') : undefined,
-        group_by: group_by as string
+        group_by: group_by as string,
+        metrics: (metrics as string).split(',')
       });
 
       res.status(200).json({
@@ -585,9 +676,9 @@ export class WebviewController {
       const { workspace_id } = req.user;
       const settingsData = req.body;
 
-      const settings = await this.webviewService.updateWebviewSettings(id, workspace_id, settingsData);
-
-      if (!settings) {
+      // Verify webview exists in workspace
+      const webview = await this.webviewService.getWebview(id, workspace_id);
+      if (!webview) {
         res.status(404).json({
           success: false,
           message: 'Webview not found',
@@ -596,9 +687,11 @@ export class WebviewController {
         return;
       }
 
+      const updatedWebview = await this.webviewService.updateWebviewSettings(id, settingsData);
+
       res.status(200).json({
         success: true,
-        settings,
+        webview: updatedWebview,
         message: 'Webview settings updated successfully'
       });
     } catch (error: any) {
@@ -607,67 +700,6 @@ export class WebviewController {
         success: false,
         message: 'Failed to update webview settings',
         errors: [{ code: 'UPDATE_WEBVIEW_SETTINGS_FAILED', message: error.message }]
-      });
-    }
-  }
-
-  // Generate webview embed code
-  async generateEmbedCode(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { workspace_id } = req.user;
-      const { 
-        embed_type = 'iframe', 
-        width = '100%', 
-        height = '600px',
-        theme = 'light',
-        show_header = true,
-        show_filters = true
-      } = req.query;
-
-      const embedCode = await this.webviewService.generateEmbedCode(id, workspace_id, {
-        embed_type: embed_type as string,
-        width: width as string,
-        height: height as string,
-        theme: theme as string,
-        show_header: show_header === 'true',
-        show_filters: show_filters === 'true'
-      });
-
-      res.status(200).json({
-        success: true,
-        embed_code: embedCode,
-        message: 'Embed code generated successfully'
-      });
-    } catch (error: any) {
-      logger.error('Generate embed code error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to generate embed code',
-        errors: [{ code: 'GENERATE_EMBED_CODE_FAILED', message: error.message }]
-      });
-    }
-  }
-
-  // Test webview access
-  async testWebviewAccess(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { workspace_id } = req.user;
-
-      const accessTest = await this.webviewService.testWebviewAccess(id, workspace_id);
-
-      res.status(200).json({
-        success: true,
-        access_test: accessTest,
-        message: 'Webview access test completed'
-      });
-    } catch (error: any) {
-      logger.error('Test webview access error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to test webview access',
-        errors: [{ code: 'TEST_WEBVIEW_ACCESS_FAILED', message: error.message }]
       });
     }
   }
