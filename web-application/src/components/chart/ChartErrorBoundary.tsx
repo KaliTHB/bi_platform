@@ -103,3 +103,4 @@ class ChartErrorBoundary extends React.Component<ChartErrorBoundaryProps, ChartE
 }
 
 export default ChartErrorBoundary;
+export {ChartErrorBoundary};
