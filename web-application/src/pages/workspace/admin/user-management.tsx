@@ -1,454 +1,1184 @@
-// web-application/src/pages/workspace/admin/user-management.tsx
-'use client';
+// File: web-application/src/pages/workspace/admin/user-management.tsx
+// Enhanced version with CommonTableLayout and inline components
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
   Button,
-  Paper,
   Tabs,
   Tab,
+  Alert,
+  Snackbar,
+  CircularProgress,
+  Backdrop,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  Grid,
   TextField,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  FormControlLabel,
   Switch,
-  Alert,
+  FormControlLabel,
   Chip,
-  IconButton,
-  Tooltip,
-  Card,
-  CardContent,
-  CardActions,
+  Autocomplete,
+  Grid,
   Divider,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  Checkbox,
   FormGroup,
-  LinearProgress,
-  Snackbar
+  Checkbox,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from '@mui/material';
 import {
-  Add,
-  Person,
+  PersonAdd,
   Group,
-  Security,
+  Visibility,
   Edit,
   Delete,
-  Visibility,
-  MoreVert,
-  Lock,
-  LockOpen,
-  PersonAdd,
-  AdminPanelSettings,
-  Assignment,
-  CheckCircle,
-  Cancel,
-  Info
+  Info,
+  ExpandMore,
+  Close,
 } from '@mui/icons-material';
-
 import { WorkspaceLayout } from '@/components/layout/WorkspaceLayout';
 import { CommonTableLayout, TableColumn, TableAction } from '@/components/shared/CommonTableLayout';
 import { PermissionGate } from '@/components/shared/PermissionGate';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { useAuth } from '../../../hooks/useAuth';
 import { usePermissions } from '../../../hooks/usePermissions';
-
-// Import corrected RTK Query APIs
-import { 
-  userApi,
-  type User,
-  type CreateUserRequest,
-  type UpdateUserRequest
-} from '../../../store/api/userApi';
-
-import { 
-  roleApi,
-  type Role,
-  type CreateRoleRequest,
-  type UpdateRoleRequest
-} from '../../../store/api/roleApi';
-
-import { 
-  permissionApi,
-} from '../../../store/api/permissionApi';
-
-
+import { useWorkspace } from '../../../hooks/useWorkspace';
+import { authStorage } from '@/utils/storageUtils';
 
 // ============================================================================
-// INTERFACES & TYPES
+// TYPES AND INTERFACES
 // ============================================================================
 
-interface BaseListItem {
+interface User {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  avatar_url?: string;
+  is_active: boolean;
+  roles: string[];
+  last_login?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface Role {
   id: string;
   name: string;
-  display_name?: string;
+  description: string;
+  permissions: string[];
+  is_system: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface Permission {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  action: string;
+}
+
+interface ErrorState {
+  message: string;
+  type: 'error' | 'warning' | 'info';
+  details?: any;
+}
+
+interface LoadingStates {
+  users: boolean;
+  roles: boolean;
+  permissions: boolean;
+  saving: boolean;
+  deleting: boolean;
 }
 
 interface UserFormData {
   email: string;
   first_name: string;
   last_name: string;
-  password: string;
-  roles: string[];
   is_active: boolean;
-  department?: string;
-  position?: string;
+  roles: string[];
+  password?: string;
 }
 
 interface RoleFormData {
   name: string;
-  display_name: string;
   description: string;
   permissions: string[];
-  color: string;
-}
-
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-
-interface Permission extends BaseListItem {
-  id: string;
-  name: string;
-  description?: string;
-  category?: string;
-  resource_type?: string;
-  action?: string;
 }
 
 // ============================================================================
-// HELPER COMPONENTS
+// PERMISSION CATEGORIES FOR ROLE EDITOR
 // ============================================================================
 
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
+const PERMISSION_CATEGORIES = [
+  'Workspace Management',
+  'User Management', 
+  'Dashboard Management',
+  'Dataset Management',
+  'Chart Management',
+  'Category Management',
+  'Webview Management',
+  'Export Permissions',
+  'System Administration'
+];
+
+// ============================================================================
+// USER EDITOR COMPONENT
+// ============================================================================
+
+interface UserEditorProps {
+  open: boolean;
+  user?: User | null;
+  onClose: () => void;
+  onSave: (userData: Partial<User>) => Promise<void>;
+  loading?: boolean;
+}
+
+const UserEditor: React.FC<UserEditorProps> = ({
+  open,
+  user,
+  onClose,
+  onSave,
+  loading = false
+}) => {
+  const [formData, setFormData] = useState<UserFormData>({
+    email: '',
+    first_name: '',
+    last_name: '',
+    is_active: true,
+    roles: [],
+    password: '',
+  });
+
+  const [availableRoles, setAvailableRoles] = useState<Role[]>([]);
+  const [errors, setErrors] = useState<{ [key: string]: string }>({});
+
+  // Reset form when dialog opens/closes or user changes
+  useEffect(() => {
+    if (open) {
+      if (user) {
+        // Edit mode
+        setFormData({
+          email: user.email,
+          first_name: user.first_name,
+          last_name: user.last_name,
+          is_active: user.is_active,
+          roles: user.roles || [],
+        });
+      } else {
+        // Create mode
+        setFormData({
+          email: '',
+          first_name: '',
+          last_name: '',
+          is_active: true,
+          roles: [],
+          password: '',
+        });
+      }
+      setErrors({});
+    }
+  }, [open, user]);
+
+  // Load available roles
+  useEffect(() => {
+    const loadRoles = async () => {
+      try {
+        const token = authStorage.getToken();
+        const response = await fetch('/api/admin/roles', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setAvailableRoles(data.data || []);
+        }
+      } catch (error) {
+        console.error('Failed to load roles:', error);
+      }
+    };
+
+    if (open) {
+      loadRoles();
+    }
+  }, [open]);
+
+  const handleFieldChange = (field: keyof UserFormData, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    // Clear error when field is modified
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }));
+    }
+  };
+
+  const validateForm = (): boolean => {
+    const newErrors: { [key: string]: string } = {};
+
+    if (!formData.email.trim()) {
+      newErrors.email = 'Email is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      newErrors.email = 'Please enter a valid email address';
+    }
+
+    if (!formData.first_name.trim()) {
+      newErrors.first_name = 'First name is required';
+    }
+
+    if (!formData.last_name.trim()) {
+      newErrors.last_name = 'Last name is required';
+    }
+
+    if (!user && !formData.password) {
+      newErrors.password = 'Password is required for new users';
+    } else if (formData.password && formData.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSave = async () => {
+    if (!validateForm()) {
+      return;
+    }
+
+    const userData: Partial<User> = {
+      email: formData.email,
+      first_name: formData.first_name,
+      last_name: formData.last_name,
+      is_active: formData.is_active,
+      roles: formData.roles,
+    };
+
+    if (!user && formData.password) {
+      (userData as any).password = formData.password;
+    }
+
+    await onSave(userData);
+  };
+
   return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`user-tabpanel-${index}`}
-      aria-labelledby={`user-tab-${index}`}
-      {...other}
-    >
-      {value === index && <Box sx={{ p: 0 }}>{children}</Box>}
-    </div>
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6">
+            {user ? 'Edit User' : 'Create New User'}
+          </Typography>
+          <Button onClick={onClose} size="small" sx={{ minWidth: 'auto', p: 1 }}>
+            <Close />
+          </Button>
+        </Box>
+      </DialogTitle>
+      
+      <DialogContent dividers>
+        <Grid container spacing={3}>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              label="First Name"
+              value={formData.first_name}
+              onChange={(e) => handleFieldChange('first_name', e.target.value)}
+              error={!!errors.first_name}
+              helperText={errors.first_name}
+              required
+            />
+          </Grid>
+          
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              label="Last Name"
+              value={formData.last_name}
+              onChange={(e) => handleFieldChange('last_name', e.target.value)}
+              error={!!errors.last_name}
+              helperText={errors.last_name}
+              required
+            />
+          </Grid>
+          
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              label="Email"
+              type="email"
+              value={formData.email}
+              onChange={(e) => handleFieldChange('email', e.target.value)}
+              error={!!errors.email}
+              helperText={errors.email}
+              required
+            />
+          </Grid>
+          
+          {!user && (
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Password"
+                type="password"
+                value={formData.password}
+                onChange={(e) => handleFieldChange('password', e.target.value)}
+                error={!!errors.password}
+                helperText={errors.password}
+                required
+              />
+            </Grid>
+          )}
+          
+          <Grid item xs={12}>
+            <Autocomplete
+              multiple
+              options={availableRoles}
+              getOptionLabel={(role) => role.name}
+              value={availableRoles.filter(role => formData.roles.includes(role.name))}
+              onChange={(_, newValue) => {
+                handleFieldChange('roles', newValue.map(role => role.name));
+              }}
+              renderTags={(value, getTagProps) =>
+                value.map((role, index) => (
+                  <Chip
+                    key={role.id}
+                    label={role.name}
+                    {...getTagProps({ index })}
+                    size="small"
+                  />
+                ))
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Roles"
+                  placeholder="Select roles for this user"
+                />
+              )}
+            />
+          </Grid>
+          
+          <Grid item xs={12}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={formData.is_active}
+                  onChange={(e) => handleFieldChange('is_active', e.target.checked)}
+                />
+              }
+              label="Active User"
+            />
+          </Grid>
+        </Grid>
+      </DialogContent>
+      
+      <DialogActions>
+        <Button onClick={onClose} disabled={loading}>
+          Cancel
+        </Button>
+        <Button
+          onClick={handleSave}
+          variant="contained"
+          disabled={loading}
+          startIcon={loading && <CircularProgress size={16} />}
+        >
+          {loading ? 'Saving...' : user ? 'Update User' : 'Create User'}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
+};
+
+// ============================================================================
+// ROLE EDITOR COMPONENT
+// ============================================================================
+
+interface RoleEditorProps {
+  open: boolean;
+  role?: Role | null;
+  onClose: () => void;
+  onSave: (roleData: Partial<Role>) => Promise<void>;
+  loading?: boolean;
 }
+
+const RoleEditor: React.FC<RoleEditorProps> = ({
+  open,
+  role,
+  onClose,
+  onSave,
+  loading = false
+}) => {
+  const [formData, setFormData] = useState<RoleFormData>({
+    name: '',
+    description: '',
+    permissions: [],
+  });
+
+  const [availablePermissions, setAvailablePermissions] = useState<Permission[]>([]);
+  const [errors, setErrors] = useState<{ [key: string]: string }>({});
+
+  // Reset form when dialog opens/closes or role changes
+  useEffect(() => {
+    if (open) {
+      if (role) {
+        // Edit mode
+        setFormData({
+          name: role.name,
+          description: role.description,
+          permissions: role.permissions || [],
+        });
+      } else {
+        // Create mode
+        setFormData({
+          name: '',
+          description: '',
+          permissions: [],
+        });
+      }
+      setErrors({});
+    }
+  }, [open, role]);
+
+  // Load available permissions
+  useEffect(() => {
+    const loadPermissions = async () => {
+      try {
+        const token = authStorage.getToken();
+        const response = await fetch('/api/permissions', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setAvailablePermissions(data.data || []);
+        }
+      } catch (error) {
+        console.error('Failed to load permissions:', error);
+      }
+    };
+
+    if (open) {
+      loadPermissions();
+    }
+  }, [open]);
+
+  const handleFieldChange = (field: keyof RoleFormData, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    // Clear error when field is modified
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }));
+    }
+  };
+
+  const validateForm = (): boolean => {
+    const newErrors: { [key: string]: string } = {};
+
+    if (!formData.name.trim()) {
+      newErrors.name = 'Role name is required';
+    } else if (formData.name.length < 3) {
+      newErrors.name = 'Role name must be at least 3 characters';
+    }
+
+    if (!formData.description.trim()) {
+      newErrors.description = 'Description is required';
+    }
+
+    if (formData.permissions.length === 0) {
+      newErrors.permissions = 'At least one permission must be selected';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handlePermissionToggle = (permissionName: string) => {
+    const isSelected = formData.permissions.includes(permissionName);
+    const newPermissions = isSelected
+      ? formData.permissions.filter(p => p !== permissionName)
+      : [...formData.permissions, permissionName];
+    
+    handleFieldChange('permissions', newPermissions);
+  };
+
+  const handleCategoryToggle = (category: string) => {
+    const categoryPermissions = availablePermissions
+      .filter(p => p.category === category)
+      .map(p => p.name);
+    
+    const allSelected = categoryPermissions.every(p => formData.permissions.includes(p));
+    
+    if (allSelected) {
+      // Deselect all in category
+      const newPermissions = formData.permissions.filter(p => !categoryPermissions.includes(p));
+      handleFieldChange('permissions', newPermissions);
+    } else {
+      // Select all in category
+      const newPermissions = [...new Set([...formData.permissions, ...categoryPermissions])];
+      handleFieldChange('permissions', newPermissions);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!validateForm()) {
+      return;
+    }
+
+    const roleData: Partial<Role> = {
+      name: formData.name,
+      description: formData.description,
+      permissions: formData.permissions,
+    };
+
+    await onSave(roleData);
+  };
+
+  // Group permissions by category
+  const permissionsByCategory = availablePermissions.reduce((acc, permission) => {
+    const category = permission.category || 'Other';
+    if (!acc[category]) {
+      acc[category] = [];
+    }
+    acc[category].push(permission);
+    return acc;
+  }, {} as Record<string, Permission[]>);
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6">
+            {role ? 'Edit Role' : 'Create New Role'}
+          </Typography>
+          <Button onClick={onClose} size="small" sx={{ minWidth: 'auto', p: 1 }}>
+            <Close />
+          </Button>
+        </Box>
+      </DialogTitle>
+      
+      <DialogContent dividers>
+        <Grid container spacing={3}>
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              label="Role Name"
+              value={formData.name}
+              onChange={(e) => handleFieldChange('name', e.target.value)}
+              error={!!errors.name}
+              helperText={errors.name}
+              required
+            />
+          </Grid>
+          
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              label="Description"
+              multiline
+              rows={3}
+              value={formData.description}
+              onChange={(e) => handleFieldChange('description', e.target.value)}
+              error={!!errors.description}
+              helperText={errors.description}
+              required
+            />
+          </Grid>
+          
+          <Grid item xs={12}>
+            <Typography variant="h6" gutterBottom>
+              Permissions
+              {errors.permissions && (
+                <Typography variant="caption" color="error" sx={{ ml: 1 }}>
+                  {errors.permissions}
+                </Typography>
+              )}
+            </Typography>
+            
+            <Box sx={{ maxHeight: 400, overflowY: 'auto' }}>
+              {Object.entries(permissionsByCategory).map(([category, permissions]) => {
+                const allSelected = permissions.every(p => formData.permissions.includes(p.name));
+                const someSelected = permissions.some(p => formData.permissions.includes(p.name));
+                
+                return (
+                  <Accordion key={category} defaultExpanded={someSelected}>
+                    <AccordionSummary expandIcon={<ExpandMore />}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                        <Checkbox
+                          checked={allSelected}
+                          indeterminate={someSelected && !allSelected}
+                          onChange={() => handleCategoryToggle(category)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <Typography variant="subtitle1" sx={{ ml: 1, flexGrow: 1 }}>
+                          {category}
+                        </Typography>
+                        <Chip
+                          size="small"
+                          label={`${permissions.filter(p => formData.permissions.includes(p.name)).length}/${permissions.length}`}
+                          color={allSelected ? 'primary' : someSelected ? 'secondary' : 'default'}
+                        />
+                      </Box>
+                    </AccordionSummary>
+                    
+                    <AccordionDetails>
+                      <FormGroup>
+                        {permissions.map((permission) => (
+                          <FormControlLabel
+                            key={permission.id}
+                            control={
+                              <Checkbox
+                                checked={formData.permissions.includes(permission.name)}
+                                onChange={() => handlePermissionToggle(permission.name)}
+                                size="small"
+                              />
+                            }
+                            label={
+                              <Box>
+                                <Typography variant="body2" fontWeight="medium">
+                                  {permission.name}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {permission.description}
+                                </Typography>
+                              </Box>
+                            }
+                          />
+                        ))}
+                      </FormGroup>
+                    </AccordionDetails>
+                  </Accordion>
+                );
+              })}
+            </Box>
+          </Grid>
+          
+          {formData.permissions.length > 0 && (
+            <Grid item xs={12}>
+              <Typography variant="subtitle2" gutterBottom>
+                Selected Permissions ({formData.permissions.length})
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {formData.permissions.map((permission) => (
+                  <Chip
+                    key={permission}
+                    label={permission}
+                    size="small"
+                    onDelete={() => handlePermissionToggle(permission)}
+                    color="primary"
+                    variant="outlined"
+                  />
+                ))}
+              </Box>
+            </Grid>
+          )}
+        </Grid>
+      </DialogContent>
+      
+      <DialogActions>
+        <Button onClick={onClose} disabled={loading}>
+          Cancel
+        </Button>
+        <Button
+          onClick={handleSave}
+          variant="contained"
+          disabled={loading}
+          startIcon={loading && <CircularProgress size={16} />}
+        >
+          {loading ? 'Saving...' : role ? 'Update Role' : 'Create Role'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
 
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
-const UserManagement: React.FC = () => {
+export default function UserManagement() {
   const { user } = useAuth();
   const { hasPermission } = usePermissions();
+  const { currentWorkspace } = useWorkspace();
 
   // ============================================================================
   // STATE MANAGEMENT
   // ============================================================================
 
-  // UI State
+  // Tab state
   const [currentTab, setCurrentTab] = useState(0);
+
+  // Data state
+  const [users, setUsers] = useState<User[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [permissions, setPermissions] = useState<Permission[]>([]);
+
+  // Loading states - comprehensive tracking
+  const [loading, setLoading] = useState<LoadingStates>({
+    users: false,
+    roles: false,
+    permissions: false,
+    saving: false,
+    deleting: false,
+  });
+
+  // Error states - comprehensive error tracking
+  const [errors, setErrors] = useState<{
+    users?: ErrorState;
+    roles?: ErrorState;
+    permissions?: ErrorState;
+    operation?: ErrorState;
+  }>({});
+
+  // Dialog states
   const [userDialogOpen, setUserDialogOpen] = useState(false);
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
-  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
-  const [deletingItem, setDeletingItem] = useState<{ type: 'user' | 'role'; id: string; name: string } | null>(null);
-  
-  // Snackbar state
-  const [snackbar, setSnackbar] = useState<{
+  const [deletingItem, setDeletingItem] = useState<{ type: 'user' | 'role'; item: User | Role } | null>(null);
+
+  // Notification state
+  const [notification, setNotification] = useState<{
     open: boolean;
     message: string;
     severity: 'success' | 'error' | 'warning' | 'info';
-  }>({
-    open: false,
-    message: '',
-    severity: 'info'
-  });
-
-  // Form Data
-  const [userFormData, setUserFormData] = useState<UserFormData>({
-    email: '',
-    first_name: '',
-    last_name: '',
-    password: '',
-    roles: [],
-    is_active: true,
-    department: '',
-    position: '',
-  });
-
-  const [roleFormData, setRoleFormData] = useState<RoleFormData>({
-    name: '',
-    display_name: '',
-    description: '',
-    permissions: [],
-    color: '#1976d2',
-  });
+  }>({ open: false, message: '', severity: 'info' });
 
   // ============================================================================
-  // RTK QUERY HOOKS
+  // ERROR HANDLING UTILITIES
   // ============================================================================
 
-  // User queries
-  const { 
-    data: usersResponse, 
-    isLoading: usersLoading, 
-    error: usersError,
-    refetch: refetchUsers 
-  } = userApi.useGetUsersQuery({
-    include_inactive: false,
-    detailed: true
-  });
-
-  // Role queries
-  const { 
-    data: rolesResponse, 
-    isLoading: rolesLoading 
-  } = roleApi.useGetRolesQuery({
-    include_permissions: true
-  });
-
-  // Permission queries
-  const { 
-    data: permissionsResponse, 
-    isLoading: permissionsLoading 
-  } = permissionApi.useGetPermissionsQuery();
-
-  // Mutation hooks for users
-  const [createUser, { isLoading: isCreatingUser }] = userApi.useCreateUserMutation();
-  const [updateUser, { isLoading: isUpdatingUser }] = userApi.useUpdateUserMutation();
-  const [deleteUser, { isLoading: isDeletingUser }] = userApi.useDeleteUserMutation();
-
-  // Mutation hooks for roles
-  const [createRole, { isLoading: isCreatingRole }] = roleApi.useCreateRoleMutation();
-  const [updateRole, { isLoading: isUpdatingRole }] = roleApi.useUpdateRoleMutation();
-  const [deleteRole, { isLoading: isDeletingRole }] = roleApi.useDeleteRoleMutation();
-
-  // Role assignment mutations
-  const [assignRoleToUser] = roleApi.useAssignRoleToUserMutation();
-  const [removeRoleAssignment] = roleApi.useRemoveRoleAssignmentMutation();
-
-  // ============================================================================
-  // DATA PROCESSING
-  // ============================================================================
-
-  const users: User[] = useMemo(() => {
-    if (!usersResponse?.success) return [];
-    return usersResponse.data.map(user => ({
-      ...user,
-      display_name: user.first_name && user.last_name 
-        ? `${user.first_name} ${user.last_name}` 
-        : user.username || user.email,
-      role_names: user.role_names || []
-    }));
-  }, [usersResponse]);
-
-  const roles: Role[] = useMemo(() => {
-    if (!rolesResponse?.success) return [];
-    return rolesResponse.data.map(role => ({
-      ...role,
-      display_name: role.display_name || role.name,
-      user_count: role.user_count || 0,
-      color: role.color || '#1976d2'
-    }));
-  }, [rolesResponse]);
-
-  const permissions: Permission[] = useMemo(() => {
-    if (!permissionsResponse?.success) return [];
-    return permissionsResponse.data.map(permission => ({
-      ...permission,
-      display_name: permission.display_name || permission.name,
-      category: permission.category || 'General'
-    }));
-  }, [permissionsResponse]);
-
-  // ============================================================================
-  // EVENT HANDLERS
-  // ============================================================================
-
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    setCurrentTab(newValue);
-  };
-
-  const handleShowSnackbar = (message: string, severity: 'success' | 'error' | 'warning' | 'info') => {
-    setSnackbar({ open: true, message, severity });
-  };
-
-  const resetUserForm = () => {
-    setUserFormData({
-      email: '',
-      first_name: '',
-      last_name: '',
-      password: '',
-      roles: [],
-      is_active: true,
-      department: '',
-      position: '',
+  const clearError = useCallback((errorType: keyof typeof errors) => {
+    setErrors(prev => {
+      const newErrors = { ...prev };
+      delete newErrors[errorType];
+      return newErrors;
     });
-    setEditingUser(null);
-  };
+  }, []);
 
-  const resetRoleForm = () => {
-    setRoleFormData({
-      name: '',
-      display_name: '',
-      description: '',
-      permissions: [],
-      color: '#1976d2',
-    });
-    setEditingRole(null);
-  };
+  const setError = useCallback((errorType: keyof typeof errors, error: ErrorState) => {
+    setErrors(prev => ({
+      ...prev,
+      [errorType]: error
+    }));
+  }, []);
 
-  // User handlers
-  const handleCreateUser = () => {
-    resetUserForm();
-    setUserDialogOpen(true);
-  };
+  const showNotification = useCallback((message: string, severity: 'success' | 'error' | 'warning' | 'info' = 'info') => {
+    setNotification({ open: true, message, severity });
+  }, []);
 
-  const handleEditUser = (user: User) => {
-    setEditingUser(user);
-    setUserFormData({
-      email: user.email,
-      first_name: user.first_name,
-      last_name: user.last_name,
-      password: '',
-      roles: user.role_names || [],
-      is_active: user.is_active,
-      department: user.department || '',
-      position: user.position || '',
-    });
-    setUserDialogOpen(true);
-  };
+  const handleApiError = useCallback((error: any, operation: string, fallbackMessage: string) => {
+    console.error(`${operation} error:`, error);
+    
+    let errorMessage = fallbackMessage;
+    let details = null;
 
-  const handleSaveUser = async () => {
-    try {
-      const userData: CreateUserRequest | UpdateUserRequest = {
-        email: userFormData.email,
-        first_name: userFormData.first_name,
-        last_name: userFormData.last_name,
-        roles: userFormData.roles,
-        is_active: userFormData.is_active,
-        department: userFormData.department,
-        position: userFormData.position,
-      };
-
-      if (editingUser) {
-        // Update existing user
-        if (userFormData.password) {
-          (userData as UpdateUserRequest).password = userFormData.password;
-        }
-        await updateUser({
-          id: editingUser.id,
-          updates: userData as UpdateUserRequest
-        }).unwrap();
-        handleShowSnackbar('User updated successfully', 'success');
-      } else {
-        // Create new user
-        (userData as CreateUserRequest).password = userFormData.password;
-        await createUser(userData as CreateUserRequest).unwrap();
-        handleShowSnackbar('User created successfully', 'success');
-      }
-      
-      setUserDialogOpen(false);
-      resetUserForm();
-    } catch (error: any) {
-      const errorMessage = error?.data?.message || error?.message || 'Failed to save user';
-      handleShowSnackbar(errorMessage, 'error');
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    } else if (typeof error === 'object' && error?.message) {
+      errorMessage = error.message;
+      details = error.details || error;
+    } else if (typeof error === 'string') {
+      errorMessage = error;
     }
-  };
 
-  const handleDeleteUser = (user: User) => {
-    setDeletingItem({ type: 'user', id: user.id, name: user.display_name || user.email });
-    setConfirmDialogOpen(true);
-  };
+    return {
+      message: errorMessage,
+      type: 'error' as const,
+      details
+    };
+  }, []);
 
-  // Role handlers
-  const handleCreateRole = () => {
-    resetRoleForm();
-    setRoleDialogOpen(true);
-  };
+  // ============================================================================
+  // DATA LOADING WITH ERROR HANDLING
+  // ============================================================================
 
-  const handleEditRole = (role: Role) => {
-    setEditingRole(role);
-    setRoleFormData({
-      name: role.name,
-      display_name: role.display_name,
-      description: role.description || '',
-      permissions: role.permissions || [],
-      color: role.color || '#1976d2',
-    });
-    setRoleDialogOpen(true);
-  };
-
-  const handleSaveRole = async () => {
-    try {
-      const roleData: CreateRoleRequest | UpdateRoleRequest = {
-        name: roleFormData.name,
-        display_name: roleFormData.display_name,
-        description: roleFormData.description,
-        permissions: roleFormData.permissions,
-        color: roleFormData.color,
-      };
-
-      if (editingRole) {
-        // Update existing role
-        await updateRole({
-          roleId: editingRole.id,
-          ...roleData
-        }).unwrap();
-        handleShowSnackbar('Role updated successfully', 'success');
-      } else {
-        // Create new role
-        await createRole(roleData as CreateRoleRequest).unwrap();
-        handleShowSnackbar('Role created successfully', 'success');
-      }
-      
-      setRoleDialogOpen(false);
-      resetRoleForm();
-    } catch (error: any) {
-      const errorMessage = error?.data?.message || error?.message || 'Failed to save role';
-      handleShowSnackbar(errorMessage, 'error');
+  const loadUsers = useCallback(async () => {
+    if (!currentWorkspace?.slug) {
+      setError('users', {
+        message: 'No workspace selected',
+        type: 'warning'
+      });
+      return;
     }
-  };
 
-  const handleDeleteRole = (role: Role) => {
-    setDeletingItem({ type: 'role', id: role.id, name: role.display_name });
-    setConfirmDialogOpen(true);
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!deletingItem) return;
+    setLoading(prev => ({ ...prev, users: true }));
+    clearError('users');
 
     try {
-      if (deletingItem.type === 'user') {
-        await deleteUser(deletingItem.id).unwrap();
-        handleShowSnackbar('User deleted successfully', 'success');
-      } else {
-        await deleteRole(deletingItem.id).unwrap();
-        handleShowSnackbar('Role deleted successfully', 'success');
+      const token = authStorage.getToken();
+      if (!token) {
+        throw new Error('Authentication token not found. Please log in again.');
       }
-    } catch (error: any) {
-      const errorMessage = error?.data?.message || error?.message || `Failed to delete ${deletingItem.type}`;
-      handleShowSnackbar(errorMessage, 'error');
+
+      const response = await fetch(`/api/admin/users`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Workspace-Slug': currentWorkspace.slug,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to load users');
+      }
+
+      setUsers(data.data || []);
+    } catch (error) {
+      const errorState = handleApiError(error, 'Load users', 'Failed to load users');
+      setError('users', errorState);
+      setUsers([]); // Set empty array to prevent UI issues
     } finally {
-      setConfirmDialogOpen(false);
-      setDeletingItem(null);
+      setLoading(prev => ({ ...prev, users: false }));
     }
-  };
+  }, [currentWorkspace?.slug, clearError, setError, handleApiError]);
+
+  const loadRoles = useCallback(async () => {
+    if (!currentWorkspace?.slug) {
+      setError('roles', {
+        message: 'No workspace selected',
+        type: 'warning'
+      });
+      return;
+    }
+
+    setLoading(prev => ({ ...prev, roles: true }));
+    clearError('roles');
+
+    try {
+      const token = authStorage.getToken();
+      if (!token) {
+        throw new Error('Authentication token not found. Please log in again.');
+      }
+
+      const response = await fetch(`/api/admin/roles`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Workspace-Slug': currentWorkspace.slug,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to load roles');
+      }
+
+      setRoles(data.data || []);
+    } catch (error) {
+      const errorState = handleApiError(error, 'Load roles', 'Failed to load roles');
+      setError('roles', errorState);
+      setRoles([]); // Set empty array to prevent UI issues
+    } finally {
+      setLoading(prev => ({ ...prev, roles: false }));
+    }
+  }, [currentWorkspace?.slug, clearError, setError, handleApiError]);
+
+  const loadPermissions = useCallback(async () => {
+    if (!currentWorkspace?.slug) {
+      setError('permissions', {
+        message: 'No workspace selected',
+        type: 'warning'
+      });
+      return;
+    }
+
+    setLoading(prev => ({ ...prev, permissions: true }));
+    clearError('permissions');
+
+    try {
+      const token = authStorage.getToken();
+      if (!token) {
+        throw new Error('Authentication token not found. Please log in again.');
+      }
+
+      const response = await fetch(`/api/permissions`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Workspace-Slug': currentWorkspace.slug,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to load permissions');
+      }
+
+      setPermissions(data.data || []);
+    } catch (error) {
+      const errorState = handleApiError(error, 'Load permissions', 'Failed to load permissions');
+      setError('permissions', errorState);
+      setPermissions([]); // Set empty array to prevent UI issues
+    } finally {
+      setLoading(prev => ({ ...prev, permissions: false }));
+    }
+  }, [currentWorkspace?.slug, clearError, setError, handleApiError]);
+
+  // ============================================================================
+  // CRUD OPERATIONS WITH ERROR HANDLING
+  // ============================================================================
+
+  const handleCreateUser = useCallback(() => {
+    setEditingUser(null);
+    setUserDialogOpen(true);
+    clearError('operation');
+  }, [clearError]);
+
+  const handleEditUser = useCallback((user: User) => {
+    setEditingUser(user);
+    setUserDialogOpen(true);
+    clearError('operation');
+  }, [clearError]);
+
+  const handleCreateRole = useCallback(() => {
+    setEditingRole(null);
+    setRoleDialogOpen(true);
+    clearError('operation');
+  }, [clearError]);
+
+  const handleEditRole = useCallback((role: Role) => {
+    setEditingRole(role);
+    setRoleDialogOpen(true);
+    clearError('operation');
+  }, [clearError]);
+
+  const handleDeleteUser = useCallback((user: User) => {
+    setDeletingItem({ type: 'user', item: user });
+    setDeleteDialogOpen(true);
+    clearError('operation');
+  }, [clearError]);
+
+  const handleDeleteRole = useCallback((role: Role) => {
+    setDeletingItem({ type: 'role', item: role });
+    setDeleteDialogOpen(true);
+    clearError('operation');
+  }, [clearError]);
+
+  const handleSaveUser = useCallback(async (userData: Partial<User>) => {
+    if (!currentWorkspace?.slug) {
+      showNotification('No workspace selected', 'error');
+      return;
+    }
+
+    setLoading(prev => ({ ...prev, saving: true }));
+    clearError('operation');
+
+    try {
+      const token = authStorage.getToken();
+      if (!token) {
+        throw new Error('Authentication token not found. Please log in again.');
+      }
+
+      const url = editingUser 
+        ? `/api/admin/users/${editingUser.id}`
+        : '/api/admin/users';
+      
+      const method = editingUser ? 'PUT' : 'POST';
+      
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Workspace-Slug': currentWorkspace.slug,
+        },
+        body: JSON.stringify(userData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to save user');
+      }
+
+      setUserDialogOpen(false);
+      setEditingUser(null);
+      showNotification(
+        editingUser ? 'User updated successfully' : 'User created successfully',
+        'success'
+      );
+      
+      // Reload users to get updated data
+      await loadUsers();
+    } catch (error) {
+      const errorState = handleApiError(error, 'Save user', 'Failed to save user');
+      setError('operation', errorState);
+      showNotification(errorState.message, 'error');
+    } finally {
+      setLoading(prev => ({ ...prev, saving: false }));
+    }
+  }, [currentWorkspace?.slug, editingUser, clearError, handleApiError, setError, showNotification, loadUsers]);
+
+  const handleSaveRole = useCallback(async (roleData: Partial<Role>) => {
+    if (!currentWorkspace?.slug) {
+      showNotification('No workspace selected', 'error');
+      return;
+    }
+
+    setLoading(prev => ({ ...prev, saving: true }));
+    clearError('operation');
+
+    try {
+      const token = authStorage.getToken();
+      if (!token) {
+        throw new Error('Authentication token not found. Please log in again.');
+      }
+
+      const url = editingRole 
+        ? `/api/admin/roles/${editingRole.id}`
+        : '/api/admin/roles';
+      
+      const method = editingRole ? 'PUT' : 'POST';
+      
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Workspace-Slug': currentWorkspace.slug,
+        },
+        body: JSON.stringify(roleData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to save role');
+      }
+
+      setRoleDialogOpen(false);
+      setEditingRole(null);
+      showNotification(
+        editingRole ? 'Role updated successfully' : 'Role created successfully',
+        'success'
+      );
+      
+      // Reload roles to get updated data
+      await loadRoles();
+    } catch (error) {
+      const errorState = handleApiError(error, 'Save role', 'Failed to save role');
+      setError('operation', errorState);
+      showNotification(errorState.message, 'error');
+    } finally {
+      setLoading(prev => ({ ...prev, saving: false }));
+    }
+  }, [currentWorkspace?.slug, editingRole, clearError, handleApiError, setError, showNotification, loadRoles]);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deletingItem || !currentWorkspace?.slug) {
+      showNotification('Invalid delete operation', 'error');
+      return;
+    }
+
+    setLoading(prev => ({ ...prev, deleting: true }));
+    clearError('operation');
+
+    try {
+      const token = authStorage.getToken();
+      if (!token) {
+        throw new Error('Authentication token not found. Please log in again.');
+      }
+
+      const url = deletingItem.type === 'user' 
+        ? `/api/admin/users/${deletingItem.item.id}`
+        : `/api/admin/roles/${deletingItem.item.id}`;
+      
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Workspace-Slug': currentWorkspace.slug,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || `Failed to delete ${deletingItem.type}`);
+      }
+
+      setDeleteDialogOpen(false);
+      setDeletingItem(null);
+      showNotification(
+        `${deletingItem.type === 'user' ? 'User' : 'Role'} deleted successfully`,
+        'success'
+      );
+      
+      // Reload appropriate data
+      if (deletingItem.type === 'user') {
+        await loadUsers();
+      } else {
+        await loadRoles();
+      }
+    } catch (error) {
+      const errorState = handleApiError(error, `Delete ${deletingItem.type}`, `Failed to delete ${deletingItem.type}`);
+      setError('operation', errorState);
+      showNotification(errorState.message, 'error');
+    } finally {
+      setLoading(prev => ({ ...prev, deleting: false }));
+    }
+  }, [deletingItem, currentWorkspace?.slug, clearError, handleApiError, setError, showNotification, loadUsers, loadRoles]);
+
+  // ============================================================================
+  // EFFECTS
+  // ============================================================================
+
+  useEffect(() => {
+    if (currentWorkspace?.slug) {
+      loadUsers();
+      loadRoles();
+      loadPermissions();
+    }
+  }, [currentWorkspace?.slug, loadUsers, loadRoles, loadPermissions]);
 
   // ============================================================================
   // TABLE CONFIGURATIONS
@@ -456,273 +1186,251 @@ const UserManagement: React.FC = () => {
 
   const userColumns: TableColumn<User>[] = [
     {
-      key: 'display_name',
+      key: 'avatar',
+      label: '',
+      width: 50,
+      render: (user: User) => (
+        <Box
+          sx={{
+            width: 32,
+            height: 32,
+            borderRadius: '50%',
+            backgroundColor: 'primary.main',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'white',
+            fontSize: '0.875rem',
+            fontWeight: 'medium',
+          }}
+        >
+          {user.first_name?.[0]}{user.last_name?.[0]}
+        </Box>
+      ),
+    },
+    {
+      key: 'name',
       label: 'Name',
-      width: 200,
       sortable: true,
-      render: (user) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {user.avatar_url ? (
-            <img 
-              src={user.avatar_url} 
-              alt={user.display_name}
-              style={{ width: 32, height: 32, borderRadius: '50%' }}
-            />
-          ) : (
-            <Person sx={{ width: 32, height: 32, color: 'text.secondary' }} />
-          )}
-          <Box>
-            <Typography variant="body2" fontWeight="medium">
-              {user.display_name}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {user.email}
-            </Typography>
-          </Box>
+      render: (user: User) => (
+        <Box>
+          <Typography variant="body2" fontWeight="medium">
+            {user.first_name} {user.last_name}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {user.email}
+          </Typography>
         </Box>
-      )
+      ),
     },
     {
-      key: 'department',
-      label: 'Department',
-      width: 150,
-      render: (user) => user.department || '-'
-    },
-    {
-      key: 'role_names',
+      key: 'roles',
       label: 'Roles',
-      width: 250,
-      render: (user) => (
+      render: (user: User) => (
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-          {user.role_names?.map((role, index) => (
-            <Chip 
-              key={index} 
-              label={role} 
-              size="small" 
-              variant="outlined"
+          {user.roles?.map((role) => (
+            <Chip
+              key={role}
+              label={role}
+              size="small"
               color="primary"
+              variant="outlined"
             />
-          ))}
+          )) || '-'}
         </Box>
-      )
+      ),
     },
     {
       key: 'is_active',
       label: 'Status',
-      width: 100,
-      render: (user) => (
-        <Chip 
-          label={user.is_active ? 'Active' : 'Inactive'} 
-          color={user.is_active ? 'success' : 'default'} 
+      render: (user: User) => (
+        <Chip
+          label={user.is_active ? 'Active' : 'Inactive'}
           size="small"
-          icon={user.is_active ? <CheckCircle /> : <Cancel />}
+          color={user.is_active ? 'success' : 'error'}
+          variant="outlined"
         />
-      )
+      ),
     },
     {
       key: 'last_login',
       label: 'Last Login',
-      width: 120,
-      sortable: true,
-      render: (user) => user.last_login 
+      render: (user: User) => user.last_login 
         ? new Date(user.last_login).toLocaleDateString() 
         : 'Never',
-    }
+    },
   ];
 
   const roleColumns: TableColumn<Role>[] = [
     {
-      key: 'display_name',
-      label: 'Role',
-      width: 200,
+      key: 'name',
+      label: 'Name',
       sortable: true,
-      render: (role) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Box 
-            sx={{ 
-              width: 12, 
-              height: 12, 
-              borderRadius: '50%', 
-              backgroundColor: role.color 
-            }} 
-          />
-          <Box>
-            <Typography variant="body2" fontWeight="medium">
-              {role.display_name}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {role.name}
-            </Typography>
-          </Box>
+      render: (role: Role) => (
+        <Box>
+          <Typography variant="body2" fontWeight="medium">
+            {role.name}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {role.description || 'No description'}
+          </Typography>
         </Box>
-      )
+      ),
     },
     {
-      key: 'description',
-      label: 'Description',
-      width: 300,
-      render: (role) => role.description || '-'
-    },
-    {
-      key: 'user_count',
-      label: 'Users',
-      width: 80,
-      render: (role) => (
-        <Chip 
-          label={role.user_count || 0} 
-          size="small" 
-          variant="outlined"
-        />
-      )
+      key: 'permissions',
+      label: 'Permissions',
+      render: (role: Role) => (
+        <Typography variant="body2">
+          {role.permissions?.length || 0} permissions
+        </Typography>
+      ),
     },
     {
       key: 'is_system',
       label: 'Type',
-      width: 100,
-      render: (role) => (
-        <Chip 
-          label={role.is_system ? 'System' : 'Custom'} 
-          color={role.is_system ? 'default' : 'primary'} 
-          size="small" 
+      render: (role: Role) => (
+        <Chip
+          label={role.is_system ? 'System' : 'Custom'}
+          size="small"
+          color={role.is_system ? 'info' : 'secondary'}
+          variant="outlined"
         />
-      )
+      ),
     },
     {
       key: 'created_at',
       label: 'Created',
-      width: 120,
-      sortable: true,
-      render: (role) => role.created_at 
-        ? new Date(role.created_at).toLocaleDateString() 
-        : '',
-    }
+      render: (role: Role) => new Date(role.created_at).toLocaleDateString(),
+    },
   ];
 
   const permissionColumns: TableColumn<Permission>[] = [
     {
-      key: 'display_name',
+      key: 'name',
       label: 'Permission',
-      width: 250,
       sortable: true,
-      render: (permission) => (
-        <Box>
-          <Typography variant="body2" fontWeight="medium">
-            {permission.display_name}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {permission.name}
-          </Typography>
-        </Box>
-      )
+      render: (permission: Permission) => permission.name || '-',
     },
     {
       key: 'category',
       label: 'Category',
-      width: 120,
-      render: (permission) => (
-        <Chip 
-          label={permission.category || 'General'} 
-          size="small" 
-          variant="outlined"
-        />
-      )
-    },
-    {
-      key: 'resource_type',
-      label: 'Resource',
-      width: 120,
-      render: (permission) => permission.resource_type || '-'
+      render: (permission: Permission) => permission.category || '-',
     },
     {
       key: 'action',
       label: 'Action',
-      width: 100,
-      render: (permission) => permission.action || '-'
+      render: (permission: Permission) => permission.action || '-',
     },
     {
       key: 'description',
       label: 'Description',
       width: 300,
-      render: (permission) => permission.description || '-'
-    }
+      render: (permission: Permission) => permission.description || '-',
+    },
   ];
 
-  // Table Actions
+  // Table Actions - Users (Full CRUD)
   const userActions: TableAction<User>[] = [
     {
       label: 'View',
       icon: <Visibility />,
       onClick: (user) => console.log('View user:', user),
-      permission: 'user.read',
+      show: () => hasPermission('user.read'),
     },
     {
       label: 'Edit',
       icon: <Edit />,
       onClick: handleEditUser,
-      permission: 'user.update',
+      show: () => hasPermission('user.update'),
     },
     {
       label: 'Delete',
       icon: <Delete />,
       onClick: handleDeleteUser,
-      permission: 'user.delete',
+      show: () => hasPermission('user.delete'),
       color: 'error',
-    }
+    },
   ];
 
+  // Table Actions - Roles (Full CRUD but system roles protected)
   const roleActions: TableAction<Role>[] = [
     {
       label: 'View',
       icon: <Visibility />,
       onClick: (role) => console.log('View role:', role),
-      show: (role) => hasPermission('role.read'),
+      show: () => hasPermission('role.read'),
     },
     {
       label: 'Edit',
       icon: <Edit />,
       onClick: handleEditRole,
-      show: (role) => hasPermission('role.update'),
+      show: () => hasPermission('role.update'),
       disabled: (role) => role.is_system === true,
     },
     {
       label: 'Delete',
       icon: <Delete />,
       onClick: handleDeleteRole,
-      show: (role) => hasPermission('role.delete'),
+      show: () => hasPermission('role.delete'),
       color: 'error',
       disabled: (role) => role.is_system === true,
-    }
+    },
   ];
 
+  // Table Actions - Permissions (Read-only)
   const permissionActions: TableAction<Permission>[] = [
     {
-      label: 'View',
+      label: 'View Details',
       icon: <Info />,
       onClick: (permission) => console.log('View permission:', permission),
-      show: (permission) => hasPermission('permission.read'),
-    }
+      show: () => hasPermission('permission.read'),
+    },
   ];
 
   // ============================================================================
   // RENDER HELPERS
   // ============================================================================
 
-  // Loading and error handling
-  if (usersError) {
-    return (
-      <WorkspaceLayout>
-        <Box p={3}>
-          <Alert severity="error">
-            Error loading users: {usersError && typeof usersError === 'object' && 'message' in usersError 
-              ? (usersError as any).message 
-              : 'Unknown error'}
-          </Alert>
-        </Box>
-      </WorkspaceLayout>
-    );
-  }
+  // Error display helper
+  const renderError = (errorKey: keyof typeof errors) => {
+    const error = errors[errorKey];
+    if (!error) return null;
 
-  const isLoading = usersLoading || rolesLoading || permissionsLoading;
+    return (
+      <Alert 
+        severity={error.type} 
+        sx={{ mb: 2 }}
+        onClose={() => clearError(errorKey)}
+      >
+        {error.message}
+      </Alert>
+    );
+  };
+
+  // Loading backdrop for operations
+  const renderLoadingBackdrop = () => {
+    const isOperationLoading = loading.saving || loading.deleting;
+    if (!isOperationLoading) return null;
+
+    return (
+      <Backdrop
+        sx={{ color: '#fff', zIndex: (theme) => theme.zIndex.drawer + 1 }}
+        open={isOperationLoading}
+      >
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <CircularProgress color="inherit" />
+          <Typography sx={{ mt: 2 }}>
+            {loading.saving && 'Saving...'}
+            {loading.deleting && 'Deleting...'}
+          </Typography>
+        </Box>
+      </Backdrop>
+    );
+  };
+
+  // Check if any critical data is still loading
+  const isInitialLoading = loading.users && users.length === 0;
 
   // ============================================================================
   // MAIN RENDER
@@ -747,6 +1455,7 @@ const UserManagement: React.FC = () => {
                 variant="outlined"
                 startIcon={<Group />}
                 onClick={handleCreateRole}
+                disabled={isInitialLoading}
               >
                 Add Role
               </Button>
@@ -756,6 +1465,7 @@ const UserManagement: React.FC = () => {
                 variant="contained"
                 startIcon={<PersonAdd />}
                 onClick={handleCreateUser}
+                disabled={isInitialLoading}
               >
                 Add User
               </Button>
@@ -763,358 +1473,120 @@ const UserManagement: React.FC = () => {
           </Box>
         </Box>
 
-        {/* Loading Progress */}
-        {isLoading && <LinearProgress sx={{ mb: 2 }} />}
+        {/* Error Display */}
+        {renderError('users')}
+        {renderError('roles')}
+        {renderError('permissions')}
+        {renderError('operation')}
 
-        {/* Tabs */}
-        <Paper sx={{ width: '100%', mb: 2 }}>
-          <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-            <Tabs value={currentTab} onChange={handleTabChange}>
-              <Tab 
-                label={`Users (${users.length})`} 
-                icon={<Person />} 
-                iconPosition="start"
-              />
-              <Tab 
-                label={`Roles (${roles.length})`} 
-                icon={<Group />} 
-                iconPosition="start"
-              />
-              <Tab 
-                label={`Permissions (${permissions.length})`} 
-                icon={<Security />} 
-                iconPosition="start"
-              />
-            </Tabs>
-          </Box>
+        {/* Main Content */}
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+          <Tabs value={currentTab} onChange={(_, value) => setCurrentTab(value)}>
+            <Tab label="Users" disabled={isInitialLoading} />
+            <Tab label="Roles" disabled={isInitialLoading} />
+            <Tab label="Permissions" disabled={isInitialLoading} />
+          </Tabs>
+        </Box>
 
-          {/* Users Tab */}
-          <TabPanel value={currentTab} index={0}>
-            <CommonTableLayout<User>
-              title="Users"
-              items={users}
-              columns={userColumns}
-              actions={userActions}
-              loading={usersLoading}
-              onItemClick={(user) => console.log('Selected user:', user)}
-              searchPlaceholder="Search users by name or email..."
-              emptyStateText="No users found"
-              emptyStateIcon={<Person sx={{ fontSize: 48, color: 'text.disabled' }} />}
-            />
-          </TabPanel>
+        {/* Tab Content with CommonTableLayout */}
+        {currentTab === 0 && (
+          <CommonTableLayout
+            data={users}
+            columns={userColumns}
+            actions={userActions}
+            loading={loading.users}
+            emptyMessage="No users found"
+            searchable
+            searchPlaceholder="Search users..."
+            title="Users"
+          />
+        )}
 
-          {/* Roles Tab */}
-          <TabPanel value={currentTab} index={1}>
-            <CommonTableLayout<Role>
-              title="Roles"
-              items={roles}
-              columns={roleColumns}
-              actions={roleActions}
-              loading={rolesLoading}
-              onItemClick={(role) => console.log('Selected role:', role)}
-              searchPlaceholder="Search roles..."
-              emptyStateText="No roles found"
-              emptyStateIcon={<Group sx={{ fontSize: 48, color: 'text.disabled' }} />}
-            />
-          </TabPanel>
+        {currentTab === 1 && (
+          <CommonTableLayout
+            data={roles}
+            columns={roleColumns}
+            actions={roleActions}
+            loading={loading.roles}
+            emptyMessage="No roles found"
+            searchable
+            searchPlaceholder="Search roles..."
+            title="Roles"
+          />
+        )}
 
-          {/* Permissions Tab */}
-          <TabPanel value={currentTab} index={2}>
-            <CommonTableLayout<Permission>
-              title="Permissions"
-              items={permissions}
-              columns={permissionColumns}
-              actions={permissionActions}
-              loading={permissionsLoading}
-              onItemClick={(permission) => console.log('Selected permission:', permission)}
-              searchPlaceholder="Search permissions..."
-              emptyStateText="No permissions found"
-              emptyStateIcon={<Security sx={{ fontSize: 48, color: 'text.disabled' }} />}
-            />
-          </TabPanel>
-        </Paper>
+        {currentTab === 2 && (
+          <CommonTableLayout
+            data={permissions}
+            columns={permissionColumns}
+            actions={permissionActions}
+            loading={loading.permissions}
+            emptyMessage="No permissions found"
+            searchable
+            searchPlaceholder="Search permissions..."
+            title="Permissions"
+            readOnly
+          />
+        )}
 
-        {/* User Dialog */}
-        <Dialog 
-          open={userDialogOpen} 
-          onClose={() => setUserDialogOpen(false)} 
-          maxWidth="md" 
-          fullWidth
-        >
-          <DialogTitle>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <PersonAdd />
-              {editingUser ? 'Edit User' : 'Create User'}
-            </Box>
-          </DialogTitle>
-          <DialogContent>
-            <Grid container spacing={2} sx={{ pt: 1 }}>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  label="Email"
-                  type="email"
-                  value={userFormData.email}
-                  onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
-                  fullWidth
-                  required
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  label="First Name"
-                  value={userFormData.first_name}
-                  onChange={(e) => setUserFormData({ ...userFormData, first_name: e.target.value })}
-                  fullWidth
-                  required
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  label="Last Name"
-                  value={userFormData.last_name}
-                  onChange={(e) => setUserFormData({ ...userFormData, last_name: e.target.value })}
-                  fullWidth
-                  required
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  label={editingUser ? "New Password (leave blank to keep current)" : "Password"}
-                  type="password"
-                  value={userFormData.password}
-                  onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
-                  fullWidth
-                  required={!editingUser}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  label="Department"
-                  value={userFormData.department}
-                  onChange={(e) => setUserFormData({ ...userFormData, department: e.target.value })}
-                  fullWidth
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  label="Position"
-                  value={userFormData.position}
-                  onChange={(e) => setUserFormData({ ...userFormData, position: e.target.value })}
-                  fullWidth
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <FormControl fullWidth>
-                  <InputLabel>Roles</InputLabel>
-                  <Select
-                    multiple
-                    value={userFormData.roles}
-                    onChange={(e) => setUserFormData({ 
-                      ...userFormData, 
-                      roles: Array.isArray(e.target.value) ? e.target.value : []
-                    })}
-                    renderValue={(selected) => (
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                        {selected.map((value) => {
-                          const role = roles.find(r => r.id === value || r.name === value);
-                          return (
-                            <Chip 
-                              key={value} 
-                              label={role?.display_name || value} 
-                              size="small" 
-                            />
-                          );
-                        })}
-                      </Box>
-                    )}
-                  >
-                    {roles.map((role) => (
-                      <MenuItem key={role.id} value={role.id}>
-                        <Checkbox 
-                          checked={userFormData.roles.includes(role.id)} 
-                        />
-                        <ListItemText 
-                          primary={role.display_name} 
-                          secondary={role.description} 
-                        />
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={userFormData.is_active}
-                      onChange={(e) => setUserFormData({ ...userFormData, is_active: e.target.checked })}
-                    />
-                  }
-                  label="Active"
-                />
-              </Grid>
-            </Grid>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setUserDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleSaveUser}
-              variant="contained"
-              disabled={isCreatingUser || isUpdatingUser}
-            >
-              {editingUser ? 'Update' : 'Create'}
-            </Button>
-          </DialogActions>
-        </Dialog>
+        {/* Inline Component Dialogs */}
+        <UserEditor
+          open={userDialogOpen}
+          user={editingUser}
+          onClose={() => {
+            setUserDialogOpen(false);
+            setEditingUser(null);
+            clearError('operation');
+          }}
+          onSave={handleSaveUser}
+          loading={loading.saving}
+        />
 
-        {/* Role Dialog */}
-        <Dialog 
-          open={roleDialogOpen} 
-          onClose={() => setRoleDialogOpen(false)} 
-          maxWidth="md" 
-          fullWidth
-        >
-          <DialogTitle>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Group />
-              {editingRole ? 'Edit Role' : 'Create Role'}
-            </Box>
-          </DialogTitle>
-          <DialogContent>
-            <Grid container spacing={2} sx={{ pt: 1 }}>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  label="Role Name"
-                  value={roleFormData.name}
-                  onChange={(e) => setRoleFormData({ ...roleFormData, name: e.target.value })}
-                  fullWidth
-                  required
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  label="Display Name"
-                  value={roleFormData.display_name}
-                  onChange={(e) => setRoleFormData({ ...roleFormData, display_name: e.target.value })}
-                  fullWidth
-                  required
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  label="Description"
-                  value={roleFormData.description}
-                  onChange={(e) => setRoleFormData({ ...roleFormData, description: e.target.value })}
-                  fullWidth
-                  multiline
-                  rows={3}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  label="Color"
-                  type="color"
-                  value={roleFormData.color}
-                  onChange={(e) => setRoleFormData({ ...roleFormData, color: e.target.value })}
-                  fullWidth
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Typography variant="subtitle1" gutterBottom>
-                  Permissions
-                </Typography>
-                <Paper sx={{ maxHeight: 300, overflow: 'auto', p: 1 }}>
-                  <FormGroup>
-                    {permissions.map((permission) => (
-                      <FormControlLabel
-                        key={permission.id}
-                        control={
-                          <Checkbox
-                            checked={roleFormData.permissions.includes(permission.id)}
-                            onChange={(e) => {
-                              const newPermissions = e.target.checked
-                                ? [...roleFormData.permissions, permission.id]
-                                : roleFormData.permissions.filter(p => p !== permission.id);
-                              setRoleFormData({ ...roleFormData, permissions: newPermissions });
-                            }}
-                          />
-                        }
-                        label={
-                          <Box>
-                            <Typography variant="body2">
-                              {permission.display_name}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {permission.description}
-                            </Typography>
-                          </Box>
-                        }
-                      />
-                    ))}
-                  </FormGroup>
-                </Paper>
-              </Grid>
-            </Grid>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setRoleDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleSaveRole}
-              variant="contained"
-              disabled={isCreatingRole || isUpdatingRole}
-            >
-              {editingRole ? 'Update' : 'Create'}
-            </Button>
-          </DialogActions>
-        </Dialog>
+        <RoleEditor
+          open={roleDialogOpen}
+          role={editingRole}
+          onClose={() => {
+            setRoleDialogOpen(false);
+            setEditingRole(null);
+            clearError('operation');
+          }}
+          onSave={handleSaveRole}
+          loading={loading.saving}
+        />
 
-        {/* Confirmation Dialog */}
-        <Dialog open={confirmDialogOpen} onClose={() => setConfirmDialogOpen(false)}>
-          <DialogTitle>
-            Confirm Deletion
-          </DialogTitle>
-          <DialogContent>
-            <Typography>
-              Are you sure you want to delete {deletingItem?.type} "{deletingItem?.name}"?
-              This action cannot be undone.
-            </Typography>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setConfirmDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleConfirmDelete}
-              color="error"
-              variant="contained"
-              disabled={isDeletingUser || isDeletingRole}
-            >
-              Delete
-            </Button>
-          </DialogActions>
-        </Dialog>
+        <ConfirmDialog
+          open={deleteDialogOpen}
+          title={`Delete ${deletingItem?.type === 'user' ? 'User' : 'Role'}`}
+          message={`Are you sure you want to delete this ${deletingItem?.type}? This action cannot be undone.`}
+          confirmText="Delete"
+          confirmColor="error"
+          loading={loading.deleting}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => {
+            setDeleteDialogOpen(false);
+            setDeletingItem(null);
+            clearError('operation');
+          }}
+        />
 
-        {/* Snackbar */}
+        {/* Loading Backdrop */}
+        {renderLoadingBackdrop()}
+
+        {/* Notification Snackbar */}
         <Snackbar
-          open={snackbar.open}
+          open={notification.open}
           autoHideDuration={6000}
-          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          onClose={() => setNotification(prev => ({ ...prev, open: false }))}
         >
-          <Alert 
-            onClose={() => setSnackbar({ ...snackbar, open: false })} 
-            severity={snackbar.severity}
+          <Alert
+            onClose={() => setNotification(prev => ({ ...prev, open: false }))}
+            severity={notification.severity}
             sx={{ width: '100%' }}
           >
-            {snackbar.message}
+            {notification.message}
           </Alert>
         </Snackbar>
       </Box>
     </WorkspaceLayout>
   );
-};
-
-export default UserManagement;
+}

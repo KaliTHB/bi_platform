@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import { config } from 'dotenv';
 import { logger } from './utils/logger';
+import { db } from './utils/database';
 
 // Import ALL routes
 import authRoutes from './routes/auth.routes';
@@ -24,6 +25,22 @@ import dashboardRoutes from './routes/dashboard.routes';
 config();
 
 const app: Express = express();
+
+
+app.locals.db = db;
+
+// Validate the setup
+if (!app.locals.db) {
+  console.error('❌ CRITICAL: app.locals.db is not set!');
+  process.exit(1);
+}
+
+if (typeof app.locals.db.query !== 'function') {
+  console.error('❌ CRITICAL: app.locals.db.query is not a function!');
+  process.exit(1);
+}
+
+console.log('✅ app.locals.db initialized successfully');
 
 // Security middleware
 app.use(helmet({

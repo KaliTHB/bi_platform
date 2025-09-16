@@ -76,7 +76,7 @@ export interface TableColumn<T = BaseListItem> {
   hideOnMobile?: boolean;
 }
 
-interface TableAction<T> {
+export interface TableAction<T> {
   label: string;
   icon: React.ReactNode;
   onClick: (item: T) => void;
