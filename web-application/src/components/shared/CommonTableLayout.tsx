@@ -76,11 +76,11 @@ export interface TableColumn<T = BaseListItem> {
   hideOnMobile?: boolean;
 }
 
-export interface TableAction<T = BaseListItem> {
+interface TableAction<T> {
   label: string;
   icon: React.ReactNode;
   onClick: (item: T) => void;
-  show?: (item: T) => boolean;
+  show?: (item: T) => boolean;  // ✅ Use this for permissions
   color?: 'default' | 'primary' | 'secondary' | 'error' | 'warning' | 'info' | 'success';
   disabled?: (item: T) => boolean;
 }

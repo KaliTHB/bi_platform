@@ -80,8 +80,9 @@ import {
 
 import { 
   permissionApi,
-  type Permission
 } from '../../../store/api/permissionApi';
+
+
 
 // ============================================================================
 // INTERFACES & TYPES
@@ -116,6 +117,15 @@ interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
   value: number;
+}
+
+interface Permission extends BaseListItem {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  resource_type?: string;
+  action?: string;
 }
 
 // ============================================================================
@@ -665,20 +675,20 @@ const UserManagement: React.FC = () => {
       label: 'View',
       icon: <Visibility />,
       onClick: (role) => console.log('View role:', role),
-      permission: 'role.read',
+      show: (role) => hasPermission('role.read'),
     },
     {
       label: 'Edit',
       icon: <Edit />,
       onClick: handleEditRole,
-      permission: 'role.update',
+      show: (role) => hasPermission('role.update'),
       disabled: (role) => role.is_system === true,
     },
     {
       label: 'Delete',
       icon: <Delete />,
       onClick: handleDeleteRole,
-      permission: 'role.delete',
+      show: (role) => hasPermission('role.delete'),
       color: 'error',
       disabled: (role) => role.is_system === true,
     }
@@ -689,7 +699,7 @@ const UserManagement: React.FC = () => {
       label: 'View',
       icon: <Info />,
       onClick: (permission) => console.log('View permission:', permission),
-      permission: 'permission.read',
+      show: (permission) => hasPermission('permission.read'),
     }
   ];
 
@@ -732,7 +742,7 @@ const UserManagement: React.FC = () => {
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <PermissionGate permission="role.create">
+            <PermissionGate permissions="role.create">
               <Button
                 variant="outlined"
                 startIcon={<Group />}
@@ -741,7 +751,7 @@ const UserManagement: React.FC = () => {
                 Add Role
               </Button>
             </PermissionGate>
-            <PermissionGate permission="user.create">
+            <PermissionGate permissions="user.create">
               <Button
                 variant="contained"
                 startIcon={<PersonAdd />}
