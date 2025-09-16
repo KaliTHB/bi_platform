@@ -1,500 +1,515 @@
-// src/store/api/permissionApi.ts - Merged Permissions Management & Assignment API
+// web-application/src/store/api/permissionApi.ts
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { RootState } from '../index';
-import type {
-  Permission,
-  PermissionQueryFilters,
-  RolePermissionAssignment,
-  AssignPermissionToRoleRequest,
-  RemovePermissionFromRoleRequest,
-  BulkAssignPermissionsRequest,
-  PaginatedResponse,
-  ApiResponse
-} from '@/types/rbac.types';
+
+// ============================================================================
+// INTERFACES & TYPES
+// ============================================================================
+
+export interface Permission {
+  id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  category?: string;
+  resource_type?: string;
+  action?: string;
+  is_system?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PermissionCategory {
+  category: string;
+  display_name?: string;
+  description?: string;
+  permissions: Permission[];
+  count?: number;
+}
+
+export interface SystemPermission {
+  category: string;
+  permissions: Array<{
+    name: string;
+    display_name: string;
+    description: string;
+  }>;
+}
+
+export interface PermissionsResponse {
+  success: boolean;
+  data: Permission[];
+  message?: string;
+}
+
+export interface PermissionCategoriesResponse {
+  success: boolean;
+  data: PermissionCategory[];
+  message?: string;
+}
+
+export interface SystemPermissionsResponse {
+  success: boolean;
+  data: SystemPermission[];
+  message?: string;
+}
+
+export interface UserPermissions {
+  user_id: string;
+  workspace_id: string;
+  direct_permissions: string[];
+  role_permissions: string[];
+  effective_permissions: string[];
+  roles: Array<{
+    id: string;
+    name: string;
+    display_name: string;
+  }>;
+  last_updated: string;
+}
+
+export interface PermissionQueryFilters {
+  category?: string;
+  resource_type?: string;
+  action?: string;
+  is_system?: boolean;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface PermissionCheckRequest {
+  permissions: string[];
+  resource_id?: string;
+  resource_type?: string;
+}
+
+export interface PermissionCheckResponse {
+  success: boolean;
+  data: {
+    user_id: string;
+    workspace_id: string;
+    permissions: Array<{
+      permission: string;
+      granted: boolean;
+      reason?: string;
+    }>;
+    has_all_permissions: boolean;
+    has_any_permission: boolean;
+    checked_at: string;
+  };
+}
+
+// ============================================================================
+// PERMISSION API SLICE
+// ============================================================================
 
 export const permissionApi = createApi({
   reducerPath: 'permissionApi',
   baseQuery: fetchBaseQuery({
     baseUrl: '/api/',
     prepareHeaders: (headers, { getState }) => {
-      const state = getState() as RootState;
-      const token = state.auth.token;
-      const workspaceId = state.workspace.current?.id;
+      const token = (getState() as RootState).auth.token;
+      const workspaceSlug = (getState() as RootState).workspace.currentWorkspace?.slug;
       
       if (token) {
         headers.set('authorization', `Bearer ${token}`);
       }
-      if (workspaceId) {
-        headers.set('x-workspace-id', workspaceId);
+      
+      if (workspaceSlug) {
+        headers.set('X-Workspace-Slug', workspaceSlug);
       }
+      
+      headers.set('Content-Type', 'application/json');
       
       return headers;
     },
   }),
-  tagTypes: ['Permission', 'PermissionCategories', 'PermissionAssignment', 'RolePermissions', 'PermissionRoles'],
+  tagTypes: ['Permission', 'PermissionList', 'UserPermissions', 'SystemPermissions'],
   endpoints: (builder) => ({
-
-    // ==================== PERMISSION MANAGEMENT ENDPOINTS ====================
-
-    // Get all available permissions with filters
-    getPermissions: builder.query<PaginatedResponse<Permission>, PermissionQueryFilters>({
-      query: (filters) => ({
+    
+    // ============================================================================
+    // PERMISSION LISTING & RETRIEVAL
+    // ============================================================================
+    
+    /**
+     * GET /api/permissions - Get all available permissions
+     */
+    getPermissions: builder.query<PermissionsResponse, PermissionQueryFilters | void>({
+      query: (params = {}) => ({
         url: 'permissions',
-        params: filters,
+        params,
       }),
-      providesTags: ['Permission'],
+      providesTags: ['PermissionList'],
     }),
 
-    // Get permission by ID
-    getPermissionById: builder.query<ApiResponse<Permission>, string>({
+    /**
+     * GET /api/permissions/system - Get system-defined permissions
+     */
+    getSystemPermissions: builder.query<SystemPermissionsResponse, void>({
+      query: () => 'permissions/system',
+      providesTags: ['SystemPermissions'],
+    }),
+
+    /**
+     * GET /api/permissions/categories - Get permissions grouped by category
+     */
+    getPermissionCategories: builder.query<PermissionCategoriesResponse, void>({
+      query: () => 'permissions/categories',
+      providesTags: ['PermissionList'],
+    }),
+
+    /**
+     * GET /api/permissions/:id - Get permission by ID
+     */
+    getPermissionById: builder.query<{
+      success: boolean;
+      data: Permission;
+    }, string>({
       query: (id) => `permissions/${id}`,
       providesTags: (result, error, id) => [{ type: 'Permission', id }],
     }),
 
-    // Get permissions grouped by category
-    getPermissionsByCategory: builder.query<ApiResponse<{
-      category: Permission['category'];
-      permissions: Permission[];
-    }[]>, void>({
-      query: () => 'permissions/by-category',
-      providesTags: ['Permission', 'PermissionCategories'],
-    }),
-
-    // Get permissions for a specific category
-    getCategoryPermissions: builder.query<ApiResponse<Permission[]>, Permission['category']>({
+    /**
+     * GET /api/permissions/category/:category - Get permissions by category
+     */
+    getPermissionsByCategory: builder.query<PermissionsResponse, string>({
       query: (category) => `permissions/category/${category}`,
-      providesTags: (result, error, category) => [
-        { type: 'Permission', id: `category-${category}` }
-      ],
+      providesTags: (result, error, category) => [{ type: 'Permission', id: `category-${category}` }],
     }),
 
-    // Get all permission categories with counts
-    getPermissionCategories: builder.query<ApiResponse<{
-      category: Permission['category'];
-      count: number;
-      description: string;
-    }[]>, void>({
-      query: () => 'permissions/categories',
-      providesTags: ['PermissionCategories'],
-    }),
+    // ============================================================================
+    // PERMISSION SEARCH & FILTERING
+    // ============================================================================
 
-    // Get permissions by resource type and action
-    getResourcePermissions: builder.query<ApiResponse<Permission[]>, {
-      resourceType?: string;
-      action?: Permission['action'];
-    }>({
-      query: ({ resourceType, action }) => ({
-        url: 'permissions/by-resource',
-        params: { resource_type: resourceType, action },
-      }),
-      providesTags: (result, error, { resourceType, action }) => [
-        { type: 'Permission', id: `resource-${resourceType}-${action}` }
-      ],
-    }),
-
-    // Search permissions (for permission assignment UI)
-    searchPermissions: builder.query<ApiResponse<Permission[]>, {
+    /**
+     * GET /api/permissions/search - Search permissions
+     */
+    searchPermissions: builder.query<PermissionsResponse, {
       query: string;
-      category?: Permission['category'];
+      filters?: {
+        category?: string;
+        resource_type?: string;
+        is_system?: boolean;
+      };
       limit?: number;
+      offset?: number;
     }>({
-      query: ({ query, category, limit = 20 }) => ({
+      query: ({ query, filters, limit = 20, offset = 0 }) => ({
         url: 'permissions/search',
-        params: { q: query, category, limit },
+        params: {
+          query,
+          ...filters,
+          limit,
+          offset,
+        },
+      }),
+      providesTags: ['PermissionList'],
+    }),
+
+    // ============================================================================
+    // USER PERMISSION QUERIES
+    // ============================================================================
+
+    /**
+     * GET /api/auth/permissions - Get current user's permissions
+     */
+    getCurrentUserPermissions: builder.query<{
+      success: boolean;
+      permissions: string[];
+      roles: Array<{
+        role_id: string;
+        role_name: string;
+        permissions: string[];
+      }>;
+      message?: string;
+    }, void>({
+      query: () => 'auth/permissions',
+      providesTags: ['UserPermissions'],
+    }),
+
+    /**
+     * GET /api/permissions/user/:userId/permissions - Get user's permissions
+     */
+    getUserPermissions: builder.query<{
+      success: boolean;
+      data: UserPermissions;
+    }, string>({
+      query: (userId) => `permissions/user/${userId}/permissions`,
+      providesTags: (result, error, userId) => [{ type: 'UserPermissions', id: userId }],
+    }),
+
+    /**
+     * POST /api/permissions/check - Check if current user has specific permissions
+     */
+    checkPermissions: builder.mutation<PermissionCheckResponse, PermissionCheckRequest>({
+      query: (checkRequest) => ({
+        url: 'permissions/check',
+        method: 'POST',
+        body: checkRequest,
       }),
     }),
 
-    // Get permission hierarchy (for complex permission trees)
-    getPermissionHierarchy: builder.query<ApiResponse<{
-      permission: Permission;
-      children: Permission[];
-      parent?: Permission;
-    }[]>, void>({
+    /**
+     * POST /api/permissions/user/:userId/check - Check if specific user has permissions
+     */
+    checkUserPermissions: builder.mutation<PermissionCheckResponse, {
+      userId: string;
+      permissions: string[];
+      resource_id?: string;
+      resource_type?: string;
+    }>({
+      query: ({ userId, permissions, resource_id, resource_type }) => ({
+        url: `permissions/user/${userId}/check`,
+        method: 'POST',
+        body: {
+          permissions,
+          resource_id,
+          resource_type,
+        },
+      }),
+    }),
+
+    // ============================================================================
+    // PERMISSION ANALYTICS & REPORTING
+    // ============================================================================
+
+    /**
+     * GET /api/permissions/stats - Get permission statistics
+     */
+    getPermissionStats: builder.query<{
+      success: boolean;
+      data: {
+        total_permissions: number;
+        system_permissions: number;
+        custom_permissions: number;
+        permissions_by_category: Array<{
+          category: string;
+          count: number;
+        }>;
+        most_used_permissions: Array<{
+          permission: string;
+          display_name: string;
+          usage_count: number;
+        }>;
+        least_used_permissions: Array<{
+          permission: string;
+          display_name: string;
+          usage_count: number;
+        }>;
+      };
+    }, void>({
+      query: () => 'permissions/stats',
+    }),
+
+    /**
+     * GET /api/permissions/:permissionId/usage - Get permission usage analytics
+     */
+    getPermissionUsage: builder.query<{
+      success: boolean;
+      data: {
+        permission_id: string;
+        permission_name: string;
+        total_users: number;
+        direct_assignments: number;
+        role_assignments: number;
+        roles_using: Array<{
+          role_id: string;
+          role_name: string;
+          user_count: number;
+        }>;
+        users_with_permission: Array<{
+          user_id: string;
+          user_email: string;
+          source: 'direct' | 'role';
+          role_name?: string;
+        }>;
+      };
+    }, string>({
+      query: (permissionId) => `permissions/${permissionId}/usage`,
+      providesTags: (result, error, permissionId) => [{ type: 'Permission', id: permissionId }],
+    }),
+
+    // ============================================================================
+    // PERMISSION AUDITING
+    // ============================================================================
+
+    /**
+     * GET /api/permissions/audit - Get permission audit log
+     */
+    getPermissionAudit: builder.query<{
+      success: boolean;
+      data: Array<{
+        id: string;
+        action: 'grant' | 'revoke' | 'check' | 'create' | 'update' | 'delete';
+        permission_name: string;
+        user_id?: string;
+        role_id?: string;
+        target_user_id?: string;
+        details: Record<string, any>;
+        performed_by: string;
+        performed_at: string;
+        ip_address: string;
+        user_agent: string;
+      }>;
+      metadata: {
+        total: number;
+        page: number;
+        limit: number;
+        total_pages: number;
+      };
+    }, {
+      action?: string;
+      permission?: string;
+      user_id?: string;
+      role_id?: string;
+      start_date?: string;
+      end_date?: string;
+      limit?: number;
+      offset?: number;
+    }>({
+      query: (params = {}) => ({
+        url: 'permissions/audit',
+        params,
+      }),
+    }),
+
+    // ============================================================================
+    // WORKSPACE-SPECIFIC PERMISSIONS
+    // ============================================================================
+
+    /**
+     * GET /api/permissions/workspace/:workspaceId/permissions - Get workspace-specific permissions
+     */
+    getWorkspacePermissions: builder.query<PermissionsResponse, string>({
+      query: (workspaceId) => `permissions/workspace/${workspaceId}/permissions`,
+      providesTags: (result, error, workspaceId) => [{ type: 'Permission', id: `workspace-${workspaceId}` }],
+    }),
+
+    /**
+     * GET /api/permissions/workspace/:workspaceId/users/:userId - Get user permissions in specific workspace
+     */
+    getUserWorkspacePermissions: builder.query<{
+      success: boolean;
+      data: UserPermissions;
+    }, {
+      workspaceId: string;
+      userId: string;
+    }>({
+      query: ({ workspaceId, userId }) => `permissions/workspace/${workspaceId}/users/${userId}`,
+      providesTags: (result, error, { workspaceId, userId }) => [
+        { type: 'UserPermissions', id: `${workspaceId}-${userId}` }
+      ],
+    }),
+
+    // ============================================================================
+    // PERMISSION HIERARCHY & DEPENDENCIES
+    // ============================================================================
+
+    /**
+     * GET /api/permissions/:permissionId/dependencies - Get permission dependencies
+     */
+    getPermissionDependencies: builder.query<{
+      success: boolean;
+      data: {
+        permission_id: string;
+        permission_name: string;
+        depends_on: Permission[];
+        required_by: Permission[];
+        conflicts_with: Permission[];
+      };
+    }, string>({
+      query: (permissionId) => `permissions/${permissionId}/dependencies`,
+      providesTags: (result, error, permissionId) => [{ type: 'Permission', id: permissionId }],
+    }),
+
+    /**
+     * GET /api/permissions/hierarchy - Get permission hierarchy tree
+     */
+    getPermissionHierarchy: builder.query<{
+      success: boolean;
+      data: {
+        categories: Array<{
+          category: string;
+          display_name: string;
+          description: string;
+          level: number;
+          permissions: Permission[];
+          subcategories: any[];
+        }>;
+      };
+    }, void>({
       query: () => 'permissions/hierarchy',
-      providesTags: ['Permission'],
+      providesTags: ['PermissionList'],
     }),
 
-    // Create custom permission (admin only, for extending system)
-    createCustomPermission: builder.mutation<ApiResponse<Permission>, {
-      name: string;
-      description: string;
-      category: Permission['category'];
-      resource_type?: string;
-      action: Permission['action'];
-    }>({
-      query: (permissionData) => ({
-        url: 'permissions/custom',
+    // ============================================================================
+    // REFRESH & CACHE MANAGEMENT
+    // ============================================================================
+
+    /**
+     * POST /api/permissions/refresh-cache - Refresh permission cache
+     */
+    refreshPermissionCache: builder.mutation<{
+      success: boolean;
+      message: string;
+      data: {
+        cache_cleared: boolean;
+        permissions_reloaded: number;
+        cache_updated_at: string;
+      };
+    }, void>({
+      query: () => ({
+        url: 'permissions/refresh-cache',
         method: 'POST',
-        body: permissionData,
       }),
-      invalidatesTags: ['Permission', 'PermissionCategories'],
-    }),
-
-    // Update custom permission
-    updateCustomPermission: builder.mutation<ApiResponse<Permission>, {
-      id: string;
-      name?: string;
-      description?: string;
-      category?: Permission['category'];
-      resource_type?: string;
-      action?: Permission['action'];
-    }>({
-      query: ({ id, ...patch }) => ({
-        url: `permissions/custom/${id}`,
-        method: 'PUT',
-        body: patch,
-      }),
-      invalidatesTags: (result, error, { id }) => [
-        { type: 'Permission', id },
-        'Permission',
-        'PermissionCategories'
-      ],
-    }),
-
-    // Delete custom permission (admin only)
-    deleteCustomPermission: builder.mutation<ApiResponse<{ success: boolean }>, string>({
-      query: (id) => ({
-        url: `permissions/custom/${id}`,
-        method: 'DELETE',
-      }),
-      invalidatesTags: (result, error, id) => [
-        { type: 'Permission', id },
-        'Permission',
-        'PermissionCategories',
-        'PermissionAssignment' // Also invalidate assignments since permission is deleted
-      ],
-    }),
-
-    // Check if permissions conflict (for validation)
-    checkPermissionConflicts: builder.query<ApiResponse<{
-      conflicts: {
-        permission1: Permission;
-        permission2: Permission;
-        reason: string;
-      }[];
-    }>, string[]>({
-      query: (permissionIds) => ({
-        url: 'permissions/check-conflicts',
-        method: 'POST',
-        body: { permission_ids: permissionIds },
-      }),
-    }),
-
-    // Get permission usage across roles
-    getPermissionUsage: builder.query<ApiResponse<{
-      permission_id: string;
-      permission_name: string;
-      roles_count: number;
-      users_affected: number;
-      workspaces: string[];
-    }[]>, string[]>({
-      query: (permissionIds) => ({
-        url: 'permissions/usage',
-        method: 'POST',
-        body: { permission_ids: permissionIds },
-      }),
-    }),
-
-    // ==================== PERMISSION ASSIGNMENT ENDPOINTS ====================
-
-    // Get all permission assignments for a role
-    getRolePermissionAssignments: builder.query<ApiResponse<RolePermissionAssignment[]>, string>({
-      query: (roleId) => `permission-assignments/role/${roleId}`,
-      providesTags: (result, error, roleId) => [
-        { type: 'RolePermissions', id: roleId }
-      ],
-    }),
-
-    // Get all roles that have a specific permission
-    getPermissionRoleAssignments: builder.query<ApiResponse<{
-      role_id: string;
-      role_name: string;
-      workspace_id: string;
-      workspace_name: string;
-      assigned_at: string;
-    }[]>, string>({
-      query: (permissionId) => `permission-assignments/permission/${permissionId}`,
-      providesTags: (result, error, permissionId) => [
-        { type: 'PermissionRoles', id: permissionId }
-      ],
-    }),
-
-    // Get available permissions for assignment (not already assigned to role)
-    getAvailablePermissions: builder.query<ApiResponse<Permission[]>, {
-      roleId: string;
-      category?: Permission['category'];
-      action?: Permission['action'];
-    }>({
-      query: ({ roleId, category, action }) => ({
-        url: `permission-assignments/role/${roleId}/available`,
-        params: { category, action },
-      }),
-      providesTags: (result, error, { roleId }) => [
-        { type: 'RolePermissions', id: `available-${roleId}` }
-      ],
-    }),
-
-    // Assign single permission to role
-    assignPermissionToRole: builder.mutation<ApiResponse<RolePermissionAssignment>, AssignPermissionToRoleRequest>({
-      query: ({ role_id, permission_id }) => ({
-        url: 'permission-assignments',
-        method: 'POST',
-        body: { role_id, permission_id },
-      }),
-      invalidatesTags: (result, error, { role_id, permission_id }) => [
-        { type: 'RolePermissions', id: role_id },
-        { type: 'RolePermissions', id: `available-${role_id}` },
-        { type: 'PermissionRoles', id: permission_id },
-        'PermissionAssignment'
-      ],
-    }),
-
-    // Bulk assign permissions to role
-    bulkAssignPermissions: builder.mutation<ApiResponse<RolePermissionAssignment[]>, BulkAssignPermissionsRequest>({
-      query: ({ role_id, permission_ids, replace_existing = false }) => ({
-        url: 'permission-assignments/bulk',
-        method: 'POST',
-        body: { role_id, permission_ids, replace_existing },
-      }),
-      invalidatesTags: (result, error, { role_id, permission_ids }) => [
-        { type: 'RolePermissions', id: role_id },
-        { type: 'RolePermissions', id: `available-${role_id}` },
-        ...permission_ids.map(permissionId => ({ type: 'PermissionRoles' as const, id: permissionId })),
-        'PermissionAssignment'
-      ],
-    }),
-
-    // Remove permission from role
-    removePermissionFromRole: builder.mutation<ApiResponse<{ success: boolean }>, RemovePermissionFromRoleRequest>({
-      query: ({ role_id, permission_id }) => ({
-        url: `permission-assignments/role/${role_id}/permission/${permission_id}`,
-        method: 'DELETE',
-      }),
-      invalidatesTags: (result, error, { role_id, permission_id }) => [
-        { type: 'RolePermissions', id: role_id },
-        { type: 'RolePermissions', id: `available-${role_id}` },
-        { type: 'PermissionRoles', id: permission_id },
-        'PermissionAssignment'
-      ],
-    }),
-
-    // Bulk remove permissions from role
-    bulkRemovePermissions: builder.mutation<ApiResponse<{ removed_count: number }>, {
-      role_id: string;
-      permission_ids: string[];
-    }>({
-      query: ({ role_id, permission_ids }) => ({
-        url: 'permission-assignments/bulk-remove',
-        method: 'DELETE',
-        body: { role_id, permission_ids },
-      }),
-      invalidatesTags: (result, error, { role_id, permission_ids }) => [
-        { type: 'RolePermissions', id: role_id },
-        { type: 'RolePermissions', id: `available-${role_id}` },
-        ...permission_ids.map(permissionId => ({ type: 'PermissionRoles' as const, id: permissionId })),
-        'PermissionAssignment'
-      ],
-    }),
-
-    // Copy permissions from one role to another
-    copyRolePermissions: builder.mutation<ApiResponse<RolePermissionAssignment[]>, {
-      sourceRoleId: string;
-      targetRoleId: string;
-      replaceExisting?: boolean;
-    }>({
-      query: ({ sourceRoleId, targetRoleId, replaceExisting = false }) => ({
-        url: 'permission-assignments/copy-permissions',
-        method: 'POST',
-        body: {
-          source_role_id: sourceRoleId,
-          target_role_id: targetRoleId,
-          replace_existing: replaceExisting,
-        },
-      }),
-      invalidatesTags: (result, error, { targetRoleId }) => [
-        { type: 'RolePermissions', id: targetRoleId },
-        { type: 'RolePermissions', id: `available-${targetRoleId}` },
-        'PermissionAssignment',
-        'PermissionRoles'
-      ],
-    }),
-
-    // Get permission comparison between roles
-    compareRolePermissions: builder.query<ApiResponse<{
-      role1: { id: string; name: string; permissions: Permission[] };
-      role2: { id: string; name: string; permissions: Permission[] };
-      common_permissions: Permission[];
-      role1_only: Permission[];
-      role2_only: Permission[];
-    }>, {
-      role1Id: string;
-      role2Id: string;
-    }>({
-      query: ({ role1Id, role2Id }) => ({
-        url: 'permission-assignments/compare',
-        params: { role1_id: role1Id, role2_id: role2Id },
-      }),
-    }),
-
-    // Get permission assignment history for audit
-    getPermissionAssignmentHistory: builder.query<ApiResponse<{
-      role_id: string;
-      role_name: string;
-      permission_id: string;
-      permission_name: string;
-      action: 'assigned' | 'removed';
-      changed_by: string;
-      changed_by_name: string;
-      changed_at: string;
-    }[]>, {
-      roleId?: string;
-      permissionId?: string;
-      workspaceId?: string;
-      limit?: number;
-    }>({
-      query: ({ roleId, permissionId, workspaceId, limit = 50 }) => ({
-        url: 'permission-assignments/history',
-        params: { role_id: roleId, permission_id: permissionId, workspace_id: workspaceId, limit },
-      }),
-    }),
-
-    // Get suggested permissions for a role (based on similar roles)
-    getSuggestedPermissions: builder.query<ApiResponse<{
-      permission: Permission;
-      score: number;
-      reason: string;
-      similar_roles: string[];
-    }[]>, {
-      roleId: string;
-      limit?: number;
-    }>({
-      query: ({ roleId, limit = 10 }) => ({
-        url: 'permission-assignments/suggestions',
-        params: { role_id: roleId, limit },
-      }),
-    }),
-
-    // Validate permission set (check for conflicts, missing dependencies)
-    validatePermissionSet: builder.query<ApiResponse<{
-      is_valid: boolean;
-      conflicts: {
-        permission1: Permission;
-        permission2: Permission;
-        reason: string;
-      }[];
-      missing_dependencies: {
-        permission: Permission;
-        required_permissions: Permission[];
-      }[];
-      warnings: {
-        type: 'redundant' | 'deprecated' | 'overprivileged';
-        permission: Permission;
-        message: string;
-      }[];
-    }>, {
-      roleId: string;
-      permissionIds: string[];
-    }>({
-      query: ({ roleId, permissionIds }) => ({
-        url: 'permission-assignments/validate',
-        method: 'POST',
-        body: { role_id: roleId, permission_ids: permissionIds },
-      }),
-    }),
-
-    // Get permission assignment statistics
-    getPermissionAssignmentStats: builder.query<ApiResponse<{
-      total_assignments: number;
-      unique_permissions: number;
-      most_assigned_permissions: {
-        permission_name: string;
-        assignment_count: number;
-      }[];
-      least_assigned_permissions: {
-        permission_name: string;
-        assignment_count: number;
-      }[];
-      permissions_by_category: {
-        category: string;
-        count: number;
-      }[];
-    }>, {
-      workspaceId?: string;
-      roleIds?: string[];
-    }>({
-      query: ({ workspaceId, roleIds }) => ({
-        url: 'permission-assignments/stats',
-        params: { 
-          workspace_id: workspaceId, 
-          role_ids: roleIds?.join(',') 
-        },
-      }),
-      providesTags: (result, error, { workspaceId, roleIds }) => [
-        { type: 'PermissionAssignment', id: `stats-${workspaceId}-${roleIds?.join(',')}` }
-      ],
-    }),
-
-    // Sync permissions from template (for standardizing roles across workspaces)
-    syncFromTemplate: builder.mutation<ApiResponse<{
-      added: Permission[];
-      removed: Permission[];
-      unchanged: Permission[];
-    }>, {
-      roleId: string;
-      templateRoleId: string;
-      syncMode: 'merge' | 'replace' | 'addOnly';
-    }>({
-      query: ({ roleId, templateRoleId, syncMode }) => ({
-        url: 'permission-assignments/sync-template',
-        method: 'POST',
-        body: {
-          role_id: roleId,
-          template_role_id: templateRoleId,
-          sync_mode: syncMode,
-        },
-      }),
-      invalidatesTags: (result, error, { roleId }) => [
-        { type: 'RolePermissions', id: roleId },
-        { type: 'RolePermissions', id: `available-${roleId}` },
-        'PermissionAssignment'
-      ],
+      invalidatesTags: ['PermissionList', 'UserPermissions', 'SystemPermissions'],
     }),
   }),
 });
 
 // Export hooks for usage in functional components
 export const {
-  // Permission Management hooks
+  // Permission listing and retrieval
   useGetPermissionsQuery,
+  useGetSystemPermissionsQuery,
+  useGetPermissionCategoriesQuery,
   useGetPermissionByIdQuery,
   useGetPermissionsByCategoryQuery,
-  useGetCategoryPermissionsQuery,
-  useGetPermissionCategoriesQuery,
-  useGetResourcePermissionsQuery,
+  
+  // Permission search and filtering
   useSearchPermissionsQuery,
-  useLazySearchPermissionsQuery,
-  useGetPermissionHierarchyQuery,
-  useCreateCustomPermissionMutation,
-  useUpdateCustomPermissionMutation,
-  useDeleteCustomPermissionMutation,
-  useCheckPermissionConflictsQuery,
-  useLazyCheckPermissionConflictsQuery,
+  
+  // User permission queries
+  useGetCurrentUserPermissionsQuery,
+  useGetUserPermissionsQuery,
+  useCheckPermissionsMutation,
+  useCheckUserPermissionsMutation,
+  
+  // Permission analytics and reporting
+  useGetPermissionStatsQuery,
   useGetPermissionUsageQuery,
-
-  // Permission Assignment hooks
-  useGetRolePermissionAssignmentsQuery,
-  useGetPermissionRoleAssignmentsQuery,
-  useGetAvailablePermissionsQuery,
-  useAssignPermissionToRoleMutation,
-  useBulkAssignPermissionsMutation,
-  useRemovePermissionFromRoleMutation,
-  useBulkRemovePermissionsMutation,
-  useCopyRolePermissionsMutation,
-  useCompareRolePermissionsQuery,
-  useGetPermissionAssignmentHistoryQuery,
-  useGetSuggestedPermissionsQuery,
-  useValidatePermissionSetQuery,
-  useLazyValidatePermissionSetQuery,
-  useGetPermissionAssignmentStatsQuery,
-  useSyncFromTemplateMutation,
+  
+  // Permission auditing
+  useGetPermissionAuditQuery,
+  
+  // Workspace-specific permissions
+  useGetWorkspacePermissionsQuery,
+  useGetUserWorkspacePermissionsQuery,
+  
+  // Permission hierarchy and dependencies
+  useGetPermissionDependenciesQuery,
+  useGetPermissionHierarchyQuery,
+  
+  // Cache management
+  useRefreshPermissionCacheMutation,
+  
+  // Lazy queries for on-demand loading
+  useLazyGetPermissionsQuery,
+  useLazyGetSystemPermissionsQuery,
+  useLazySearchPermissionsQuery,
+  useLazyGetCurrentUserPermissionsQuery,
+  useLazyGetUserPermissionsQuery,
 } = permissionApi;
+
+export default permissionApi;

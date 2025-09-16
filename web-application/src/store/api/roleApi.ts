@@ -1,387 +1,479 @@
-// src/store/api/roleApi.ts - Merged Roles Management & Assignment API
+// web-application/src/store/api/roleApi.ts
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { RootState } from '../index';
-import type {
-  Role,
-  CreateRoleRequest,
-  UpdateRoleRequest,
-  RoleQueryFilters,
-  UserRoleAssignment,
-  AssignRoleToUserRequest,
-  UpdateRoleAssignmentRequest,
-  RoleAssignmentQueryFilters,
-  PaginatedResponse,
-  ApiResponse,
-  Permission
-} from '@/types/rbac.types';
+
+// ============================================================================
+// INTERFACES & TYPES
+// ============================================================================
+
+export interface Role {
+  id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  permissions?: string[];
+  is_system?: boolean;
+  is_active?: boolean;
+  role_level?: number;
+  color?: string;
+  user_count?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Permission {
+  id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  category?: string;
+  resource_type?: string;
+  action?: string;
+  is_system?: boolean;
+}
+
+export interface CreateRoleRequest {
+  name: string;
+  display_name: string;
+  description?: string;
+  permissions?: string[];
+  color?: string;
+}
+
+export interface UpdateRoleRequest {
+  name?: string;
+  display_name?: string;
+  description?: string;
+  permissions?: string[];
+  color?: string;
+}
+
+export interface RoleResponse {
+  success: boolean;
+  data: Role;
+  message?: string;
+}
+
+export interface RolesResponse {
+  success: boolean;
+  data: Role[];
+  message?: string;
+}
+
+export interface AssignRoleRequest {
+  userId: string;
+  roleId: string;
+  expiresAt?: string;
+}
+
+export interface RemoveRoleRequest {
+  userId: string;
+  roleId: string;
+}
+
+export interface BulkAssignRoleRequest {
+  userIds: string[];
+  roleId: string;
+  expiresAt?: string;
+}
+
+export interface RoleQueryFilters {
+  include_permissions?: boolean;
+  is_system?: boolean;
+  is_active?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+// ============================================================================
+// ROLE API SLICE
+// ============================================================================
 
 export const roleApi = createApi({
   reducerPath: 'roleApi',
   baseQuery: fetchBaseQuery({
     baseUrl: '/api/',
     prepareHeaders: (headers, { getState }) => {
-      const state = getState() as RootState;
-      const token = state.auth.token;
-      const workspaceId = state.workspace.current?.id;
+      const token = (getState() as RootState).auth.token;
+      const workspaceSlug = (getState() as RootState).workspace.currentWorkspace?.slug;
       
       if (token) {
         headers.set('authorization', `Bearer ${token}`);
       }
-      if (workspaceId) {
-        headers.set('x-workspace-id', workspaceId);
+      
+      if (workspaceSlug) {
+        headers.set('X-Workspace-Slug', workspaceSlug);
       }
+      
+      headers.set('Content-Type', 'application/json');
       
       return headers;
     },
   }),
-  tagTypes: ['Role', 'RolePermissions', 'RoleAssignment', 'UserRoles', 'RoleUsers'],
+  tagTypes: ['Role', 'RoleList', 'RoleAssignment', 'UserRoles'],
   endpoints: (builder) => ({
     
-    // ==================== ROLE MANAGEMENT ENDPOINTS ====================
+    // ============================================================================
+    // ROLE MANAGEMENT ENDPOINTS
+    // ============================================================================
     
-    // Get paginated roles with filters
-    getRoles: builder.query<PaginatedResponse<Role>, RoleQueryFilters>({
-      query: (filters) => ({
-        url: 'roles',
-        params: filters,
+    /**
+     * GET /api/permissions/roles - Get all roles with permissions
+     */
+    getRoles: builder.query<RolesResponse, RoleQueryFilters | void>({
+      query: (params = {}) => ({
+        url: 'permissions/roles',
+        params,
       }),
-      providesTags: ['Role'],
+      providesTags: ['RoleList'],
     }),
 
-    // Get role by ID with permissions
-    getRoleById: builder.query<ApiResponse<Role>, string>({
-      query: (id) => `roles/${id}`,
+    /**
+     * GET /api/admin/roles - Get workspace roles (admin endpoint)
+     */
+    getAdminRoles: builder.query<RolesResponse, void>({
+      query: () => 'admin/roles',
+      providesTags: ['RoleList'],
+    }),
+
+    /**
+     * GET /api/permissions/roles/:id - Get role by ID with permissions
+     */
+    getRoleById: builder.query<RoleResponse, string>({
+      query: (id) => `permissions/roles/${id}`,
       providesTags: (result, error, id) => [{ type: 'Role', id }],
     }),
 
-    // Get role permissions
-    getRolePermissions: builder.query<ApiResponse<Permission[]>, string>({
-      query: (roleId) => `roles/${roleId}/permissions`,
-      providesTags: (result, error, roleId) => [{ type: 'RolePermissions', id: roleId }],
-    }),
-
-    // Get roles for a specific workspace (commonly used)
-    getWorkspaceRoles: builder.query<ApiResponse<Role[]>, string>({
-      query: (workspaceId) => `roles/workspace/${workspaceId}`,
-      providesTags: (result, error, workspaceId) => [
-        { type: 'Role', id: `workspace-${workspaceId}` }
-      ],
-    }),
-
-    // Get system roles (reusable across workspaces)
-    getSystemRoles: builder.query<ApiResponse<Role[]>, void>({
-      query: () => 'roles/system',
-      providesTags: [{ type: 'Role', id: 'system' }],
-    }),
-
-    // Create new role
-    createRole: builder.mutation<ApiResponse<Role>, CreateRoleRequest>({
+    /**
+     * POST /api/permissions/roles/create - Create new role
+     */
+    createRole: builder.mutation<RoleResponse, CreateRoleRequest>({
       query: (roleData) => ({
-        url: 'roles',
+        url: 'permissions/roles/create',
         method: 'POST',
         body: roleData,
       }),
-      invalidatesTags: (result, error, { workspace_id }) => [
-        'Role',
-        { type: 'Role', id: `workspace-${workspace_id}` }
-      ],
+      invalidatesTags: ['RoleList'],
     }),
 
-    // Update role
-    updateRole: builder.mutation<ApiResponse<Role>, UpdateRoleRequest>({
-      query: ({ id, ...patch }) => ({
-        url: `roles/${id}`,
-        method: 'PUT',
-        body: patch,
-      }),
-      invalidatesTags: (result, error, { id }) => [
-        { type: 'Role', id },
-        { type: 'RolePermissions', id },
-        'Role'
-      ],
-    }),
-
-    // Clone role to another workspace
-    cloneRole: builder.mutation<ApiResponse<Role>, {
-      roleId: string;
-      targetWorkspaceId: string;
-      name?: string;
-    }>({
-      query: ({ roleId, targetWorkspaceId, name }) => ({
-        url: `roles/${roleId}/clone`,
+    /**
+     * POST /api/admin/roles - Create role via admin endpoint
+     */
+    createAdminRole: builder.mutation<RoleResponse, CreateRoleRequest>({
+      query: (roleData) => ({
+        url: 'admin/roles',
         method: 'POST',
-        body: { target_workspace_id: targetWorkspaceId, name },
+        body: roleData,
       }),
-      invalidatesTags: (result, error, { targetWorkspaceId }) => [
-        'Role',
-        { type: 'Role', id: `workspace-${targetWorkspaceId}` }
+      invalidatesTags: ['RoleList'],
+    }),
+
+    /**
+     * POST /api/permissions/roles/update - Update existing role
+     */
+    updateRole: builder.mutation<RoleResponse, { roleId: string } & UpdateRoleRequest>({
+      query: ({ roleId, ...updates }) => ({
+        url: 'permissions/roles/update',
+        method: 'POST',
+        body: {
+          roleId,
+          ...updates,
+        },
+      }),
+      invalidatesTags: (result, error, { roleId }) => [
+        { type: 'Role', id: roleId },
+        'RoleList',
       ],
     }),
 
-    // Delete role (only custom roles, not system roles)
-    deleteRole: builder.mutation<ApiResponse<{ success: boolean }>, string>({
-      query: (id) => ({
-        url: `roles/${id}`,
+    /**
+     * DELETE /api/permissions/roles/delete - Delete role
+     */
+    deleteRole: builder.mutation<{ success: boolean; message: string }, string>({
+      query: (roleId) => ({
+        url: 'permissions/roles/delete',
         method: 'DELETE',
+        body: { roleId },
       }),
-      invalidatesTags: (result, error, id) => [
-        { type: 'Role', id },
-        { type: 'RolePermissions', id },
-        'Role',
-        'RoleAssignment' // Also invalidate assignments since role is deleted
+      invalidatesTags: (result, error, roleId) => [
+        { type: 'Role', id: roleId },
+        'RoleList',
       ],
     }),
 
-    // Get role usage statistics
-    getRoleUsage: builder.query<ApiResponse<{
-      role_id: string;
-      user_count: number;
-      active_assignments: number;
-      last_assigned: string | null;
-    }>, string>({
-      query: (roleId) => `roles/${roleId}/usage`,
+    // ============================================================================
+    // ROLE ASSIGNMENT ENDPOINTS
+    // ============================================================================
+
+    /**
+     * POST /api/permissions/assign-role - Assign role to user
+     */
+    assignRoleToUser: builder.mutation<{
+      success: boolean;
+      message: string;
+      data: {
+        userId: string;
+        roleId: string;
+        workspaceId: string;
+        assignedBy: string;
+        expiresAt?: string;
+      };
+    }, AssignRoleRequest>({
+      query: ({ userId, roleId, expiresAt }) => ({
+        url: 'permissions/assign-role',
+        method: 'POST',
+        body: {
+          userId,
+          roleId,
+          expiresAt,
+        },
+      }),
+      invalidatesTags: ['RoleAssignment', 'UserRoles'],
     }),
 
-    // Search roles (for autocomplete/selection)
-    searchRoles: builder.query<ApiResponse<Role[]>, {
+    /**
+     * POST /api/permissions/remove-role - Remove role from user
+     */
+    removeRoleAssignment: builder.mutation<{
+      success: boolean;
+      message: string;
+      data: {
+        userId: string;
+        roleId: string;
+        workspaceId: string;
+      };
+    }, RemoveRoleRequest>({
+      query: ({ userId, roleId }) => ({
+        url: 'permissions/remove-role',
+        method: 'POST',
+        body: {
+          userId,
+          roleId,
+        },
+      }),
+      invalidatesTags: ['RoleAssignment', 'UserRoles'],
+    }),
+
+    /**
+     * POST /api/permissions/bulk-assign - Bulk assign role to multiple users
+     */
+    bulkAssignRole: builder.mutation<{
+      success: boolean;
+      data: {
+        successful: string[];
+        failed: Array<{
+          userId: string;
+          error: string;
+        }>;
+      };
+      message: string;
+    }, BulkAssignRoleRequest>({
+      query: ({ userIds, roleId, expiresAt }) => ({
+        url: 'permissions/bulk-assign',
+        method: 'POST',
+        body: {
+          userIds,
+          roleId,
+          expiresAt,
+        },
+      }),
+      invalidatesTags: ['RoleAssignment', 'UserRoles'],
+    }),
+
+    // ============================================================================
+    // ROLE ANALYTICS & INFORMATION
+    // ============================================================================
+
+    /**
+     * GET /api/permissions/roles/:id/users - Get users assigned to role
+     */
+    getRoleUsers: builder.query<{
+      success: boolean;
+      data: Array<{
+        id: string;
+        email: string;
+        first_name: string;
+        last_name: string;
+        display_name: string;
+        assigned_at: string;
+        expires_at?: string;
+        is_active: boolean;
+      }>;
+    }, string>({
+      query: (roleId) => `permissions/roles/${roleId}/users`,
+      providesTags: (result, error, roleId) => [{ type: 'Role', id: roleId }],
+    }),
+
+    /**
+     * GET /api/permissions/roles/:id/permissions - Get permissions for role
+     */
+    getRolePermissions: builder.query<{
+      success: boolean;
+      data: Permission[];
+    }, string>({
+      query: (roleId) => `permissions/roles/${roleId}/permissions`,
+      providesTags: (result, error, roleId) => [{ type: 'Role', id: roleId }],
+    }),
+
+    /**
+     * GET /api/permissions/roles/stats - Get role statistics
+     */
+    getRoleStats: builder.query<{
+      success: boolean;
+      data: {
+        total_roles: number;
+        system_roles: number;
+        custom_roles: number;
+        most_used_roles: Array<{
+          role_id: string;
+          role_name: string;
+          user_count: number;
+        }>;
+        recent_assignments: Array<{
+          user_email: string;
+          role_name: string;
+          assigned_at: string;
+        }>;
+      };
+    }, void>({
+      query: () => 'permissions/roles/stats',
+    }),
+
+    // ============================================================================
+    // USER ROLE QUERIES
+    // ============================================================================
+
+    /**
+     * GET /api/permissions/user/:userId/roles - Get user's roles
+     */
+    getUserRoles: builder.query<{
+      success: boolean;
+      data: Array<{
+        id: string;
+        name: string;
+        display_name: string;
+        description?: string;
+        assigned_at: string;
+        expires_at?: string;
+        is_active: boolean;
+      }>;
+    }, string>({
+      query: (userId) => `permissions/user/${userId}/roles`,
+      providesTags: (result, error, userId) => [{ type: 'UserRoles', id: userId }],
+    }),
+
+    /**
+     * GET /api/permissions/user/:userId/effective-permissions - Get user's effective permissions
+     */
+    getUserEffectivePermissions: builder.query<{
+      success: boolean;
+      data: {
+        direct_permissions: string[];
+        role_permissions: string[];
+        effective_permissions: string[];
+        roles: Role[];
+      };
+    }, string>({
+      query: (userId) => `permissions/user/${userId}/effective-permissions`,
+      providesTags: (result, error, userId) => [{ type: 'UserRoles', id: userId }],
+    }),
+
+    // ============================================================================
+    // ROLE SEARCH & FILTERING
+    // ============================================================================
+
+    /**
+     * GET /api/permissions/roles/search - Search roles
+     */
+    searchRoles: builder.query<RolesResponse, {
       query: string;
-      workspaceId?: string;
-      includeSystem?: boolean;
+      filters?: {
+        is_system?: boolean;
+        has_users?: boolean;
+      };
       limit?: number;
+      offset?: number;
     }>({
-      query: ({ query, workspaceId, includeSystem = false, limit = 10 }) => ({
-        url: 'roles/search',
-        params: { 
-          q: query, 
-          workspace_id: workspaceId,
-          include_system: includeSystem,
-          limit 
+      query: ({ query, filters, limit = 20, offset = 0 }) => ({
+        url: 'permissions/roles/search',
+        params: {
+          query,
+          ...filters,
+          limit,
+          offset,
         },
       }),
+      providesTags: ['RoleList'],
     }),
 
-    // Get recommended roles for a user (based on similar users/patterns)
-    getRecommendedRoles: builder.query<ApiResponse<{
-      role: Role;
-      score: number;
-      reason: string;
-    }[]>, {
-      userId: string;
-      workspaceId: string;
-    }>({
-      query: ({ userId, workspaceId }) => ({
-        url: 'roles/recommendations',
-        params: { user_id: userId, workspace_id: workspaceId },
-      }),
-    }),
+    // ============================================================================
+    // ROLE PERMISSIONS MANAGEMENT
+    // ============================================================================
 
-    // ==================== ROLE ASSIGNMENT ENDPOINTS ====================
-
-    // Get paginated role assignments with filters
-    getRoleAssignments: builder.query<PaginatedResponse<UserRoleAssignment>, RoleAssignmentQueryFilters>({
-      query: (filters) => ({
-        url: 'role-assignments',
-        params: filters,
-      }),
-      providesTags: ['RoleAssignment'],
-    }),
-
-    // Get role assignment by ID
-    getRoleAssignmentById: builder.query<ApiResponse<UserRoleAssignment>, string>({
-      query: (id) => `role-assignments/${id}`,
-      providesTags: (result, error, id) => [{ type: 'RoleAssignment', id }],
-    }),
-
-    // Get all role assignments for a user in a workspace
-    getUserRoleAssignments: builder.query<ApiResponse<UserRoleAssignment[]>, {
-      userId: string;
-      workspaceId: string;
-      includeExpired?: boolean;
-    }>({
-      query: ({ userId, workspaceId, includeExpired = false }) => ({
-        url: `role-assignments/user/${userId}`,
-        params: { workspace_id: workspaceId, include_expired: includeExpired },
-      }),
-      providesTags: (result, error, { userId, workspaceId }) => [
-        { type: 'UserRoles', id: `${userId}-${workspaceId}` }
-      ],
-    }),
-
-    // Get all users assigned to a specific role
-    getRoleUsers: builder.query<ApiResponse<UserRoleAssignment[]>, {
+    /**
+     * POST /api/permissions/roles/:id/add-permission - Add permission to role
+     */
+    addPermissionToRole: builder.mutation<{
+      success: boolean;
+      message: string;
+    }, {
       roleId: string;
-      workspaceId: string;
-      includeInactive?: boolean;
+      permissionId: string;
     }>({
-      query: ({ roleId, workspaceId, includeInactive = false }) => ({
-        url: `role-assignments/role/${roleId}`,
-        params: { workspace_id: workspaceId, include_inactive: includeInactive },
-      }),
-      providesTags: (result, error, { roleId, workspaceId }) => [
-        { type: 'RoleUsers', id: `${roleId}-${workspaceId}` }
-      ],
-    }),
-
-    // Get assignments expiring soon (for admin alerts)
-    getExpiringAssignments: builder.query<ApiResponse<UserRoleAssignment[]>, {
-      workspaceId: string;
-      daysAhead?: number;
-    }>({
-      query: ({ workspaceId, daysAhead = 7 }) => ({
-        url: 'role-assignments/expiring',
-        params: { workspace_id: workspaceId, days_ahead: daysAhead },
-      }),
-      providesTags: (result, error, { workspaceId }) => [
-        { type: 'RoleAssignment', id: `expiring-${workspaceId}` }
-      ],
-    }),
-
-    // Assign role to user
-    assignRoleToUser: builder.mutation<ApiResponse<UserRoleAssignment>, AssignRoleToUserRequest>({
-      query: (assignmentData) => ({
-        url: 'role-assignments',
+      query: ({ roleId, permissionId }) => ({
+        url: `permissions/roles/${roleId}/add-permission`,
         method: 'POST',
-        body: assignmentData,
+        body: { permissionId },
       }),
-      invalidatesTags: (result, error, { user_id, workspace_id, role_id }) => [
-        'RoleAssignment',
-        { type: 'UserRoles', id: `${user_id}-${workspace_id}` },
-        { type: 'RoleUsers', id: `${role_id}-${workspace_id}` },
+      invalidatesTags: (result, error, { roleId }) => [
+        { type: 'Role', id: roleId },
+        'RoleList',
       ],
     }),
 
-    // Bulk assign roles to multiple users
-    bulkAssignRoles: builder.mutation<ApiResponse<UserRoleAssignment[]>, {
-      assignments: AssignRoleToUserRequest[];
+    /**
+     * DELETE /api/permissions/roles/:id/remove-permission - Remove permission from role
+     */
+    removePermissionFromRole: builder.mutation<{
+      success: boolean;
+      message: string;
+    }, {
+      roleId: string;
+      permissionId: string;
     }>({
-      query: ({ assignments }) => ({
-        url: 'role-assignments/bulk',
-        method: 'POST',
-        body: { assignments },
+      query: ({ roleId, permissionId }) => ({
+        url: `permissions/roles/${roleId}/remove-permission`,
+        method: 'DELETE',
+        body: { permissionId },
       }),
-      invalidatesTags: ['RoleAssignment', 'UserRoles', 'RoleUsers'],
+      invalidatesTags: (result, error, { roleId }) => [
+        { type: 'Role', id: roleId },
+        'RoleList',
+      ],
     }),
 
-    // Update role assignment (extend expiry, change status, etc.)
-    updateRoleAssignment: builder.mutation<ApiResponse<UserRoleAssignment>, UpdateRoleAssignmentRequest>({
-      query: ({ id, ...patch }) => ({
-        url: `role-assignments/${id}`,
+    /**
+     * PUT /api/permissions/roles/:id/sync-permissions - Sync role permissions (replace all)
+     */
+    syncRolePermissions: builder.mutation<{
+      success: boolean;
+      message: string;
+      data: {
+        added: string[];
+        removed: string[];
+      };
+    }, {
+      roleId: string;
+      permissionIds: string[];
+    }>({
+      query: ({ roleId, permissionIds }) => ({
+        url: `permissions/roles/${roleId}/sync-permissions`,
         method: 'PUT',
-        body: patch,
+        body: { permissionIds },
       }),
-      invalidatesTags: (result, error, { id }) => [
-        { type: 'RoleAssignment', id },
-        'RoleAssignment',
-        'UserRoles',
-        'RoleUsers'
-      ],
-    }),
-
-    // Remove role assignment (revoke role from user)
-    removeRoleAssignment: builder.mutation<ApiResponse<{ success: boolean }>, string>({
-      query: (id) => ({
-        url: `role-assignments/${id}`,
-        method: 'DELETE',
-      }),
-      invalidatesTags: (result, error, id) => [
-        { type: 'RoleAssignment', id },
-        'RoleAssignment',
-        'UserRoles',
-        'RoleUsers'
-      ],
-    }),
-
-    // Bulk remove role assignments
-    bulkRemoveRoleAssignments: builder.mutation<ApiResponse<{ removed_count: number }>, {
-      assignment_ids: string[];
-    }>({
-      query: ({ assignment_ids }) => ({
-        url: 'role-assignments/bulk-remove',
-        method: 'DELETE',
-        body: { assignment_ids },
-      }),
-      invalidatesTags: ['RoleAssignment', 'UserRoles', 'RoleUsers'],
-    }),
-
-    // Copy user's roles to another user (within same workspace)
-    copyUserRoles: builder.mutation<ApiResponse<UserRoleAssignment[]>, {
-      sourceUserId: string;
-      targetUserId: string;
-      workspaceId: string;
-      includeExpiring?: boolean;
-    }>({
-      query: ({ sourceUserId, targetUserId, workspaceId, includeExpiring = false }) => ({
-        url: 'role-assignments/copy-roles',
-        method: 'POST',
-        body: {
-          source_user_id: sourceUserId,
-          target_user_id: targetUserId,
-          workspace_id: workspaceId,
-          include_expiring: includeExpiring,
-        },
-      }),
-      invalidatesTags: (result, error, { targetUserId, workspaceId }) => [
-        'RoleAssignment',
-        { type: 'UserRoles', id: `${targetUserId}-${workspaceId}` },
-        'RoleUsers'
-      ],
-    }),
-
-    // Transfer all role assignments from one user to another (when user leaves)
-    transferUserRoles: builder.mutation<ApiResponse<UserRoleAssignment[]>, {
-      fromUserId: string;
-      toUserId: string;
-      workspaceId: string;
-    }>({
-      query: ({ fromUserId, toUserId, workspaceId }) => ({
-        url: 'role-assignments/transfer-roles',
-        method: 'POST',
-        body: {
-          from_user_id: fromUserId,
-          to_user_id: toUserId,
-          workspace_id: workspaceId,
-        },
-      }),
-      invalidatesTags: (result, error, { fromUserId, toUserId, workspaceId }) => [
-        'RoleAssignment',
-        { type: 'UserRoles', id: `${fromUserId}-${workspaceId}` },
-        { type: 'UserRoles', id: `${toUserId}-${workspaceId}` },
-        'RoleUsers'
-      ],
-    }),
-
-    // Get role assignment history for audit purposes
-    getAssignmentHistory: builder.query<ApiResponse<{
-      assignment_id: string;
-      action: 'assigned' | 'updated' | 'removed' | 'expired';
-      changed_by: string;
-      changed_by_name: string;
-      changed_at: string;
-      details: Record<string, any>;
-    }[]>, {
-      userId?: string;
-      roleId?: string;
-      workspaceId: string;
-      limit?: number;
-    }>({
-      query: ({ userId, roleId, workspaceId, limit = 50 }) => ({
-        url: 'role-assignments/history',
-        params: { user_id: userId, role_id: roleId, workspace_id: workspaceId, limit },
-      }),
-    }),
-
-    // Get assignment statistics for dashboard
-    getAssignmentStats: builder.query<ApiResponse<{
-      total_assignments: number;
-      active_assignments: number;
-      expired_assignments: number;
-      assignments_by_role: { role_name: string; count: number }[];
-      recent_activity: number;
-      users_with_roles: number;
-    }>, string>({
-      query: (workspaceId) => `role-assignments/stats/${workspaceId}`,
-      providesTags: (result, error, workspaceId) => [
-        { type: 'RoleAssignment', id: `stats-${workspaceId}` }
+      invalidatesTags: (result, error, { roleId }) => [
+        { type: 'Role', id: roleId },
+        'RoleList',
       ],
     }),
   }),
@@ -389,34 +481,43 @@ export const roleApi = createApi({
 
 // Export hooks for usage in functional components
 export const {
-  // Role Management hooks
+  // Role CRUD operations
   useGetRolesQuery,
+  useGetAdminRolesQuery,
   useGetRoleByIdQuery,
-  useGetRolePermissionsQuery,
-  useGetWorkspaceRolesQuery,
-  useGetSystemRolesQuery,
   useCreateRoleMutation,
+  useCreateAdminRoleMutation,
   useUpdateRoleMutation,
-  useCloneRoleMutation,
   useDeleteRoleMutation,
-  useGetRoleUsageQuery,
-  useSearchRolesQuery,
-  useLazySearchRolesQuery,
-  useGetRecommendedRolesQuery,
-
-  // Role Assignment hooks
-  useGetRoleAssignmentsQuery,
-  useGetRoleAssignmentByIdQuery,
-  useGetUserRoleAssignmentsQuery,
-  useGetRoleUsersQuery,
-  useGetExpiringAssignmentsQuery,
+  
+  // Role assignment operations
   useAssignRoleToUserMutation,
-  useBulkAssignRolesMutation,
-  useUpdateRoleAssignmentMutation,
   useRemoveRoleAssignmentMutation,
-  useBulkRemoveRoleAssignmentsMutation,
-  useCopyUserRolesMutation,
-  useTransferUserRolesMutation,
-  useGetAssignmentHistoryQuery,
-  useGetAssignmentStatsQuery,
+  useBulkAssignRoleMutation,
+  
+  // Role information queries
+  useGetRoleUsersQuery,
+  useGetRolePermissionsQuery,
+  useGetRoleStatsQuery,
+  
+  // User role queries
+  useGetUserRolesQuery,
+  useGetUserEffectivePermissionsQuery,
+  
+  // Search and filtering
+  useSearchRolesQuery,
+  
+  // Role permissions management
+  useAddPermissionToRoleMutation,
+  useRemovePermissionFromRoleMutation,
+  useSyncRolePermissionsMutation,
+  
+  // Lazy queries for on-demand loading
+  useLazyGetRolesQuery,
+  useLazyGetRoleByIdQuery,
+  useLazySearchRolesQuery,
+  useLazyGetUserRolesQuery,
+  useLazyGetUserEffectivePermissionsQuery,
 } = roleApi;
+
+export default roleApi;

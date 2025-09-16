@@ -1,56 +1,86 @@
+// web-application/src/store/api/userApi.ts
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { RootState } from '../index';
-import { User, CreateUserRequest, UpdateUserRequest } from '../../types';
 
-interface GetUsersResponse {
+// ============================================================================
+// INTERFACES & TYPES
+// ============================================================================
+
+export interface User {
+  id: string;
+  username?: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  display_name?: string;
+  is_active: boolean;
+  last_login?: string;
+  created_at?: string;
+  updated_at?: string;
+  avatar_url?: string;
+  department?: string;
+  position?: string;
+  role_names?: string[];
+  roles?: any[];
+}
+
+export interface CreateUserRequest {
+  email: string;
+  first_name: string;
+  last_name: string;
+  password: string;
+  roles?: string[];
+  is_active?: boolean;
+  department?: string;
+  position?: string;
+}
+
+export interface UpdateUserRequest {
+  first_name?: string;
+  last_name?: string;
+  password?: string;
+  roles?: string[];
+  is_active?: boolean;
+  department?: string;
+  position?: string;
+}
+
+export interface GetUsersResponse {
+  success: boolean;
   data: User[];
-  metadata: {
+  metadata?: {
     total: number;
     page: number;
     limit: number;
     total_pages: number;
   };
+  message?: string;
 }
 
-interface UpdateUserArgs {
-  id: string;
-  updates: UpdateUserRequest;
+export interface UserResponse {
+  success: boolean;
+  data: User;
+  message?: string;
 }
 
-interface SearchUsersParams {
+export interface SearchUsersParams {
   query?: string;
   limit?: number;
   offset?: number;
   role?: string;
   is_active?: boolean;
+  include_inactive?: boolean;
+  detailed?: boolean;
 }
 
-interface UserWorkspace {
-  id: string;
-  name: string;
-  slug: string;
-  user_role: string;
-  assigned_at: string;
-}
-
-interface UserPermission {
-  permission: string;
-  resource?: string;
-  granted: boolean;
-}
-
-interface WorkspaceAssignmentArgs {
-  userId: string;
-  workspaceId: string;
-  roleId?: string;
-}
+// ============================================================================
+// USER API SLICE
+// ============================================================================
 
 export const userApi = createApi({
   reducerPath: 'userApi',
   baseQuery: fetchBaseQuery({
-    baseUrl: process.env.NEXT_PUBLIC_API_URL 
-      ? `${process.env.NEXT_PUBLIC_API_URL}/api/user`
-      : 'http://localhost:3001/api/user',
+    baseUrl: '/api/',
     prepareHeaders: (headers, { getState }) => {
       const token = (getState() as RootState).auth.token;
       const workspaceSlug = (getState() as RootState).workspace.currentWorkspace?.slug;
@@ -63,191 +93,341 @@ export const userApi = createApi({
         headers.set('X-Workspace-Slug', workspaceSlug);
       }
       
+      headers.set('Content-Type', 'application/json');
+      
       return headers;
     },
   }),
-  tagTypes: ['User'],
+  tagTypes: ['User', 'UserList', 'UserWorkspaces'],
   endpoints: (builder) => ({
-    // Existing endpoints
-    getUsers: builder.query<GetUsersResponse, any>({
+    
+    // ============================================================================
+    // ADMIN USER MANAGEMENT ENDPOINTS
+    // ============================================================================
+    
+    /**
+     * GET /api/admin/users - Get all users in workspace
+     */
+    getUsers: builder.query<GetUsersResponse, SearchUsersParams | void>({
       query: (params = {}) => ({
-        url: '',
+        url: 'admin/users',
         params,
       }),
-      providesTags: (result) =>
-        result
-          ? [
-              ...result.data.map(({ id }) => ({ type: 'User' as const, id })),
-              { type: 'User', id: 'LIST' },
-            ]
-          : [{ type: 'User', id: 'LIST' }],
+      providesTags: ['UserList'],
     }),
-    
-    getUser: builder.query<{ data: User }, string>({
-      query: (id) => `/${id}`,
+
+    /**
+     * GET /api/admin/users/:id - Get user by ID
+     */
+    getUserById: builder.query<UserResponse, string>({
+      query: (id) => `admin/users/${id}`,
       providesTags: (result, error, id) => [{ type: 'User', id }],
     }),
-    
-    createUser: builder.mutation<{ data: User; message: string }, CreateUserRequest>({
+
+    /**
+     * POST /api/admin/users - Create new user
+     */
+    createUser: builder.mutation<UserResponse, CreateUserRequest>({
       query: (userData) => ({
-        url: '',
+        url: 'admin/users',
         method: 'POST',
         body: userData,
       }),
-      invalidatesTags: [{ type: 'User', id: 'LIST' }],
+      invalidatesTags: ['UserList'],
     }),
-    
-    updateUser: builder.mutation<{ data: User; message: string }, UpdateUserArgs>({
+
+    /**
+     * PUT /api/admin/users/:id - Update user
+     */
+    updateUser: builder.mutation<UserResponse, { id: string; updates: UpdateUserRequest }>({
       query: ({ id, updates }) => ({
-        url: `/${id}`,
+        url: `admin/users/${id}`,
         method: 'PUT',
         body: updates,
       }),
       invalidatesTags: (result, error, { id }) => [
         { type: 'User', id },
-        { type: 'User', id: 'LIST' },
+        'UserList',
       ],
     }),
-    
-    deleteUser: builder.mutation<{ message: string }, string>({
+
+    /**
+     * DELETE /api/admin/users/:id - Delete user
+     */
+    deleteUser: builder.mutation<{ success: boolean; message: string }, string>({
       query: (id) => ({
-        url: `/${id}`,
+        url: `admin/users/${id}`,
         method: 'DELETE',
       }),
       invalidatesTags: (result, error, id) => [
         { type: 'User', id },
-        { type: 'User', id: 'LIST' },
+        'UserList',
       ],
     }),
-    
-    updateProfile: builder.mutation<{ data: User; message: string }, UpdateUserRequest>({
-      query: (profileData) => ({
-        url: '/profile',
-        method: 'PUT',
-        body: profileData,
-      }),
-      invalidatesTags: [{ type: 'User', id: 'CURRENT' }],
+
+    // ============================================================================
+    // USER PROFILE & WORKSPACE ENDPOINTS
+    // ============================================================================
+
+    /**
+     * GET /api/user/workspaces - Get user's workspaces
+     */
+    getUserWorkspaces: builder.query<{
+      success: boolean;
+      data: Array<{
+        id: string;
+        name: string;
+        slug: string;
+        user_role: string;
+        assigned_at: string;
+      }>;
+    }, void>({
+      query: () => 'user/workspaces',
+      providesTags: ['UserWorkspaces'],
     }),
-    
-    changePassword: builder.mutation<
-      { message: string },
-      { current_password: string; new_password: string }
-    >({
-      query: (passwordData) => ({
-        url: '/change-password',
+
+    /**
+     * GET /api/user/default-workspace - Get user's default workspace
+     */
+    getDefaultWorkspace: builder.query<{
+      success: boolean;
+      data: {
+        id: string;
+        name: string;
+        slug: string;
+        is_default: boolean;
+      };
+    }, void>({
+      query: () => 'user/default-workspace',
+    }),
+
+    /**
+     * GET /api/user/:id - Get user profile
+     */
+    getUserProfile: builder.query<UserResponse, string>({
+      query: (id) => `user/${id}`,
+      providesTags: (result, error, id) => [{ type: 'User', id }],
+    }),
+
+    /**
+     * PUT /api/user/:id - Update user profile
+     */
+    updateUserProfile: builder.mutation<UserResponse, { id: string; updates: UpdateUserRequest }>({
+      query: ({ id, updates }) => ({
+        url: `user/${id}`,
         method: 'PUT',
-        body: passwordData,
+        body: updates,
+      }),
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'User', id },
+        'UserList',
+      ],
+    }),
+
+    // ============================================================================
+    // BULK OPERATIONS
+    // ============================================================================
+
+    /**
+     * POST /api/admin/users/bulk - Bulk create users
+     */
+    bulkCreateUsers: builder.mutation<{
+      success: boolean;
+      data: {
+        successful: User[];
+        failed: Array<{
+          email: string;
+          error: string;
+        }>;
+      };
+      message: string;
+    }, {
+      users: CreateUserRequest[];
+      send_welcome_email?: boolean;
+    }>({
+      query: (bulkData) => ({
+        url: 'admin/users/bulk',
+        method: 'POST',
+        body: bulkData,
+      }),
+      invalidatesTags: ['UserList'],
+    }),
+
+    /**
+     * PUT /api/admin/users/bulk - Bulk update users
+     */
+    bulkUpdateUsers: builder.mutation<{
+      success: boolean;
+      data: {
+        successful: string[];
+        failed: Array<{
+          userId: string;
+          error: string;
+        }>;
+      };
+      message: string;
+    }, {
+      user_ids: string[];
+      updates: UpdateUserRequest;
+    }>({
+      query: (bulkData) => ({
+        url: 'admin/users/bulk',
+        method: 'PUT',
+        body: bulkData,
+      }),
+      invalidatesTags: ['UserList'],
+    }),
+
+    /**
+     * DELETE /api/admin/users/bulk - Bulk delete users
+     */
+    bulkDeleteUsers: builder.mutation<{
+      success: boolean;
+      data: {
+        successful: string[];
+        failed: Array<{
+          userId: string;
+          error: string;
+        }>;
+      };
+      message: string;
+    }, {
+      user_ids: string[];
+    }>({
+      query: (bulkData) => ({
+        url: 'admin/users/bulk',
+        method: 'DELETE',
+        body: bulkData,
+      }),
+      invalidatesTags: ['UserList'],
+    }),
+
+    // ============================================================================
+    // USER SEARCH & FILTERING
+    // ============================================================================
+
+    /**
+     * GET /api/admin/users/search - Advanced user search
+     */
+    searchUsers: builder.query<GetUsersResponse, {
+      query: string;
+      filters?: {
+        role?: string;
+        department?: string;
+        is_active?: boolean;
+        created_after?: string;
+        created_before?: string;
+      };
+      limit?: number;
+      offset?: number;
+    }>({
+      query: ({ query, filters, limit = 20, offset = 0 }) => ({
+        url: 'admin/users/search',
+        params: {
+          query,
+          ...filters,
+          limit,
+          offset,
+        },
+      }),
+      providesTags: ['UserList'],
+    }),
+
+    // ============================================================================
+    // USER ANALYTICS & STATS
+    // ============================================================================
+
+    /**
+     * GET /api/admin/users/stats - Get user statistics
+     */
+    getUserStats: builder.query<{
+      success: boolean;
+      data: {
+        total_users: number;
+        active_users: number;
+        inactive_users: number;
+        recent_signups: number;
+        by_department: Array<{
+          department: string;
+          count: number;
+        }>;
+        by_role: Array<{
+          role: string;
+          count: number;
+        }>;
+      };
+    }, {
+      period?: 'day' | 'week' | 'month' | 'year';
+      start_date?: string;
+      end_date?: string;
+    }>({
+      query: (params = {}) => ({
+        url: 'admin/users/stats',
+        params,
       }),
     }),
 
-    // MISSING ENDPOINTS - Add these to complete the API
-    
-    // Get user by ID (alias for getUser for consistency)
-    getUserById: builder.query<{ data: User }, string>({
-      query: (id) => `/${id}`,
-      providesTags: (result, error, id) => [{ type: 'User', id }],
-    }),
-    
-    // Get current authenticated user
-    getCurrentUser: builder.query<{ data: User }, void>({
-      query: () => '/me',
-      providesTags: [{ type: 'User', id: 'CURRENT' }],
-    }),
-    
-    // Get user's permissions in current workspace
-    getUserPermissions: builder.query<{ data: UserPermission[] }, string>({
-      query: (userId) => `/${userId}/permissions`,
-      providesTags: (result, error, userId) => [
-        { type: 'User', id: `${userId}-permissions` }
-      ],
-    }),
-    
-    // Deactivate user (soft delete)
-    deactivateUser: builder.mutation<{ data: User; message: string }, string>({
-      query: (id) => ({
-        url: `/${id}/deactivate`,
-        method: 'PATCH',
-      }),
-      invalidatesTags: (result, error, id) => [
-        { type: 'User', id },
-        { type: 'User', id: 'LIST' },
-      ],
-    }),
-    
-    // Reactivate user
-    reactivateUser: builder.mutation<{ data: User; message: string }, string>({
-      query: (id) => ({
-        url: `/${id}/reactivate`,
-        method: 'PATCH',
-      }),
-      invalidatesTags: (result, error, id) => [
-        { type: 'User', id },
-        { type: 'User', id: 'LIST' },
-      ],
-    }),
-    
-    // Add user to workspace
-    addUserToWorkspace: builder.mutation<
-      { message: string },
-      WorkspaceAssignmentArgs
-    >({
-      query: ({ userId, workspaceId, roleId }) => ({
-        url: `/${userId}/workspaces/${workspaceId}`,
-        method: 'POST',
-        body: { role_id: roleId },
-      }),
-      invalidatesTags: (result, error, { userId }) => [
-        { type: 'User', id: userId },
-        { type: 'User', id: `${userId}-workspaces` },
-        { type: 'User', id: 'LIST' },
-      ],
-    }),
-    
-    // Remove user from workspace
-    removeUserFromWorkspace: builder.mutation<
-      { message: string },
-      { userId: string; workspaceId: string }
-    >({
-      query: ({ userId, workspaceId }) => ({
-        url: `/${userId}/workspaces/${workspaceId}`,
-        method: 'DELETE',
-      }),
-      invalidatesTags: (result, error, { userId }) => [
-        { type: 'User', id: userId },
-        { type: 'User', id: `${userId}-workspaces` },
-        { type: 'User', id: 'LIST' },
-      ],
-    }),
-    
-    // Search users
-    searchUsers: builder.query<GetUsersResponse, SearchUsersParams>({
-      query: (params) => ({
-        url: '/search',
+    /**
+     * GET /api/admin/users/:id/activity - Get user activity log
+     */
+    getUserActivity: builder.query<{
+      success: boolean;
+      data: Array<{
+        id: string;
+        action: string;
+        resource_type: string;
+        resource_id: string;
+        details: Record<string, any>;
+        ip_address: string;
+        user_agent: string;
+        timestamp: string;
+      }>;
+    }, {
+      userId: string;
+      limit?: number;
+      offset?: number;
+      start_date?: string;
+      end_date?: string;
+    }>({
+      query: ({ userId, ...params }) => ({
+        url: `admin/users/${userId}/activity`,
         params,
       }),
-      providesTags: [{ type: 'User', id: 'SEARCH' }],
     }),
   }),
 });
 
+// Export hooks for usage in functional components
 export const {
-  // Original exports
+  // User CRUD operations
   useGetUsersQuery,
-  useGetUserQuery,
+  useGetUserByIdQuery,
   useCreateUserMutation,
   useUpdateUserMutation,
   useDeleteUserMutation,
-  useUpdateProfileMutation,
-  useChangePasswordMutation,
   
-  // Missing exports that you need to add
-  useGetUserByIdQuery,
-  useGetCurrentUserQuery,
-  useGetUserPermissionsQuery,
-  useDeactivateUserMutation,
-  useReactivateUserMutation,
-  useAddUserToWorkspaceMutation,
-  useRemoveUserFromWorkspaceMutation,
+  // User profile operations
+  useGetUserWorkspacesQuery,
+  useGetDefaultWorkspaceQuery,
+  useGetUserProfileQuery,
+  useUpdateUserProfileMutation,
+  
+  // Bulk operations
+  useBulkCreateUsersMutation,
+  useBulkUpdateUsersMutation,
+  useBulkDeleteUsersMutation,
+  
+  // Search and filtering
   useSearchUsersQuery,
+  
+  // Analytics and stats
+  useGetUserStatsQuery,
+  useGetUserActivityQuery,
+  
+  // Lazy queries for on-demand loading
+  useLazyGetUsersQuery,
+  useLazyGetUserByIdQuery,
   useLazySearchUsersQuery,
 } = userApi;
+
+export default userApi;
