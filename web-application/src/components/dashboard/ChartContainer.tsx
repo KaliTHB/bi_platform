@@ -206,7 +206,7 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
   } = useGetChartDataQuery(
     {
       // ✅ FIXED: Ensure all parameters are properly structured
-      chartId: chart.id,
+      id: chart.id,
       workspaceId: workspaceId || undefined,
       filters: Object.keys(globalFilters).length > 0 ? globalFilters : undefined
     },
