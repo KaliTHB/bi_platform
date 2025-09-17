@@ -152,7 +152,13 @@ export const dashboardApi = baseApi.injectEndpoints({
       },
       string
     >({
-      query: (id) => `/dashboards/${id}`,
+      query: (dashboardId) => ({
+        url: `/dashboards/${dashboardId}`,
+        params: {
+          include_charts: true,
+          include_data: false
+        }
+      }),
       providesTags: (result, error, id) => [{ type: 'Dashboard', id }],
     }),
 

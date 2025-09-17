@@ -1,6 +1,5 @@
 // web-application/src/components/dashboard/ChartContainer.tsx
-// Enhanced with config-based data fetching - NO UI CHANGES
-// Maintains original UI while adding polling based on chart.config_json
+// CRITICAL FIX: Ensure RTK Query parameters are correctly structured
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
@@ -24,7 +23,7 @@ import {
   BarChart as ChartIcon
 } from '@mui/icons-material';
 
-// RTK Query imports
+// ✅ FIX: RTK Query imports with proper error handling
 import { 
   useGetChartDataQuery,
   useLazyGetChartDataQuery,
@@ -35,17 +34,55 @@ import {
 import { ChartRenderer } from '../chart/ChartRenderer';
 import { ChartErrorBoundary } from '../chart/ChartErrorBoundary';
 
-// Types
-import {
-  ChartContainerProps,
-  ChartData,
-  ChartError,
-  Chart
-} from '@/types/chart.types';
+// ============================================================================
+// TYPES
+// ============================================================================
 
-// ============================================================================
-// ENHANCED TYPES FOR CONFIG-BASED POLLING (Internal only)
-// ============================================================================
+interface Chart {
+  id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  chart_type: string;
+  chart_library: string;
+  dataset_ids: string[];
+  config_json: any;
+  position_json?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  styling_config?: any;
+  query_config?: any;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ChartContainerProps {
+  chart: Chart;
+  refreshTrigger?: number;
+  onRefreshComplete?: (success: boolean) => void;
+  onInteraction?: (event: any) => void;
+  fullscreen?: boolean;
+  workspaceId?: string;
+  dashboardId?: string;
+  maxRetries?: number;
+  showErrorInCard?: boolean;
+  performanceMetrics?: boolean;
+  gridItem?: boolean;
+  globalFilters?: Record<string, any>;
+  dashboardAutoRefresh?: boolean;
+  dashboardRefreshInterval?: number;
+  dashboardRefreshTrigger?: number;
+}
+
+interface ChartError {
+  message: string;
+  type?: string;
+  code?: string;
+}
 
 interface ChartPollingConfig {
   enabled: boolean;
@@ -80,137 +117,32 @@ interface ChartState {
   isPaused: boolean;
 }
 
-interface EnhancedChartContainerProps extends ChartContainerProps {
-  // Enhanced props (keeping original interface)
-  maxRetries?: number;
-  showErrorInCard?: boolean;
-  performanceMetrics?: boolean;
-  gridItem?: boolean;
-  
-  // Global state from dashboard
-  globalFilters?: Record<string, any>;
-  dashboardAutoRefresh?: boolean;
-  dashboardRefreshInterval?: number;
-  dashboardRefreshTrigger?: number;
-  onRefreshComplete?: (chartId: string, success: boolean) => void;
-}
-
 // ============================================================================
-// UTILITY FUNCTIONS
+// MAIN COMPONENT
 // ============================================================================
 
-const getAuthToken = (): string | null => {
-  return localStorage.getItem('auth_token') || 
-         localStorage.getItem('token') ||
-         sessionStorage.getItem('auth_token') ||
-         sessionStorage.getItem('token');
-};
-
-const extractChartPollingConfig = (chart: Chart): ChartPollingConfig => {
-  const refreshConfig = chart.config_json?.refresh_config;
-  const autoRefresh = chart.config_json?.auto_refresh;
-  
-  const config = refreshConfig?.auto_refresh || autoRefresh;
-  
-  if (!config || !config.enabled) {
-    return { enabled: false, interval: 30 };
-  }
-  
-  return {
-    enabled: true,
-    interval: config.interval || 30,
-    max_failures: config.max_failures || 3,
-    backoff_strategy: config.backoff_strategy || 'exponential',
-    pause_on_error: config.pause_on_error ?? true,
-    pause_on_tab_hidden: config.pause_on_tab_hidden ?? true,
-    conditions: config.conditions
-  };
-};
-
-const isPollingAllowed = (config: ChartPollingConfig): boolean => {
-  if (!config.enabled || !config.conditions) return config.enabled;
-  
-  const now = new Date();
-  
-  if (config.conditions.time_range) {
-    const { start, end } = config.conditions.time_range;
-    const startTime = new Date(`${now.toDateString()} ${start}`);
-    const endTime = new Date(`${now.toDateString()} ${end}`);
-    
-    if (now < startTime || now > endTime) {
-      return false;
-    }
-  }
-  
-  if (config.conditions.days_of_week) {
-    const currentDay = now.getDay();
-    if (!config.conditions.days_of_week.includes(currentDay)) {
-      return false;
-    }
-  }
-  
-  return true;
-};
-
-const calculateBackoffDelay = (
-  failures: number, 
-  baseInterval: number, 
-  strategy: ChartPollingConfig['backoff_strategy'] = 'exponential'
-): number => {
-  switch (strategy) {
-    case 'linear':
-      return baseInterval * (1 + failures * 0.5);
-    case 'exponential':
-      return baseInterval * Math.pow(2, failures);
-    case 'fixed':
-    default:
-      return baseInterval;
-  }
-};
-
-// ============================================================================
-// MAIN COMPONENT - Original UI maintained
-// ============================================================================
-
-export const ChartContainer: React.FC<EnhancedChartContainerProps> = ({
+export const ChartContainer: React.FC<ChartContainerProps> = ({
   chart,
-  workspaceId = '',
-  dashboardId,
-  preview = false,
+  refreshTrigger,
+  onRefreshComplete,
+  onInteraction,
   fullscreen = false,
-  filters = [],
-  globalFilters = {},
-  dimensions,
-  theme,
-  className,
-  style,
-  loading: externalLoading = false,
-  error: externalError = null,
-  
-  // Enhanced props
+  workspaceId,
+  dashboardId,
   maxRetries = 3,
   showErrorInCard = true,
   performanceMetrics = false,
-  gridItem = false,
-  
-  // Dashboard-level settings
+  gridItem = true,
+  globalFilters = {},
   dashboardAutoRefresh = false,
   dashboardRefreshInterval = 30,
-  dashboardRefreshTrigger,
-  onRefreshComplete,
-  
-  // Event handlers
-  onChartClick,
-  onChartError,
-  onChartLoad,
-  onChartRefresh,
-  onClick,
+  dashboardRefreshTrigger = 0
 }) => {
   
   // ============================================================================
-  // STATE MANAGEMENT - Enhanced with polling
+  // STATE MANAGEMENT
   // ============================================================================
-  
+
   const [chartState, setChartState] = useState<ChartState>({
     data: null,
     loading: false,
@@ -225,279 +157,180 @@ export const ChartContainer: React.FC<EnhancedChartContainerProps> = ({
     isPaused: false
   });
 
-  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
-  const [isExporting, setIsExporting] = useState(false);
-  
-  // Refs for polling management
+  const [menuAnchorEl, setMenuAnchorEl] = useState<HTMLElement | null>(null);
+  const [showPerformanceMetrics, setShowPerformanceMetrics] = useState(performanceMetrics);
+
+  // Refs for auto-refresh management
   const autoRefreshRef = useRef<NodeJS.Timeout>();
-  const loadStartTimeRef = useRef<number>(0);
-  const containerRef = useRef<HTMLDivElement>(null);
   const isTabHiddenRef = useRef<boolean>(false);
+  const abortControllerRef = useRef<AbortController>();
 
   // ============================================================================
-  // CONFIG EXTRACTION AND POLLING SETUP
-  // ============================================================================
-  
-  const pollingConfig = useMemo(() => {
-    return extractChartPollingConfig(chart);
-  }, [chart]);
-
-  // Calculate effective refresh settings
-  const effectiveAutoRefresh = useMemo(() => {
-    if (pollingConfig.enabled) return true;
-    return dashboardAutoRefresh;
-  }, [pollingConfig.enabled, dashboardAutoRefresh]);
-
-  const effectiveRefreshInterval = useMemo(() => {
-    if (pollingConfig.enabled) {
-      return calculateBackoffDelay(
-        chartState.consecutiveErrors,
-        pollingConfig.interval,
-        pollingConfig.backoff_strategy
-      );
-    }
-    return dashboardRefreshInterval;
-  }, [pollingConfig, chartState.consecutiveErrors, dashboardRefreshInterval]);
-
-  // ============================================================================
-  // DATA LOADING FUNCTIONS
+  // CONFIGURATION EXTRACTION
   // ============================================================================
 
-  const loadChartData = useCallback(async (forceRefresh = false, isDashboardRefresh = false) => {
-    if (!chart.id || !workspaceId) {
-      console.warn('⚠️ Chart ID or workspace ID missing');
-      return;
-    }
-
-    const chartId = chart.id;
+  // Extract polling configuration from chart.config_json
+  const pollingConfig: ChartPollingConfig = useMemo(() => {
+    const config = chart.config_json || {};
+    const polling = config.polling || config.auto_refresh || {};
     
-    // Check cache first
-    if (!forceRefresh && chartState.data && chartState.lastRefresh) {
-      const cacheAge = Date.now() - chartState.lastRefresh.getTime();
-      const cacheValidTime = 30 * 1000; // 30 seconds
-      
-      if (cacheAge < cacheValidTime) {
-        if (isDashboardRefresh) {
-          onRefreshComplete?.(chartId, true);
-        }
-        return;
+    return {
+      enabled: polling.enabled || dashboardAutoRefresh || false,
+      interval: polling.interval || dashboardRefreshInterval || 30,
+      max_failures: polling.max_failures || 5,
+      backoff_strategy: polling.backoff_strategy || 'exponential',
+      pause_on_error: polling.pause_on_error !== false,
+      pause_on_tab_hidden: polling.pause_on_tab_hidden !== false,
+      conditions: polling.conditions
+    };
+  }, [chart.config_json, dashboardAutoRefresh, dashboardRefreshInterval]);
+
+  // ============================================================================
+  // RTK QUERY INTEGRATION WITH PROPER PARAMETERS
+  // ============================================================================
+
+  console.log('🔍 ChartContainer Debug:', {
+    chartId: chart.id,
+    chartIdType: typeof chart.id,
+    workspaceId,
+    workspaceIdType: typeof workspaceId,
+    globalFilters: Object.keys(globalFilters).length
+  });
+
+  // ✅ CRITICAL FIX: Use RTK Query with proper parameter structure
+  const {
+    data: chartDataResponse,
+    error: queryError,
+    isLoading: queryLoading,
+    refetch: refetchChartData
+  } = useGetChartDataQuery(
+    {
+      // ✅ FIXED: Ensure all parameters are properly structured
+      chartId: chart.id,
+      workspaceId: workspaceId || undefined,
+      filters: Object.keys(globalFilters).length > 0 ? globalFilters : undefined
+    },
+    {
+      skip: !chart.id || !workspaceId,
+      refetchOnMountOrArgChange: true,
+      pollingInterval: pollingConfig.enabled ? pollingConfig.interval * 1000 : 0
+    }
+  );
+
+  // ✅ FIX: Export mutation with error handling
+  const [exportChart] = useExportChartMutation();
+
+  // ============================================================================
+  // DATA PROCESSING
+  // ============================================================================
+
+  // Process chart data from response
+  const processedData = useMemo(() => {
+    console.log('📊 Chart Data Response:', chartDataResponse);
+    
+    if (!chartDataResponse?.success || !chartDataResponse.data) {
+      return null;
+    }
+
+    const rawData = chartDataResponse.data;
+    
+    // Apply any data transformations based on chart config
+    if (chart.config_json?.dataTransformations) {
+      // Apply transformations here if needed
+      return rawData;
+    }
+
+    return rawData;
+  }, [chartDataResponse, chart.config_json]);
+
+  // Handle errors from RTK Query
+  const chartError = useMemo(() => {
+    if (queryError) {
+      if ('status' in queryError) {
+        return `API Error ${queryError.status}: ${queryError.data || 'Unknown error'}`;
+      } else if ('message' in queryError) {
+        return queryError.message;
       }
+      return 'Failed to load chart data';
     }
+    if (chartDataResponse && !chartDataResponse.success) {
+      return chartDataResponse.message || 'Chart data request failed';
+    }
+    return chartState.error;
+  }, [queryError, chartDataResponse, chartState.error]);
 
-    console.log(`🔄 Loading chart data: ${chartId}`);
-    
-    setChartState(prev => ({ 
-      ...prev, 
-      loading: true, 
-      error: null 
-    }));
-    
-    loadStartTimeRef.current = Date.now();
+  // ============================================================================
+  // EVENT HANDLERS
+  // ============================================================================
 
+  const handleMenuClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    setMenuAnchorEl(event.currentTarget);
+  }, []);
+
+  const handleMenuClose = useCallback(() => {
+    setMenuAnchorEl(null);
+  }, []);
+
+  const handleRefresh = useCallback(async () => {
     try {
-      const token = getAuthToken();
-      if (!token) {
-        throw new Error('No authentication token available');
-      }
-
-      const queryParams = new URLSearchParams();
-      if (filters.length > 0) {
-        queryParams.append('filters', JSON.stringify(filters));
-      }
-      if (Object.keys(globalFilters).length > 0) {
-        queryParams.append('global_filters', JSON.stringify(globalFilters));
-      }
-
-      const url = `/api/workspaces/${workspaceId}/charts/${chartId}/data${queryParams.toString() ? `?${queryParams}` : ''}`;
-      
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'X-Workspace-ID': workspaceId
-        }
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-
-      const result = await response.json();
-      const loadTime = Date.now() - loadStartTimeRef.current;
-      const now = new Date();
-
-      console.log(`✅ Chart data loaded: ${chartId}`, { 
-        loadTime: `${loadTime}ms`,
-        dataRows: result.data?.data?.length || 0 
-      });
-
-      setChartState(prev => ({
-        ...prev,
-        data: result.data,
-        loading: false,
-        error: null,
-        lastRefresh: now,
-        nextRefresh: effectiveAutoRefresh ? 
-          new Date(now.getTime() + effectiveRefreshInterval * 1000) : null,
-        refreshCount: prev.refreshCount + 1,
+      console.log('🔄 Refreshing chart:', chart.id);
+      setChartState(prev => ({ ...prev, loading: true, error: null }));
+      await refetchChartData();
+      onRefreshComplete?.(true);
+      setChartState(prev => ({ 
+        ...prev, 
+        loading: false, 
+        lastRefresh: new Date(),
         consecutiveErrors: 0,
-        isInitialized: true
+        refreshCount: prev.refreshCount + 1
       }));
-
-      // Notify parent components
-      onChartLoad?.(chartId, { 
-        loadTime, 
-        dataSize: JSON.stringify(result.data).length,
-        refreshCount: chartState.refreshCount + 1
-      });
-
-      if (isDashboardRefresh) {
-        onRefreshComplete?.(chartId, true);
-      }
-
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      const loadTime = Date.now() - loadStartTimeRef.current;
-      
-      console.error(`❌ Chart data loading error (${chartId}):`, err);
-      
-      setChartState(prev => ({
-        ...prev,
-        loading: false,
-        error: errorMessage,
+    } catch (error) {
+      console.error('Chart refresh failed:', error);
+      onRefreshComplete?.(false);
+      setChartState(prev => ({ 
+        ...prev, 
+        loading: false, 
+        error: error instanceof Error ? error.message : 'Refresh failed',
         consecutiveErrors: prev.consecutiveErrors + 1
       }));
-
-      onChartError?.(chartId, errorMessage);
-
-      if (isDashboardRefresh) {
-        onRefreshComplete?.(chartId, false);
-      }
-
-      // Pause auto refresh if too many consecutive errors
-      if (chartState.consecutiveErrors >= maxRetries) {
-        setChartState(prev => ({ ...prev, isPaused: true }));
-      }
     }
-  }, [
-    chart.id, 
-    workspaceId, 
-    filters, 
-    globalFilters, 
-    chartState.data, 
-    chartState.lastRefresh,
-    chartState.refreshCount,
-    chartState.consecutiveErrors,
-    effectiveAutoRefresh,
-    effectiveRefreshInterval,
-    maxRetries,
-    onChartLoad,
-    onChartError,
-    onRefreshComplete
-  ]);
+  }, [refetchChartData, onRefreshComplete, chart.id]);
 
-  // ============================================================================
-  // AUTO REFRESH MANAGEMENT
-  // ============================================================================
-
-  const startAutoRefresh = useCallback(() => {
-    if (autoRefreshRef.current) {
-      clearInterval(autoRefreshRef.current);
+  const handleExport = useCallback(async (format: string) => {
+    try {
+      console.log('📁 Exporting chart:', chart.id, 'as', format);
+      await exportChart({
+        chartId: chart.id,
+        format,
+        options: { includeData: true }
+      });
+      handleMenuClose();
+    } catch (error) {
+      console.error('Export failed:', error);
     }
-
-    if (!effectiveAutoRefresh || 
-        chartState.isPaused || 
-        !isPollingAllowed(pollingConfig) ||
-        (pollingConfig.pause_on_tab_hidden && isTabHiddenRef.current)) {
-      return;
-    }
-
-    const intervalMs = Math.max(effectiveRefreshInterval * 1000, 5000); // Min 5s
-    
-    autoRefreshRef.current = setInterval(() => {
-      loadChartData(true);
-    }, intervalMs);
-
-    setChartState(prev => ({ 
-      ...prev, 
-      autoRefresh: true,
-      refreshInterval: effectiveRefreshInterval
-    }));
-  }, [effectiveAutoRefresh, effectiveRefreshInterval, chartState.isPaused, pollingConfig, loadChartData]);
-
-  const stopAutoRefresh = useCallback(() => {
-    if (autoRefreshRef.current) {
-      clearInterval(autoRefreshRef.current);
-      autoRefreshRef.current = undefined;
-    }
-    
-    setChartState(prev => ({ 
-      ...prev, 
-      autoRefresh: false,
-      nextRefresh: null
-    }));
-  }, []);
+  }, [exportChart, chart.id]);
 
   // ============================================================================
   // EFFECTS
   // ============================================================================
 
-  // Handle tab visibility changes
+  // Handle refresh trigger from dashboard
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      isTabHiddenRef.current = document.hidden;
-      
-      if (pollingConfig.pause_on_tab_hidden && chartState.isInitialized) {
-        if (document.hidden) {
-          stopAutoRefresh();
-        } else {
-          startAutoRefresh();
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [pollingConfig, chartState.isInitialized, startAutoRefresh, stopAutoRefresh]);
-
-  // Initialize chart data loading
-  useEffect(() => {
-    if (!chartState.isInitialized && chart.id && workspaceId) {
-      loadChartData();
+    if (refreshTrigger && refreshTrigger > 0) {
+      handleRefresh();
     }
-  }, [chartState.isInitialized, chart.id, workspaceId, loadChartData]);
+  }, [refreshTrigger, handleRefresh]);
 
-  // Setup auto refresh
+  // Initialize chart state
   useEffect(() => {
-    if (chartState.isInitialized) {
-      startAutoRefresh();
-    }
-
-    return () => {
-      if (autoRefreshRef.current) {
-        clearInterval(autoRefreshRef.current);
-      }
-    };
-  }, [chartState.isInitialized, startAutoRefresh]);
-
-  // Update auto refresh when settings change
-  useEffect(() => {
-    if (effectiveAutoRefresh && chartState.isInitialized) {
-      startAutoRefresh();
-    } else {
-      stopAutoRefresh();
-    }
-  }, [effectiveAutoRefresh, effectiveRefreshInterval, startAutoRefresh, stopAutoRefresh, chartState.isInitialized]);
-
-  // Listen for dashboard refresh triggers
-  useEffect(() => {
-    if (dashboardRefreshTrigger && chartState.isInitialized) {
-      console.log(`🔄 Dashboard refresh triggered for chart ${chart.id}`);
-      loadChartData(true, true);
-    }
-  }, [dashboardRefreshTrigger, chartState.isInitialized, loadChartData, chart.id]);
+    setChartState(prev => ({
+      ...prev,
+      loading: queryLoading,
+      error: chartError,
+      data: processedData,
+      isInitialized: true
+    }));
+  }, [queryLoading, chartError, processedData]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -505,211 +338,221 @@ export const ChartContainer: React.FC<EnhancedChartContainerProps> = ({
       if (autoRefreshRef.current) {
         clearInterval(autoRefreshRef.current);
       }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
     };
   }, []);
 
   // ============================================================================
-  // EVENT HANDLERS - Original handlers maintained
+  // RENDER LOGIC
   // ============================================================================
 
-  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
-    setMenuAnchorEl(event.currentTarget);
-  };
+  // Loading state
+  if (chartState.loading || queryLoading) {
+    return (
+      <Paper 
+        elevation={gridItem ? 1 : 0} 
+        sx={{ 
+          p: 2, 
+          height: fullscreen ? '100vh' : 'auto',
+          minHeight: 200,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        <Box display="flex" flexDirection="column" alignItems="center" gap={1}>
+          <CircularProgress size={32} />
+          <Typography variant="body2" color="text.secondary">
+            Loading chart...
+          </Typography>
+          {chart.display_name && (
+            <Typography variant="caption" color="text.secondary">
+              {chart.display_name}
+            </Typography>
+          )}
+          <Typography variant="caption" color="text.secondary">
+            ID: {chart.id}
+          </Typography>
+        </Box>
+      </Paper>
+    );
+  }
 
-  const handleMenuClose = () => {
-    setMenuAnchorEl(null);
-  };
+  // Error state
+  if (chartError && showErrorInCard) {
+    return (
+      <Paper 
+        elevation={gridItem ? 1 : 0} 
+        sx={{ 
+          p: 2, 
+          height: fullscreen ? '100vh' : 'auto',
+          minHeight: 200
+        }}
+      >
+        <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+          <Typography variant="subtitle2" color="text.primary">
+            {chart.display_name}
+          </Typography>
+          <IconButton size="small" onClick={handleMenuClick}>
+            <MoreVertIcon />
+          </IconButton>
+        </Box>
+        
+        <Alert severity="error" sx={{ mb: 1 }}>
+          <Typography variant="body2">{chartError}</Typography>
+          <Typography variant="caption" color="text.secondary">
+            Chart ID: {chart.id}
+          </Typography>
+        </Alert>
 
-  const handleRefresh = async () => {
-    handleMenuClose();
-    
-    // Reset consecutive errors on manual refresh
-    setChartState(prev => ({ 
-      ...prev, 
-      consecutiveErrors: 0, 
-      isPaused: false 
-    }));
-    
-    await loadChartData(true);
-    onChartRefresh?.(chart.id);
-  };
+        <Button
+          variant="outlined"
+          size="small"
+          startIcon={<RefreshIcon />}
+          onClick={handleRefresh}
+        >
+          Retry
+        </Button>
+      </Paper>
+    );
+  }
 
-  const handleExport = async (format: 'png' | 'pdf' | 'csv') => {
-    handleMenuClose();
-    setIsExporting(true);
-    
-    try {
-      console.log(`📊 Exporting chart ${chart.id} as ${format}`);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    } catch (error) {
-      console.error('Export failed:', error);
-    } finally {
-      setIsExporting(false);
-    }
-  };
+  // No data state
+  if (!processedData) {
+    return (
+      <Paper 
+        elevation={gridItem ? 1 : 0} 
+        sx={{ 
+          p: 2, 
+          height: fullscreen ? '100vh' : 'auto',
+          minHeight: 200,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        <Box display="flex" flexDirection="column" alignItems="center" gap={1}>
+          <ChartIcon sx={{ fontSize: 48, color: 'grey.400' }} />
+          <Typography variant="body2" color="text.secondary">
+            No data available
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {chart.display_name}
+          </Typography>
+        </Box>
+      </Paper>
+    );
+  }
 
-  // ============================================================================
-  // RENDER - Original UI maintained, no visual changes
-  // ============================================================================
-
-  // Combined loading state (external + internal)
-  const isLoadingData = (externalLoading || chartState.loading);
-  const hasError = (!!externalError || !!chartState.error);
-  const errorToShow = externalError || chartState.error;
-  const dataToShow = chartState.data;
-
+  // Main chart render
   return (
     <ChartErrorBoundary>
-      <Paper
-        ref={containerRef}
-        className={className}
-        style={style}
-        elevation={preview ? 0 : 1}
-        sx={{
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          position: 'relative',
-          cursor: onClick ? 'pointer' : 'default',
-          '&:hover': onClick ? { elevation: 2 } : {},
+      <Paper 
+        elevation={gridItem ? 1 : 0} 
+        sx={{ 
+          height: fullscreen ? '100vh' : 'auto',
+          minHeight: 200,
+          position: 'relative'
         }}
-        onClick={onClick}
       >
-        {/* Header - Original design */}
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            p: 1,
-            borderBottom: 1,
-            borderColor: 'divider',
-            minHeight: 48,
-          }}
+        {/* Chart Header */}
+        <Box 
+          display="flex" 
+          alignItems="center" 
+          justifyContent="space-between" 
+          p={1}
+          borderBottom={1}
+          borderColor="divider"
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
-            <ChartIcon color="action" sx={{ mr: 1, flexShrink: 0 }} />
-            <Typography
-              variant="subtitle2"
-              noWrap
-              sx={{ fontWeight: 600, flex: 1 }}
-            >
-              {chart.display_name || chart.name}
+          <Typography variant="subtitle2" color="text.primary" noWrap>
+            {chart.display_name}
+          </Typography>
+
+          <Box display="flex" alignItems="center" gap={0.5}>
+            {chartState.lastRefresh && (
+              <Tooltip title={`Last updated: ${chartState.lastRefresh.toLocaleTimeString()}`}>
+                <SuccessIcon sx={{ fontSize: 16, color: 'success.main' }} />
+              </Tooltip>
+            )}
+            
+            <Tooltip title="More options">
+              <IconButton size="small" onClick={handleMenuClick}>
+                <MoreVertIcon />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </Box>
+
+        {/* Chart Content */}
+        <Box sx={{ p: 1, height: 'calc(100% - 48px)' }}>
+          <ChartRenderer
+            chart={chart}
+            data={processedData}
+            config={chart.config_json}
+            dimensions={{
+              width: chart.position_json?.width || 400,
+              height: chart.position_json?.height || 300
+            }}
+            onInteraction={onInteraction}
+            onError={(error) => setChartState(prev => ({ 
+              ...prev, 
+              error: typeof error === 'string' ? error : error.message 
+            }))}
+          />
+        </Box>
+
+        {/* Performance Metrics */}
+        {showPerformanceMetrics && (
+          <Box 
+            sx={{ 
+              position: 'absolute', 
+              bottom: 8, 
+              left: 8, 
+              right: 8,
+              bgcolor: 'background.paper',
+              border: 1,
+              borderColor: 'divider',
+              borderRadius: 1,
+              p: 1,
+              fontSize: '0.75rem'
+            }}
+          >
+            <Typography variant="caption">
+              Refreshes: {chartState.refreshCount} | 
+              Errors: {chartState.consecutiveErrors} |
+              {chartState.lastRefresh && ` Updated: ${chartState.lastRefresh.toLocaleTimeString()}`}
             </Typography>
           </Box>
-
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>            
-            {isLoadingData && (
-              <Tooltip title="Loading">
-                <CircularProgress size={20} />
-              </Tooltip>
-            )}
-
-            {hasError && (
-              <Tooltip title={String(errorToShow)}>
-                <ErrorIcon color="error" fontSize="small" />
-              </Tooltip>
-            )}
-
-            <IconButton
-              size="small"
-              onClick={handleMenuOpen}
-              disabled={isExporting}
-            >
-              <MoreVertIcon fontSize="small" />
-            </IconButton>
-          </Box>
-        </Box>
-
-        {/* Content - Original design */}
-        <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-          {hasError && showErrorInCard ? (
-            <Alert 
-              severity="error" 
-              sx={{ m: 1 }}
-              action={
-                <Button size="small" onClick={handleRefresh}>
-                  Retry
-                </Button>
-              }
-            >
-              <Typography variant="body2" sx={{ mb: 0.5 }}>
-                Failed to load chart data
-              </Typography>
-              <Typography variant="caption" color="textSecondary">
-                {errorToShow}
-              </Typography>
-            </Alert>
-          ) : dataToShow ? (
-            <ChartRenderer
-              chart={chart}
-              data={dataToShow}
-              theme={theme}
-              fullscreen={fullscreen}
-              onDataPointClick={onClick}
-            />
-          ) : isLoadingData ? (
-            <Box
-              sx={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '100%',
-                gap: 2
-              }}
-            >
-              <CircularProgress size={40} />
-              <Typography variant="body2" color="textSecondary">
-                Loading chart data...
-              </Typography>
-            </Box>
-          ) : (
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '100%'
-              }}
-            >
-              <Typography variant="body2" color="textSecondary">
-                No data available
-              </Typography>
-            </Box>
-          )}
-        </Box>
-
-        {/* Context Menu - Original design */}
-        <Menu
-          anchorEl={menuAnchorEl}
-          open={Boolean(menuAnchorEl)}
-          onClose={handleMenuClose}
-          PaperProps={{
-            sx: { minWidth: 180 }
-          }}
-        >
-          <MenuItem onClick={handleRefresh} disabled={isLoadingData}>
-            <RefreshIcon sx={{ mr: 1 }} fontSize="small" />
-            Refresh Data
-          </MenuItem>
-          
-          <MenuItem onClick={() => handleExport('png')} disabled={isExporting}>
-            <DownloadIcon sx={{ mr: 1 }} fontSize="small" />
-            Export as PNG
-          </MenuItem>
-          
-          <MenuItem onClick={() => handleExport('pdf')} disabled={isExporting}>
-            <DownloadIcon sx={{ mr: 1 }} fontSize="small" />
-            Export as PDF
-          </MenuItem>
-          
-          <MenuItem onClick={() => handleExport('csv')} disabled={isExporting}>
-            <DownloadIcon sx={{ mr: 1 }} fontSize="small" />
-            Export Data (CSV)
-          </MenuItem>
-        </Menu>
+        )}
       </Paper>
+
+      {/* Context Menu */}
+      <Menu
+        anchorEl={menuAnchorEl}
+        open={Boolean(menuAnchorEl)}
+        onClose={handleMenuClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <MenuItem onClick={handleRefresh}>
+          <RefreshIcon sx={{ mr: 1 }} />
+          Refresh
+        </MenuItem>
+        <MenuItem onClick={() => handleExport('png')}>
+          <DownloadIcon sx={{ mr: 1 }} />
+          Export PNG
+        </MenuItem>
+        <MenuItem onClick={() => handleExport('svg')}>
+          <DownloadIcon sx={{ mr: 1 }} />
+          Export SVG
+        </MenuItem>
+        <MenuItem onClick={() => setShowPerformanceMetrics(!showPerformanceMetrics)}>
+          <ChartIcon sx={{ mr: 1 }} />
+          {showPerformanceMetrics ? 'Hide' : 'Show'} Metrics
+        </MenuItem>
+      </Menu>
     </ChartErrorBoundary>
   );
 };
