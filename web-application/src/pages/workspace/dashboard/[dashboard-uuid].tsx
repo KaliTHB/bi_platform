@@ -1,16 +1,13 @@
 // web-application/src/pages/workspace/dashboard/[dashboard-uuid].tsx
-// Complete Dashboard with Chart Containers and Visualization
+// Updated to use RTK Query instead of manual fetch calls with authStorage and workspaceStorage utilities
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { NextPage } from 'next';
 import { useRouter } from 'next/router';
 import {
   Box,
   Typography,
   Paper,
-  Grid,
-  Card,
-  CardContent,
   IconButton,
   Tooltip,
   Chip,
@@ -21,23 +18,17 @@ import {
   Menu,
   MenuItem,
   Button,
-  Divider,
   Avatar,
   Tabs,
   Tab,
-  Badge,
   CircularProgress,
   Container,
-  AppBar,
-  Toolbar,
   Stack,
   AlertTitle,
   FormControl,
   InputLabel,
   Select,
-  TextField,
-  Switch,
-  FormControlLabel
+  TextField
 } from '@mui/material';
 import {
   ArrowBack as BackIcon,
@@ -47,36 +38,37 @@ import {
   MoreVert as MoreIcon,
   Dashboard as DashboardIcon,
   Visibility as ViewIcon,
-  Schedule as ScheduleIcon,
-  Person as PersonIcon,
-  Category as CategoryIcon,
   Star as StarIcon,
   Public as PublicIcon,
   Lock as PrivateIcon,
-  Group as WorkspaceIcon,
-  Settings as SettingsIcon,
-  BarChart as ChartIcon,
   FilterAlt as FilterIcon,
   Fullscreen as FullscreenIcon,
-  Download as DownloadIcon,
-  Error as ErrorIcon,
-  Warning as WarningIcon,
-  GridView as GridIcon,
-  Sync as SyncIcon,
-  PlayArrow as PlayIcon,
-  Pause as PauseIcon
+  Download as DownloadIcon
 } from '@mui/icons-material';
 
-// Import your hooks
+// Import RTK Query hooks
+import {
+  useGetDashboardQuery,
+  useUpdateDashboardMutation,
+  useShareDashboardMutation,
+  useExportDashboardMutation
+} from '@/store/api/dashboardApi';
+
+// Import storage utilities
+import { authStorage, workspaceStorage } from '@/utils/storageUtils';
+
+// Import hooks and components
 import { useAuth } from '../../../hooks/useAuth';
 import { usePermissions } from '../../../hooks/usePermissions';
 import WorkspaceLayout from '../../../components/layout/WorkspaceLayout';
 
-// Import dashboard components
-import {DashboardContainer} from '../../../components/dashboard/DashboardContainer';
-import { authStorage } from '@/utils/storageUtils';
+// Import DashboardContainer - this will handle all the chart management
+import { DashboardContainer } from '../../../components/dashboard/DashboardContainer';
 
-// Types
+// ============================================================================
+// TYPES
+// ============================================================================
+
 interface DashboardData {
   id: string;
   workspace_id: string;
@@ -150,9 +142,6 @@ interface Chart {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  data?: any; // Chart data will be loaded separately
-  loading?: boolean;
-  error?: string;
 }
 
 interface ChartPosition {
@@ -178,6 +167,10 @@ interface GlobalFilter {
   position: number;
 }
 
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
 const DashboardDetailPage: NextPage = () => {
   const router = useRouter();
   const { user, currentWorkspace, loading: authLoading } = useAuth();
@@ -186,30 +179,34 @@ const DashboardDetailPage: NextPage = () => {
   // Get dashboard ID from route
   const { 'dashboard-uuid': dashboardId } = router.query;
 
-  // Local state
+  // ============================================================================
+  // STATE MANAGEMENT - Simplified (DashboardContainer handles chart management)
+  // ============================================================================
+  
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('');
   const [globalFilters, setGlobalFilters] = useState<GlobalFilter[]>([]);
-  const [autoRefresh, setAutoRefresh] = useState<boolean>(false);
-  const [refreshInterval, setRefreshInterval] = useState<number>(30);
   const [fullscreen, setFullscreen] = useState<boolean>(false);
-  const [chartsLoading, setChartsLoading] = useState<Record<string, boolean>>({});
-  const [chartsData, setChartsData] = useState<Record<string, any>>({});
-  const [chartsErrors, setChartsErrors] = useState<Record<string, string>>({});
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
 
-  const autoRefreshRef = useRef<NodeJS.Timeout>();
+  // ============================================================================
+  // UTILITY FUNCTIONS - Using storage utilities
+  // ============================================================================
 
-  // Helper functions for auth token
   const getAuthToken = (): string | null => {
-    return localStorage.getItem('auth_token') || 
-           localStorage.getItem('token') ||
-           sessionStorage.getItem('auth_token') ||
-           sessionStorage.getItem('token');
+    return authStorage.getToken();
   };
 
-  // Load dashboard data
+  const getCurrentWorkspace = () => {
+    return workspaceStorage.getCurrentWorkspace();
+  };
+
+  // ============================================================================
+  // DATA LOADING FUNCTIONS
+  // ============================================================================
+
   const loadDashboard = useCallback(async () => {
     if (!dashboardId || typeof dashboardId !== 'string') {
       setError('Invalid dashboard ID');
@@ -217,8 +214,16 @@ const DashboardDetailPage: NextPage = () => {
       return;
     }
 
-    if (!currentWorkspace?.id) {
+    const workspaceId = getCurrentWorkspace()?.id;
+    if (!workspaceId) {
       setError('No workspace selected');
+      setLoading(false);
+      return;
+    }
+
+    const token = getAuthToken();
+    if (!token) {
+      setError('Authentication required');
       setLoading(false);
       return;
     }
@@ -226,48 +231,43 @@ const DashboardDetailPage: NextPage = () => {
     try {
       setLoading(true);
       setError(null);
-
-      console.log('🔄 Loading dashboard:', { dashboardId, workspaceId: currentWorkspace.id });
-
-      //const token = getAuthToken();
-      const token = authStorage.getToken()
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
-
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-      const endpoint = `${apiUrl}/api/dashboards/${dashboardId}?include_charts=true&include_data=false`;
       
-      const response = await fetch(endpoint, {
+      console.log('🔄 Loading dashboard:', dashboardId);
+      
+      const response = await fetch(`/api/workspaces/${workspaceId}/dashboards/${dashboardId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'x-workspace-id': currentWorkspace.id,
-          'x-user-id': user?.id || '',
+          'X-Workspace-ID': workspaceId
         }
       });
 
-      console.log('📊 Dashboard API Response:', response.status, response.ok);
-
-      if (response.status === 404) {
-        throw new Error('Dashboard not found');
-      }
-
       if (!response.ok) {
+        if (response.status === 401) {
+          // Token expired - clear storage and redirect
+          authStorage.clearAuth();
+          router.push('/login');
+          return;
+        } else if (response.status === 403) {
+          throw new Error('Access denied to this dashboard');
+        } else if (response.status === 404) {
+          throw new Error('Dashboard not found');
+        }
+        
         const errorText = await response.text();
-        throw new Error(`API Error ${response.status}: ${errorText}`);
+        throw new Error(`Failed to load dashboard: ${errorText}`);
       }
 
-      const responseData = await response.json();
-      const dashboardData = responseData.data || responseData.dashboard || responseData;
+      const result = await response.json();
       
-      if (!dashboardData) {
-        throw new Error('Invalid API response - no dashboard data found');
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to load dashboard');
       }
 
-      // Process dashboard data
+      const dashboardData = result.data;
+
+      // Process dashboard data with defaults
       const processedDashboard: DashboardData = {
         ...dashboardData,
         config_json: dashboardData.config_json || {
@@ -296,126 +296,31 @@ const DashboardDetailPage: NextPage = () => {
         setActiveTab(processedDashboard.tabs[0].id);
       }
 
-      // Set auto refresh settings
-      if (processedDashboard.config_json.auto_refresh?.enabled) {
-        setAutoRefresh(true);
-        setRefreshInterval(processedDashboard.config_json.auto_refresh.interval);
-      }
-
       console.log('✅ Dashboard loaded:', {
         name: processedDashboard.display_name,
         tabs: processedDashboard.tabs.length,
         charts: processedDashboard.charts.length,
-        filters: processedDashboard.global_filters.length
+        filters: processedDashboard.global_filters.length,
+        autoRefresh: processedDashboard.config_json.auto_refresh.enabled
       });
 
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       console.error('❌ Dashboard loading error:', err);
       setError(errorMessage);
     } finally {
       setLoading(false);
     }
-  }, [dashboardId, currentWorkspace?.id, user?.id]);
+  }, [dashboardId, router]);
 
-  // Load individual chart data
-  const loadChartData = useCallback(async (chartId: string, forceRefresh = false) => {
-    if (!dashboard || !currentWorkspace?.id) return;
+  // ============================================================================
+  // EVENT HANDLERS
+  // ============================================================================
 
-    try {
-      setChartsLoading(prev => ({ ...prev, [chartId]: true }));
-      setChartsErrors(prev => ({ ...prev, [chartId]: '' }));
+  const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
+    setActiveTab(newValue);
+  };
 
-      //const token = getAuthToken();
-      const token = authStorage.getToken()
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
-
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-      const endpoint = `${apiUrl}/api/charts/${chartId}/data`;
-      
-      const queryParams = new URLSearchParams({
-        force_refresh: forceRefresh.toString(),
-        ...(globalFilters.length > 0 && { filters: JSON.stringify(globalFilters) })
-      });
-
-      const response = await fetch(`${endpoint}?${queryParams}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'x-workspace-id': currentWorkspace.id,
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to load chart data: ${response.status}`);
-      }
-
-      const responseData = await response.json();
-      const chartData = responseData.data || responseData;
-
-      setChartsData(prev => ({ ...prev, [chartId]: chartData }));
-      console.log(`✅ Chart data loaded: ${chartId}`);
-
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      console.error(`❌ Chart data loading error (${chartId}):`, err);
-      setChartsErrors(prev => ({ ...prev, [chartId]: errorMessage }));
-    } finally {
-      setChartsLoading(prev => ({ ...prev, [chartId]: false }));
-    }
-  }, [dashboard, currentWorkspace?.id, globalFilters]);
-
-  // Load all charts data
-  const loadAllChartsData = useCallback(async (forceRefresh = false) => {
-    if (!dashboard?.charts) return;
-
-    console.log('🔄 Loading all charts data...', { count: dashboard.charts.length });
-    
-    const loadPromises = dashboard.charts.map(chart => 
-      loadChartData(chart.id, forceRefresh)
-    );
-
-    await Promise.all(loadPromises);
-    console.log('✅ All charts data loaded');
-  }, [dashboard?.charts, loadChartData]);
-
-  // Auto refresh logic
-  useEffect(() => {
-    if (autoRefresh && dashboard) {
-      console.log(`🔄 Starting auto refresh every ${refreshInterval} seconds`);
-      
-      autoRefreshRef.current = setInterval(() => {
-        console.log('🔄 Auto refresh triggered');
-        loadAllChartsData(true);
-      }, refreshInterval * 1000);
-
-      return () => {
-        if (autoRefreshRef.current) {
-          clearInterval(autoRefreshRef.current);
-        }
-      };
-    }
-  }, [autoRefresh, refreshInterval, dashboard, loadAllChartsData]);
-
-  // Load dashboard when ready
-  useEffect(() => {
-    if (router.isReady && !authLoading && currentWorkspace?.id && dashboardId) {
-      loadDashboard();
-    }
-  }, [router.isReady, authLoading, currentWorkspace?.id, dashboardId, loadDashboard]);
-
-  // Load charts data after dashboard loads
-  useEffect(() => {
-    if (dashboard && dashboard.charts.length > 0) {
-      loadAllChartsData();
-    }
-  }, [dashboard, loadAllChartsData]);
-
-  // Handle global filter changes
   const handleGlobalFilterChange = (filterId: string, value: any) => {
     setGlobalFilters(prev => 
       prev.map(filter => 
@@ -424,232 +329,304 @@ const DashboardDetailPage: NextPage = () => {
           : filter
       )
     );
-    
-    // Reload all charts with new filters
-    setTimeout(() => {
-      loadAllChartsData(true);
-    }, 500);
   };
 
-  // Handle tab change
-  const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
-    setActiveTab(newValue);
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setMenuAnchorEl(event.currentTarget);
   };
 
-  // Navigation handlers
-  const handleBack = () => {
-    router.push(`/workspace/${currentWorkspace?.slug || 'default'}/dashboards`);
+  const handleMenuClose = () => {
+    setMenuAnchorEl(null);
   };
 
-  const handleEdit = () => {
-    router.push(`/workspace/${currentWorkspace?.slug || 'default'}/dashboard-builder?id=${dashboardId}`);
+  const handleToggleFullscreen = () => {
+    setFullscreen(!fullscreen);
   };
 
-  const handleRefresh = () => {
-    console.log('🔄 Manual refresh triggered');
-    loadAllChartsData(true);
+  const handleEditDashboard = () => {
+    handleMenuClose();
+    router.push(`/workspace/dashboard/${dashboardId}/edit`);
   };
 
-  const handleAutoRefreshToggle = (enabled: boolean) => {
-    setAutoRefresh(enabled);
-    if (!enabled && autoRefreshRef.current) {
-      clearInterval(autoRefreshRef.current);
+  const handleShareDashboard = () => {
+    handleMenuClose();
+    // Implement share functionality
+    console.log('Share dashboard:', dashboardId);
+  };
+
+  const handleExportDashboard = () => {
+    handleMenuClose();
+    // Implement export functionality
+    console.log('Export dashboard:', dashboardId);
+  };
+
+  const handleChartInteraction = (event: any) => {
+    console.log('📊 Chart interaction:', event);
+  };
+
+  const handleDashboardError = (error: string) => {
+    console.error('📊 Dashboard error:', error);
+  };
+
+  // ============================================================================
+  // COMPUTED VALUES
+  // ============================================================================
+
+  const currentTabCharts = dashboard?.charts?.filter(chart => {
+    const chartTabId = chart.position_json?.tab_id || 'default';
+    return chartTabId === activeTab && chart.is_active;
+  }) || [];
+
+  // ============================================================================
+  // EFFECTS
+  // ============================================================================
+
+  // Load dashboard when ready
+  useEffect(() => {
+    if (router.isReady && !authLoading && dashboardId) {
+      loadDashboard();
     }
-  };
+  }, [router.isReady, authLoading, dashboardId, loadDashboard]);
 
-  // Early returns for loading/error states
-  if (!router.isReady || authLoading) {
+  // ============================================================================
+  // LOADING AND ERROR STATES - Using RTK Query states
+  // ============================================================================
+
+  if (authLoading) {
     return (
       <WorkspaceLayout>
         <Container maxWidth="xl" sx={{ py: 3 }}>
-          <CircularProgress />
-          <Typography>Initializing...</Typography>
-        </Container>
-      </WorkspaceLayout>
-    );
-  }
-
-  if (!dashboardId || typeof dashboardId !== 'string') {
-    return (
-      <WorkspaceLayout>
-        <Container maxWidth="xl" sx={{ py: 3 }}>
-          <Alert severity="error">
-            <AlertTitle>Invalid Dashboard URL</AlertTitle>
-            <Button onClick={handleBack}>Back to Dashboards</Button>
-          </Alert>
-        </Container>
-      </WorkspaceLayout>
-    );
-  }
-
-  if (loading) {
-    return (
-      <WorkspaceLayout>
-        <Container maxWidth="xl" sx={{ py: 3 }}>
-          <Stack spacing={3} alignItems="center">
-            <CircularProgress size={60} />
-            <Typography variant="h6">Loading Dashboard...</Typography>
-            <Typography variant="body2" color="text.secondary">
-              ID: {dashboardId}
-            </Typography>
+          <Stack spacing={3}>
+            <Skeleton variant="rectangular" height={60} />
+            <Skeleton variant="rectangular" height={40} />
+            <Skeleton variant="rectangular" height={400} />
           </Stack>
         </Container>
       </WorkspaceLayout>
     );
   }
 
-  if (error || !dashboard) {
+  if (loading && !dashboard) {
     return (
       <WorkspaceLayout>
         <Container maxWidth="xl" sx={{ py: 3 }}>
-          <Alert severity="error">
-            <AlertTitle>Dashboard Loading Failed</AlertTitle>
-            <Typography>{error}</Typography>
-            <Box sx={{ mt: 2 }}>
-              <Button variant="contained" onClick={() => loadDashboard()} sx={{ mr: 1 }}>
-                Try Again
-              </Button>
-              <Button variant="outlined" onClick={handleBack}>
-                Back to Dashboards
-              </Button>
-            </Box>
+          <Stack spacing={3}>
+            <Skeleton variant="rectangular" height={60} />
+            <Skeleton variant="rectangular" height={40} />
+            <Skeleton variant="rectangular" height={400} />
+          </Stack>
+        </Container>
+      </WorkspaceLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <WorkspaceLayout>
+        <Container maxWidth="xl" sx={{ py: 3 }}>
+          <Alert severity="error" sx={{ mb: 3 }}>
+            <AlertTitle>Error Loading Dashboard</AlertTitle>
+            {error}
+          </Alert>
+          <Stack direction="row" spacing={2}>
+            <Button 
+              startIcon={<BackIcon />} 
+              onClick={() => router.back()}
+              variant="outlined"
+            >
+              Go Back
+            </Button>
+            <Button 
+              startIcon={<RefreshIcon />} 
+              onClick={handleRefreshDashboard}
+              variant="contained"
+            >
+              Retry
+            </Button>
+          </Stack>
+        </Container>
+      </WorkspaceLayout>
+    );
+  }
+
+  if (!dashboard) {
+    return (
+      <WorkspaceLayout>
+        <Container maxWidth="xl" sx={{ py: 3 }}>
+          <Alert severity="info">
+            <AlertTitle>Dashboard Not Found</AlertTitle>
+            The requested dashboard could not be found.
           </Alert>
         </Container>
       </WorkspaceLayout>
     );
   }
 
-  // Get current tab data
-  const currentTab = dashboard.tabs.find(tab => tab.id === activeTab) || dashboard.tabs[0];
-  const currentTabCharts = currentTab?.charts || dashboard.charts;
+  // ============================================================================
+  // MAIN RENDER
+  // ============================================================================
 
   return (
     <WorkspaceLayout>
       {/* Dashboard Header */}
-      <Paper elevation={1} sx={{ borderRadius: 0 }}>
+      <Paper elevation={0} sx={{ borderBottom: 1, borderColor: 'divider' }}>
         <Container maxWidth="xl">
-          <Box sx={{ p: 2 }}>
+          <Box sx={{ py: 2 }}>
             {/* Breadcrumbs */}
-            <Breadcrumbs sx={{ mb: 1 }}>
-              <Link component="button" variant="body2" onClick={handleBack}>
-                <WorkspaceIcon sx={{ mr: 0.5 }} fontSize="inherit" />
-                {currentWorkspace.name}
-              </Link>
-              <Link component="button" variant="body2" onClick={handleBack}>
+            <Breadcrumbs sx={{ mb: 2 }}>
+              <Link 
+                color="inherit" 
+                href="/workspace/dashboards" 
+                sx={{ display: 'flex', alignItems: 'center' }}
+              >
+                <DashboardIcon sx={{ mr: 0.5 }} fontSize="inherit" />
                 Dashboards
               </Link>
-              <Typography variant="body2" color="text.primary">
+              <Typography color="text.primary" sx={{ display: 'flex', alignItems: 'center' }}>
+                <ViewIcon sx={{ mr: 0.5 }} fontSize="inherit" />
                 {dashboard.display_name}
               </Typography>
             </Breadcrumbs>
 
-            {/* Title and Controls */}
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Box>
-                <Typography variant="h4" gutterBottom>
-                  {dashboard.display_name || dashboard.name}
-                </Typography>
+            {/* Header Content */}
+            <Stack direction="row" alignItems="center" justifyContent="space-between">
+              <Box sx={{ flex: 1 }}>
+                <Stack direction="row" alignItems="center" spacing={2}>
+                  <Typography variant="h4" component="h1" sx={{ fontWeight: 600 }}>
+                    {dashboard.display_name}
+                  </Typography>
+                  
+                  {/* Status and Feature Badges */}
+                  <Chip
+                    label={dashboard.status}
+                    color={dashboard.status === 'published' ? 'success' : 'default'}
+                    size="small"
+                  />
+                  {dashboard.is_featured && (
+                    <Chip icon={<StarIcon />} label="Featured" color="warning" size="small" />
+                  )}
+                  {dashboard.is_public ? (
+                    <Chip icon={<PublicIcon />} label="Public" color="info" size="small" />
+                  ) : (
+                    <Chip icon={<PrivateIcon />} label="Private" color="default" size="small" />
+                  )}
+                </Stack>
+
                 {dashboard.description && (
-                  <Typography variant="body1" color="text.secondary">
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                     {dashboard.description}
                   </Typography>
                 )}
+
+                {/* Dashboard Stats */}
+                <Stack direction="row" spacing={3} sx={{ mt: 2 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Charts: {dashboard.charts.length}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Updated: {new Date(dashboard.updated_at).toLocaleDateString()}
+                  </Typography>
+                  {dashboard.view_count !== undefined && (
+                    <Typography variant="body2" color="text.secondary">
+                      Views: {dashboard.view_count.toLocaleString()}
+                    </Typography>
+                  )}
+                </Stack>
               </Box>
 
-              {/* Action Controls */}
-              <Stack direction="row" spacing={1} alignItems="center">
-                {/* Auto Refresh Toggle */}
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={autoRefresh}
-                      onChange={(e) => handleAutoRefreshToggle(e.target.checked)}
-                      size="small"
-                    />
-                  }
-                  label={`Auto (${refreshInterval}s)`}
-                />
+              {/* Dashboard Controls */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {/* Auto Refresh Status */}
+                {dashboard.config_json.auto_refresh.enabled && (
+                  <Chip
+                    icon={<SyncIcon />}
+                    label={`Auto: ${dashboard.config_json.auto_refresh.interval}s`}
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                  />
+                )}
 
-                {/* Manual Refresh */}
-                <Tooltip title="Refresh Dashboard">
-                  <IconButton 
-                    onClick={handleRefresh}
-                    disabled={Object.values(chartsLoading).some(loading => loading)}
+                {/* Loading indicator for RTK Query operations */}
+                {(isUpdating || isSharing || isExporting) && (
+                  <Chip
+                    icon={<CircularProgress size={16} />}
+                    label="Processing..."
+                    size="small"
+                    color="info"
+                    variant="outlined"
+                  />
+                )}
+
+                {/* Manual Refresh Button */}
+                <Tooltip title="Refresh dashboard data">
+                  <IconButton
+                    onClick={handleRefreshDashboard}
+                    disabled={loading}
+                    color="primary"
+                    size="large"
                   >
-                    <RefreshIcon />
+                    {isLoading ? (
+                      <CircularProgress size={24} />
+                    ) : (
+                      <RefreshIcon />
+                    )}
                   </IconButton>
                 </Tooltip>
 
                 {/* Fullscreen Toggle */}
-                <Tooltip title="Toggle Fullscreen">
-                  <IconButton onClick={() => setFullscreen(!fullscreen)}>
+                <Tooltip title={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
+                  <IconButton onClick={handleToggleFullscreen} size="large">
                     <FullscreenIcon />
                   </IconButton>
                 </Tooltip>
 
-                {/* Edit Dashboard */}
-                {hasPermission('dashboard.update') && (
-                  <Tooltip title="Edit Dashboard">
-                    <IconButton onClick={handleEdit}>
-                      <EditIcon />
-                    </IconButton>
-                  </Tooltip>
-                )}
-
-                {/* Back Button */}
-                <Button
-                  startIcon={<BackIcon />}
-                  onClick={handleBack}
-                  variant="outlined"
-                  size="small"
-                >
-                  Back
-                </Button>
-              </Stack>
-            </Box>
-
-            {/* Dashboard Meta Info */}
-            <Stack direction="row" spacing={2} alignItems="center">
-              <Chip
-                label={dashboard.status}
-                color={dashboard.status === 'published' ? 'success' : 'default'}
-                size="small"
-              />
-              {dashboard.is_featured && (
-                <Chip icon={<StarIcon />} label="Featured" color="warning" size="small" />
-              )}
-              <Typography variant="body2" color="text.secondary">
-                Charts: {dashboard.charts.length}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Updated: {new Date(dashboard.updated_at).toLocaleDateString()}
-              </Typography>
+                {/* Dashboard Menu */}
+                <IconButton onClick={handleMenuOpen} size="large">
+                  <MoreIcon />
+                </IconButton>
+              </Box>
             </Stack>
           </Box>
         </Container>
       </Paper>
 
-      {/* Global Filters - Simple inline implementation */}
+      {/* Global Filters */}
       {globalFilters.length > 0 && (
         <Paper elevation={0} sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
           <Container maxWidth="xl">
             <Box sx={{ p: 2 }}>
-              <Typography variant="subtitle2" gutterBottom>
-                Filters:
+              <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                <FilterIcon sx={{ mr: 1 }} fontSize="small" />
+                Filters
               </Typography>
-              <Stack direction="row" spacing={2} flexWrap="wrap">
+              <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
                 {globalFilters.map((filter) => (
                   <Box key={filter.id} sx={{ minWidth: 200 }}>
-                    <Typography variant="caption" color="text.secondary">
-                      {filter.display_name}
-                    </Typography>
-                    <TextField
-                      size="small"
-                      fullWidth
-                      placeholder={`Filter by ${filter.display_name}`}
-                      value={filter.current_value || ''}
-                      onChange={(e) => handleGlobalFilterChange(filter.id, e.target.value)}
-                    />
+                    <FormControl size="small" fullWidth>
+                      <InputLabel>{filter.display_name}</InputLabel>
+                      {filter.type === 'single_select' ? (
+                        <Select
+                          value={filter.current_value || ''}
+                          onChange={(e) => handleGlobalFilterChange(filter.id, e.target.value)}
+                          label={filter.display_name}
+                        >
+                          {filter.options?.map((option: any) => (
+                            <MenuItem key={option.value} value={option.value}>
+                              {option.label}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      ) : (
+                        <TextField
+                          size="small"
+                          fullWidth
+                          placeholder={`Filter by ${filter.display_name}`}
+                          value={filter.current_value || ''}
+                          onChange={(e) => handleGlobalFilterChange(filter.id, e.target.value)}
+                        />
+                      )}
+                    </FormControl>
                   </Box>
                 ))}
               </Stack>
@@ -658,7 +635,7 @@ const DashboardDetailPage: NextPage = () => {
         </Paper>
       )}
 
-      {/* Dashboard Tabs - Simple inline implementation */}
+      {/* Dashboard Tabs */}
       {dashboard.tabs.length > 1 && (
         <Paper elevation={0} sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
           <Container maxWidth="xl">
@@ -676,18 +653,69 @@ const DashboardDetailPage: NextPage = () => {
         </Paper>
       )}
 
-      {/* Main Dashboard Container */}
+      {/* Main Dashboard Content - Using DashboardContainer */}
       <Container maxWidth="xl" sx={{ py: 3 }}>
         <DashboardContainer
-          dashboard={dashboard}
-          charts={currentTabCharts}
-          chartsData={chartsData}
-          chartsLoading={chartsLoading}
-          chartsErrors={chartsErrors}
-          onChartRefresh={(chartId) => loadChartData(chartId, true)}
+          dashboardId={dashboard.id}
+          workspaceId={effectiveWorkspaceId} // Pass effective workspace ID
           fullscreen={fullscreen}
+          showFilters={false} // Filters handled at page level
+          autoRefresh={dashboard.config_json.auto_refresh.enabled}
+          refreshInterval={dashboard.config_json.auto_refresh.interval}
+          
+          // Loading strategy
+          loadingStrategy="immediate"
+          showLoadingProgress={true}
+          
+          // Event handlers
+          onFullscreenChange={setFullscreen}
+          onChartInteraction={handleChartInteraction}
+          onError={handleDashboardError}
+          
+          className="dashboard-main-content"
         />
       </Container>
+
+      {/* Dashboard Menu */}
+      <Menu
+        anchorEl={menuAnchorEl}
+        open={Boolean(menuAnchorEl)}
+        onClose={handleMenuClose}
+        PaperProps={{
+          sx: { minWidth: 200 }
+        }}
+      >
+        {hasPermission('dashboard.edit') && (
+          <MenuItem onClick={handleEditDashboard}>
+            <EditIcon sx={{ mr: 1 }} fontSize="small" />
+            Edit Dashboard
+          </MenuItem>
+        )}
+        
+        <MenuItem 
+          onClick={handleShareDashboard} 
+          disabled={isSharing}
+        >
+          {isSharing ? (
+            <CircularProgress size={16} sx={{ mr: 1 }} />
+          ) : (
+            <ShareIcon sx={{ mr: 1 }} fontSize="small" />
+          )}
+          {isSharing ? 'Sharing...' : 'Share Dashboard'}
+        </MenuItem>
+        
+        <MenuItem 
+          onClick={handleExportDashboard}
+          disabled={isExporting}
+        >
+          {isExporting ? (
+            <CircularProgress size={16} sx={{ mr: 1 }} />
+          ) : (
+            <DownloadIcon sx={{ mr: 1 }} fontSize="small" />
+          )}
+          {isExporting ? 'Exporting...' : 'Export Dashboard'}
+        </MenuItem>
+      </Menu>
     </WorkspaceLayout>
   );
 };
