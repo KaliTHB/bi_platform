@@ -45,6 +45,7 @@ import {
   Fullscreen as FullscreenIcon,
   Download as DownloadIcon
 } from '@mui/icons-material';
+import Sync from '@mui/icons-material/Sync';
 
 // Import RTK Query hooks
 import {
@@ -539,7 +540,7 @@ const DashboardDetailPage: NextPage = () => {
                 {/* Auto Refresh Status */}
                 {dashboard.config_json.auto_refresh.enabled && (
                   <Chip
-                    icon={<SyncIcon />}
+                    icon={<Sync />}
                     label={`Auto: ${dashboard.config_json.auto_refresh.interval}s`}
                     size="small"
                     color="primary"
