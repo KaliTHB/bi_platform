@@ -30,7 +30,7 @@ import Sync  from '@mui/icons-material/Sync';
 
 // Import storage utilities
 import { authStorage, workspaceStorage } from '@/utils/storageUtils';
-
+import useGetDashboardQuery from '@/store/index';
 // Import enhanced ChartContainer
 import { ChartContainer } from './ChartContainer';
 import { ChartErrorBoundary } from '../chart/ChartErrorBoundary';

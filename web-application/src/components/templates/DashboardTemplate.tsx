@@ -81,7 +81,7 @@ const DashboardTemplate: React.FC<DashboardTemplateProps> = ({
   onExport
 }) => {
   const router = useRouter();
-  const { user, workspace } = useAuth();
+  const { user, currentWorkspace } = useAuth();
   const { hasPermission } = usePermissions();
   
   // Local state
@@ -102,6 +102,7 @@ const DashboardTemplate: React.FC<DashboardTemplateProps> = ({
       try {
         setLoading(true);
         setError(null);
+        console.log(dashboardId,"dashboardId1")
         
         const response = await fetch(`/api/dashboards/${dashboardId}`, {
           headers: {
