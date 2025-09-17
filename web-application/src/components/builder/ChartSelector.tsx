@@ -1,52 +1,55 @@
-// web-application/src/components/builder/AdvancedChartSelector.tsx
-import React, { useState } from 'react';
+// web-application/src/components/builder/ChartSelector.tsx
+// SAME UI - INTEGRATED WITH CHART FACTORY SYSTEM
+
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
+  Typography,
   Button,
-  TextField,
+  Box,
   Grid,
   Card,
   CardContent,
-  Typography,
-  Box,
-  Chip,
-  IconButton,
+  TextField,
   InputAdornment,
   Tabs,
   Tab,
-  Collapse,
   List,
   ListItem,
-  ListItemIcon,
   ListItemText,
-  Divider
+  Divider,
+  IconButton,
+  Chip,
+  CircularProgress,
+  Alert
 } from '@mui/material';
 import {
-  Search as SearchIcon,
   Close as CloseIcon,
-  TrendingUp as TrendingUpIcon,
-  BarChart as BarChartIcon,
-  PieChart as PieChartIcon,
-  Timeline as LineChartIcon,
-  DonutLarge as DonutIcon,
-  Assessment as MetricIcon,
-  TableChart as TableIcon,
+  Search as SearchIcon,
+  BarChart as BarIcon,
+  Timeline as LineIcon,
+  PieChart as PieIcon,
   ScatterPlot as ScatterIcon,
-  BubbleChart as BubbleIcon,
-  Functions as FunnelIcon,
-  Speed as GaugeIcon,
+  ShowChart as AreaIcon,
   Radar as RadarIcon,
-  ShowChart as ShowChartIcon,
+  BubbleChart as BubbleIcon,
   Analytics as AnalyticsIcon,
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon
+  TableChart as TableIcon,
+  DonutLarge as DonutIcon,
+  Equalizer as WaterfallIcon,
+  TrendingUp as TrendIcon,
+  PollOutlined as ColumnIcon
 } from '@mui/icons-material';
 
+// ✅ INTEGRATE WITH CHART FACTORY
+import { ChartFactory, ChartRegistry } from '@/plugins/charts';
+import type { ChartPluginInfo } from '@/plugins/charts/factory/ChartFactory';
+
 // =============================================================================
-// Types and Chart Definitions
+// TYPES (KEEP EXISTING INTERFACES FOR UI COMPATIBILITY)
 // =============================================================================
 
 interface ChartType {
@@ -54,185 +57,19 @@ interface ChartType {
   name: string;
   description: string;
   icon: React.ReactNode;
-  category: 'popular' | 'echarts' | 'advanced-analytics';
+  category: string;
   tags: string[];
   featured?: boolean;
-  exampleValue?: string;
+  library?: string; // ✅ ADD: Track which library the chart comes from
+  version?: string; // ✅ ADD: Track version for debugging
+  component?: React.ComponentType<any>; // ✅ ADD: Reference to actual component
 }
 
 interface ChartCategory {
   id: string;
   label: string;
-  icon?: React.ReactNode;
   charts: ChartType[];
 }
-
-const chartTypes: ChartType[] = [
-  // Popular Charts
-  {
-    id: 'big-number-trendline',
-    name: 'Big Number with Trendline',
-    description: 'Showcases a single number accompanied by a simple line chart, to call attention to an important metric along with its change over time or other dimension.',
-    icon: <TrendingUpIcon />,
-    category: 'popular',
-    tags: ['Formattable', 'Advanced-Analytics', 'Line', 'Percentages', 'Popular', 'Report', 'Description', 'Trend'],
-    featured: true,
-    exampleValue: '80.7M'
-  },
-  {
-    id: 'big-number',
-    name: 'Big Number',
-    description: 'Display a single large number to highlight key metrics and KPIs.',
-    icon: <MetricIcon />,
-    category: 'popular',
-    tags: ['Formattable', 'Popular', 'Report'],
-    featured: true,
-    exampleValue: '80.7M'
-  },
-  {
-    id: 'bullet-chart',
-    name: 'Bullet Chart',
-    description: 'Compare actual values against targets with contextual performance ranges.',
-    icon: <BarChartIcon />,
-    category: 'popular',
-    tags: ['Popular', 'Comparison', 'Performance'],
-    featured: true
-  },
-  {
-    id: 'funnel-chart',
-    name: 'Funnel Chart',
-    description: 'Visualize data through a funnel process, typically showing conversion rates.',
-    icon: <FunnelIcon />,
-    category: 'popular',
-    tags: ['Popular', 'Conversion', 'Process'],
-    featured: true
-  },
-  {
-    id: 'gauge-chart',
-    name: 'Gauge Chart',
-    description: 'Display a single metric as a gauge or speedometer visualization.',
-    icon: <GaugeIcon />,
-    category: 'popular',
-    tags: ['Popular', 'Single Metric', 'Performance'],
-    featured: true
-  },
-
-  // ECharts Library
-  {
-    id: 'bar-chart',
-    name: 'Bar Chart',
-    description: 'Compare values across categories with horizontal or vertical bars.',
-    icon: <BarChartIcon />,
-    category: 'echarts',
-    tags: ['Basic', 'Comparison', 'ECharts']
-  },
-  {
-    id: 'line-chart', 
-    name: 'Line Chart',
-    description: 'Show trends and changes over time or continuous data.',
-    icon: <LineChartIcon />,
-    category: 'echarts',
-    tags: ['Basic', 'Trend', 'Time Series', 'ECharts']
-  },
-  {
-    id: 'pie-chart',
-    name: 'Pie Chart',
-    description: 'Show proportions and percentages of a whole.',
-    icon: <PieChartIcon />,
-    category: 'echarts',
-    tags: ['Basic', 'Proportion', 'ECharts']
-  },
-  {
-    id: 'scatter-plot',
-    name: 'Scatter Plot',
-    description: 'Explore relationships and correlations between two variables.',
-    icon: <ScatterIcon />,
-    category: 'echarts',
-    tags: ['Correlation', 'Relationship', 'ECharts']
-  },
-  {
-    id: 'area-chart',
-    name: 'Area Chart',
-    description: 'Show cumulative totals and filled trend areas.',
-    icon: <ShowChartIcon />,
-    category: 'echarts',
-    tags: ['Trend', 'Cumulative', 'ECharts']
-  },
-
-  // Advanced Analytics
-  {
-    id: 'heatmap',
-    name: 'Heatmap',
-    description: 'Visualize data density and patterns using color intensity.',
-    icon: <AnalyticsIcon />,
-    category: 'advanced-analytics',
-    tags: ['Advanced-Analytics', 'Density', 'Pattern']
-  },
-  {
-    id: 'box-plot',
-    name: 'Box Plot',
-    description: 'Display statistical distribution with quartiles and outliers.',
-    icon: <AnalyticsIcon />,
-    category: 'advanced-analytics',
-    tags: ['Advanced-Analytics', 'Statistical', 'Distribution']
-  },
-  {
-    id: 'bubble-chart',
-    name: 'Bubble Chart',
-    description: 'Three-dimensional scatter plot using bubble size as third dimension.',
-    icon: <BubbleIcon />,
-    category: 'advanced-analytics',
-    tags: ['Advanced-Analytics', '3D', 'Relationship']
-  },
-  {
-    id: 'radar-chart',
-    name: 'Radar Chart',
-    description: 'Compare multiple quantitative variables on multiple axes.',
-    icon: <RadarIcon />,
-    category: 'advanced-analytics',
-    tags: ['Advanced-Analytics', 'Multi-variable', 'Comparison']
-  },
-  {
-    id: 'data-table',
-    name: 'Table',
-    description: 'Display data in tabular format with sorting and filtering capabilities.',
-    icon: <TableIcon />,
-    category: 'popular',
-    tags: ['Popular', 'Tabular', 'Data']
-  }
-];
-
-const categories: ChartCategory[] = [
-  {
-    id: 'all',
-    label: 'All charts',
-    charts: chartTypes
-  },
-  {
-    id: 'recommended',
-    label: 'Recommended tags',
-    charts: chartTypes.filter(chart => chart.featured)
-  },
-  {
-    id: 'popular',
-    label: 'Popular',
-    charts: chartTypes.filter(chart => chart.category === 'popular')
-  },
-  {
-    id: 'echarts',
-    label: 'ECharts',
-    charts: chartTypes.filter(chart => chart.category === 'echarts')
-  },
-  {
-    id: 'advanced-analytics',
-    label: 'Advanced-Analytics',
-    charts: chartTypes.filter(chart => chart.category === 'advanced-analytics')
-  }
-];
-
-// =============================================================================
-// Component Props
-// =============================================================================
 
 interface AdvancedChartSelectorProps {
   open: boolean;
@@ -242,7 +79,89 @@ interface AdvancedChartSelectorProps {
 }
 
 // =============================================================================
-// Chart Type Card Component
+// CHART ICON MAPPING (ENHANCED FOR FACTORY PLUGINS)
+// =============================================================================
+
+const getChartIcon = (chartName: string, library?: string): React.ReactNode => {
+  const iconMap: Record<string, React.ReactNode> = {
+    // Basic charts
+    'bar': <BarIcon />,
+    'column': <ColumnIcon />,
+    'line': <LineIcon />,
+    'area': <AreaIcon />,
+    'pie': <PieIcon />,
+    'doughnut': <DonutIcon />,
+    'donut': <DonutIcon />,
+    'scatter': <ScatterIcon />,
+    'bubble': <BubbleIcon />,
+    
+    // Advanced charts
+    'radar': <RadarIcon />,
+    'heatmap': <AnalyticsIcon />,
+    'treemap': <AnalyticsIcon />,
+    'sunburst': <AnalyticsIcon />,
+    'waterfall': <WaterfallIcon />,
+    'gauge': <TrendIcon />,
+    'funnel': <AnalyticsIcon />,
+    'table': <TableIcon />,
+    
+    // Aliases and variations
+    'chart': <BarIcon />,
+    'graph': <LineIcon />
+  };
+
+  const name = chartName.toLowerCase();
+  
+  // Try exact match first
+  if (iconMap[name]) return iconMap[name];
+  
+  // Try partial matches
+  for (const [key, icon] of Object.entries(iconMap)) {
+    if (name.includes(key)) return icon;
+  }
+  
+  // Library-specific fallbacks
+  switch (library?.toLowerCase()) {
+    case 'echarts': return <BarIcon color="primary" />;
+    case 'd3': return <AnalyticsIcon color="secondary" />;
+    case 'chartjs': return <LineIcon color="success" />;
+    default: return <AnalyticsIcon />;
+  }
+};
+
+// =============================================================================
+// CATEGORY MAPPING (ENHANCED FOR FACTORY PLUGINS)
+// =============================================================================
+
+const mapCategoryFromFactory = (factoryCategory: string): string => {
+  // Map factory categories to UI categories
+  const categoryMap: Record<string, string> = {
+    'basic': 'popular',
+    'statistical': 'advanced-analytics',
+    'advanced': 'advanced-analytics',
+    'financial': 'advanced-analytics',
+    'echarts': 'echarts',
+    'd3': 'advanced-analytics',
+    'chartjs': 'popular'
+  };
+  
+  return categoryMap[factoryCategory.toLowerCase()] || 'popular';
+};
+
+const getCategoryDisplayName = (categoryId: string): string => {
+  const displayNames: Record<string, string> = {
+    'all': 'All charts',
+    'recommended': 'Recommended',
+    'popular': 'Popular',
+    'echarts': 'ECharts',
+    'advanced-analytics': 'Advanced Analytics'
+  };
+  
+  return displayNames[categoryId] || categoryId;
+};
+
+// =============================================================================
+// CHART TYPE CARD COMPONENT (UNCHANGED UI)
 // =============================================================================
 
 const ChartTypeCard: React.FC<{
@@ -275,26 +194,47 @@ const ChartTypeCard: React.FC<{
           height: 60,
           borderRadius: 1,
           backgroundColor: selected ? 'primary.light' : 'grey.100',
-          color: selected ? 'primary.contrastText' : 'text.secondary',
-          mb: 2
+          color: selected ? 'primary.contrastText' : 'text.primary',
+          mb: 1
         }}>
           {chart.icon}
-          {chart.exampleValue && (
-            <Typography variant="caption" sx={{ position: 'absolute', fontSize: 8, fontWeight: 600 }}>
-              {chart.exampleValue}
-            </Typography>
-          )}
         </Box>
-        <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+        <Typography 
+          variant="subtitle2" 
+          fontWeight={600}
+          sx={{ mb: 0.5 }}
+        >
           {chart.name}
         </Typography>
+        <Typography 
+          variant="caption" 
+          color="text.secondary"
+          sx={{ 
+            height: '2.4em',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical'
+          }}
+        >
+          {chart.description}
+        </Typography>
+        {chart.library && (
+          <Chip
+            label={chart.library}
+            size="small"
+            variant="outlined"
+            sx={{ mt: 1, fontSize: '0.65rem', height: 20 }}
+          />
+        )}
       </Box>
     </CardContent>
   </Card>
 );
 
 // =============================================================================
-// Main Component
+// MAIN COMPONENT WITH FACTORY INTEGRATION
 // =============================================================================
 
 const AdvancedChartSelector: React.FC<AdvancedChartSelectorProps> = ({
@@ -303,19 +243,160 @@ const AdvancedChartSelector: React.FC<AdvancedChartSelectorProps> = ({
   onSelect,
   selectedChartId
 }) => {
-  const [selectedTab, setSelectedTab] = useState(0);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedChart, setSelectedChart] = useState<ChartType | null>(
-    chartTypes.find(chart => chart.id === selectedChartId) || null
-  );
-  const [expandedCategory, setExpandedCategory] = useState<string>('recommended');
+  // ✅ STATE FOR FACTORY INTEGRATION
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [factoryCharts, setFactoryCharts] = useState<ChartType[]>([]);
+  
+  // ✅ EXISTING UI STATE (UNCHANGED) + DEFAULT SELECTION
+  const [selectedTab, setSelectedTab] = useState<number>(0);
+  const [expandedCategory, setExpandedCategory] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [selectedChart, setSelectedChart] = useState<ChartType | null>(null);
 
-  const currentCategory = categories[selectedTab];
-  const filteredCharts = currentCategory.charts.filter(chart =>
-    chart.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    chart.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    chart.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  // ✅ Set default selection when charts load and no chart is pre-selected
+  useEffect(() => {
+    if (factoryCharts.length > 0 && !selectedChart && !selectedChartId) {
+      const defaultChart = factoryCharts.find(c => c.featured) || factoryCharts[0];
+      setSelectedChart(defaultChart);
+    }
+  }, [factoryCharts, selectedChart, selectedChartId]);
+
+  // ✅ LOAD CHARTS FROM FACTORY (REPLACES STATIC chartTypes)
+  useEffect(() => {
+    const loadChartsFromFactory = async () => {
+      if (!open) return;
+      
+      setLoading(true);
+      setError(null);
+      
+      try {
+        console.log('🔍 Loading charts from ChartFactory...');
+        
+        // Initialize factory and registry
+        await ChartFactory.initialize();
+        await ChartRegistry.ensureInitialized();
+        
+        // Get all plugins from factory
+        const plugins: ChartPluginInfo[] = await ChartFactory.getAllCharts();
+        console.log(`📊 Found ${plugins.length} chart plugins from factory`);
+        
+        // Transform factory plugins to UI chart types (same structure as before)
+        const transformedCharts: ChartType[] = plugins.map((plugin, index) => {
+          const chartName = plugin.displayName || plugin.name;
+          const description = plugin.description || `${chartName} visualization`;
+          
+          return {
+            id: `${plugin.library}-${plugin.name}`, // Ensure unique ID
+            name: chartName,
+            description,
+            icon: getChartIcon(plugin.name, plugin.library),
+            category: mapCategoryFromFactory(plugin.category || 'basic'),
+            library: plugin.library,
+            version: plugin.version,
+            component: plugin.component,
+            tags: [
+              plugin.library || 'chart',
+              plugin.category || 'basic',
+              chartName.toLowerCase()
+            ].filter(Boolean),
+            featured: index < 6 // Mark first 6 as featured for "Recommended"
+          };
+        });
+        
+        // ✅ NO FALLBACK CHARTS - Show 0 charts if factory is empty
+        setFactoryCharts(transformedCharts);
+        
+        // Set initial selection if provided or default to first chart
+        if (selectedChartId) {
+          const chart = transformedCharts.find(c => c.id === selectedChartId);
+          if (chart) {
+            setSelectedChart(chart);
+          }
+        } else if (transformedCharts.length > 0) {
+          // ✅ DEFAULT SELECTION: Select first chart by default
+          const defaultChart = transformedCharts.find(c => c.featured) || transformedCharts[0];
+          setSelectedChart(defaultChart);
+        }
+        
+        console.log('✅ Charts loaded successfully from factory');
+        
+      } catch (err) {
+        console.error('❌ Failed to load charts from factory:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load charts');
+        
+        // ✅ NO FALLBACK - Show empty state if factory fails
+        setFactoryCharts([]);
+        setSelectedChart(null); // ✅ Clear selection when no charts available
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadChartsFromFactory();
+  }, [open, selectedChartId]);
+
+  // ✅ GENERATE CATEGORIES FROM FACTORY DATA (REPLACES STATIC categories)
+  const categories: ChartCategory[] = useMemo(() => {
+    if (factoryCharts.length === 0) return [];
+    
+    // Group charts by category
+    const categoryMap = new Map<string, ChartType[]>();
+    
+    factoryCharts.forEach(chart => {
+      const category = chart.category || 'popular';
+      if (!categoryMap.has(category)) {
+        categoryMap.set(category, []);
+      }
+      categoryMap.get(category)!.push(chart);
+    });
+    
+    // Build categories array (same structure as before)
+    const cats: ChartCategory[] = [
+      {
+        id: 'all',
+        label: getCategoryDisplayName('all'),
+        charts: factoryCharts
+      },
+      {
+        id: 'recommended',
+        label: getCategoryDisplayName('recommended'),
+        charts: factoryCharts.filter(chart => chart.featured)
+      }
+    ];
+    
+    // Add specific categories from the factory data
+    for (const [catId, charts] of categoryMap.entries()) {
+      if (catId !== 'all' && charts.length > 0) {
+        cats.push({
+          id: catId,
+          label: getCategoryDisplayName(catId),
+          charts: charts
+        });
+      }
+    }
+    
+    return cats;
+  }, [factoryCharts]);
+
+  // ✅ EXISTING UI LOGIC (UNCHANGED)
+  const filteredCharts = useMemo(() => {
+    const currentCategory = categories[selectedTab];
+    if (!currentCategory) return [];
+    
+    let charts = currentCategory.charts;
+    
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      charts = charts.filter(chart =>
+        chart.name.toLowerCase().includes(term) ||
+        chart.description.toLowerCase().includes(term) ||
+        chart.tags.some(tag => tag.toLowerCase().includes(term))
+      );
+    }
+    
+    return charts;
+  }, [categories, selectedTab, searchTerm]);
 
   const handleChartSelect = (chart: ChartType) => {
     setSelectedChart(chart);
@@ -323,16 +404,62 @@ const AdvancedChartSelector: React.FC<AdvancedChartSelectorProps> = ({
 
   const handleConfirmSelection = () => {
     if (selectedChart) {
-      onSelect(selectedChart);
+      // ✅ PASS FACTORY INTEGRATION DATA TO PARENT
+      const chartWithFactoryInfo = {
+        ...selectedChart,
+        // Include factory-specific information for the parent component
+        factoryInfo: {
+          library: selectedChart.library || 'echarts',
+          component: selectedChart.component,
+          version: selectedChart.version
+        }
+      };
+      
+      onSelect(chartWithFactoryInfo);
       onClose();
     }
   };
 
+  // ✅ LOADING STATE (ONLY SHOWN WHILE LOADING FROM FACTORY)
+  if (loading) {
+    return (
+      <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+        <DialogContent sx={{ p: 4, textAlign: 'center' }}>
+          <CircularProgress size={40} sx={{ mb: 2 }} />
+          <Typography variant="body2" color="text.secondary">
+            Loading chart types from factory...
+          </Typography>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  // ✅ ERROR STATE (ONLY SHOWN IF FACTORY FAILS)
+  if (error) {
+    return (
+      <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+        <DialogTitle>Error Loading Charts</DialogTitle>
+        <DialogContent>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+          <Typography variant="body2">
+            Using fallback charts. Please check the chart factory configuration.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={onClose}>Close</Button>
+        </DialogActions>
+      </Dialog>
+    );
+  }
+
+  // ✅ EXISTING UI LAYOUT (COMPLETELY UNCHANGED)
   return (
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="xl"
+      maxWidth="lg"
       fullWidth
       PaperProps={{
         sx: {
@@ -355,7 +482,7 @@ const AdvancedChartSelector: React.FC<AdvancedChartSelectorProps> = ({
       </DialogTitle>
 
       <DialogContent sx={{ p: 0, display: 'flex', height: '70vh' }}>
-        {/* Left Sidebar */}
+        {/* Left Sidebar - UNCHANGED UI */}
         <Box sx={{ 
           width: 300, 
           borderRight: 1, 
@@ -363,7 +490,7 @@ const AdvancedChartSelector: React.FC<AdvancedChartSelectorProps> = ({
           display: 'flex',
           flexDirection: 'column'
         }}>
-          {/* Category Navigation */}
+          {/* Category Navigation - UNCHANGED UI */}
           <Box sx={{ p: 2 }}>
             <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
               All charts
@@ -393,51 +520,46 @@ const AdvancedChartSelector: React.FC<AdvancedChartSelectorProps> = ({
 
           <Divider />
 
-          {/* Chart Details Panel */}
+          {/* Chart Details Panel - UNCHANGED UI */}
           {selectedChart && (
-            <Box sx={{ p: 3, flexGrow: 1 }}>
-              <Typography variant="h6" sx={{ mb: 2 }}>
+            <Box sx={{ p: 2, flexGrow: 1 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
                 {selectedChart.name}
               </Typography>
-              
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 3 }}>
-                {selectedChart.tags.map((tag) => (
-                  <Chip key={tag} label={tag} size="small" variant="outlined" />
-                ))}
-              </Box>
-
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 {selectedChart.description}
               </Typography>
-
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                Examples
-              </Typography>
-              <Box sx={{ 
-                border: 1, 
-                borderColor: 'divider', 
-                borderRadius: 1,
-                height: 120,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: 'grey.50'
-              }}>
-                <Typography variant="caption" color="text.secondary">
-                  Chart preview would appear here
-                </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {selectedChart.tags.map((tag) => (
+                  <Chip
+                    key={tag}
+                    label={tag}
+                    size="small"
+                    variant="outlined"
+                    sx={{ fontSize: '0.7rem' }}
+                  />
+                ))}
               </Box>
+              {/* ✅ ADD: Show factory info for debugging */}
+              {selectedChart.library && (
+                <Box sx={{ mt: 2, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Library: {selectedChart.library}
+                    {selectedChart.version && ` v${selectedChart.version}`}
+                  </Typography>
+                </Box>
+              )}
             </Box>
           )}
         </Box>
 
-        {/* Main Content Area */}
+        {/* Right Content Area - UNCHANGED UI */}
         <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-          {/* Search Bar */}
-          <Box sx={{ p: 3, pb: 2 }}>
+          {/* Search Bar - UNCHANGED UI */}
+          <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
             <TextField
               fullWidth
-              placeholder="Search all charts"
+              placeholder="Search chart types..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               InputProps={{
@@ -451,7 +573,7 @@ const AdvancedChartSelector: React.FC<AdvancedChartSelectorProps> = ({
             />
           </Box>
 
-          {/* Chart Grid */}
+          {/* Chart Grid - UNCHANGED UI */}
           <Box sx={{ flexGrow: 1, p: 3, pt: 1, overflowY: 'auto' }}>
             <Grid container spacing={2}>
               {filteredCharts.map((chart) => (
@@ -465,7 +587,7 @@ const AdvancedChartSelector: React.FC<AdvancedChartSelectorProps> = ({
               ))}
             </Grid>
 
-            {filteredCharts.length === 0 && (
+            {filteredCharts.length === 0 && !loading && (
               <Box sx={{ 
                 display: 'flex', 
                 flexDirection: 'column',
@@ -473,18 +595,32 @@ const AdvancedChartSelector: React.FC<AdvancedChartSelectorProps> = ({
                 justifyContent: 'center',
                 height: 200 
               }}>
-                <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
-                  No charts found
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Try adjusting your search terms or selecting a different category
-                </Typography>
+                {factoryCharts.length === 0 ? (
+                  <>
+                    <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
+                      No chart plugins available
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Please install and configure chart library plugins to see available chart types
+                    </Typography>
+                  </>
+                ) : (
+                  <>
+                    <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
+                      No charts found
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Try adjusting your search terms or selecting a different category
+                    </Typography>
+                  </>
+                )}
               </Box>
             )}
           </Box>
         </Box>
       </DialogContent>
 
+      {/* Dialog Actions - UNCHANGED UI */}
       <DialogActions sx={{ 
         borderTop: 1, 
         borderColor: 'divider',

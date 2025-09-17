@@ -1,7 +1,7 @@
-// Chart Data Utilities
-// File: web-application/src/plugins/charts/utils/chartDataUtils.ts
+// web-application/src/plugins/charts/utils/chartDataUtils.ts
+// Complete Chart Data Utilities
 
-import { ChartData, ChartConfigSchema , SchemaProperty } from '@/types/chart.types';
+import { ChartData, ChartConfigSchema, SchemaProperty } from '@/types/chart.types';
 
 /**
  * Type guard to check if data is ChartData format
@@ -16,13 +16,13 @@ export const isChartData = (data: any[] | ChartData | undefined): data is ChartD
 export const getDataArray = (data: any[] | ChartData | undefined): any[] => {
   if (!data) return [];
   if (isChartData(data)) {
-    return data.data; // ✅ Fixed: was data.rows
+    return data.data;
   }
   return Array.isArray(data) ? data : [];
 };
 
 /**
- * Check if data has content (works for both data formats)
+ * Check if data has meaningful content
  */
 export const hasDataContent = (data: any[] | ChartData | undefined): boolean => {
   const dataArray = getDataArray(data);
@@ -30,228 +30,318 @@ export const hasDataContent = (data: any[] | ChartData | undefined): boolean => 
 };
 
 /**
- * Get data length safely
+ * Get column names from data
  */
-export const getDataLength = (data: any[] | ChartData | undefined): number => {
-  const dataArray = getDataArray(data);
-  return dataArray.length;
-};
-
-/**
- * Get columns information from data
- */
-export const getDataColumns = (data: any[] | ChartData | undefined): string[] => {
-  if (!data) return [];
-  
-  if (isChartData(data)) {
-    return data.columns.map(col => col.name);
-  }
-  
+export const getColumnNames = (data: any[] | ChartData): string[] => {
   const dataArray = getDataArray(data);
   if (dataArray.length === 0) return [];
   
-  return Object.keys(dataArray[0]);
+  // If it's ChartData format, try to get columns from schema
+  if (isChartData(data) && data.columns) {
+    return data.columns.map(col => col.name || col.field || '');
+  }
+  
+  // Otherwise extract from first row
+  const firstRow = dataArray[0];
+  if (typeof firstRow === 'object' && firstRow !== null) {
+    return Object.keys(firstRow);
+  }
+  
+  return [];
 };
 
 /**
- * Validate data format and throw helpful errors
+ * Detect data types for columns
  */
-export const validateChartData = (data: any[] | ChartData | undefined, componentName: string): void => {
-  if (!data) {
-    throw new Error(`${componentName}: No data provided`);
-  }
-  
+export const detectColumnTypes = (data: any[] | ChartData): Record<string, string> => {
   const dataArray = getDataArray(data);
+  if (dataArray.length === 0) return {};
+  
+  const columnNames = getColumnNames(data);
+  const types: Record<string, string> = {};
+  
+  columnNames.forEach(columnName => {
+    const sampleValues = dataArray.slice(0, 10).map(row => row[columnName]).filter(val => val != null);
+    
+    if (sampleValues.length === 0) {
+      types[columnName] = 'unknown';
+      return;
+    }
+    
+    // Check if all values are numbers
+    if (sampleValues.every(val => typeof val === 'number' || !isNaN(Number(val)))) {
+      types[columnName] = 'number';
+    }
+    // Check if all values are dates
+    else if (sampleValues.every(val => !isNaN(Date.parse(val)))) {
+      types[columnName] = 'date';
+    }
+    // Check if all values are booleans
+    else if (sampleValues.every(val => typeof val === 'boolean' || val === 'true' || val === 'false')) {
+      types[columnName] = 'boolean';
+    }
+    // Default to string
+    else {
+      types[columnName] = 'string';
+    }
+  });
+  
+  return types;
+};
+
+/**
+ * Validate data for chart requirements
+ */
+export const validateChartData = (data: any[] | ChartData, chartType: string): { valid: boolean; errors: string[] } => {
+  const errors: string[] = [];
+  const dataArray = getDataArray(data);
+  
   if (dataArray.length === 0) {
-    throw new Error(`${componentName}: Data array is empty`);
+    errors.push('Data array is empty');
+    return { valid: false, errors };
+  }
+  
+  const columnNames = getColumnNames(data);
+  const columnTypes = detectColumnTypes(data);
+  
+  switch (chartType) {
+    case 'pie':
+    case 'doughnut':
+      if (columnNames.length < 2) {
+        errors.push('Pie charts require at least 2 columns (label and value)');
+      }
+      break;
+      
+    case 'line':
+    case 'area':
+    case 'bar':
+    case 'column':
+      if (columnNames.length < 2) {
+        errors.push('Charts require at least 2 columns (X and Y axis)');
+      }
+      break;
+      
+    case 'scatter':
+    case 'bubble':
+      if (columnNames.length < 2) {
+        errors.push('Scatter plots require at least 2 numeric columns');
+      }
+      const numericColumns = Object.entries(columnTypes).filter(([_, type]) => type === 'number');
+      if (numericColumns.length < 2) {
+        errors.push('Scatter plots require at least 2 numeric columns');
+      }
+      break;
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+};
+
+/**
+ * Transform data for specific chart library format
+ */
+export const transformDataForLibrary = (
+  data: any[] | ChartData,
+  library: string,
+  chartType: string,
+  config?: any
+): any => {
+  const dataArray = getDataArray(data);
+  
+  switch (library.toLowerCase()) {
+    case 'echarts':
+      return transformForECharts(dataArray, chartType, config);
+    case 'd3':
+      return transformForD3(dataArray, chartType, config);
+    case 'chartjs':
+      return transformForChartJS(dataArray, chartType, config);
+    default:
+      return dataArray;
   }
 };
 
 /**
- * Normalizes chart data to array format regardless of input type
+ * Transform data for ECharts format
  */
-export const normalizeChartData = (data: any[] | ChartData): any[] => {
-  // If it's already an array, return it
-  if (Array.isArray(data)) {
-    return data;
+const transformForECharts = (data: any[], chartType: string, config?: any): any => {
+  switch (chartType) {
+    case 'pie':
+    case 'doughnut':
+      return data.map(item => ({
+        name: item[Object.keys(item)[0]],
+        value: item[Object.keys(item)[1]]
+      }));
+      
+    case 'line':
+    case 'area':
+    case 'bar':
+      const xField = config?.xAxis?.field || Object.keys(data[0] || {})[0];
+      const yField = config?.yAxis?.field || Object.keys(data[0] || {})[1];
+      
+      return {
+        xAxis: {
+          type: 'category',
+          data: data.map(item => item[xField])
+        },
+        yAxis: {
+          type: 'value'
+        },
+        series: [{
+          data: data.map(item => item[yField]),
+          type: chartType === 'area' ? 'line' : chartType,
+          areaStyle: chartType === 'area' ? {} : undefined
+        }]
+      };
+      
+    default:
+      return data;
   }
-  
-  // If it's ChartData format, return the data array
-  if (data && typeof data === 'object' && 'data' in data) {
-    return (data as ChartData).data; // ✅ Fixed: was data.rows
-  }
-  
-  // Fallback to empty array
-  return [];
 };
 
 /**
- * Checks if chart data is empty regardless of input type
+ * Transform data for D3 format
  */
-export const isChartDataEmpty = (data: any[] | ChartData | null | undefined): boolean => {
-  if (!data) return true;
-  
-  if (Array.isArray(data)) {
-    return data.length === 0;
-  }
-  
-  if (typeof data === 'object' && 'data' in data) {
-    return !data.data || data.data.length === 0; // ✅ Fixed: was data.rows
-  }
-  
-  return true;
+const transformForD3 = (data: any[], chartType: string, config?: any): any => {
+  // D3 typically works with the raw data array
+  return data;
 };
 
 /**
- * Gets the length of chart data regardless of input type
+ * Transform data for Chart.js format
  */
-export const getChartDataLength = (data: any[] | ChartData | null | undefined): number => {
-  if (!data) return 0;
-  
-  if (Array.isArray(data)) {
-    return data.length;
+const transformForChartJS = (data: any[], chartType: string, config?: any): any => {
+  switch (chartType) {
+    case 'pie':
+    case 'doughnut':
+      return {
+        labels: data.map(item => item[Object.keys(item)[0]]),
+        datasets: [{
+          data: data.map(item => item[Object.keys(item)[1]]),
+          backgroundColor: [
+            '#FF6384', '#36A2EB', '#FFCE56', '#FF9F40', '#FF6384'
+          ]
+        }]
+      };
+      
+    case 'line':
+    case 'area':
+    case 'bar':
+      const xField = config?.xAxis?.field || Object.keys(data[0] || {})[0];
+      const yField = config?.yAxis?.field || Object.keys(data[0] || {})[1];
+      
+      return {
+        labels: data.map(item => item[xField]),
+        datasets: [{
+          label: yField,
+          data: data.map(item => item[yField]),
+          borderColor: '#36A2EB',
+          backgroundColor: chartType === 'area' ? 'rgba(54, 162, 235, 0.2)' : '#36A2EB',
+          fill: chartType === 'area'
+        }]
+      };
+      
+    default:
+      return { labels: [], datasets: [] };
   }
-  
-  if (typeof data === 'object' && 'data' in data) {
-    return data.data ? data.data.length : 0; // ✅ Fixed: was data.rows
-  }
-  
-  return 0;
 };
 
 /**
- * Gets column definitions from data (useful for ChartData format)
+ * Sample data for chart preview
  */
-export const getChartColumns = (data: any[] | ChartData): string[] => {
-  if (Array.isArray(data)) {
-    // For array data, get keys from first object
-    if (data.length > 0 && typeof data[0] === 'object') {
-      return Object.keys(data[0]);
-    }
-    return [];
-  }
+export const generateSampleData = (chartType: string, size: number = 5): any[] => {
+  const sampleData: Record<string, () => any[]> = {
+    pie: () => [
+      { category: 'A', value: 30 },
+      { category: 'B', value: 25 },
+      { category: 'C', value: 20 },
+      { category: 'D', value: 15 },
+      { category: 'E', value: 10 }
+    ],
+    
+    bar: () => Array.from({ length: size }, (_, i) => ({
+      category: `Category ${i + 1}`,
+      value: Math.floor(Math.random() * 100) + 10
+    })),
+    
+    line: () => Array.from({ length: size }, (_, i) => ({
+      date: `2024-0${i + 1}-01`,
+      value: Math.floor(Math.random() * 100) + 10
+    })),
+    
+    scatter: () => Array.from({ length: size }, (_, i) => ({
+      x: Math.random() * 100,
+      y: Math.random() * 100
+    }))
+  };
   
-  if (data && typeof data === 'object' && 'columns' in data) {
-    const chartData = data as ChartData;
-    return chartData.columns ? chartData.columns.map(col => col.name) : [];
-  }
-  
-  return [];
+  return sampleData[chartType]?.() || sampleData.bar();
 };
 
 /**
- * Safely extracts field values from normalized data
+ * Data aggregation utilities
  */
-export const extractFieldValues = (
-  data: any[], 
-  fieldName: string, 
-  defaultValue: any = null
+export const aggregateData = (
+  data: any[],
+  groupBy: string,
+  aggregateField: string,
+  aggregationType: 'sum' | 'avg' | 'count' | 'min' | 'max' = 'sum'
 ): any[] => {
-  return data.map(item => {
-    if (item && typeof item === 'object' && fieldName in item) {
-      return item[fieldName];
+  const groups = new Map<string, number[]>();
+  
+  data.forEach(item => {
+    const groupKey = item[groupBy];
+    const value = Number(item[aggregateField]) || 0;
+    
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, []);
     }
-    return defaultValue;
+    groups.get(groupKey)!.push(value);
   });
-};
-
-/**
- * Safely extracts numeric field values with conversion
- */
-export const extractNumericValues = (
-  data: any[], 
-  fieldName: string, 
-  defaultValue: number = 0
-): number[] => {
-  return data.map(item => {
-    if (item && typeof item === 'object' && fieldName in item) {
-      const value = Number(item[fieldName]);
-      return isNaN(value) ? defaultValue : value;
+  
+  const result: any[] = [];
+  
+  groups.forEach((values, groupKey) => {
+    let aggregatedValue: number;
+    
+    switch (aggregationType) {
+      case 'sum':
+        aggregatedValue = values.reduce((sum, val) => sum + val, 0);
+        break;
+      case 'avg':
+        aggregatedValue = values.reduce((sum, val) => sum + val, 0) / values.length;
+        break;
+      case 'count':
+        aggregatedValue = values.length;
+        break;
+      case 'min':
+        aggregatedValue = Math.min(...values);
+        break;
+      case 'max':
+        aggregatedValue = Math.max(...values);
+        break;
+      default:
+        aggregatedValue = values.reduce((sum, val) => sum + val, 0);
     }
-    return defaultValue;
+    
+    result.push({
+      [groupBy]: groupKey,
+      [aggregateField]: aggregatedValue
+    });
   });
-};
-
-/**
- * Creates a safe chart configuration with defaults
- */
-export const createChartConfig = (
-  config: any = {}, 
-  defaults: Record<string, any> = {}
-): Record<string, any> => {
-  return {
-    ...defaults,
-    ...config
-  };
-};
-
-/**
- * Type guard to check if data is in ChartData format
- */
-export const isChartDataFormat = (data: any): data is ChartData => {
-  return data && 
-         typeof data === 'object' && 
-         'data' in data && // ✅ Fixed: was 'rows'
-         Array.isArray(data.data); // ✅ Fixed: was data.rows
-};
-
-/**
- * Formats large numbers for display
- */
-export const formatNumber = (value: number, precision: number = 1): string => {
-  if (value >= 1e9) {
-    return (value / 1e9).toFixed(precision) + 'B';
-  }
-  if (value >= 1e6) {
-    return (value / 1e6).toFixed(precision) + 'M';
-  }
-  if (value >= 1e3) {
-    return (value / 1e3).toFixed(precision) + 'K';
-  }
-  return value.toString();
-};
-
-/**
- * Generates color palette for multiple series
- */
-export const generateColorPalette = (count: number): string[] => {
-  const defaultColors = [
-    '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
-    '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#d4a76a'
-  ];
   
-  const colors: string[] = [];
-  for (let i = 0; i < count; i++) {
-    colors.push(defaultColors[i % defaultColors.length]);
-  }
-  return colors;
+  return result;
 };
 
-// Utility function to ensure readonly arrays
-export function ensureReadonly<T>(arr: T[] | readonly T[] | undefined): readonly T[] {
-  return (arr as readonly T[]) || ([] as const);
-}
-
-// Add a mutable version
-export function ensureMutable<T>(arr: T[] | readonly T[] | undefined): T[] {
-  return (arr ? [...arr] : []) as T[];
-}
-
-/**
- * Validate and ensure schema is properly formatted
- */
-export function ensureValidSchema(schema: ChartConfigSchema): ChartConfigSchema {
-  const validatedProperties: Record<string, SchemaProperty> = {}; // Keep original type
-  
-  for (const [key, prop] of Object.entries(schema.properties)) {
-    validatedProperties[key] = {
-      ...prop,
-      title: prop.title || key,
-    };
-  }
-  
-  return {
-    ...schema,
-    properties: validatedProperties as any // ✅ Use type assertion here instead
-  };
-}
+export default {
+  isChartData,
+  getDataArray,
+  hasDataContent,
+  getColumnNames,
+  detectColumnTypes,
+  validateChartData,
+  transformDataForLibrary,
+  generateSampleData,
+  aggregateData
+};

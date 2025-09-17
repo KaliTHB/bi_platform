@@ -20,6 +20,7 @@ import chartRoutes from './routes/chart.routes';
 import webviewRoutes from './routes/webview.routes';
 import categoryRoutes from './routes/category.routes';
 import dashboardRoutes from './routes/dashboard.routes'; 
+import datasetRoutes from './routes/dataset.routes'; 
 
 // Load environment variables
 config();
@@ -171,6 +172,10 @@ console.log('✅ Chart routes registered at /api/charts');
 // Webview routes
 app.use('/api/webviews', webviewRoutes);
 console.log('✅ Webview routes registered at /api/webviews');
+
+// Dataset routes
+app.use('/api/datasets', datasetRoutes);
+console.log('✅ Dataset routes registered at /api/datasets');
 
 // Category routes
 app.use('/api/categories', categoryRoutes);

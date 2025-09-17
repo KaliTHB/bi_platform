@@ -1,39 +1,60 @@
-// web-application/src/store/api/datasetApi.ts
+// web-application/src/store/api/datasetApi.ts - FIXED VERSION
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { RootState } from '../index';
 
-// Response interfaces
+// Backend Response Structure (what your API actually returns)
+interface BackendApiResponse<T> {
+  success: boolean;
+  message?: string;
+  data: T;
+  errors?: Array<{
+    code: string;
+    message: string;
+  }>;
+}
+
+// Specific response types that match your backend
+interface GetDatasetsData {
+  datasets: Dataset[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    total_pages: number;
+    has_next: boolean;
+    has_previous: boolean;
+  };
+}
+
+// Frontend Expected Structure (for RTK Query cache normalization)
 interface GetDatasetsResponse {
   datasets: Dataset[];
   total: number;
   page: number;
   limit: number;
   pages: number;
+  has_next: boolean;
+  has_previous: boolean;
 }
 
-// Dataset interface (simplified to match your existing structure)
+// Dataset interface matching your backend response
 interface Dataset {
   id: string;
   name: string;
-  display_name?: string;
-  type: 'source' | 'virtual' | 'sql' | 'table' | 'query' | 'transformation' | 'calculated' | 'imported';
-  schema?: string;
-  connection?: string;
-  datasource_ids?: string[];
+  display_name: string;
+  description?: string;
+  type: 'source' | 'virtual' | 'sql' | 'transformation' | 'table';
+  workspace_id: string;
   owner?: {
     id: string;
-    name: string;
-    avatar?: string;
+    name: string | null;
+    email: string | null;
   };
-  owner_id?: string;
-  created_by?: string;
+  created_at: string;
+  updated_at: string;
   row_count?: number;
-  last_modified?: string;
-  created_at?: string | Date;
-  updated_at?: string | Date;
-  workspace_id?: string;
-  status?: string;
-  is_active?: boolean;
+  is_active: boolean;
+  schema_json?: any;
 }
 
 // Query parameters interface
@@ -90,8 +111,6 @@ export const datasetApi = createApi({
         headers.set('X-Workspace-ID', workspaceId);
       }
       
-      // ✅ REMOVE CORS HEADERS - These should be set by the server, not the client
-      
       return headers;
     },
   }),
@@ -120,8 +139,26 @@ export const datasetApi = createApi({
         const queryString = searchParams.toString();
         return queryString ? `?${queryString}` : '';
       },
+      // ✅ FIX: Transform backend response to expected frontend format
+      transformResponse: (response: BackendApiResponse<GetDatasetsData>): GetDatasetsResponse => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to fetch datasets');
+        }
+
+        const { datasets, pagination } = response.data;
+        
+        return {
+          datasets,
+          total: pagination.total,
+          page: pagination.page,
+          limit: pagination.limit,
+          pages: pagination.total_pages,
+          has_next: pagination.has_next,
+          has_previous: pagination.has_previous
+        };
+      },
       providesTags: (result) =>
-        result
+        result?.datasets
           ? [
               ...result.datasets.map(({ id }) => ({ type: 'Dataset' as const, id })),
               { type: 'Dataset', id: 'LIST' },
@@ -133,6 +170,12 @@ export const datasetApi = createApi({
     getDatasetById: builder.query<Dataset, { id: string; includeSchema?: boolean }>({
       query: ({ id, includeSchema = false }) => 
         `/${id}?include_schema=${includeSchema}`,
+      transformResponse: (response: BackendApiResponse<Dataset>): Dataset => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to fetch dataset');
+        }
+        return response.data;
+      },
       providesTags: (result, error, { id }) => [{ type: 'Dataset', id }],
     }),
 
@@ -143,6 +186,12 @@ export const datasetApi = createApi({
         method: 'POST',
         body: datasetData,
       }),
+      transformResponse: (response: BackendApiResponse<Dataset>): Dataset => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to create dataset');
+        }
+        return response.data;
+      },
       invalidatesTags: [{ type: 'Dataset', id: 'LIST' }],
     }),
 
@@ -153,6 +202,12 @@ export const datasetApi = createApi({
         method: 'PUT',
         body: data,
       }),
+      transformResponse: (response: BackendApiResponse<Dataset>): Dataset => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to update dataset');
+        }
+        return response.data;
+      },
       invalidatesTags: (result, error, { id }) => [
         { type: 'Dataset', id },
         { type: 'Dataset', id: 'LIST' },
@@ -160,11 +215,17 @@ export const datasetApi = createApi({
     }),
 
     // Delete dataset
-    deleteDataset: builder.mutation<void, string>({
+    deleteDataset: builder.mutation<{ message: string }, string>({
       query: (id) => ({
         url: `/${id}`,
         method: 'DELETE',
       }),
+      transformResponse: (response: BackendApiResponse<any>) => {
+        if (!response.success) {
+          throw new Error(response.message || 'Failed to delete dataset');
+        }
+        return { message: response.message || 'Dataset deleted successfully' };
+      },
       invalidatesTags: (result, error, id) => [
         { type: 'Dataset', id },
         { type: 'Dataset', id: 'LIST' },
@@ -174,12 +235,24 @@ export const datasetApi = createApi({
     // Preview dataset data (first 100 rows)
     previewDataset: builder.query<any, string>({
       query: (id) => `/${id}/preview`,
+      transformResponse: (response: BackendApiResponse<any>) => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to preview dataset');
+        }
+        return response.data;
+      },
       providesTags: (result, error, id) => [{ type: 'DatasetData', id }],
     }),
 
     // Get dataset statistics
     getDatasetStats: builder.query<any, string>({
       query: (id) => `/${id}/stats`,
+      transformResponse: (response: BackendApiResponse<any>) => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to get dataset stats');
+        }
+        return response.data;
+      },
       providesTags: (result, error, id) => [{ type: 'DatasetStats', id }],
     }),
 
@@ -195,6 +268,12 @@ export const datasetApi = createApi({
         const queryString = searchParams.toString();
         return `/${id}/query${queryString ? `?${queryString}` : ''}`;
       },
+      transformResponse: (response: BackendApiResponse<any>) => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to query dataset');
+        }
+        return response.data;
+      },
       providesTags: (result, error, { id }) => [{ type: 'DatasetData', id }],
     }),
 
@@ -209,6 +288,12 @@ export const datasetApi = createApi({
         
         const queryString = searchParams.toString();
         return `/${id}/query${queryString ? `?${queryString}` : ''}`;
+      },
+      transformResponse: (response: BackendApiResponse<any>) => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to query dataset');
+        }
+        return response.data;
       },
     }),
   }),

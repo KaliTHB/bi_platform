@@ -1,3 +1,4 @@
+// api-services/src/routes/dataset.routes.ts - FIXED VERSION
 import { Router } from 'express';
 import { DatasetController } from '../controllers/DatasetController';
 import { authenticate } from '../middleware/authentication';
@@ -8,10 +9,11 @@ import { asyncHandler } from '../middleware/errorHandler';
 const router = Router();
 const datasetController = new DatasetController();
 
+// Apply authentication to all routes
 router.use(authenticate);
 
-// All dataset routes with new permission system
-router.get('/datasets', 
+// ✅ FIX: Change from '/datasets' to '/' since this router is mounted at /api/datasets
+router.get('/', 
   validateWorkspaceAccess, 
   requirePermission(['dataset.read']),
   asyncHandler(datasetController.getDatasets.bind(datasetController))

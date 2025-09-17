@@ -69,28 +69,6 @@ export * from './echarts/SankeyChart';
 export * from './echarts/GraphChart';
 
 // ============================================================================
-// REMOVED EXPORTS - NO LONGER SUPPORTED
-// ============================================================================
-
-// REMOVED: Direct renderer exports (static components)
-// export { default as EChartsRenderer } from './renderer/EChartsRenderer';
-// export { default as D3ChartRenderer } from './renderer/D3ChartRenderer';
-
-// REMOVED: Other chart library exports (focus on ECharts only)
-// export * from './d3js/';
-// export * from './chartjs/';
-// export * from './plotly/';
-// export * from './drilldown/';
-
-// ============================================================================
-// CONFIGURATION EXPORTS
-// ============================================================================
-
-// Chart configuration presets and schemas
-export * from './config/chartPresets';
-export * from './config/chartSchemas';
-
-// ============================================================================
 // PLUGIN REGISTRY HELPERS
 // ============================================================================
 
