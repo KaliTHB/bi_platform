@@ -53,11 +53,11 @@ router.post('/:id/duplicate',
   asyncHandler(chartController.duplicateChart.bind(chartController))
 );
 
-// Get chart data
-router.get('/:id/data',
+// Make sure all routes use the correct binding
+router.get('/:id/data', 
   validateWorkspaceAccess,
   requireWorkspaceRole(['viewer', 'analyst', 'editor', 'admin', 'owner']),
-  asyncHandler(chartController.getChartData.bind(chartController))
+  asyncHandler(chartController.getChartData) // ✅ This should work now
 );
 
 // Refresh chart data

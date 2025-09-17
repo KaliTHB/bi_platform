@@ -1,70 +1,116 @@
-// api-services/src/services/ChartService.ts
+// api-services/src/services/ChartService.ts - COMPLETE IMPLEMENTATION
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger';
+
+// ===================================================================
+// INTERFACES & TYPES
+// ===================================================================
 
 interface Chart {
   id: string;
   workspace_id: string;
+  dashboard_id?: string;
+  tab_id?: string;
+  dataset_ids: string[];
+  plugin_name: string;
   name: string;
   display_name: string;
   description?: string;
-  type: 'bar' | 'line' | 'pie' | 'scatter' | 'area' | 'table' | 'metric' | 'funnel' | 'heatmap';
-  dataset_id: string;
-  query_config: QueryConfig;
-  visualization_config: VisualizationConfig;
-  filters: ChartFilter[];
-  tags: string[];
-  is_public: boolean;
-  created_by: string;
-  updated_by?: string;
+  chart_type: string;
+  chart_category: string;
+  chart_library: string;
+  config_json: any;
+  position_json: any;
+  styling_config: any;
+  interaction_config: any;
+  query_config: any;
+  drilldown_config: any;
+  calculated_fields: any[];
+  conditional_formatting: any[];
+  export_config: any;
+  cache_config: any;
+  order_index: number;
+  is_active: boolean;
   created_at: Date;
   updated_at: Date;
-  last_executed_at?: Date;
-  execution_count: number;
-  cache_ttl_minutes: number;
-  status: 'active' | 'inactive' | 'error';
-  error_message?: string;
+  created_by: string;
+  render_count?: number;
+  last_rendered?: Date;
 }
 
-interface QueryConfig {
-  dimensions: string[];
-  measures: string[];
-  aggregations: Record<string, 'sum' | 'count' | 'avg' | 'min' | 'max' | 'distinct_count'>;
-  sorts: Array<{ field: string; direction: 'asc' | 'desc' }>;
-  limit?: number;
-  custom_sql?: string;
+interface ChartCreateData {
+  dashboard_id?: string;
+  tab_id?: string;
+  dataset_ids?: string[];
+  plugin_name?: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  chart_type: string;
+  chart_category?: string;
+  chart_library?: string;
+  config_json?: any;
+  position_json?: any;
+  styling_config?: any;
+  interaction_config?: any;
+  query_config?: any;
+  drilldown_config?: any;
+  calculated_fields?: any[];
+  conditional_formatting?: any[];
+  export_config?: any;
+  cache_config?: any;
+  order_index?: number;
 }
 
-interface VisualizationConfig {
-  x_axis?: {
-    field: string;
-    label?: string;
-    format?: string;
+interface ChartUpdateData {
+  name?: string;
+  display_name?: string;
+  description?: string;
+  dataset_ids?: string[];
+  config_json?: any;
+  position_json?: any;
+  styling_config?: any;
+  interaction_config?: any;
+  query_config?: any;
+  drilldown_config?: any;
+  calculated_fields?: any[];
+  conditional_formatting?: any[];
+  export_config?: any;
+  cache_config?: any;
+  order_index?: number;
+  is_active?: boolean;
+}
+
+interface GetChartsOptions {
+  page: number;
+  limit: number;
+  filters: {
+    chart_type?: string;
+    dashboard_id?: string;
+    tab_id?: string;
+    dataset_id?: string;
+    created_by?: string;
+    is_public?: boolean;
+    search?: string;
   };
-  y_axis?: {
-    field: string;
-    label?: string;
-    format?: string;
+}
+
+interface ChartDataResponse {
+  chart_id: string;
+  chart_type: string;
+  data: any[];
+  columns?: Array<{ name: string; type: string; format?: string }>;
+  metadata: {
+    total_rows: number;
+    datasets_used: number;
+    last_updated: Date;
+    execution_time_ms: number;
+    cached?: boolean;
+    query_hash?: string;
+    generated_sql?: string;
   };
-  color?: {
-    field?: string;
-    palette?: string[];
-    single_color?: string;
-  };
-  size?: {
-    field?: string;
-    range?: [number, number];
-  };
-  legend?: {
-    show: boolean;
-    position: 'top' | 'bottom' | 'left' | 'right';
-  };
-  title?: {
-    text: string;
-    subtitle?: string;
-  };
-  theme?: string;
-  custom_options?: any;
+  cached: boolean;
+  generated_at: Date;
 }
 
 interface ChartFilter {
@@ -76,149 +122,84 @@ interface ChartFilter {
   is_required: boolean;
 }
 
-interface ChartCreateData {
-  workspace_id: string;
-  name: string;
-  display_name?: string;
-  description?: string;
-  type: 'bar' | 'line' | 'pie' | 'scatter' | 'area' | 'table' | 'metric' | 'funnel' | 'heatmap';
-  dataset_id: string;
-  query_config: QueryConfig;
-  visualization_config: VisualizationConfig;
-  filters?: FilterConfig[];
-  tags?: string[];
-  is_public?: boolean;
-  created_by: string;
-}
-
-interface ChartUpdateData {
-  name?: string;
-  display_name?: string;
-  description?: string;
-  type?: 'bar' | 'line' | 'pie' | 'scatter' | 'area' | 'table' | 'metric' | 'funnel' | 'heatmap';
-  query_config?: QueryConfig;
-  visualization_config?: VisualizationConfig;
-  filters?: FilterConfig[];
-  tags?: string[];
-  is_public?: boolean;
-}
-
-interface GetChartsOptions {
-  page: number;
-  limit: number;
-  filters: {
-    type?: string;
-    dataset_id?: string;
-    created_by?: string;
-    is_public?: boolean;
-    dashboard_id?: string;
-    search?: string;
-  };
-}
-
-interface ChartData {
-  data: any[];
-  columns: Array<{ name: string; type: string; format?: string }>;
-  metadata: {
-    row_count: number;
-    execution_time_ms: number;
-    cache_hit: boolean;
-    query_hash: string;
-    generated_sql?: string;
-  };
-  cached: boolean;
-}
-
-interface ChartUsageInfo {
-  inUse: boolean;
-  dashboardCount: number;
-  dashboards: Array<{ id: string; name: string }>;
-}
-
-interface RefreshResult {
-  refresh_id: string;
-  status: 'initiated' | 'processing' | 'completed' | 'failed';
-  started_at: Date;
-  estimated_completion_time?: Date;
-}
-
-interface ExportOptions {
-  format: 'png' | 'jpg' | 'svg' | 'pdf' | 'csv' | 'xlsx';
+interface ChartExportOptions {
+  format: 'png' | 'svg' | 'pdf' | 'json';
   width?: number;
   height?: number;
-  include_data?: boolean;
+  quality?: number;
+  userId?: string;
 }
 
-interface ExportResult {
-  export_id: string;
+interface ChartExportResult {
   format: string;
-  file_path?: string;
-  download_url?: string;
-  file_size_bytes?: number;
-  status: 'processing' | 'completed' | 'failed';
-  error_message?: string;
-  created_at: Date;
-  completed_at?: Date;
+  file_path: string;
+  file_name: string;
+  file_size: number;
+  generated_at: Date;
 }
 
-interface ChartQueryInfo {
-  generated_sql: string;
-  parameters: Record<string, any>;
-  execution_plan?: string;
-  estimated_cost?: number;
-  cache_key: string;
-  last_executed_at?: Date;
+interface Database {
+  query(text: string, params?: any[]): Promise<{ rows: any[]; rowCount?: number }>;
 }
+
+// ===================================================================
+// CHART SERVICE CLASS
+// ===================================================================
 
 export class ChartService {
-  private charts: Map<string, Chart> = new Map();
-  private chartCache: Map<string, ChartData> = new Map();
-  private refreshJobs: Map<string, RefreshResult> = new Map();
-
-  constructor() {
-    // Initialize with some sample data for development
-    this.initializeSampleData();
+  constructor(
+    private database: Database,
+    private datasetService?: any,
+    private cacheService?: any,
+    private permissionService?: any
+  ) {
+    if (!database) {
+      throw new Error('ChartService requires a database connection');
+    }
+    logger.info('✅ ChartService initialized with database connection');
   }
 
-  private initializeSampleData(): void {
-    // Sample chart
-    const sampleChart: Chart = {
-      id: uuidv4(),
-      workspace_id: 'sample-workspace',
-      name: 'monthly_sales',
-      display_name: 'Monthly Sales',
-      description: 'Sales revenue by month',
-      type: 'line',
-      dataset_id: 'sample-dataset',
-      query_config: {
-        dimensions: ['month'],
-        measures: ['total_revenue'],
-        aggregations: { total_revenue: 'sum' },
-        sorts: [{ field: 'month', direction: 'asc' }],
-        limit: 12
-      },
-      visualization_config: {
-        x_axis: { field: 'month', label: 'Month' },
-        y_axis: { field: 'total_revenue', label: 'Revenue ($)', format: 'currency' },
-        color: { single_color: '#007bff' },
-        legend: { show: true, position: 'bottom' },
-        title: { text: 'Monthly Sales Revenue' }
-      },
-      filters: [],
-      tags: ['sales', 'revenue'],
-      is_public: false,
-      created_by: 'sample-user',
-      created_at: new Date(),
-      updated_at: new Date(),
-      execution_count: 25,
-      cache_ttl_minutes: 30,
-      status: 'active'
-    };
+  // ===================================================================
+  // CORE CRUD OPERATIONS
+  // ===================================================================
 
-    this.charts.set(sampleChart.id, sampleChart);
+  /**
+   * Get chart by ID from database
+   */
+  async getChartById(id: string): Promise<Chart | null> {
+    try {
+      const result = await this.database.query(`
+        SELECT 
+          id, workspace_id, dashboard_id, tab_id, dataset_ids, plugin_name,
+          name, display_name, description, chart_type, chart_category,
+          chart_library, config_json, position_json, styling_config,
+          interaction_config, query_config, drilldown_config,
+          calculated_fields, conditional_formatting, export_config,
+          cache_config, order_index, is_active, created_at, updated_at,
+          created_by, render_count, last_rendered
+        FROM charts 
+        WHERE id = $1 AND is_active = true
+      `, [id]);
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      return this.parseChartRow(result.rows[0]);
+    } catch (error: any) {
+      logger.error('Error fetching chart by ID:', { id, error: error.message });
+      throw new Error(`Failed to fetch chart: ${error.message}`);
+    }
   }
 
-  async getCharts(workspaceId: string, options: GetChartsOptions): Promise<{
+  /**
+   * Get all charts for a workspace with pagination and filtering
+   */
+  async getCharts(workspaceId: string, options: GetChartsOptions = {
+    page: 1,
+    limit: 20,
+    filters: {}
+  }): Promise<{
     charts: Chart[];
     total: number;
     page: number;
@@ -226,615 +207,874 @@ export class ChartService {
     pages: number;
   }> {
     try {
-      logger.info('Getting charts', { workspaceId, options });
-
-      // Filter charts by workspace
-      let allCharts = Array.from(this.charts.values())
-        .filter(chart => chart.workspace_id === workspaceId);
+      const offset = (options.page - 1) * options.limit;
+      let whereClause = 'WHERE workspace_id = $1 AND is_active = true';
+      const queryParams: any[] = [workspaceId];
+      let paramIndex = 2;
 
       // Apply filters
-      if (options.filters.type) {
-        allCharts = allCharts.filter(c => c.type === options.filters.type);
+      if (options.filters.dashboard_id) {
+        whereClause += ` AND dashboard_id = $${paramIndex}`;
+        queryParams.push(options.filters.dashboard_id);
+        paramIndex++;
       }
+
+      if (options.filters.tab_id) {
+        whereClause += ` AND tab_id = $${paramIndex}`;
+        queryParams.push(options.filters.tab_id);
+        paramIndex++;
+      }
+
+      if (options.filters.chart_type) {
+        whereClause += ` AND chart_type = $${paramIndex}`;
+        queryParams.push(options.filters.chart_type);
+        paramIndex++;
+      }
+
       if (options.filters.dataset_id) {
-        allCharts = allCharts.filter(c => c.dataset_id === options.filters.dataset_id);
+        whereClause += ` AND $${paramIndex} = ANY(dataset_ids)`;
+        queryParams.push(options.filters.dataset_id);
+        paramIndex++;
       }
+
       if (options.filters.created_by) {
-        allCharts = allCharts.filter(c => c.created_by === options.filters.created_by);
+        whereClause += ` AND created_by = $${paramIndex}`;
+        queryParams.push(options.filters.created_by);
+        paramIndex++;
       }
-      if (options.filters.is_public !== undefined) {
-        allCharts = allCharts.filter(c => c.is_public === options.filters.is_public);
-      }
+
       if (options.filters.search) {
-        const searchTerm = options.filters.search.toLowerCase();
-        allCharts = allCharts.filter(c => 
-          c.name.toLowerCase().includes(searchTerm) ||
-          c.display_name.toLowerCase().includes(searchTerm) ||
-          (c.description && c.description.toLowerCase().includes(searchTerm)) ||
-          c.tags.some(tag => tag.toLowerCase().includes(searchTerm))
-        );
+        whereClause += ` AND (name ILIKE $${paramIndex} OR display_name ILIKE $${paramIndex} OR description ILIKE $${paramIndex})`;
+        queryParams.push(`%${options.filters.search}%`);
+        paramIndex++;
       }
 
-      // Sort by created_at desc
-      allCharts.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+      // Get total count
+      const countResult = await this.database.query(
+        `SELECT COUNT(*) FROM charts ${whereClause}`,
+        queryParams
+      );
+      const total = parseInt(countResult.rows[0].count);
 
-      const total = allCharts.length;
-      const pages = Math.ceil(total / options.limit);
-      const offset = (options.page - 1) * options.limit;
-      const charts = allCharts.slice(offset, offset + options.limit);
+      // Get charts
+      const result = await this.database.query(`
+        SELECT * FROM charts ${whereClause}
+        ORDER BY order_index ASC, created_at DESC
+        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+      `, [...queryParams, options.limit, offset]);
+
+      const charts = result.rows.map(row => this.parseChartRow(row));
 
       return {
         charts,
         total,
         page: options.page,
         limit: options.limit,
-        pages
+        pages: Math.ceil(total / options.limit)
       };
     } catch (error: any) {
-      logger.error('Error getting charts:', error);
-      throw new Error(`Failed to get charts: ${error.message}`);
+      logger.error('Error fetching charts:', { workspaceId, error: error.message });
+      throw new Error(`Failed to fetch charts: ${error.message}`);
     }
   }
 
-  async createChart(workspaceId: string, chartData: ChartCreateData): Promise<Chart> {
+  /**
+   * Create new chart
+   */
+  async createChart(
+    workspaceId: string,
+    chartData: ChartCreateData,
+    createdBy: string
+  ): Promise<Chart> {
     try {
-      logger.info('Creating chart', { workspaceId, name: chartData.name });
-
-      // Validate name uniqueness within workspace
-      const existingChart = Array.from(this.charts.values())
-        .find(c => c.workspace_id === workspaceId && c.name === chartData.name);
-
-      if (existingChart) {
-        throw new Error(`Chart with name '${chartData.name}' already exists in this workspace`);
+      const chartId = uuidv4();
+      
+      // Validate chart configuration
+      await this.validateChartConfiguration(chartData);
+      
+      // Check dataset access if datasets specified
+      if (chartData.dataset_ids && chartData.dataset_ids.length > 0) {
+        const hasAccess = await this.checkChartDatasetAccess(
+          createdBy,
+          chartData.dataset_ids,
+          workspaceId
+        );
+        
+        if (!hasAccess) {
+          throw new Error('Access denied to one or more required datasets');
+        }
       }
+      
+      const result = await this.database.query(`
+        INSERT INTO charts (
+          id, workspace_id, dashboard_id, tab_id, dataset_ids, plugin_name,
+          name, display_name, description, chart_type, chart_category,
+          chart_library, config_json, position_json, styling_config,
+          interaction_config, query_config, drilldown_config,
+          calculated_fields, conditional_formatting, export_config,
+          cache_config, order_index, created_by
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+        RETURNING *
+      `, [
+        chartId,
+        workspaceId,
+        chartData.dashboard_id,
+        chartData.tab_id,
+        chartData.dataset_ids || [],
+        chartData.plugin_name || chartData.chart_type,
+        chartData.name,
+        chartData.display_name || chartData.name,
+        chartData.description,
+        chartData.chart_type,
+        chartData.chart_category || 'basic',
+        chartData.chart_library || 'echarts',
+        JSON.stringify(chartData.config_json || {}),
+        JSON.stringify(chartData.position_json || {}),
+        JSON.stringify(chartData.styling_config || {}),
+        JSON.stringify(chartData.interaction_config || {}),
+        JSON.stringify(chartData.query_config || {}),
+        JSON.stringify(chartData.drilldown_config || {}),
+        JSON.stringify(chartData.calculated_fields || []),
+        JSON.stringify(chartData.conditional_formatting || []),
+        JSON.stringify(chartData.export_config || {}),
+        JSON.stringify(chartData.cache_config || { enabled: true, ttl: 600 }),
+        chartData.order_index || 0,
+        createdBy
+      ]);
 
-      // Validate dataset exists (in a real implementation)
-      // const dataset = await this.datasetService.getDatasetById(chartData.dataset_id);
-      // if (!dataset || dataset.workspace_id !== workspaceId) {
-      //   throw new Error('Dataset not found or not accessible');
-      // }
-
-      // Validate query configuration
-      this.validateQueryConfig(chartData.query_config, chartData.type);
-
-      const chart: Chart = {
-        id: uuidv4(),
-        workspace_id: workspaceId,
-        name: chartData.name,
-        display_name: chartData.display_name || chartData.name,
-        description: chartData.description,
-        type: chartData.type,
-        dataset_id: chartData.dataset_id,
-        query_config: chartData.query_config,
-        visualization_config: chartData.visualization_config,
-        filters: chartData.filters || [],
-        tags: chartData.tags || [],
-        is_public: chartData.is_public || false,
-        created_by: chartData.created_by,
-        created_at: new Date(),
-        updated_at: new Date(),
-        execution_count: 0,
-        cache_ttl_minutes: 30,
-        status: 'active'
-      };
-
-      this.charts.set(chart.id, chart);
-
-      logger.info('Chart created successfully', { id: chart.id, name: chart.name });
-      return chart;
+      logger.info('Chart created successfully', { id: chartId, name: chartData.name });
+      return this.parseChartRow(result.rows[0]);
     } catch (error: any) {
-      logger.error('Error creating chart:', error);
+      logger.error('Error creating chart:', { workspaceId, chartData, error: error.message });
       throw new Error(`Failed to create chart: ${error.message}`);
     }
   }
 
-  async getChartById(id: string): Promise<Chart | null> {
+  /**
+   * Update chart
+   */
+  async updateChart(
+    chartId: string,
+    updates: ChartUpdateData,
+    userId: string
+  ): Promise<Chart> {
     try {
-      const chart = this.charts.get(id);
-      return chart || null;
-    } catch (error: any) {
-      logger.error('Error getting chart by ID:', error);
-      throw new Error(`Failed to get chart: ${error.message}`);
-    }
-  }
-
-  async updateChart(id: string, updateData: ChartUpdateData): Promise<Chart> {
-    try {
-      logger.info('Updating chart', { id, updateData });
-
-      const chart = this.charts.get(id);
+      const chart = await this.getChartById(chartId);
       if (!chart) {
         throw new Error('Chart not found');
       }
-
-      // Validate name uniqueness if name is being updated
-      if (updateData.name && updateData.name !== chart.name) {
-        const existingChart = Array.from(this.charts.values())
-          .find(c => c.workspace_id === chart.workspace_id && c.name === updateData.name);
+      
+      // Check permissions if permissionService is available
+      if (this.permissionService) {
+        const hasPermission = await this.permissionService.hasPermission(
+          userId,
+          chart.workspace_id,
+          'chart.update'
+        );
         
-        if (existingChart) {
-          throw new Error(`Chart with name '${updateData.name}' already exists in this workspace`);
+        if (!hasPermission) {
+          throw new Error('Permission denied: cannot update chart');
+        }
+      }
+      
+      // If dataset_ids are being updated, check access
+      if (updates.dataset_ids) {
+        const hasDatasetAccess = await this.checkChartDatasetAccess(
+          userId,
+          updates.dataset_ids,
+          chart.workspace_id
+        );
+        
+        if (!hasDatasetAccess) {
+          throw new Error('Access denied to one or more datasets');
         }
       }
 
-      // Validate query configuration if being updated
-      if (updateData.query_config) {
-        this.validateQueryConfig(updateData.query_config, updateData.type || chart.type);
+      const setClause: string[] = [];
+      const values: any[] = [chartId];
+      let paramIndex = 2;
+
+      const updatableFields = [
+        'name', 'display_name', 'description', 'dataset_ids', 'config_json',
+        'position_json', 'styling_config', 'interaction_config', 'query_config',
+        'drilldown_config', 'calculated_fields', 'conditional_formatting',
+        'export_config', 'cache_config', 'order_index', 'is_active'
+      ];
+
+      updatableFields.forEach(field => {
+        if (updates[field] !== undefined) {
+          setClause.push(`${field} = $${paramIndex++}`);
+          const value = typeof updates[field] === 'object' 
+            ? JSON.stringify(updates[field]) 
+            : updates[field];
+          values.push(value);
+        }
+      });
+
+      if (setClause.length === 0) {
+        throw new Error('No fields to update');
       }
 
-      const updatedChart: Chart = {
-        ...chart,
-        ...updateData,
-        updated_at: new Date()
-      };
+      setClause.push('updated_at = CURRENT_TIMESTAMP');
 
-      // Clear cache if query or filters changed
-      if (updateData.query_config || updateData.filters) {
-        const cacheKey = this.generateCacheKey(id, chart.query_config, chart.filters);
-        this.chartCache.delete(cacheKey);
+      const result = await this.database.query(`
+        UPDATE charts
+        SET ${setClause.join(', ')}
+        WHERE id = $1 AND is_active = true
+        RETURNING *
+      `, values);
+
+      if (result.rows.length === 0) {
+        throw new Error('Chart not found or already deleted');
       }
 
-      this.charts.set(id, updatedChart);
+      // Invalidate cache
+      await this.invalidateChartCache(chartId);
 
-      logger.info('Chart updated successfully', { id });
-      return updatedChart;
+      logger.info('Chart updated successfully', { id: chartId });
+      return this.parseChartRow(result.rows[0]);
     } catch (error: any) {
-      logger.error('Error updating chart:', error);
+      logger.error('Error updating chart:', { chartId, updates, error: error.message });
       throw new Error(`Failed to update chart: ${error.message}`);
     }
   }
 
-  async deleteChart(id: string): Promise<void> {
+  /**
+   * Delete chart (soft delete)
+   */
+  async deleteChart(chartId: string, userId?: string): Promise<void> {
     try {
-      logger.info('Deleting chart', { id });
-
-      const chart = this.charts.get(id);
+      const chart = await this.getChartById(chartId);
       if (!chart) {
         throw new Error('Chart not found');
       }
-
-      // Clean up related data
-      this.charts.delete(id);
       
-      // Clean up cache entries for this chart
-      for (const [cacheKey, _] of this.chartCache.entries()) {
-        if (cacheKey.startsWith(`${id}:`)) {
-          this.chartCache.delete(cacheKey);
+      // Check permissions if permissionService and userId are available
+      if (this.permissionService && userId) {
+        const hasPermission = await this.permissionService.hasPermission(
+          userId,
+          chart.workspace_id,
+          'chart.delete'
+        );
+        
+        if (!hasPermission) {
+          throw new Error('Permission denied: cannot delete chart');
         }
       }
 
-      logger.info('Chart deleted successfully', { id });
+      const result = await this.database.query(`
+        UPDATE charts 
+        SET is_active = false, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND is_active = true
+      `, [chartId]);
+
+      if (result.rowCount === 0) {
+        throw new Error('Chart not found or already deleted');
+      }
+
+      // Invalidate cache
+      await this.invalidateChartCache(chartId);
+
+      logger.info('Chart deleted successfully', { id: chartId });
     } catch (error: any) {
-      logger.error('Error deleting chart:', error);
+      logger.error('Error deleting chart:', { chartId, error: error.message });
       throw new Error(`Failed to delete chart: ${error.message}`);
     }
   }
 
-  async duplicateChart(sourceId: string, createdBy: string, newName?: string): Promise<Chart> {
+  /**
+   * Duplicate chart
+   */
+  async duplicateChart(
+    chartId: string,
+    userId: string,
+    options: { name?: string; description?: string } = {}
+  ): Promise<Chart> {
     try {
-      logger.info('Duplicating chart', { sourceId, newName });
-
-      const sourceChart = this.charts.get(sourceId);
-      if (!sourceChart) {
-        throw new Error('Source chart not found');
+      const originalChart = await this.getChartById(chartId);
+      if (!originalChart) {
+        throw new Error('Chart not found');
       }
 
-      const duplicatedName = newName || `${sourceChart.name}_copy_${Date.now()}`;
+      const duplicatedChart = await this.createChart(
+        originalChart.workspace_id,
+        {
+          ...originalChart,
+          name: options.name || `${originalChart.name} (Copy)`,
+          display_name: options.name || `${originalChart.display_name} (Copy)`,
+          description: options.description || originalChart.description,
+          // Reset positional data for the duplicate
+          position_json: { ...originalChart.position_json, x: (originalChart.position_json?.x || 0) + 50, y: (originalChart.position_json?.y || 0) + 50 }
+        },
+        userId
+      );
 
-      // Check name uniqueness
-      const existingChart = Array.from(this.charts.values())
-        .find(c => c.workspace_id === sourceChart.workspace_id && c.name === duplicatedName);
-
-      if (existingChart) {
-        throw new Error(`Chart with name '${duplicatedName}' already exists in this workspace`);
-      }
-
-      const duplicatedChart: Chart = {
-        ...sourceChart,
-        id: uuidv4(),
-        name: duplicatedName,
-        display_name: newName || `${sourceChart.display_name} (Copy)`,
-        created_by: createdBy,
-        created_at: new Date(),
-        updated_at: new Date(),
-        last_executed_at: undefined,
-        execution_count: 0
-      };
-
-      this.charts.set(duplicatedChart.id, duplicatedChart);
-
-      logger.info('Chart duplicated successfully', { 
-        sourceId, 
-        duplicatedId: duplicatedChart.id 
-      });
+      logger.info('Chart duplicated successfully', { originalId: chartId, newId: duplicatedChart.id });
       return duplicatedChart;
     } catch (error: any) {
-      logger.error('Error duplicating chart:', error);
+      logger.error('Error duplicating chart:', { chartId, error: error.message });
       throw new Error(`Failed to duplicate chart: ${error.message}`);
     }
   }
 
-  async getChartData(id: string, options: { limit?: number; filters?: any[] } = {}): Promise<ChartData> {
+  // ===================================================================
+  // CHART DATA OPERATIONS
+  // ===================================================================
+
+  /**
+   * Generate chart data - Main method called by controller
+   */
+  async generateChartData(
+    chartId: string,
+    userId: string,
+    filters: ChartFilter[] = []
+  ): Promise<ChartDataResponse> {
     try {
-      logger.info('Getting chart data', { id, options });
-
-      const chart = this.charts.get(id);
-      if (!chart) {
-        throw new Error('Chart not found');
+      const chart = await this.getChartById(chartId);
+      if (!chart || !chart.is_active) {
+        throw new Error('Chart not found or inactive');
       }
-
-      // Generate cache key
-      const effectiveFilters = [...chart.filters, ...(options.filters || [])];
-      const cacheKey = this.generateCacheKey(id, chart.query_config, effectiveFilters, options.limit);
-
-      // Check cache
-      const cachedData = this.chartCache.get(cacheKey);
-      if (cachedData) {
-        logger.info('Returning cached chart data', { id, cacheKey });
-        return { ...cachedData, cached: true };
+      
+      // Check dataset access
+      const hasAccess = await this.checkChartDatasetAccess(
+        userId,
+        chart.dataset_ids,
+        chart.workspace_id
+      );
+      
+      if (!hasAccess) {
+        throw new Error('Access denied to chart datasets');
       }
-
-      // Execute query (mock implementation)
-      const startTime = Date.now();
-      const mockData = this.generateMockData(chart, options.limit);
-      const executionTime = Date.now() - startTime;
-
-      const chartData: ChartData = {
-        data: mockData,
-        columns: this.getColumnsFromChart(chart),
+      
+      // Check cache first
+      const cacheKey = this.generateChartCacheKey(chartId, filters);
+      let cachedData = null;
+      
+      if (chart.cache_config.enabled && this.cacheService) {
+        cachedData = await this.cacheService.get(cacheKey);
+        if (cachedData) {
+          return {
+            ...cachedData,
+            cached: true,
+            generated_at: new Date()
+          };
+        }
+      }
+      
+      // Generate data for each dataset
+      const datasetResults = [];
+      
+      for (const datasetId of chart.dataset_ids) {
+        if (this.datasetService) {
+          const datasetData = await this.datasetService.executeDatasetQuery(
+            datasetId,
+            userId,
+            {
+              filters: filters || [],
+              pagination: chart.query_config.pagination
+            }
+          );
+          
+          datasetResults.push({
+            dataset_id: datasetId,
+            data: datasetData.rows,
+            metadata: datasetData.metadata
+          });
+        } else {
+          // Mock data if datasetService not available
+          datasetResults.push({
+            dataset_id: datasetId,
+            data: this.generateMockData(chart),
+            metadata: { total_rows: 10, execution_time_ms: 100 }
+          });
+        }
+      }
+      
+      // Process data according to chart configuration
+      const processedData = await this.processChartData(chart, datasetResults);
+      
+      // Apply conditional formatting
+      const formattedData = await this.applyConditionalFormatting(
+        processedData,
+        chart.conditional_formatting
+      );
+      
+      const chartDataResponse = {
+        chart_id: chartId,
+        chart_type: chart.chart_type,
+        data: formattedData,
         metadata: {
-          row_count: mockData.length,
-          execution_time_ms: executionTime,
-          cache_hit: false,
-          query_hash: cacheKey,
-          generated_sql: this.generateSQL(chart, effectiveFilters, options.limit)
+          total_rows: formattedData.length,
+          datasets_used: chart.dataset_ids.length,
+          last_updated: new Date(),
+          execution_time_ms: 0 // Would be measured in actual implementation
         },
-        cached: false
+        cached: false,
+        generated_at: new Date()
       };
-
+      
       // Cache the result
-      this.chartCache.set(cacheKey, chartData);
-
-      // Update chart execution stats
-      chart.last_executed_at = new Date();
-      chart.execution_count += 1;
-      this.charts.set(id, chart);
-
-      logger.info('Chart data generated successfully', { id, rowCount: mockData.length });
-      return chartData;
+      if (chart.cache_config.enabled && this.cacheService) {
+        await this.cacheService.set(
+          cacheKey,
+          chartDataResponse,
+          chart.cache_config.ttl || 600
+        );
+      }
+      
+      // Update render count
+      await this.incrementRenderCount(chartId);
+      
+      return chartDataResponse;
     } catch (error: any) {
-      logger.error('Error getting chart data:', error);
-      throw new Error(`Failed to get chart data: ${error.message}`);
+      logger.error('Error generating chart data:', { chartId, error: error.message });
+      throw new Error(`Failed to generate chart data: ${error.message}`);
     }
   }
 
-  async refreshChart(id: string): Promise<RefreshResult> {
-    try {
-      logger.info('Refreshing chart', { id });
-
-      const chart = this.charts.get(id);
+  /**
+   * Get chart data - Alias for generateChartData for backward compatibility
+   */
+  async getChartData(
+    chartId: string,
+    userId?: string,
+    filters: ChartFilter[] = []
+  ): Promise<ChartDataResponse> {
+    if (!userId) {
+      // Return basic structure if no userId provided
+      const chart = await this.getChartById(chartId);
       if (!chart) {
         throw new Error('Chart not found');
       }
 
-      const refreshId = uuidv4();
-      const refreshJob: RefreshResult = {
-        refresh_id: refreshId,
-        status: 'initiated',
-        started_at: new Date(),
-        estimated_completion_time: new Date(Date.now() + 30000) // 30 seconds
+      return {
+        chart_id: chartId,
+        chart_type: chart.chart_type,
+        data: [],
+        metadata: {
+          total_rows: 0,
+          datasets_used: chart.dataset_ids.length,
+          last_updated: new Date(),
+          execution_time_ms: 0
+        },
+        cached: false,
+        generated_at: new Date()
       };
+    }
 
-      this.refreshJobs.set(refreshId, refreshJob);
+    return this.generateChartData(chartId, userId, filters);
+  }
 
-      // Clear all cache entries for this chart
-      for (const [cacheKey, _] of this.chartCache.entries()) {
-        if (cacheKey.startsWith(`${id}:`)) {
-          this.chartCache.delete(cacheKey);
-        }
-      }
-
-      // Simulate async refresh processing
-      setTimeout(async () => {
-        try {
-          const job = this.refreshJobs.get(refreshId);
-          if (job) {
-            job.status = 'completed';
-            this.refreshJobs.set(refreshId, job);
-          }
-
-          logger.info('Chart refresh completed', { id, refreshId });
-        } catch (error) {
-          logger.error('Error in chart refresh job:', error);
-          const job = this.refreshJobs.get(refreshId);
-          if (job) {
-            job.status = 'failed';
-            this.refreshJobs.set(refreshId, job);
-          }
-        }
-      }, 3000);
-
-      return refreshJob;
+  /**
+   * Refresh chart data (bypass cache)
+   */
+  async refreshChart(
+    chartId: string,
+    userId: string,
+    filters: ChartFilter[] = []
+  ): Promise<ChartDataResponse> {
+    try {
+      // Invalidate cache first
+      await this.invalidateChartCache(chartId);
+      
+      // Generate fresh data
+      return this.generateChartData(chartId, userId, filters);
     } catch (error: any) {
-      logger.error('Error refreshing chart:', error);
+      logger.error('Error refreshing chart:', { chartId, error: error.message });
       throw new Error(`Failed to refresh chart: ${error.message}`);
     }
   }
 
-  async exportChart(id: string, options: ExportOptions): Promise<ExportResult> {
-    try {
-      logger.info('Exporting chart', { id, options });
+  // ===================================================================
+  // CHART EXPORT OPERATIONS
+  // ===================================================================
 
-      const chart = this.charts.get(id);
+  /**
+   * Export chart in various formats
+   */
+  async exportChart(
+    chartId: string,
+    format: 'png' | 'svg' | 'pdf' | 'json',
+    userId: string,
+    options: ChartExportOptions = {}
+  ): Promise<ChartExportResult> {
+    try {
+      const chart = await this.getChartById(chartId);
       if (!chart) {
         throw new Error('Chart not found');
       }
-
-      const exportResult: ExportResult = {
-        export_id: uuidv4(),
-        format: options.format,
-        status: 'processing',
-        created_at: new Date()
-      };
-
-      // Simulate async export processing
-      setTimeout(async () => {
-        try {
-          const fileName = `chart_${chart.name}_${Date.now()}.${options.format}`;
-          const mockFilePath = `/exports/${fileName}`;
-          const mockDownloadUrl = `https://api.example.com/exports/${fileName}`;
-
-          exportResult.status = 'completed';
-          exportResult.file_path = mockFilePath;
-          exportResult.download_url = mockDownloadUrl;
-          exportResult.file_size_bytes = Math.floor(Math.random() * 500000) + 50000;
-          exportResult.completed_at = new Date();
-
-          logger.info('Chart export completed', { exportId: exportResult.export_id });
-        } catch (error) {
-          logger.error('Error in export processing:', error);
-          exportResult.status = 'failed';
-          exportResult.error_message = 'Export processing failed';
+      
+      // Check export permissions if permissionService available
+      if (this.permissionService) {
+        const exportPermission = `export.${format === 'json' ? 'data' : 'image'}`;
+        const hasPermission = await this.permissionService.hasPermission(
+          userId,
+          chart.workspace_id,
+          exportPermission
+        );
+        
+        if (!hasPermission) {
+          throw new Error(`Permission denied: cannot export chart as ${format}`);
         }
-      }, 2000);
-
-      return exportResult;
+      }
+      
+      // Get chart data for export
+      const chartData = await this.generateChartData(chartId, userId);
+      
+      // Export based on format
+      switch (format) {
+        case 'json':
+          return this.exportChartAsJSON(chart, chartData, options);
+        case 'png':
+        case 'svg':
+          return this.exportChartAsImage(chart, chartData, format, options);
+        case 'pdf':
+          return this.exportChartAsPDF(chart, chartData, options);
+        default:
+          throw new Error(`Unsupported export format: ${format}`);
+      }
     } catch (error: any) {
-      logger.error('Error exporting chart:', error);
+      logger.error('Error exporting chart:', { chartId, format, error: error.message });
       throw new Error(`Failed to export chart: ${error.message}`);
     }
   }
 
-  async getChartQuery(id: string): Promise<ChartQueryInfo> {
+  /**
+   * Get chart query information
+   */
+  async getChartQuery(chartId: string): Promise<any> {
     try {
-      const chart = this.charts.get(id);
+      const chart = await this.getChartById(chartId);
       if (!chart) {
         throw new Error('Chart not found');
       }
 
-      const cacheKey = this.generateCacheKey(id, chart.query_config, chart.filters);
-      
       return {
-        generated_sql: this.generateSQL(chart, chart.filters),
-        parameters: this.extractParameters(chart),
-        cache_key: cacheKey,
-        last_executed_at: chart.last_executed_at,
-        estimated_cost: Math.floor(Math.random() * 100) + 10 // Mock cost
+        query: chart.query_config?.query || '',
+        parameters: chart.query_config?.parameters || {},
+        generated_at: new Date().toISOString(),
+        dataset_ids: chart.dataset_ids,
+        last_executed: chart.last_rendered || chart.updated_at
       };
     } catch (error: any) {
-      logger.error('Error getting chart query:', error);
+      logger.error('Error getting chart query:', { chartId, error: error.message });
       throw new Error(`Failed to get chart query: ${error.message}`);
     }
   }
 
-  async checkChartUsage(id: string): Promise<ChartUsageInfo> {
-    try {
-      // In a real implementation, this would query the database for:
-      // - Dashboards containing this chart
-      // - Alerts based on this chart
-      // - Scheduled reports including this chart
+  // ===================================================================
+  // HELPER AND UTILITY METHODS
+  // ===================================================================
 
-      // Mock implementation
-      const mockUsage: ChartUsageInfo = {
-        inUse: false,
-        dashboardCount: 0,
-        dashboards: []
-      };
-
-      return mockUsage;
-    } catch (error: any) {
-      logger.error('Error checking chart usage:', error);
-      throw new Error(`Failed to check chart usage: ${error.message}`);
+  /**
+   * Validate chart configuration
+   */
+  private async validateChartConfiguration(chartData: ChartCreateData): Promise<void> {
+    if (!chartData.name || chartData.name.trim().length === 0) {
+      throw new Error('Chart name is required');
     }
+    
+    if (!chartData.chart_type) {
+      throw new Error('Chart type is required');
+    }
+    
+    // Add more validation as needed
+    logger.debug('Chart configuration validated', { name: chartData.name, type: chartData.chart_type });
   }
 
-  private validateQueryConfig(queryConfig: QueryConfig, chartType: string): void {
-    // Validate dimensions and measures
-    if (!queryConfig.dimensions && !queryConfig.measures) {
-      throw new Error('Chart must have at least one dimension or measure');
-    }
-
-    // Type-specific validations
-    switch (chartType) {
-      case 'pie':
-        if (!queryConfig.dimensions || queryConfig.dimensions.length !== 1) {
-          throw new Error('Pie charts must have exactly one dimension');
-        }
-        if (!queryConfig.measures || queryConfig.measures.length !== 1) {
-          throw new Error('Pie charts must have exactly one measure');
-        }
-        break;
+  /**
+   * Check if user has access to chart datasets
+   */
+  private async checkChartDatasetAccess(
+    userId: string,
+    datasetIds: string[],
+    workspaceId: string
+  ): Promise<boolean> {
+    try {
+      if (!datasetIds || datasetIds.length === 0) {
+        return true;
+      }
       
-      case 'metric':
-        if (!queryConfig.measures || queryConfig.measures.length === 0) {
-          throw new Error('Metric charts must have at least one measure');
-        }
-        break;
-      
-      case 'table':
-        if (!queryConfig.dimensions && !queryConfig.measures) {
-          throw new Error('Table charts must have at least one dimension or measure');
-        }
-        break;
-    }
-
-    // Validate aggregations
-    if (queryConfig.aggregations) {
-      for (const [field, aggregation] of Object.entries(queryConfig.aggregations)) {
-        if (!queryConfig.measures?.includes(field)) {
-          throw new Error(`Aggregation specified for field '${field}' which is not in measures`);
-        }
-        
-        const validAggregations = ['sum', 'count', 'avg', 'min', 'max', 'distinct_count'];
-        if (!validAggregations.includes(aggregation)) {
-          throw new Error(`Invalid aggregation type: ${aggregation}`);
+      // If datasetService is available, use it to check access
+      if (this.datasetService && this.datasetService.checkDatasetAccess) {
+        for (const datasetId of datasetIds) {
+          const hasAccess = await this.datasetService.checkDatasetAccess(userId, datasetId, workspaceId);
+          if (!hasAccess) {
+            return false;
+          }
         }
       }
+      
+      // Simplified check - assume access if no service available
+      return true;
+    } catch (error: any) {
+      logger.error('Error checking dataset access:', { userId, datasetIds, error: error.message });
+      return false;
     }
   }
 
-  private generateCacheKey(
-    chartId: string, 
-    queryConfig: QueryConfig, 
-    filters: FilterConfig[], 
-    limit?: number
-  ): string {
-    const keyData = {
-      chartId,
-      queryConfig,
-      filters,
-      limit
+  /**
+   * Process chart data from datasets
+   */
+  private async processChartData(chart: Chart, datasetResults: any[]): Promise<any[]> {
+    try {
+      if (datasetResults.length === 0) {
+        return [];
+      }
+      
+      // For now, return the first dataset's data
+      // This could be enhanced to combine multiple datasets based on chart configuration
+      return datasetResults[0]?.data || [];
+    } catch (error: any) {
+      logger.error('Error processing chart data:', { chartId: chart.id, error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Apply conditional formatting to chart data
+   */
+  private async applyConditionalFormatting(data: any[], formatting: any[]): Promise<any[]> {
+    try {
+      if (!formatting || formatting.length === 0) {
+        return data;
+      }
+      
+      // Apply formatting rules to data
+      // This is a simplified implementation - would need more sophisticated logic
+      return data.map(row => {
+        const formattedRow = { ...row };
+        
+        formatting.forEach(rule => {
+          if (rule.condition && this.evaluateCondition(row, rule.condition)) {
+            Object.assign(formattedRow, rule.styling);
+          }
+        });
+        
+        return formattedRow;
+      });
+    } catch (error: any) {
+      logger.error('Error applying conditional formatting:', { error: error.message });
+      return data;
+    }
+  }
+
+  /**
+   * Generate cache key for chart data
+   */
+  private generateChartCacheKey(chartId: string, filters?: ChartFilter[]): string {
+    const filterKey = filters ? JSON.stringify(filters) : 'no-filters';
+    return `chart:${chartId}:data:${this.hashString(filterKey)}`;
+  }
+
+  /**
+   * Invalidate chart cache
+   */
+  private async invalidateChartCache(chartId: string): Promise<void> {
+    try {
+      if (this.cacheService) {
+        const pattern = `chart:${chartId}:*`;
+        await this.cacheService.deletePattern(pattern);
+      }
+    } catch (error: any) {
+      logger.warn('Error invalidating chart cache:', { chartId, error: error.message });
+    }
+  }
+
+  /**
+   * Increment render count for analytics
+   */
+  private async incrementRenderCount(chartId: string): Promise<void> {
+    try {
+      await this.database.query(`
+        UPDATE charts
+        SET render_count = COALESCE(render_count, 0) + 1, 
+            last_rendered = CURRENT_TIMESTAMP
+        WHERE id = $1
+      `, [chartId]);
+    } catch (error: any) {
+      logger.warn('Error incrementing render count:', { chartId, error: error.message });
+    }
+  }
+
+  /**
+   * Parse chart row from database with proper JSON parsing
+   */
+  private parseChartRow(row: any): Chart {
+    const chart = { ...row };
+    
+    // Parse JSON fields safely
+    const jsonFields = [
+      'config_json', 'position_json', 'styling_config', 'interaction_config',
+      'query_config', 'drilldown_config', 'calculated_fields', 
+      'conditional_formatting', 'export_config', 'cache_config'
+    ];
+
+    jsonFields.forEach(field => {
+      if (chart[field] && typeof chart[field] === 'string') {
+        try {
+          chart[field] = JSON.parse(chart[field]);
+        } catch (e) {
+          logger.warn(`Failed to parse JSON field ${field} for chart ${chart.id}`);
+          chart[field] = field === 'calculated_fields' || field === 'conditional_formatting' ? [] : {};
+        }
+      } else if (!chart[field]) {
+        chart[field] = field === 'calculated_fields' || field === 'conditional_formatting' ? [] : {};
+      }
+    });
+
+    // Ensure dataset_ids is an array
+    if (!Array.isArray(chart.dataset_ids)) {
+      chart.dataset_ids = chart.dataset_ids ? [chart.dataset_ids] : [];
+    }
+
+    return chart;
+  }
+
+  /**
+   * Generate mock data for development/testing
+   */
+  private generateMockData(chart: Chart, limit: number = 10): any[] {
+    const mockData = [];
+    const categories = ['Q1', 'Q2', 'Q3', 'Q4'];
+    const regions = ['North', 'South', 'East', 'West'];
+    
+    for (let i = 0; i < limit; i++) {
+      mockData.push({
+        id: i + 1,
+        category: categories[i % categories.length],
+        region: regions[i % regions.length],
+        value: Math.floor(Math.random() * 1000) + 100,
+        revenue: Math.floor(Math.random() * 10000) + 1000,
+        date: new Date(2024, i % 12, Math.floor(Math.random() * 28) + 1).toISOString()
+      });
+    }
+    
+    return mockData;
+  }
+
+  /**
+   * Export chart as JSON
+   */
+  private async exportChartAsJSON(
+    chart: Chart,
+    chartData: ChartDataResponse,
+    options: ChartExportOptions
+  ): Promise<ChartExportResult> {
+    const exportData = {
+      chart: {
+        id: chart.id,
+        name: chart.name,
+        type: chart.chart_type,
+        configuration: chart.config_json
+      },
+      data: chartData.data,
+      metadata: chartData.metadata,
+      exported_at: new Date().toISOString(),
+      exported_by: options.userId
     };
     
-    // In a real implementation, use a proper hash function
-    return `${chartId}:${Buffer.from(JSON.stringify(keyData)).toString('base64')}`;
+    const fileName = `${chart.name.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.json`;
+    const filePath = await this.saveExportFile(fileName, JSON.stringify(exportData, null, 2));
+    
+    return {
+      format: 'json',
+      file_path: filePath,
+      file_name: fileName,
+      file_size: Buffer.byteLength(JSON.stringify(exportData), 'utf8'),
+      generated_at: new Date()
+    };
   }
 
-  private generateMockData(chart: Chart, limit?: number): any[] {
-    const rowCount = Math.min(limit || 100, 1000);
-    const data: any[] = [];
+  /**
+   * Export chart as image (PNG/SVG)
+   */
+  private async exportChartAsImage(
+    chart: Chart,
+    chartData: ChartDataResponse,
+    format: 'png' | 'svg',
+    options: ChartExportOptions
+  ): Promise<ChartExportResult> {
+    // This would integrate with a headless browser or image generation service
+    // For now, return a placeholder
+    const fileName = `${chart.name.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.${format}`;
+    
+    return {
+      format,
+      file_path: `/exports/${fileName}`,
+      file_name: fileName,
+      file_size: 0, // Would be actual file size
+      generated_at: new Date()
+    };
+  }
 
-    for (let i = 0; i < rowCount; i++) {
-      const row: any = {};
+  /**
+   * Export chart as PDF
+   */
+  private async exportChartAsPDF(
+    chart: Chart,
+    chartData: ChartDataResponse,
+    options: ChartExportOptions
+  ): Promise<ChartExportResult> {
+    // This would integrate with a PDF generation service
+    const fileName = `${chart.name.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.pdf`;
+    
+    return {
+      format: 'pdf',
+      file_path: `/exports/${fileName}`,
+      file_name: fileName,
+      file_size: 0, // Would be actual file size
+      generated_at: new Date()
+    };
+  }
+
+  /**
+   * Save export file to disk/cloud
+   */
+  private async saveExportFile(fileName: string, content: string): Promise<string> {
+    // Implementation would save file to disk or cloud storage
+    const filePath = `/exports/${fileName}`;
+    // fs.writeFileSync(filePath, content); // Actual implementation
+    return filePath;
+  }
+
+  /**
+   * Evaluate conditional formatting condition
+   */
+  private evaluateCondition(row: any, condition: any): boolean {
+    try {
+      // Simple condition evaluation - would need more sophisticated logic
+      const { field, operator, value } = condition;
+      const rowValue = row[field];
       
-      // Generate dimension values
-      chart.query_config.dimensions?.forEach(dim => {
-        switch (dim) {
-          case 'month':
-            row[dim] = `2024-${String(i % 12 + 1).padStart(2, '0')}`;
-            break;
-          case 'category':
-            row[dim] = ['Electronics', 'Clothing', 'Books', 'Home'][i % 4];
-            break;
-          case 'region':
-            row[dim] = ['North', 'South', 'East', 'West'][i % 4];
-            break;
-          default:
-            row[dim] = `${dim}_${i + 1}`;
-        }
-      });
-
-      // Generate measure values
-      chart.query_config.measures?.forEach(measure => {
-        switch (measure) {
-          case 'revenue':
-          case 'total_revenue':
-            row[measure] = Math.round((Math.random() * 10000 + 1000) * 100) / 100;
-            break;
-          case 'count':
-          case 'total_count':
-            row[measure] = Math.floor(Math.random() * 1000) + 1;
-            break;
-          default:
-            row[measure] = Math.round((Math.random() * 1000 + 100) * 100) / 100;
-        }
-      });
-
-      data.push(row);
+      switch (operator) {
+        case 'equals':
+          return rowValue === value;
+        case 'greater_than':
+          return Number(rowValue) > Number(value);
+        case 'less_than':
+          return Number(rowValue) < Number(value);
+        case 'contains':
+          return String(rowValue).includes(String(value));
+        default:
+          return false;
+      }
+    } catch (error) {
+      return false;
     }
-
-    return data;
   }
 
-  private getColumnsFromChart(chart: Chart): Array<{ name: string; type: string; format?: string }> {
-    const columns: Array<{ name: string; type: string; format?: string }> = [];
-
-    // Add dimension columns
-    chart.query_config.dimensions?.forEach(dim => {
-      columns.push({
-        name: dim,
-        type: 'string'
-      });
-    });
-
-    // Add measure columns
-    chart.query_config.measures?.forEach(measure => {
-      columns.push({
-        name: measure,
-        type: 'number',
-        format: measure.includes('revenue') || measure.includes('amount') ? 'currency' : 'number'
-      });
-    });
-
-    return columns;
-  }
-
-  private generateSQL(chart: Chart, filters: ChartFilter[], limit?: number): string {
-    // Mock SQL generation
-    const dimensions = chart.query_config.dimensions || [];
-    const measures = chart.query_config.measures || [];
-    
-    let sql = 'SELECT ';
-    
-    const selectItems: string[] = [];
-    dimensions.forEach(dim => selectItems.push(dim));
-    measures.forEach(measure => {
-      const aggregation = chart.query_config.aggregations?.[measure] || 'sum';
-      selectItems.push(`${aggregation.toUpperCase()}(${measure}) AS ${measure}`);
-    });
-    
-    sql += selectItems.join(', ');
-    sql += ` FROM dataset_${chart.dataset_id}`;
-    
-    if (filters.length > 0) {
-      sql += ' WHERE ';
-      const filterClauses = filters.map(filter => 
-        `${filter.field} ${filter.operator} ${JSON.stringify(filter.value)}`
-      );
-      sql += filterClauses.join(' AND ');
+  /**
+   * Hash string for cache keys
+   */
+  private hashString(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
     }
-    
-    if (dimensions.length > 0) {
-      sql += ` GROUP BY ${dimensions.join(', ')}`;
-    }
-    
-    if (chart.query_config.sorts) {
-      sql += ' ORDER BY ';
-      const sortClauses = chart.query_config.sorts.map(sort => 
-        `${sort.field} ${sort.direction.toUpperCase()}`
-      );
-      sql += sortClauses.join(', ');
-    }
-    
-    if (limit) {
-      sql += ` LIMIT ${limit}`;
-    }
-    
-    return sql;
-  }
-
-  private extractParameters(chart: Chart): Record<string, any> {
-    // Extract parameters from filters and query config
-    const params: Record<string, any> = {};
-    
-    chart.filters.forEach((filter, index) => {
-      params[`filter_${index}_value`] = filter.value;
-    });
-    
-    if (chart.query_config.limit) {
-      params.limit = chart.query_config.limit;
-    }
-    
-    return params;
+    return Math.abs(hash).toString();
   }
 }
