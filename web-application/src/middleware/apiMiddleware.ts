@@ -64,7 +64,7 @@ class ApiMiddleware {
         
         // Use workspace storage to get workspace context
         if (workspaceId) {
-          config.headers['X-Workspace-Id'] = workspaceId;
+          config.headers['X-Workspace-ID'] = workspaceId;
         }
 
         // Add workspace slug for additional context

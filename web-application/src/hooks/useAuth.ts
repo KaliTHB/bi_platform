@@ -211,9 +211,9 @@ export const useAuth = () => {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
-          'X-Workspace-Id': currentWorkspace?.id || '',
+          'X-Workspace-ID': currentWorkspace?.id || '',
           'X-Workspace-Slug': currentWorkspace?.slug || '',
-          'X-User-Id': currentUser?.user_id || ''
+          'X-user-ID': currentUser?.user_id || ''
         },
         body: JSON.stringify({ 
           workspace_id: workspaceId

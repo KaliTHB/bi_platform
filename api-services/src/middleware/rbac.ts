@@ -31,7 +31,7 @@ export function requirePermission(permissions: string | string[]): RequestHandle
       }
 
       // Get workspace ID from headers or request
-      const workspaceId = req.headers['x-workspace-id'] as string || 
+      const workspaceId = req.headers['X-Workspace-ID'] as string || 
                          req.user.workspace_id ||
                          req.params.workspaceId;
                          
@@ -108,7 +108,7 @@ export const loadUserPermissions: RequestHandler = async (
       return;
     }
 
-    const workspaceId = req.headers['x-workspace-id'] as string;
+    const workspaceId = req.headers['X-Workspace-ID'] as string;
     if (!workspaceId) {
       next();
       return;
@@ -173,7 +173,7 @@ export function requireRole(roles: string | string[]): RequestHandler {
         return;
       }
 
-      const workspaceId = req.headers['x-workspace-id'] as string || 
+      const workspaceId = req.headers['X-Workspace-ID'] as string || 
                          req.user.workspace_id ||
                          req.params.workspaceId;
                          
@@ -235,7 +235,7 @@ export function requireAdmin(): RequestHandler {
         return;
       }
 
-      const workspaceId = req.headers['x-workspace-id'] as string || 
+      const workspaceId = req.headers['X-Workspace-ID'] as string || 
                          req.user.workspace_id ||
                          req.params.workspaceId;
 

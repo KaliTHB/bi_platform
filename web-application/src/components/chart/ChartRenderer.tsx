@@ -211,6 +211,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
         // Strategy 1: Try ChartRegistry first (preferred)
         const pluginKey = `${chartLibrary}-${chartType}`;
         const plugin = ChartRegistry.getPlugin(pluginKey);
+        console.log('plugins',plugin)
 
         if (plugin?.component) {
           console.log(`✅ Using Registry component: ${plugin.displayName}`);

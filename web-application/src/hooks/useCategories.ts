@@ -31,7 +31,7 @@ export const useCategories = () => {
       const response = await fetch('/api/categories', {
         headers: {
           'Authorization': `Bearer ${auth.token}`,
-          'X-Workspace-Id': auth.workspace?.id || '',
+          'X-Workspace-ID': auth.workspace?.id || '',
         },
       });
 
@@ -56,7 +56,7 @@ export const useCategories = () => {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${auth.token}`,
-          'X-Workspace-Id': auth.workspace?.id || '',
+          'X-Workspace-ID': auth.workspace?.id || '',
         },
         body: JSON.stringify(categoryData),
       });
@@ -81,7 +81,7 @@ export const useCategories = () => {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${auth.token}`,
-          'X-Workspace-Id': auth.workspace?.id || '',
+          'X-Workspace-ID': auth.workspace?.id || '',
         },
         body: JSON.stringify(updates),
       });
@@ -105,7 +105,7 @@ export const useCategories = () => {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${auth.token}`,
-          'X-Workspace-Id': auth.workspace?.id || '',
+          'X-Workspace-ID': auth.workspace?.id || '',
         },
       });
 

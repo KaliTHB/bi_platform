@@ -117,7 +117,7 @@ export class ChartController {
    */
   getCharts = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       const userId = req.user?.user_id;
 
       // Validate workspace header
@@ -180,7 +180,7 @@ export class ChartController {
       });
 
     } catch (error: any) {
-      logger.error('Get charts error:', { workspaceId: req.headers['x-workspace-id'], error: error.message });
+      logger.error('Get charts error:', { workspaceId: req.headers['X-Workspace-ID'], error: error.message });
       res.status(500).json({
         success: false,
         message: 'Failed to retrieve charts',
@@ -194,7 +194,7 @@ export class ChartController {
    */
   createChart = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       const userId = req.user?.user_id;
       const chartData = req.body as ChartCreateRequest;
 
@@ -244,7 +244,7 @@ export class ChartController {
       });
 
     } catch (error: any) {
-      logger.error('Create chart error:', { workspaceId: req.headers['x-workspace-id'], chartData: req.body, error: error.message });
+      logger.error('Create chart error:', { workspaceId: req.headers['X-Workspace-ID'], chartData: req.body, error: error.message });
       res.status(400).json({
         success: false,
         message: 'Failed to create chart',
@@ -259,7 +259,7 @@ export class ChartController {
   getChart = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       const userId = req.user?.user_id;
 
       // Validate workspace header
@@ -331,7 +331,7 @@ export class ChartController {
   updateChart = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       const userId = req.user?.user_id;
       const updateData = req.body as ChartUpdateRequest;
 
@@ -397,7 +397,7 @@ export class ChartController {
   deleteChart = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       const userId = req.user?.user_id;
 
       // Validate workspace header
@@ -461,7 +461,7 @@ export class ChartController {
   duplicateChart = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       const userId = req.user?.user_id;
       const { name, description } = req.body;
 
@@ -531,7 +531,7 @@ export class ChartController {
   getChartData = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       const userId = req.user?.user_id;
 
       // Parse query parameters
@@ -651,7 +651,7 @@ export class ChartController {
   refreshChart = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       const userId = req.user?.user_id;
 
       // Validate workspace header
@@ -720,7 +720,7 @@ export class ChartController {
   exportChart = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       const userId = req.user?.user_id;
       const { format = 'png', width, height, quality } = req.query;
 
@@ -816,7 +816,7 @@ export class ChartController {
   getChartQuery = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       const userId = req.user?.user_id;
 
       // Validate workspace header

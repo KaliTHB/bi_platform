@@ -55,7 +55,7 @@ export function requestLogger(req: LoggedRequest, res: Response, next: NextFunct
       duration_ms: duration,
       content_length: res.get('Content-Length'),
       user_id: (req as any).user?.user_id || (req as any).user?.id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       timestamp: new Date().toISOString()
     });
 

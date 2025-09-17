@@ -172,8 +172,8 @@ const DashboardsPage: NextPage = () => {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
-        'x-workspace-id': currentWorkspace?.id || '',  // ✅ CRITICAL: Use header instead of query
-        'x-user-id': user?.id || '',
+        'X-Workspace-ID': currentWorkspace?.id || '',  // ✅ CRITICAL: Use header instead of query
+        'X-user-ID': user?.id || '',
         'Accept': 'application/json'
       }
     });

@@ -33,7 +33,7 @@ export class ApiClient {
         // Get user from auth storage instead of direct localStorage access
         const currentUser = this.token || authStorage.getUser();
         if (currentUser?.id) {
-          config.headers['X-User-ID'] = currentUser.id;
+          config.headers['X-user-ID'] = currentUser.id;
         }        
 
         // Add workspace context from workspace storage

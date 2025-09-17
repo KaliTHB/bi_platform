@@ -39,7 +39,7 @@ export class DashboardController {
       const startTime = Date.now();
       
       try {
-        const workspace_id = req.headers['x-workspace-id'] as string || req.user?.workspace_id;
+        const workspace_id = req.headers['X-Workspace-ID'] as string || req.user?.workspace_id;
         
         if (!workspace_id) {
           logger.error('Missing workspace_id in dashboard request', {
@@ -115,7 +115,7 @@ export class DashboardController {
         logger.error('Error in getDashboards controller', {
           service: 'bi-platform-api',
           user_id: req.user?.id,
-          workspace_id: req.headers['x-workspace-id'],
+          workspace_id: req.headers['X-Workspace-ID'],
           duration_ms: duration,
           error: error.message,
           stack: error.stack,

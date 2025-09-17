@@ -67,7 +67,7 @@ const authBaseQuery = fetchBaseQuery({
     
     // Add workspace context if available
     if (workspaceId) {
-      headers.set('x-workspace-id', workspaceId);
+      headers.set('X-Workspace-ID', workspaceId);
     }
     
     // Set content type and accept headers

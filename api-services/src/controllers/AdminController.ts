@@ -7,7 +7,7 @@ export class AdminController {
   async getUsers(req: Request, res: Response): Promise<void> {
     try {
       const db: Pool = req.app.locals.db;
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       
       const result = await db.query(`
         SELECT 
@@ -50,7 +50,7 @@ export class AdminController {
   async getRoles(req: Request, res: Response): Promise<void> {
     try {
       const db: Pool = req.app.locals.db;
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       
       const result = await db.query(`
         SELECT 
@@ -82,7 +82,7 @@ export class AdminController {
     try {
       const db: Pool = req.app.locals.db;
       const permissionService: PermissionService = req.app.locals.permissionService;
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       const { name, description, permissions } = req.body;
 
       // Validate request body
@@ -328,7 +328,7 @@ public toggleWorkspaceStatus = async (req: AuthenticatedRequest, res: Response):
   async getAuditLogs(req: Request, res: Response): Promise<void> {
     try {
       const db: Pool = req.app.locals.db;
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       const { page = 1, limit = 50, action, user_id } = req.query;
       
       let query = `

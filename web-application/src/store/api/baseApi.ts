@@ -70,7 +70,7 @@ const baseQuery = fetchBaseQuery({
     
     // Add workspace context headers
     if (workspaceId) {
-      headers.set('X-Workspace-Id', workspaceId);
+      headers.set('X-Workspace-ID', workspaceId);
     }
     
     if (workspaceSlug) {

@@ -19,7 +19,7 @@ router.use((req, res, next) => {
     method: req.method,
     path: req.path,
     user_id: (req as any).user?.user_id,
-    workspace_id: req.headers['x-workspace-id'] || req.params.workspaceId,
+    workspace_id: req.headers['X-Workspace-ID'] || req.params.workspaceId,
     dashboard_id: req.params.id,
     ip: req.ip,
     user_agent: req.get('User-Agent'),
@@ -42,7 +42,7 @@ router.get('/',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard list request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       query: req.query,
       service: 'bi-platform-api'
     });
@@ -61,7 +61,7 @@ router.post('/',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard creation request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_name: req.body?.name,
       service: 'bi-platform-api'
     });
@@ -80,7 +80,7 @@ router.get('/:id',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard detail request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_id: req.params.id,
       include_charts: req.query.include_charts,
       include_data: req.query.include_data,
@@ -101,7 +101,7 @@ router.put('/:id',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard update request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_id: req.params.id,
       update_fields: Object.keys(req.body),
       service: 'bi-platform-api'
@@ -121,7 +121,7 @@ router.delete('/:id',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard deletion request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_id: req.params.id,
       service: 'bi-platform-api'
     });
@@ -144,7 +144,7 @@ router.get('/:id/data',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard data request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_id: req.params.id,
       filters: req.query.filters,
       force_refresh: req.query.force_refresh,
@@ -165,7 +165,7 @@ router.post('/:id/refresh',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard refresh request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_id: req.params.id,
       service: 'bi-platform-api'
     });
@@ -188,7 +188,7 @@ router.post('/:id/share',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard sharing request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_id: req.params.id,
       share_type: req.body?.share_type,
       service: 'bi-platform-api'
@@ -208,7 +208,7 @@ router.put('/:id/sharing',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard sharing update request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_id: req.params.id,
       service: 'bi-platform-api'
     });
@@ -227,7 +227,7 @@ router.delete('/:id/sharing',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard sharing removal request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_id: req.params.id,
       service: 'bi-platform-api'
     });
@@ -254,7 +254,7 @@ router.get('/:id/analytics',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard analytics request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_id: req.params.id,
       date_range: req.query.date_range,
       service: 'bi-platform-api'
@@ -278,7 +278,7 @@ router.get('/:id/cache/status',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard cache status request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_id: req.params.id,
       service: 'bi-platform-api'
     });
@@ -297,7 +297,7 @@ router.post('/:id/cache/refresh',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard cache refresh request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_id: req.params.id,
       service: 'bi-platform-api'
     });
@@ -316,7 +316,7 @@ router.delete('/:id/cache',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard cache clear request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_id: req.params.id,
       service: 'bi-platform-api'
     });
@@ -339,7 +339,7 @@ router.post('/:id/duplicate',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard duplication request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_id: req.params.id,
       new_name: req.body?.name,
       service: 'bi-platform-api'
@@ -367,7 +367,7 @@ router.patch('/:id/status',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard status update request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_id: req.params.id,
       new_status: req.body?.status,
       service: 'bi-platform-api'
@@ -399,7 +399,7 @@ router.post('/:id/export',
   asyncHandler(async (req, res) => {
     logger.info('Dashboard export request', {
       user_id: (req as any).user?.user_id,
-      workspace_id: req.headers['x-workspace-id'],
+      workspace_id: req.headers['X-Workspace-ID'],
       dashboard_id: req.params.id,
       export_format: req.body?.format,
       export_options: req.body?.options,
@@ -429,7 +429,7 @@ router.use((error: any, req: any, res: any, next: any) => {
     error: error.message,
     stack: error.stack,
     user_id: req.user?.user_id,
-    workspace_id: req.headers['x-workspace-id'],
+    workspace_id: req.headers['X-Workspace-ID'],
     dashboard_id: req.params?.id,
     path: req.path,
     method: req.method,

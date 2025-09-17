@@ -30,6 +30,7 @@ import { baseApi } from "./api/baseApi";
 import { authApi } from "./api/authApi";
 import { dashboardApi } from "./api/dashboardApi";
 import { categoryApi } from "./api/categoryApi";
+import { datasetApi } from "./api/datasetApi";
 
 // Root persist configuration - Exclude all RTK Query APIs from persistence
 const rootPersistConfig = {
@@ -43,6 +44,7 @@ const rootPersistConfig = {
     authApi.reducerPath,
     userApi.reducerPath,
     roleApi.reducerPath,
+    datasetApi.reducerPath,
     permissionApi.reducerPath,
     workspaceApi.reducerPath,
   ],
@@ -66,6 +68,7 @@ const rootReducer = combineReducers({
   [userApi.reducerPath]: userApi.reducer,
   [roleApi.reducerPath]: roleApi.reducer,
   [permissionApi.reducerPath]: permissionApi.reducer,
+  [datasetApi.reducerPath]: datasetApi.reducer,
 });
 
 // Create persisted reducer
@@ -88,6 +91,7 @@ export const store = configureStore({
           roleApi.reducerPath,
           workspaceApi.reducerPath,
           permissionApi.reducerPath,
+          datasetApi.reducerPath,
         ],
       },
     })
@@ -97,6 +101,7 @@ export const store = configureStore({
     .concat(workspaceApi.middleware)
     .concat(userApi.middleware)
     .concat(roleApi.middleware)
+    .concat(datasetApi.middleware)
     .concat(permissionApi.middleware),
 
   devTools: process.env.NODE_ENV !== "production",

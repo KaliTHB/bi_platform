@@ -83,9 +83,9 @@ const corsOptions = {
     'Content-Type',
     'Accept',
     'Authorization',
-    'X-Workspace-Id',
+    'X-Workspace-ID',
     'X-Workspace-Slug',
-    'X-User-Id'
+    'X-user-ID'
   ],
 };
 

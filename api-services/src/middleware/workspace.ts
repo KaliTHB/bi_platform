@@ -168,7 +168,7 @@ export async function validateWorkspaceAccess(
 
     // Get workspace ID from multiple sources (in order of preference)
     const workspaceId = req.params.workspaceId || 
-                       req.headers['x-workspace-id'] as string || 
+                       req.headers['X-Workspace-ID'] as string || 
                        req.user.workspace_id ||  // From JWT token
                        req.body?.workspace_id;
 
@@ -179,7 +179,7 @@ export async function validateWorkspaceAccess(
       method: req.method,
       workspace_sources: {
         from_params: req.params.workspaceId,
-        from_headers: req.headers['x-workspace-id'],
+        from_headers: req.headers['X-Workspace-ID'],
         from_user_token: req.user.workspace_id,
         from_body: req.body?.workspace_id,
         final_workspace_id: workspaceId
@@ -285,7 +285,7 @@ export async function validateWorkspaceAccess(
     }
 
     // Set workspace ID in header for downstream middleware/controllers
-    req.headers['x-workspace-id'] = workspaceId;
+    req.headers['X-Workspace-ID'] = workspaceId;
     
     // Attach workspace info to request
     (req as any).workspace = workspace;
@@ -345,7 +345,7 @@ export function requireWorkspaceRole(roles: string[]) {
         return;
       }
 
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       if (!workspaceId) {
         res.status(400).json({
           success: false,
@@ -446,7 +446,7 @@ export function requireWorkspacePermission(permissions: string[]) {
         return;
       }
 
-      const workspaceId = req.headers['x-workspace-id'] as string;
+      const workspaceId = req.headers['X-Workspace-ID'] as string;
       if (!workspaceId) {
         res.status(400).json({
           success: false,
@@ -533,14 +533,14 @@ export async function addWorkspaceContext(
 ): Promise<void> {
   try {
     const workspaceId = req.params.workspaceId || 
-                       req.headers['x-workspace-id'] as string || 
+                       req.headers['X-Workspace-ID'] as string || 
                        req.body?.workspace_id;
 
     if (workspaceId && req.user) {
       const workspace = await getWorkspaceFromDatabase(workspaceId, req.user.user_id);
       
       if (workspace && workspace.is_active) {
-        req.headers['x-workspace-id'] = workspaceId;
+        req.headers['X-Workspace-ID'] = workspaceId;
         (req as any).workspace = workspace;
         
         logger.debug('Workspace context added', {
