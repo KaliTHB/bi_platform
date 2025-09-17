@@ -639,6 +639,9 @@ export const ChartContainer: React.FC<EnhancedChartContainerProps> = ({
   const renderSuccessState = () => {
     const finalData = externalData || data;
 
+    console.log('finalData:', finalData);
+    console.log('chart:', chart);
+
     // Show placeholder for missing data
     if (!finalData) {
       return (
@@ -659,7 +662,7 @@ export const ChartContainer: React.FC<EnhancedChartContainerProps> = ({
             {chart.chart_type.toUpperCase()} Chart
           </Typography>
           <Typography variant="body2" sx={{ opacity: 0.9 }}>
-            Chart loaded successfully
+            no Data received 
           </Typography>
           <Typography variant="caption" sx={{ mt: 1, opacity: 0.7 }}>
             {new Date().toLocaleTimeString()}
