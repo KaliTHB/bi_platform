@@ -1,3 +1,6 @@
+// web-application/src/pages/workspace/chart-builder.tsx
+// COMPLETE IMPLEMENTATION WITH RTK QUERY + CHARTCONTAINER COMPONENT INTEGRATION
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/router';
 import {
@@ -107,20 +110,6 @@ import { Dataset, ColumnDefinition } from '@/types/dataset.types';
 // TYPES AND INTERFACES - ALL EXISTING TYPES
 // =============================================================================
 
-interface Dataset {
-  id: string;
-  name: string;
-  display_name?: string;
-  type: 'virtual' | 'physical';
-  schema: string;
-  connection: string;
-  owner: {
-    id: string;
-    name: string;
-    avatar?: string;
-  };
-}
-
 interface ChartType {
   id: string;
   name: string;
@@ -195,7 +184,7 @@ interface ExtendedChartConfiguration {
   
   // Builder-specific properties
   dataset?: Dataset;
-  chartType?: ChartType | string;
+  chartType?: ChartType | string; // ✅ FIXED: Allow undefined
   timeRange?: TimeRange;
   customization: ChartCustomization;
   customQuery?: string;
@@ -351,7 +340,7 @@ const ChartBuilderPage: React.FC = () => {
     customization: defaultCustomization,
     dimensions: {},
     metrics: [{ metric: 'COUNT(*)', aggregation: 'count' }],
-    chartType: 'bar',
+    chartType: undefined, // ✅ FIXED: Default to undefined instead of 'bar'
     library: 'echarts',
     fieldAssignments: {},
     aggregations: {},
@@ -706,19 +695,68 @@ const ChartBuilderPage: React.FC = () => {
 
   // ✅ ENHANCED ChartPreview component with ChartContainer integration
   const ChartPreview = () => {
-    // If we have a saved chart (edit mode), use ChartContainer
-    if (isEditMode && chartForContainer) {
+    // Only show ChartContainer with header when we have a SAVED chart in edit mode
+    if (isEditMode && chartForContainer && chartId) {
       return (
-        <Box sx={{ height: '100%', minHeight: 400 }}>
+        <Box sx={{ height: '100%', minHeight: 400, display: 'flex', flexDirection: 'column' }}>
+          {/* ✅ Chart Info Header - ONLY for saved charts */}
           <Paper
             variant="outlined"
             sx={{
-              height: '100%',
-              position: 'relative',
-              overflow: 'hidden'
+              p: 2,
+              mb: 1,
+              textAlign: 'center',
+              bgcolor: 'background.default',
+              borderRadius: 1
             }}
           >
-            {/* ✅ INTEGRATED: ChartContainer with all its functionality */}
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+              <ChartIcon sx={{ fontSize: 32, color: 'primary.main' }} />
+              
+              <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1rem' }}>
+                {chartForContainer.chart_library === 'echarts' && 'ECharts'} {chartForContainer.chart_type.charAt(0).toUpperCase() + chartForContainer.chart_type.slice(1)} Chart Preview
+              </Typography>
+              
+              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.875rem' }}>
+                Live preview with real data
+              </Typography>
+              
+              {/* Chart Configuration Chips */}
+              <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, flexWrap: 'wrap', mt: 1 }}>
+                <Chip 
+                  label={`Dataset: ${chartConfig.dataset?.name || 'sales_data'}`}
+                  color="success"
+                  size="small"
+                  variant="filled"
+                />
+                <Chip 
+                  label={`Type: ${chartForContainer.chart_library === 'echarts' ? 'ECharts' : chartForContainer.chart_library} ${chartForContainer.chart_type.charAt(0).toUpperCase() + chartForContainer.chart_type.slice(1)} Chart`}
+                  color="info"
+                  size="small"
+                  variant="filled"
+                />
+                {chartConfig.timeRange && (
+                  <Chip 
+                    label="Time Filter Applied"
+                    color="warning"
+                    size="small"
+                    variant="filled"
+                  />
+                )}
+              </Box>
+            </Box>
+          </Paper>
+
+          {/* ✅ ChartContainer - In separate container below header */}
+          <Paper
+            variant="outlined"
+            sx={{
+              flexGrow: 1,
+              position: 'relative',
+              overflow: 'hidden',
+              minHeight: 300
+            }}
+          >
             <ChartContainer
               chart={chartForContainer}
               refreshTrigger={refreshTrigger}
@@ -745,7 +783,8 @@ const ChartBuilderPage: React.FC = () => {
                 bgcolor: 'background.paper',
                 borderRadius: 1,
                 p: 0.5,
-                boxShadow: 1
+                boxShadow: 1,
+                zIndex: 10
               }}
             >
               <Tooltip title="Refresh Chart">
@@ -788,7 +827,7 @@ const ChartBuilderPage: React.FC = () => {
       );
     }
 
-    // Default preview for new charts
+    // Default preview for NEW charts (no dataset selected or not saved)
     return (
       <Box
         sx={{
@@ -803,14 +842,15 @@ const ChartBuilderPage: React.FC = () => {
           gap: 2
         }}
       >
-        {chartConfig.chartType ? (
+        {chartConfig.chartType && chartConfig.dataset ? (
+          // Show preview when both dataset and chart type are selected
           <Box sx={{ textAlign: 'center' }}>
             <ChartIcon sx={{ fontSize: 64, color: 'primary.main' }} />
-            <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>
-              {typeof chartConfig.chartType === 'string' 
-                ? chartConfig.chartType 
+            <Typography variant="h6" sx={{ mt: 2, mb: 1, fontWeight: 600 }}>
+              {chartConfig.library === 'echarts' || !chartConfig.library ? 'ECharts' : chartConfig.library} {typeof chartConfig.chartType === 'string' 
+                ? chartConfig.chartType.charAt(0).toUpperCase() + chartConfig.chartType.slice(1)
                 : chartConfig.chartType.name || 'Chart'
-              } Preview
+              } Chart Preview
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               Save the chart to see live preview with data
@@ -818,30 +858,60 @@ const ChartBuilderPage: React.FC = () => {
             {/* Show configuration status */}
             <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, flexWrap: 'wrap' }}>
               <Chip 
-                label={chartConfig.dataset ? `Dataset: ${chartConfig.dataset.name}` : 'No Dataset'}
-                color={chartConfig.dataset ? 'success' : 'default'}
+                label={`Dataset: ${chartConfig.dataset.name}`}
+                color="success"
                 size="small"
+                variant="outlined"
               />
               <Chip 
-                label={`Type: ${typeof chartConfig.chartType === 'string' ? chartConfig.chartType : chartConfig.chartType?.name || 'Unknown'}`}
+                label={`Type: ${chartConfig.library === 'echarts' || !chartConfig.library ? 'ECharts' : chartConfig.library} ${typeof chartConfig.chartType === 'string' ? chartConfig.chartType.charAt(0).toUpperCase() + chartConfig.chartType.slice(1) : chartConfig.chartType?.name || 'Bar'} Chart`}
                 color="info"
                 size="small"
+                variant="outlined"
               />
               {chartConfig.timeRange && (
                 <Chip 
                   label="Time Filter Applied"
                   color="warning"
                   size="small"
+                  variant="outlined"
                 />
               )}
             </Box>
           </Box>
         ) : (
+          // Show initial state when no dataset or chart type selected
           <Box sx={{ textAlign: 'center' }}>
             <ChartIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-            <Typography variant="h6" color="text.secondary">
-              Select a chart type to preview
+            <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
+              {!chartConfig.dataset ? 'Select a Dataset' : 'Select a Chart Type'}
             </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {!chartConfig.dataset 
+                ? 'Choose a dataset from the Data tab to get started'
+                : 'Choose a visualization type to preview your chart'
+              }
+            </Typography>
+            
+            {/* Show next steps */}
+            <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center' }}>
+              {!chartConfig.dataset && (
+                <Chip 
+                  label="Step 1: Select Dataset"
+                  color="warning"
+                  size="small"
+                  variant="outlined"
+                />
+              )}
+              {chartConfig.dataset && !chartConfig.chartType && (
+                <Chip 
+                  label="Step 2: Choose Chart Type"
+                  color="warning"
+                  size="small"
+                  variant="outlined"
+                />
+              )}
+            </Box>
           </Box>
         )}
       </Box>
@@ -925,14 +995,6 @@ const ChartBuilderPage: React.FC = () => {
                   onClick={() => setPreviewMode(!previewMode)}
                 >
                   Preview
-                </Button>
-                <Button 
-                  variant="outlined" 
-                  startIcon={<PreviewIcon />}
-                  size="small"
-                  onClick={() => setPreviewMode(!previewMode)}
-                >
-                  Update chart
                 </Button>
                 <Button 
                   variant="contained" 

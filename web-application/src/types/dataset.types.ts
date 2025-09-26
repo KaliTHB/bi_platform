@@ -8,6 +8,8 @@ export type DatasetType =
 // Main Dataset interface using database types
 export interface Dataset {
   id: string;
+  schema: string;
+  connection: string;
   workspace_id: string;
   datasource_ids: string[];
   name: string;
@@ -23,6 +25,11 @@ export interface Dataset {
   schema_json: DatasetSchema;
   metadata_json: Record<string, any>;
   cache_ttl: number;
+  owner: {
+    id: string;
+    name: string;
+    avatar?: string;
+  };
   row_count?: number;
   is_active: boolean;
   created_by: string;
