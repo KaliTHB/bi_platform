@@ -31,8 +31,8 @@ import {
   useExportChartMutation
 } from '@/store/api/chartApi';
 
-import { ChartRenderer } from '../chart/ChartRenderer';
-import { ChartErrorBoundary } from '../chart/ChartErrorBoundary';
+import { ChartRenderer } from '@/plugins/charts/renderer/ChartRenderer';
+import { ChartErrorBoundary } from '@/plugins/charts/renderer/ChartErrorBoundary';
 
 // ============================================================================
 // TYPES
