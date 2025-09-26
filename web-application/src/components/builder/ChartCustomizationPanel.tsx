@@ -42,6 +42,7 @@ import { ChartFactoryService } from '@/services/ChartFactoryService';
 import { ConfigMappingService } from '@/plugins/charts/services/ConfigMappingService';
 import { ChartConfigHelper } from '@/plugins/charts/helpers/ChartConfigHelper';
 
+
 // ============================================================================
 // INTERFACES AND TYPES
 // ============================================================================
@@ -214,7 +215,7 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
     }
 
     // Create default configuration from schema
-    return createDefaultConfigurationFromSchema(chartPlugin.configSchema, chartType);
+    return ChartConfigHelper.createDefaultConfigurationFromSchema(chartPlugin.configSchema, chartType);
   }, [configuration, chartPlugin, chartType]);
 
   // Validate configuration when it changes
