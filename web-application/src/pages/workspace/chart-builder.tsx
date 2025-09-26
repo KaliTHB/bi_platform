@@ -927,6 +927,14 @@ const ChartBuilderPage: React.FC = () => {
                   Preview
                 </Button>
                 <Button 
+                  variant="outlined" 
+                  startIcon={<PreviewIcon />}
+                  size="small"
+                  onClick={() => setPreviewMode(!previewMode)}
+                >
+                  Update chart
+                </Button>
+                <Button 
                   variant="contained" 
                   startIcon={<SaveIcon />}
                   onClick={handleSaveChart}
