@@ -1,347 +1,443 @@
 // web-application/src/plugins/charts/utils/chartDataUtils.ts
-// Complete Chart Data Utilities
+// Chart data utility functions for processing and normalizing chart data
 
-import { ChartData, ChartConfigSchema, SchemaProperty } from '@/types/chart.types';
+import { ChartConfiguration } from '@/types/chart.types';
+
+// ============================================================================
+// DATA NORMALIZATION FUNCTIONS
+// ============================================================================
 
 /**
- * Type guard to check if data is ChartData format
+ * Normalize any data format to array format
  */
-export const isChartData = (data: any[] | ChartData | undefined): data is ChartData => {
-  return !!(data && typeof data === 'object' && 'data' in data && Array.isArray(data.data));
+export const normalizeChartData = (data: any): any[] => {
+  if (!data) return [];
+  
+  // Already an array
+  if (Array.isArray(data)) {
+    return data;
+  }
+  
+  // Object with data property
+  if (typeof data === 'object' && data.data && Array.isArray(data.data)) {
+    return data.data;
+  }
+  
+  // Object with rows property
+  if (typeof data === 'object' && data.rows && Array.isArray(data.rows)) {
+    return data.rows;
+  }
+  
+  // Single object, wrap in array
+  if (typeof data === 'object') {
+    return [data];
+  }
+  
+  // Fallback to empty array
+  return [];
 };
 
 /**
- * Extract data array from either format (any[] or ChartData)
+ * Check if chart data is empty or invalid
  */
-export const getDataArray = (data: any[] | ChartData | undefined): any[] => {
-  if (!data) return [];
-  if (isChartData(data)) {
-    return data.data;
-  }
-  return Array.isArray(data) ? data : [];
+export const isChartDataEmpty = (data: any): boolean => {
+  const normalizedData = normalizeChartData(data);
+  return !normalizedData || normalizedData.length === 0;
+};
+
+/**
+ * Get the length of chart data safely
+ */
+export const getChartDataLength = (data: any): number => {
+  const normalizedData = normalizeChartData(data);
+  return normalizedData.length;
 };
 
 /**
  * Check if data has meaningful content
  */
-export const hasDataContent = (data: any[] | ChartData | undefined): boolean => {
-  const dataArray = getDataArray(data);
-  return dataArray.length > 0;
+export const hasDataContent = (data: any): boolean => {
+  const normalizedData = normalizeChartData(data);
+  if (normalizedData.length === 0) return false;
+  
+  // Check if at least one item has properties
+  return normalizedData.some(item => 
+    item && typeof item === 'object' && Object.keys(item).length > 0
+  );
 };
 
 /**
- * Get column names from data
+ * Get data as array (alias for normalizeChartData for compatibility)
  */
-export const getColumnNames = (data: any[] | ChartData): string[] => {
-  const dataArray = getDataArray(data);
-  if (dataArray.length === 0) return [];
-  
-  // If it's ChartData format, try to get columns from schema
-  if (isChartData(data) && data.columns) {
-    return data.columns.map(col => col.name || col.field || '');
-  }
-  
-  // Otherwise extract from first row
-  const firstRow = dataArray[0];
-  if (typeof firstRow === 'object' && firstRow !== null) {
-    return Object.keys(firstRow);
-  }
-  
-  return [];
+export const getDataArray = (data: any): any[] => {
+  return normalizeChartData(data);
 };
 
+// ============================================================================
+// FIELD EXTRACTION FUNCTIONS
+// ============================================================================
+
 /**
- * Detect data types for columns
+ * Extract field values from data with fallback
  */
-export const detectColumnTypes = (data: any[] | ChartData): Record<string, string> => {
-  const dataArray = getDataArray(data);
-  if (dataArray.length === 0) return {};
+export const extractFieldValues = (
+  data: any[], 
+  fieldName: string, 
+  fallbackValue: any = null
+): any[] => {
+  if (!Array.isArray(data)) {
+    return [];
+  }
   
-  const columnNames = getColumnNames(data);
-  const types: Record<string, string> = {};
-  
-  columnNames.forEach(columnName => {
-    const sampleValues = dataArray.slice(0, 10).map(row => row[columnName]).filter(val => val != null);
+  return data.map(item => {
+    if (!item || typeof item !== 'object') {
+      return fallbackValue;
+    }
     
-    if (sampleValues.length === 0) {
-      types[columnName] = 'unknown';
+    // Try exact field name first
+    if (item.hasOwnProperty(fieldName)) {
+      return item[fieldName];
+    }
+    
+    // Try case-insensitive match
+    const lowerFieldName = fieldName.toLowerCase();
+    const matchingKey = Object.keys(item).find(key => 
+      key.toLowerCase() === lowerFieldName
+    );
+    
+    if (matchingKey) {
+      return item[matchingKey];
+    }
+    
+    return fallbackValue;
+  });
+};
+
+/**
+ * Extract numeric values from data with fallback
+ */
+export const extractNumericValues = (
+  data: any[], 
+  fieldName: string, 
+  fallbackValue: number = 0
+): number[] => {
+  const values = extractFieldValues(data, fieldName, fallbackValue);
+  
+  return values.map(value => {
+    // Already a number
+    if (typeof value === 'number' && !isNaN(value)) {
+      return value;
+    }
+    
+    // Try to convert string to number
+    if (typeof value === 'string') {
+      const parsed = parseFloat(value.replace(/[^0-9.-]/g, ''));
+      return !isNaN(parsed) ? parsed : fallbackValue;
+    }
+    
+    // Boolean to number
+    if (typeof value === 'boolean') {
+      return value ? 1 : 0;
+    }
+    
+    return fallbackValue;
+  });
+};
+
+/**
+ * Extract date values from data with fallback
+ */
+export const extractDateValues = (
+  data: any[], 
+  fieldName: string, 
+  fallbackValue: Date = new Date()
+): Date[] => {
+  const values = extractFieldValues(data, fieldName, fallbackValue);
+  
+  return values.map(value => {
+    // Already a Date
+    if (value instanceof Date) {
+      return value;
+    }
+    
+    // Try to parse string/number as date
+    if (value) {
+      const parsed = new Date(value);
+      return !isNaN(parsed.getTime()) ? parsed : fallbackValue;
+    }
+    
+    return fallbackValue;
+  });
+};
+
+// ============================================================================
+// DATA PROCESSING FUNCTIONS
+// ============================================================================
+
+/**
+ * Group data by field value
+ */
+export const groupDataByField = (data: any[], fieldName: string): Record<string, any[]> => {
+  const normalizedData = normalizeChartData(data);
+  const grouped: Record<string, any[]> = {};
+  
+  normalizedData.forEach(item => {
+    if (!item || typeof item !== 'object') return;
+    
+    const groupKey = String(item[fieldName] || 'Unknown');
+    if (!grouped[groupKey]) {
+      grouped[groupKey] = [];
+    }
+    grouped[groupKey].push(item);
+  });
+  
+  return grouped;
+};
+
+/**
+ * Sort data by field value
+ */
+export const sortDataByField = (
+  data: any[], 
+  fieldName: string, 
+  direction: 'asc' | 'desc' = 'asc'
+): any[] => {
+  const normalizedData = normalizeChartData(data);
+  
+  return [...normalizedData].sort((a, b) => {
+    const valueA = a?.[fieldName];
+    const valueB = b?.[fieldName];
+    
+    // Handle null/undefined values
+    if (valueA == null && valueB == null) return 0;
+    if (valueA == null) return direction === 'asc' ? 1 : -1;
+    if (valueB == null) return direction === 'asc' ? -1 : 1;
+    
+    // Numeric comparison
+    if (typeof valueA === 'number' && typeof valueB === 'number') {
+      return direction === 'asc' ? valueA - valueB : valueB - valueA;
+    }
+    
+    // String comparison
+    const stringA = String(valueA).toLowerCase();
+    const stringB = String(valueB).toLowerCase();
+    
+    if (stringA < stringB) return direction === 'asc' ? -1 : 1;
+    if (stringA > stringB) return direction === 'asc' ? 1 : -1;
+    return 0;
+  });
+};
+
+// ============================================================================
+// CONFIGURATION FUNCTIONS
+// ============================================================================
+
+/**
+ * Create chart configuration with defaults
+ */
+export const createChartConfig = (
+  userConfig: any, 
+  defaultConfig: any
+): any => {
+  return {
+    ...defaultConfig,
+    ...userConfig
+  };
+};
+
+/**
+ * Generate color palette for charts
+ */
+export const generateColorPalette = (count: number = 8): string[] => {
+  const defaultColors = [
+    '#1976d2', '#dc004e', '#388e3c', '#f57c00',
+    '#7b1fa2', '#00796b', '#f44336', '#ff9800',
+    '#3f51b5', '#e91e63', '#4caf50', '#ff5722',
+    '#9c27b0', '#009688', '#2196f3', '#ffc107'
+  ];
+  
+  if (count <= defaultColors.length) {
+    return defaultColors.slice(0, count);
+  }
+  
+  // Generate additional colors if needed
+  const colors = [...defaultColors];
+  while (colors.length < count) {
+    const hue = (colors.length * 137.508) % 360; // Golden angle
+    colors.push(`hsl(${hue}, 60%, 50%)`);
+  }
+  
+  return colors.slice(0, count);
+};
+
+/**
+ * Validate chart data structure
+ */
+export const validateChartData = (data: any): {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+} => {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  
+  if (!data) {
+    errors.push('No data provided');
+    return { valid: false, errors, warnings };
+  }
+  
+  const normalizedData = normalizeChartData(data);
+  
+  if (normalizedData.length === 0) {
+    errors.push('Data array is empty');
+    return { valid: false, errors, warnings };
+  }
+  
+  // Check data structure consistency
+  const firstItem = normalizedData[0];
+  if (!firstItem || typeof firstItem !== 'object') {
+    errors.push('Data items must be objects');
+    return { valid: false, errors, warnings };
+  }
+  
+  const expectedKeys = Object.keys(firstItem);
+  let inconsistentStructure = false;
+  
+  normalizedData.forEach((item, index) => {
+    if (!item || typeof item !== 'object') {
+      warnings.push(`Item at index ${index} is not an object`);
       return;
     }
     
-    // Check if all values are numbers
-    if (sampleValues.every(val => typeof val === 'number' || !isNaN(Number(val)))) {
-      types[columnName] = 'number';
-    }
-    // Check if all values are dates
-    else if (sampleValues.every(val => !isNaN(Date.parse(val)))) {
-      types[columnName] = 'date';
-    }
-    // Check if all values are booleans
-    else if (sampleValues.every(val => typeof val === 'boolean' || val === 'true' || val === 'false')) {
-      types[columnName] = 'boolean';
-    }
-    // Default to string
-    else {
-      types[columnName] = 'string';
+    const itemKeys = Object.keys(item);
+    if (itemKeys.length !== expectedKeys.length || 
+        !itemKeys.every(key => expectedKeys.includes(key))) {
+      inconsistentStructure = true;
     }
   });
   
-  return types;
-};
-
-/**
- * Validate data for chart requirements
- */
-export const validateChartData = (data: any[] | ChartData, chartType: string): { valid: boolean; errors: string[] } => {
-  const errors: string[] = [];
-  const dataArray = getDataArray(data);
-  
-  if (dataArray.length === 0) {
-    errors.push('Data array is empty');
-    return { valid: false, errors };
-  }
-  
-  const columnNames = getColumnNames(data);
-  const columnTypes = detectColumnTypes(data);
-  
-  switch (chartType) {
-    case 'pie':
-    case 'doughnut':
-      if (columnNames.length < 2) {
-        errors.push('Pie charts require at least 2 columns (label and value)');
-      }
-      break;
-      
-    case 'line':
-    case 'area':
-    case 'bar':
-    case 'column':
-      if (columnNames.length < 2) {
-        errors.push('Charts require at least 2 columns (X and Y axis)');
-      }
-      break;
-      
-    case 'scatter':
-    case 'bubble':
-      if (columnNames.length < 2) {
-        errors.push('Scatter plots require at least 2 numeric columns');
-      }
-      const numericColumns = Object.entries(columnTypes).filter(([_, type]) => type === 'number');
-      if (numericColumns.length < 2) {
-        errors.push('Scatter plots require at least 2 numeric columns');
-      }
-      break;
+  if (inconsistentStructure) {
+    warnings.push('Data structure is inconsistent across items');
   }
   
   return {
     valid: errors.length === 0,
-    errors
+    errors,
+    warnings
   };
 };
 
+// ============================================================================
+// UTILITY FUNCTIONS FOR ARRAY MUTABILITY
+// ============================================================================
+
 /**
- * Transform data for specific chart library format
+ * Ensure array is mutable (not readonly)
  */
-export const transformDataForLibrary = (
-  data: any[] | ChartData,
-  library: string,
-  chartType: string,
-  config?: any
-): any => {
-  const dataArray = getDataArray(data);
-  
-  switch (library.toLowerCase()) {
-    case 'echarts':
-      return transformForECharts(dataArray, chartType, config);
-    case 'd3':
-      return transformForD3(dataArray, chartType, config);
-    case 'chartjs':
-      return transformForChartJS(dataArray, chartType, config);
-    default:
-      return dataArray;
+export const ensureMutable = <T>(arr: readonly T[] | T[] | undefined): T[] => {
+  if (!arr) return [];
+  return Array.isArray(arr) ? [...arr] : [];
+};
+
+/**
+ * Ensure array is readonly
+ */
+export const ensureReadonly = <T>(arr: T[] | readonly T[] | undefined): readonly T[] => {
+  if (!arr) return [];
+  return arr;
+};
+
+/**
+ * Ensure valid schema object
+ */
+export const ensureValidSchema = (schema: any): any => {
+  if (!schema || typeof schema !== 'object') {
+    return {};
   }
+  return { ...schema };
+};
+
+// ============================================================================
+// AGGREGATION FUNCTIONS
+// ============================================================================
+
+/**
+ * Calculate sum of numeric field
+ */
+export const sumByField = (data: any[], fieldName: string): number => {
+  const values = extractNumericValues(data, fieldName, 0);
+  return values.reduce((sum, value) => sum + value, 0);
 };
 
 /**
- * Transform data for ECharts format
+ * Calculate average of numeric field
  */
-const transformForECharts = (data: any[], chartType: string, config?: any): any => {
-  switch (chartType) {
-    case 'pie':
-    case 'doughnut':
-      return data.map(item => ({
-        name: item[Object.keys(item)[0]],
-        value: item[Object.keys(item)[1]]
-      }));
-      
-    case 'line':
-    case 'area':
-    case 'bar':
-      const xField = config?.xAxis?.field || Object.keys(data[0] || {})[0];
-      const yField = config?.yAxis?.field || Object.keys(data[0] || {})[1];
-      
-      return {
-        xAxis: {
-          type: 'category',
-          data: data.map(item => item[xField])
-        },
-        yAxis: {
-          type: 'value'
-        },
-        series: [{
-          data: data.map(item => item[yField]),
-          type: chartType === 'area' ? 'line' : chartType,
-          areaStyle: chartType === 'area' ? {} : undefined
-        }]
-      };
-      
-    default:
-      return data;
-  }
+export const averageByField = (data: any[], fieldName: string): number => {
+  const values = extractNumericValues(data, fieldName, 0);
+  if (values.length === 0) return 0;
+  return sumByField(data, fieldName) / values.length;
 };
 
 /**
- * Transform data for D3 format
+ * Find minimum value in numeric field
  */
-const transformForD3 = (data: any[], chartType: string, config?: any): any => {
-  // D3 typically works with the raw data array
-  return data;
+export const minByField = (data: any[], fieldName: string): number => {
+  const values = extractNumericValues(data, fieldName, 0);
+  return values.length > 0 ? Math.min(...values) : 0;
 };
 
 /**
- * Transform data for Chart.js format
+ * Find maximum value in numeric field
  */
-const transformForChartJS = (data: any[], chartType: string, config?: any): any => {
-  switch (chartType) {
-    case 'pie':
-    case 'doughnut':
-      return {
-        labels: data.map(item => item[Object.keys(item)[0]]),
-        datasets: [{
-          data: data.map(item => item[Object.keys(item)[1]]),
-          backgroundColor: [
-            '#FF6384', '#36A2EB', '#FFCE56', '#FF9F40', '#FF6384'
-          ]
-        }]
-      };
-      
-    case 'line':
-    case 'area':
-    case 'bar':
-      const xField = config?.xAxis?.field || Object.keys(data[0] || {})[0];
-      const yField = config?.yAxis?.field || Object.keys(data[0] || {})[1];
-      
-      return {
-        labels: data.map(item => item[xField]),
-        datasets: [{
-          label: yField,
-          data: data.map(item => item[yField]),
-          borderColor: '#36A2EB',
-          backgroundColor: chartType === 'area' ? 'rgba(54, 162, 235, 0.2)' : '#36A2EB',
-          fill: chartType === 'area'
-        }]
-      };
-      
-    default:
-      return { labels: [], datasets: [] };
-  }
+export const maxByField = (data: any[], fieldName: string): number => {
+  const values = extractNumericValues(data, fieldName, 0);
+  return values.length > 0 ? Math.max(...values) : 0;
 };
 
 /**
- * Sample data for chart preview
+ * Count unique values in field
  */
-export const generateSampleData = (chartType: string, size: number = 5): any[] => {
-  const sampleData: Record<string, () => any[]> = {
-    pie: () => [
-      { category: 'A', value: 30 },
-      { category: 'B', value: 25 },
-      { category: 'C', value: 20 },
-      { category: 'D', value: 15 },
-      { category: 'E', value: 10 }
-    ],
-    
-    bar: () => Array.from({ length: size }, (_, i) => ({
-      category: `Category ${i + 1}`,
-      value: Math.floor(Math.random() * 100) + 10
-    })),
-    
-    line: () => Array.from({ length: size }, (_, i) => ({
-      date: `2024-0${i + 1}-01`,
-      value: Math.floor(Math.random() * 100) + 10
-    })),
-    
-    scatter: () => Array.from({ length: size }, (_, i) => ({
-      x: Math.random() * 100,
-      y: Math.random() * 100
-    }))
-  };
-  
-  return sampleData[chartType]?.() || sampleData.bar();
+export const countUniqueByField = (data: any[], fieldName: string): number => {
+  const values = extractFieldValues(data, fieldName, '');
+  const uniqueValues = new Set(values);
+  return uniqueValues.size;
 };
 
-/**
- * Data aggregation utilities
- */
-export const aggregateData = (
-  data: any[],
-  groupBy: string,
-  aggregateField: string,
-  aggregationType: 'sum' | 'avg' | 'count' | 'min' | 'max' = 'sum'
-): any[] => {
-  const groups = new Map<string, number[]>();
-  
-  data.forEach(item => {
-    const groupKey = item[groupBy];
-    const value = Number(item[aggregateField]) || 0;
-    
-    if (!groups.has(groupKey)) {
-      groups.set(groupKey, []);
-    }
-    groups.get(groupKey)!.push(value);
-  });
-  
-  const result: any[] = [];
-  
-  groups.forEach((values, groupKey) => {
-    let aggregatedValue: number;
-    
-    switch (aggregationType) {
-      case 'sum':
-        aggregatedValue = values.reduce((sum, val) => sum + val, 0);
-        break;
-      case 'avg':
-        aggregatedValue = values.reduce((sum, val) => sum + val, 0) / values.length;
-        break;
-      case 'count':
-        aggregatedValue = values.length;
-        break;
-      case 'min':
-        aggregatedValue = Math.min(...values);
-        break;
-      case 'max':
-        aggregatedValue = Math.max(...values);
-        break;
-      default:
-        aggregatedValue = values.reduce((sum, val) => sum + val, 0);
-    }
-    
-    result.push({
-      [groupBy]: groupKey,
-      [aggregateField]: aggregatedValue
-    });
-  });
-  
-  return result;
-};
+// ============================================================================
+// EXPORTS
+// ============================================================================
 
 export default {
-  isChartData,
-  getDataArray,
+  // Data normalization
+  normalizeChartData,
+  isChartDataEmpty,
+  getChartDataLength,
   hasDataContent,
-  getColumnNames,
-  detectColumnTypes,
+  getDataArray,
+  
+  // Field extraction
+  extractFieldValues,
+  extractNumericValues,
+  extractDateValues,
+  
+  // Data processing
+  groupDataByField,
+  sortDataByField,
+  
+  // Configuration
+  createChartConfig,
+  generateColorPalette,
   validateChartData,
-  transformDataForLibrary,
-  generateSampleData,
-  aggregateData
+  
+  // Utility functions
+  ensureMutable,
+  ensureReadonly,
+  ensureValidSchema,
+  
+  // Aggregation
+  sumByField,
+  averageByField,
+  minByField,
+  maxByField,
+  countUniqueByField
 };
