@@ -78,6 +78,9 @@ import {
   useRefreshChartMutation
 } from '@/store/api/chartApi';
 
+// ✅ Import dataset API for fetching column information
+import { useGetDatasetQuery, useGetDatasetSchemaQuery } from '@/store/api/datasetApi';
+
 import { useAuth } from '@/hooks/useAuth';
 import { usePermissions } from '@/hooks/usePermissions';
 import { PermissionGate } from '@/components/shared/PermissionGate';
@@ -109,6 +112,20 @@ import { Dataset, ColumnDefinition } from '@/types/dataset.types';
 // =============================================================================
 // TYPES AND INTERFACES - ALL EXISTING TYPES
 // =============================================================================
+
+interface Dataset {
+  id: string;
+  name: string;
+  display_name?: string;
+  type: 'virtual' | 'physical';
+  schema: string;
+  connection: string;
+  owner: {
+    id: string;
+    name: string;
+    avatar?: string;
+  };
+}
 
 interface ChartType {
   id: string;
@@ -309,7 +326,59 @@ const ChartBuilderPage: React.FC = () => {
     }
   );
 
-  // UI state
+  // ✅ RTK Query for dataset schema/columns - FIXED with complete null safety
+  const shouldFetchSchema = Boolean(chartConfig?.dataset?.id);
+  const datasetId = chartConfig?.dataset?.id;
+  
+  const {
+    data: datasetSchemaResponse,
+    isLoading: schemaLoading,
+    error: schemaError
+  } = useGetDatasetSchemaQuery(
+    datasetId || 'skip', // Provide fallback value that won't cause issues
+    { 
+      skip: !shouldFetchSchema, // Skip when no dataset selected
+      refetchOnMountOrArgChange: true 
+    }
+  );
+
+  // ✅ Extract data columns from dataset schema
+  const dataColumns: ColumnDefinition[] = useMemo(() => {
+    if (!datasetSchemaResponse?.success || !datasetSchemaResponse.schema) {
+      return [];
+    }
+
+    // Convert schema to ColumnDefinition format
+    const schema = datasetSchemaResponse.schema;
+    
+    if (Array.isArray(schema.columns)) {
+      return schema.columns.map((col: any) => ({
+        name: col.name || col.column_name,
+        type: col.type || col.data_type || 'string',
+        nullable: col.nullable !== false,
+        description: col.description || col.comment,
+        // Additional properties for chart building
+        aggregatable: ['number', 'integer', 'float', 'decimal', 'bigint'].includes((col.type || '').toLowerCase()),
+        groupable: true,
+        filterable: true
+      }));
+    }
+
+    // Fallback: try to extract from other schema formats
+    if (schema.fields && Array.isArray(schema.fields)) {
+      return schema.fields.map((field: any) => ({
+        name: field.name,
+        type: field.type || 'string',
+        nullable: field.nullable !== false,
+        description: field.description,
+        aggregatable: ['number', 'integer', 'float', 'decimal', 'bigint'].includes((field.type || '').toLowerCase()),
+        groupable: true,
+        filterable: true
+      }));
+    }
+
+    return [];
+  }, [datasetSchemaResponse]);
   const [tabValue, setTabValue] = useState(0);
   const [showDatasetSelector, setShowDatasetSelector] = useState(false);
   const [showChartSelector, setShowChartSelector] = useState(false);
@@ -1170,14 +1239,88 @@ const ChartBuilderPage: React.FC = () => {
             <TabPanel value={tabValue} index={2}>
               <Box sx={{ display: 'flex', height: '100%' }}>
                 <Box sx={{ width: '100%', borderRight: 1, borderColor: 'divider', overflow: 'auto' }}>
-                  <ChartCustomizationPanel
-                    chartType={typeof chartConfig.chartType === 'string' ? 
-                      chartConfig.chartType : 
-                      chartConfig.chartType?.id || 'bar'
-                    }
-                    customization={chartConfig.customization}
-                    onChange={handleCustomizationChange}
-                  />
+                  {chartConfig.dataset && chartConfig.chartType ? (
+                    <Box>
+                      {/* ✅ Show loading state while fetching schema */}
+                      {schemaLoading ? (
+                        <Box sx={{ p: 3, textAlign: 'center' }}>
+                          <CircularProgress size={24} />
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                            Loading dataset schema...
+                          </Typography>
+                        </Box>
+                      ) : schemaError ? (
+                        <Box sx={{ p: 3, textAlign: 'center' }}>
+                          <Alert severity="warning" sx={{ mb: 2 }}>
+                            Unable to load dataset schema. Some customization options may be limited.
+                          </Alert>
+                          <ChartCustomizationPanel
+                            chartType={typeof chartConfig.chartType === 'string' ? 
+                              chartConfig.chartType : 
+                              chartConfig.chartType?.id || 'bar'
+                            }
+                            customization={chartConfig.customization}
+                            onChange={handleCustomizationChange}
+                            dataset={chartConfig.dataset}
+                            dataColumns={[]} // Empty array when schema fails to load
+                          />
+                        </Box>
+                      ) : (
+                        <ChartCustomizationPanel
+                          chartType={typeof chartConfig.chartType === 'string' ? 
+                            chartConfig.chartType : 
+                            chartConfig.chartType?.id || 'bar'
+                          }
+                          customization={chartConfig.customization}
+                          onChange={handleCustomizationChange}
+                          dataset={chartConfig.dataset}
+                          dataColumns={dataColumns} // ✅ COMPLETED: Pass actual data columns
+                        />
+                      )}
+                    </Box>
+                  ) : (
+                    <Box sx={{ p: 3, textAlign: 'center' }}>
+                      <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
+                        Customization Options
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        {!chartConfig.dataset && !chartConfig.chartType 
+                          ? 'Please select a dataset and chart type to access customization options.'
+                          : !chartConfig.dataset 
+                          ? 'Please select a dataset to configure field mappings and chart options.'
+                          : 'Please select a chart type to see available customization options.'
+                        }
+                      </Typography>
+                      
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center', mt: 3 }}>
+                        {!chartConfig.dataset && (
+                          <Button 
+                            variant="outlined" 
+                            startIcon={<DatasetIcon />}
+                            onClick={() => {
+                              setTabValue(0); // Switch to Data tab
+                              setShowDatasetSelector(true);
+                            }}
+                          >
+                            Select Dataset
+                          </Button>
+                        )}
+                        
+                        {chartConfig.dataset && !chartConfig.chartType && (
+                          <Button 
+                            variant="outlined" 
+                            startIcon={<ChartIcon />}
+                            onClick={() => {
+                              setTabValue(0); // Switch to Data tab
+                              setShowChartSelector(true);
+                            }}
+                          >
+                            Select Chart Type
+                          </Button>
+                        )}
+                      </Box>
+                    </Box>
+                  )}
                 </Box>
               </Box>       
             </TabPanel>

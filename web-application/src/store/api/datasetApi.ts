@@ -41,6 +41,30 @@ interface DatasetColumn {
   type: string;
   nullable?: boolean;
   description?: string;
+  column_name?: string;
+  data_type?: string;
+  comment?: string;
+}
+
+// ✅ NEW: Dataset Schema Response Interface
+interface DatasetSchemaResponse {
+  schema: {
+    columns?: DatasetColumn[];
+    fields?: DatasetColumn[];
+    table_info?: {
+      name: string;
+      type: string;
+      row_count?: number;
+      size_bytes?: number;
+    };
+    indexes?: Array<{
+      name: string;
+      columns: string[];
+      unique: boolean;
+    }>;
+  };
+  last_updated: string;
+  version: string;
 }
 
 // Specific response types that match your backend
@@ -227,6 +251,22 @@ export const datasetApi = createApi({
       providesTags: (result, error, { id }) => [{ type: 'Dataset', id }],
     }),
 
+    // ✅ LEGACY SUPPORT: Get single dataset (for backward compatibility)
+    getDataset: builder.query<{ success: boolean; dataset: Dataset; message?: string }, string>({
+      query: (id) => `/${id}`,
+      transformResponse: (response: BackendApiResponse<Dataset>) => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to fetch dataset');
+        }
+        return {
+          success: response.success,
+          dataset: response.data,
+          message: response.message
+        };
+      },
+      providesTags: (result, error, id) => [{ type: 'Dataset', id }],
+    }),
+
     // Create new dataset
     createDataset: builder.mutation<Dataset, Partial<Dataset>>({
       query: (datasetData) => ({
@@ -293,6 +333,41 @@ export const datasetApi = createApi({
     }),
 
     // ==================== NEW ENDPOINTS ====================
+
+    // ✅ THE FUNCTION YOU REQUESTED - GET DATASET SCHEMA
+    getDatasetSchema: builder.query<
+      {
+        success: boolean;
+        schema: {
+          columns?: DatasetColumn[];
+          fields?: DatasetColumn[];
+          table_info?: {
+            name: string;
+            type: string;
+            row_count?: number;
+            size_bytes?: number;
+          };
+        };
+        message?: string;
+      },
+      string
+    >({
+      query: (datasetId) => `/${datasetId}/schema`,
+      transformResponse: (response: BackendApiResponse<DatasetSchemaResponse>) => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to fetch dataset schema');
+        }
+        return {
+          success: response.success,
+          schema: response.data.schema,
+          message: response.message
+        };
+      },
+      providesTags: (result, error, datasetId) => [
+        { type: 'DatasetSchema', id: datasetId },
+        { type: 'Dataset', id: datasetId },
+      ],
+    }),
 
     // GET /api/datasets/{id}/columns
     getDatasetColumns: builder.query<DatasetColumnsResponse, { 
@@ -492,6 +567,8 @@ export const {
   useLazyGetDatasetsQuery,
   useGetDatasetByIdQuery,
   useLazyGetDatasetByIdQuery,
+  useGetDatasetQuery, // ✅ LEGACY SUPPORT
+  useLazyGetDatasetQuery, // ✅ LEGACY SUPPORT
   useCreateDatasetMutation,
   useUpdateDatasetMutation,
   useDeleteDatasetMutation,
@@ -499,6 +576,10 @@ export const {
   // Dataset statistics
   useGetDatasetStatsQuery,
   useLazyGetDatasetStatsQuery,
+  
+  // ✅ THE FUNCTION YOU REQUESTED
+  useGetDatasetSchemaQuery,
+  useLazyGetDatasetSchemaQuery,
   
   // NEW: Columns endpoints
   useGetDatasetColumnsQuery,
