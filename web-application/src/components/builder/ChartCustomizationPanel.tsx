@@ -38,22 +38,15 @@ import {
   ColorLens as ColorLensIcon
 } from '@mui/icons-material';
 
-// Chart Factory and Registry - with error handling
-let ChartFactory: any = null;
-let ChartRegistry: any = null;
+// ============================================================================
+// CORRECT IMPORTS FOR CHART FACTORY
+// ============================================================================
 
-// Safe imports with fallbacks
-try {
-  ChartFactory = require('@/plugins/charts/factory/ChartFactory').ChartFactory;
-} catch (e) {
-  console.warn('ChartFactory not available:', e.message);
-}
+// Use the service instead of direct ChartFactory
+import ChartFactoryService from '@/services/ChartFactoryService';
 
-try {
-  ChartRegistry = require('@/plugins/charts/registry/ChartRegistry').ChartRegistry;
-} catch (e) {
-  console.warn('ChartRegistry not available:', e.message);
-}
+// Alternative: Use the hook approach (uncomment if you prefer this)
+// import useChartFactory from '@/hooks/useChartFactory';
 
 // Types
 import type {
@@ -112,6 +105,17 @@ const COLOR_PALETTES = [
   { name: 'Dark', colors: ['#1f2937', '#374151', '#4b5563', '#6b7280', '#9ca3af', '#d1d5db'] }
 ];
 
+// Default configuration structure
+const createDefaultConfiguration = (): ChartConfiguration => ({
+  chartType: '',
+  library: 'echarts',
+  fieldAssignments: {},
+  aggregations: {},
+  filters: {},
+  customConfig: {},
+  dimensions: { width: 600, height: 400 }
+});
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -135,165 +139,212 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   // ============================================================================
+  // ALTERNATIVE: Using the hook approach (uncomment if you prefer this)
+  // ============================================================================
+  /*
+  const {
+    isInitialized,
+    isInitializing,
+    error: factoryError,
+    getConfigSchema
+  } = useChartFactory();
+  */
+
+  // ============================================================================
+  // SAFE CONFIGURATION HANDLING
+  // ============================================================================
+
+  // Ensure configuration has safe structure
+  const safeConfiguration = useMemo(() => {
+    if (!configuration) {
+      return createDefaultConfiguration();
+    }
+
+    return {
+      ...createDefaultConfiguration(),
+      ...configuration,
+      fieldAssignments: configuration.fieldAssignments || {},
+      customConfig: configuration.customConfig || {},
+      dimensions: configuration.dimensions || { width: 600, height: 400 }
+    };
+  }, [configuration]);
+
+  // ============================================================================
   // EFFECTS
   // ============================================================================
 
   useEffect(() => {
-    loadChartSchema();
-  }, [chartType, configuration?.library]);
+    loadSchema();
+  }, [chartType]);
+
+  // Initialize configuration if it's incomplete
+  useEffect(() => {
+    if (onChange && (!configuration || !configuration.fieldAssignments)) {
+      onChange(safeConfiguration);
+    }
+  }, [configuration, onChange, safeConfiguration]);
 
   // ============================================================================
-  // SCHEMA LOADING
+  // SCHEMA LOADING - FIXED VERSION
   // ============================================================================
 
-  const loadChartSchema = async () => {
+  const loadSchema = async () => {
+    setLoading(true);
+    setError(null);
+
     try {
-      setLoading(true);
-      setError(null);
-      
-      console.log('Loading chart schema for type:', chartType);
-      
-      // Always create default schema first as fallback
-      const defaultSchema = createDefaultSchema(chartType);
-      console.log('Created default schema:', defaultSchema);
-      setChartSchema(defaultSchema);
+      // Always create a fallback schema first
+      const fallbackSchema = generateFallbackSchema(chartType);
+      setChartSchema(fallbackSchema);
 
-      // Try to get enhanced schema from ChartFactory (optional)
-      try {
-        // Check if ChartFactory is available
-        if (ChartFactory && typeof ChartFactory.isReady === 'function') {
-          console.log('ChartFactory available, checking if ready...');
-          
-          // Try to initialize if not ready
-          if (!ChartFactory.isReady()) {
-            console.log('ChartFactory not ready, initializing...');
-            await ChartFactory.initialize().catch((initError: any) => {
-              // Initialization failed, but we have fallback schema
-              console.warn('ChartFactory initialization failed:', initError);
-            });
-          }
-
-          // If factory is ready, try to get enhanced schema
-          if (ChartFactory.isReady && ChartFactory.isReady()) {
-            console.log('ChartFactory ready, getting charts...');
-            const library = configuration?.library || chart?.chart_library || 'echarts';
-            const chartKey = `${library}-${chartType}`;
-            console.log('Looking for chart with key:', chartKey);
-
-            const availableCharts = await ChartFactory.getAllCharts();
-            console.log('Available charts:', availableCharts?.map((c: any) => c.name));
-            
-            const chartInfo = availableCharts?.find((c: any) => 
-              c.name === chartKey || 
-              c.name === chartType ||
-              c.displayName?.toLowerCase().includes(chartType.toLowerCase())
-            );
-
-            if (chartInfo && chartInfo.configSchema) {
-              console.log('Found enhanced schema from factory:', chartInfo.configSchema);
-              // Merge factory schema with default schema
-              const factorySchema = chartInfo.configSchema as ConfigSchema;
-              const mergedSchema = {
-                ...defaultSchema,
-                properties: {
-                  ...defaultSchema.properties,
-                  ...factorySchema.properties
-                },
-                required: [
-                  ...(defaultSchema.required || []),
-                  ...(factorySchema.required || [])
-                ].filter((v, i, a) => a.indexOf(v) === i) // Remove duplicates
-              };
-              console.log('Merged schema:', mergedSchema);
-              setChartSchema(mergedSchema);
-            } else {
-              console.log('No enhanced schema found, using default');
-            }
-          } else {
-            console.log('ChartFactory not ready after initialization attempt');
-          }
-        } else {
-          console.log('ChartFactory not available or missing methods');
-        }
-      } catch (factoryError) {
-        // Factory error - continue with default schema
-        console.warn('ChartFactory error, using default schema:', factoryError);
+      if (!chartType) {
+        setLoading(false);
+        return;
       }
-      
+
+      // Try to get enhanced schema from ChartFactoryService
+      try {
+        const library = safeConfiguration.library || 'echarts';
+        console.log(`Loading schema for ${chartType} (${library})`);
+        
+        // ✅ FIXED: Use ChartFactoryService instead of ChartFactory
+        const schema = await ChartFactoryService.getConfigSchema(chartType, library);
+        
+        if (schema && Object.keys(schema).length > 0) {
+          console.log('✅ Got schema from ChartFactoryService:', schema);
+          
+          // Convert the schema to our expected format if needed
+          const enhancedSchema: ConfigSchema = {
+            type: 'object',
+            properties: schema.properties || schema,
+            required: schema.required || []
+          };
+          
+          // Merge with fallback schema to ensure we have all basic properties
+          const mergedSchema = {
+            ...fallbackSchema,
+            properties: {
+              ...fallbackSchema.properties,
+              ...enhancedSchema.properties
+            },
+            required: [
+              ...(fallbackSchema.required || []),
+              ...(enhancedSchema.required || [])
+            ].filter((v, i, a) => a.indexOf(v) === i) // Remove duplicates
+          };
+          
+          setChartSchema(mergedSchema);
+          console.log('✅ Using enhanced merged schema');
+        } else {
+          console.log('⚠️ No enhanced schema available, using fallback');
+        }
+      } catch (serviceError) {
+        console.warn('ChartFactoryService error, using fallback schema:', serviceError);
+        // Keep the fallback schema that was already set
+      }
+
+      // ============================================================================
+      // ALTERNATIVE APPROACH: Using the hook (uncomment if you prefer this)
+      // ============================================================================
+      /*
+      if (isInitialized) {
+        try {
+          const schema = await getConfigSchema(chartType, library);
+          if (schema && Object.keys(schema).length > 0) {
+            // Process the schema similar to above
+            setChartSchema(processedSchema);
+          }
+        } catch (hookError) {
+          console.warn('useChartFactory error:', hookError);
+        }
+      }
+      */
+
     } catch (err) {
-      console.error('Error in loadChartSchema:', err);
-      // Even if everything fails, we still have a basic schema
-      setChartSchema(createDefaultSchema(chartType));
-      setError(`Schema loading issue (using defaults): ${err instanceof Error ? err.message : 'Unknown error'}`);
+      console.error('Failed to load chart schema:', err);
+      setError(`Failed to load chart configuration: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      // Still provide a basic schema
+      setChartSchema(generateFallbackSchema(chartType));
     } finally {
       setLoading(false);
     }
   };
 
   // ============================================================================
-  // DEFAULT SCHEMA CREATION - Enhanced with more chart types
+  // SCHEMA GENERATION
   // ============================================================================
 
-  const createDefaultSchema = (type: string): ConfigSchema => {
+  const generateFallbackSchema = (type: string): ConfigSchema => {
     const baseSchema: ConfigSchema = {
       type: 'object',
       properties: {
         title: {
           type: 'string',
           title: 'Chart Title',
-          description: 'The main title of the chart',
           default: ''
+        },
+        showLegend: {
+          type: 'boolean',
+          title: 'Show Legend',
+          default: true
         },
         colors: {
           type: 'array',
           title: 'Color Palette',
-          description: 'Colors used in the chart',
-          items: {
-            type: 'string'
-          }
+          items: { type: 'string' },
+          default: ['#1976d2', '#dc004e', '#388e3c', '#f57c00']
         }
       },
       required: []
     };
 
-    // Add chart-specific fields based on type
-    switch (type.toLowerCase()) {
+    // Add chart-specific properties based on type
+    switch (type?.toLowerCase()) {
       case 'bar':
       case 'column':
         baseSchema.properties = {
           ...baseSchema.properties,
           xField: {
             type: 'string',
-            title: 'X-Axis Field',
-            description: 'Field to use for categories'
+            title: 'X-Axis Field'
           },
           yField: {
             type: 'string',
-            title: 'Y-Axis Field',
-            description: 'Field to use for values'
+            title: 'Y-Axis Field'
           },
-          orientation: {
-            type: 'string',
-            title: 'Orientation',
-            enum: ['vertical', 'horizontal'],
-            default: 'vertical'
-          },
-          stacked: {
+          showGrid: {
             type: 'boolean',
-            title: 'Stacked Bars',
-            default: false
-          },
-          showValues: {
-            type: 'boolean',
-            title: 'Show Values on Bars',
-            default: false
+            title: 'Show Grid',
+            default: true
           }
         };
         baseSchema.required = ['xField', 'yField'];
         break;
 
+      case 'pie':
+      case 'doughnut':
+        baseSchema.properties = {
+          ...baseSchema.properties,
+          nameField: {
+            type: 'string',
+            title: 'Category Field'
+          },
+          valueField: {
+            type: 'string',
+            title: 'Value Field'
+          },
+          innerRadius: {
+            type: 'number',
+            title: 'Inner Radius',
+            minimum: 0,
+            maximum: 100,
+            default: type === 'doughnut' ? 40 : 0
+          }
+        };
+        baseSchema.required = ['nameField', 'valueField'];
+        break;
+
       case 'line':
-      case 'area':
         baseSchema.properties = {
           ...baseSchema.properties,
           xField: {
@@ -309,163 +360,16 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
             title: 'Smooth Lines',
             default: false
           },
-          showSymbol: {
+          showPoints: {
             type: 'boolean',
             title: 'Show Data Points',
             default: true
-          },
-          symbolSize: {
-            type: 'number',
-            title: 'Symbol Size',
-            minimum: 2,
-            maximum: 20,
-            default: 6
           }
         };
         baseSchema.required = ['xField', 'yField'];
-        break;
-
-      case 'pie':
-      case 'doughnut':
-        baseSchema.properties = {
-          ...baseSchema.properties,
-          categoryField: {
-            type: 'string',
-            title: 'Category Field'
-          },
-          valueField: {
-            type: 'string',
-            title: 'Value Field'
-          },
-          innerRadius: {
-            type: 'number',
-            title: 'Inner Radius (%)',
-            minimum: 0,
-            maximum: 80,
-            default: type.toLowerCase() === 'doughnut' ? 40 : 0
-          },
-          showPercentage: {
-            type: 'boolean',
-            title: 'Show Percentages',
-            default: true
-          },
-          labelPosition: {
-            type: 'string',
-            title: 'Label Position',
-            enum: ['outside', 'inside', 'center', 'none'],
-            default: 'outside'
-          }
-        };
-        baseSchema.required = ['categoryField', 'valueField'];
-        break;
-
-      case 'gauge':
-      case 'speedometer':
-        baseSchema.properties = {
-          ...baseSchema.properties,
-          valueField: {
-            type: 'string',
-            title: 'Value Field'
-          },
-          nameField: {
-            type: 'string',
-            title: 'Name Field (Optional)'
-          },
-          min: {
-            type: 'number',
-            title: 'Minimum Value',
-            default: 0
-          },
-          max: {
-            type: 'number',
-            title: 'Maximum Value',
-            default: 100
-          },
-          unit: {
-            type: 'string',
-            title: 'Unit',
-            default: ''
-          },
-          precision: {
-            type: 'number',
-            title: 'Decimal Places',
-            minimum: 0,
-            maximum: 5,
-            default: 1
-          }
-        };
-        baseSchema.required = ['valueField'];
-        break;
-
-      case 'scatter':
-      case 'bubble':
-        baseSchema.properties = {
-          ...baseSchema.properties,
-          xField: {
-            type: 'string',
-            title: 'X-Axis Field'
-          },
-          yField: {
-            type: 'string',
-            title: 'Y-Axis Field'
-          },
-          sizeField: {
-            type: 'string',
-            title: 'Size Field (Optional)'
-          },
-          symbolSize: {
-            type: 'number',
-            title: 'Symbol Size',
-            minimum: 4,
-            maximum: 50,
-            default: 10
-          }
-        };
-        baseSchema.required = ['xField', 'yField'];
-        break;
-
-      case 'heatmap':
-        baseSchema.properties = {
-          ...baseSchema.properties,
-          xField: {
-            type: 'string',
-            title: 'X-Axis Field'
-          },
-          yField: {
-            type: 'string',
-            title: 'Y-Axis Field'
-          },
-          valueField: {
-            type: 'string',
-            title: 'Value Field'
-          }
-        };
-        baseSchema.required = ['xField', 'yField', 'valueField'];
-        break;
-
-      case 'radar':
-      case 'spider':
-        baseSchema.properties = {
-          ...baseSchema.properties,
-          nameField: {
-            type: 'string',
-            title: 'Name Field'
-          },
-          valueField: {
-            type: 'string',
-            title: 'Value Field'
-          },
-          maxValue: {
-            type: 'number',
-            title: 'Maximum Value',
-            default: 100
-          }
-        };
-        baseSchema.required = ['nameField', 'valueField'];
         break;
 
       default:
-        // Generic chart - minimal configuration
         baseSchema.properties = {
           ...baseSchema.properties,
           xField: {
@@ -501,14 +405,16 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
   }, [fieldOptions]);
 
   // ============================================================================
-  // HANDLERS - with error handling
+  // HANDLERS - with improved error handling and null safety
   // ============================================================================
 
   const handleConfigChange = useCallback((path: string, value: any) => {
+    if (!safeConfiguration || !onChange) return;
+
     try {
       console.log('Config change:', path, value);
       const pathParts = path.split('.');
-      const newConfig = { ...configuration };
+      const newConfig = { ...safeConfiguration };
       
       let current: any = newConfig;
       for (let i = 0; i < pathParts.length - 1; i++) {
@@ -524,15 +430,17 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
     } catch (error) {
       console.error('Error in handleConfigChange:', error);
     }
-  }, [configuration, onChange]);
+  }, [safeConfiguration, onChange]);
 
   const handleFieldChange = useCallback((field: string, value: string) => {
+    if (!safeConfiguration || !onChange) return;
+
     try {
       console.log('Field change:', field, value);
       const newConfig = {
-        ...configuration,
+        ...safeConfiguration,
         fieldAssignments: {
-          ...configuration.fieldAssignments,
+          ...(safeConfiguration.fieldAssignments || {}), // ✅ Safe access with fallback
           [field]: value
         }
       };
@@ -541,18 +449,21 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
     } catch (error) {
       console.error('Error in handleFieldChange:', error);
     }
-  }, [configuration, onChange]);
+  }, [safeConfiguration, onChange]);
 
   const handleReset = useCallback(() => {
     try {
       if (onReset) {
         console.log('Resetting configuration');
         onReset();
+      } else if (onChange) {
+        // Reset to default configuration
+        onChange(createDefaultConfiguration());
       }
     } catch (error) {
       console.error('Error in handleReset:', error);
     }
-  }, [onReset]);
+  }, [onReset, onChange]);
 
   // ============================================================================
   // FORM FIELD RENDERERS
@@ -593,7 +504,7 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
               <FormControl fullWidth key={key}>
                 <InputLabel>{property.title || key}</InputLabel>
                 <Select
-                  value={configuration.fieldAssignments?.[key] || ''}
+                  value={safeConfiguration?.fieldAssignments?.[key] || ''} // ✅ Safe access
                   onChange={(e) => handleFieldChange(key, e.target.value)}
                   label={property.title || key}
                 >
@@ -679,81 +590,73 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
             />
           );
 
-        case 'array':
-          if (key === 'colors') {
-            return renderColorPalette(currentValue);
-          }
-          return null;
-
         default:
-          console.warn('Unknown property type:', property.type, 'for key:', key);
           return null;
       }
     } catch (error) {
       console.error('Error rendering form field:', key, error);
       return (
-        <Alert severity="warning" key={key}>
+        <Alert severity="error" key={key}>
           Error rendering field: {key}
         </Alert>
       );
     }
   };
 
-  const renderColorPalette = (currentColors: string[]) => {
+  const renderColorPalette = (currentColors?: string[]) => {
+    const colors = currentColors || COLOR_PALETTES[0].colors;
+
     return (
-      <Box key="colors">
+      <Box>
         <Typography variant="subtitle2" gutterBottom>
           Color Palette
         </Typography>
-        <Grid container spacing={1} sx={{ mb: 2 }}>
-          {COLOR_PALETTES.map((palette, index) => (
-            <Grid item key={palette.name}>
-              <Tooltip title={palette.name}>
-                <Card
-                  sx={{
-                    cursor: 'pointer',
-                    border: '2px solid',
-                    borderColor: 'transparent',
-                    '&:hover': { borderColor: 'primary.main' }
-                  }}
-                  onClick={() => handleConfigChange('customConfig.colors', palette.colors)}
-                >
-                  <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-                    <Stack direction="row" spacing={0.5}>
-                      {palette.colors.slice(0, 4).map((color, i) => (
-                        <Box
-                          key={i}
-                          sx={{
-                            width: 16,
-                            height: 16,
-                            backgroundColor: color,
-                            borderRadius: 0.5,
-                            border: '1px solid rgba(0,0,0,0.1)'
-                          }}
-                        />
-                      ))}
-                    </Stack>
-                  </CardContent>
-                </Card>
-              </Tooltip>
-            </Grid>
-          ))}
-        </Grid>
-        
-        <Stack direction="row" spacing={1} flexWrap="wrap">
-          {(currentColors || []).map((color, index) => (
-            <Chip
-              key={index}
-              label={color}
-              sx={{ bgcolor: color, color: 'white', fontSize: '0.7rem' }}
-              size="small"
-              onDelete={() => {
-                const newColors = [...(currentColors || [])];
-                newColors.splice(index, 1);
-                handleConfigChange('customConfig.colors', newColors);
-              }}
-            />
-          ))}
+        <Stack spacing={2}>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {COLOR_PALETTES.map(palette => (
+              <Button
+                key={palette.name}
+                size="small"
+                variant="outlined"
+                onClick={() => handleConfigChange('customConfig.colors', palette.colors)}
+                sx={{
+                  minWidth: 'auto',
+                  p: 1,
+                  border: '1px solid',
+                  borderColor: 'divider'
+                }}
+              >
+                <Stack direction="row" spacing={0.5}>
+                  {palette.colors.slice(0, 3).map((color, i) => (
+                    <Box
+                      key={i}
+                      sx={{
+                        width: 12,
+                        height: 12,
+                        bgcolor: color,
+                        borderRadius: 0.5
+                      }}
+                    />
+                  ))}
+                </Stack>
+              </Button>
+            ))}
+          </Box>
+          <Stack direction="row" spacing={1} flexWrap="wrap">
+            {(currentColors || []).map((color, index) => (
+              <Chip
+                key={index}
+                label={color}
+                sx={{ bgcolor: color, color: 'white', fontSize: '0.7rem' }}
+                size="small"
+                onDelete={() => {
+                  const newColors = [...(currentColors || [])];
+                  newColors.splice(index, 1);
+                  handleConfigChange('customConfig.colors', newColors);
+                }}
+              />
+            ))}
+          </Stack>
         </Stack>
       </Box>
     );
@@ -784,7 +687,7 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
           <Grid container spacing={2}>
             {fieldProperties.map(([key, property]) => (
               <Grid item xs={12} sm={6} key={key}>
-                {renderFormField(key, property, configuration.fieldAssignments?.[key])}
+                {renderFormField(key, property, safeConfiguration?.fieldAssignments?.[key])} {/* ✅ Safe access */}
               </Grid>
             ))}
           </Grid>
@@ -813,7 +716,7 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
         <AccordionDetails>
           <Stack spacing={2}>
             {optionProperties.map(([key, property]) => 
-              renderFormField(key, property, configuration.customConfig?.[key])
+              renderFormField(key, property, safeConfiguration?.customConfig?.[key]) // ✅ Safe access
             )}
           </Stack>
         </AccordionDetails>
@@ -829,11 +732,11 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
         <TextField
           fullWidth
           label="Chart Title"
-          value={configuration.customConfig?.title || ''}
+          value={safeConfiguration?.customConfig?.title || ''}
           onChange={(e) => handleConfigChange('customConfig.title', e.target.value)}
         />
 
-        {chartSchema.properties.colors && renderColorPalette(configuration.customConfig?.colors)}
+        {chartSchema.properties.colors && renderColorPalette(safeConfiguration?.customConfig?.colors)}
 
         <Grid container spacing={2}>
           <Grid item xs={6}>
@@ -841,7 +744,7 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
               fullWidth
               label="Width"
               type="number"
-              value={configuration.dimensions?.width || 600}
+              value={safeConfiguration?.dimensions?.width || 600}
               onChange={(e) => handleConfigChange('dimensions.width', parseInt(e.target.value) || 600)}
             />
           </Grid>
@@ -850,7 +753,7 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
               fullWidth
               label="Height"
               type="number"
-              value={configuration.dimensions?.height || 400}
+              value={safeConfiguration?.dimensions?.height || 400}
               onChange={(e) => handleConfigChange('dimensions.height', parseInt(e.target.value) || 400)}
             />
           </Grid>
@@ -862,6 +765,17 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
   // ============================================================================
   // RENDER
   // ============================================================================
+
+  // Safety check for configuration
+  if (!safeConfiguration) {
+    return (
+      <Box sx={{ p: 3, textAlign: 'center' }}>
+        <Typography variant="body2" color="textSecondary">
+          No configuration available
+        </Typography>
+      </Box>
+    );
+  }
 
   if (loading) {
     return (
@@ -877,7 +791,7 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
     <Box sx={{ width: '100%' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h6">
-          Configure {chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart
+          Configure {chartType?.charAt(0).toUpperCase() + chartType?.slice(1)} Chart
         </Typography>
         <Button
           startIcon={<RestoreIcon />}
@@ -891,7 +805,7 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
 
       {error && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          Using default configuration schema for {chartType} chart.
+          Using fallback configuration for {chartType} chart: {error}
         </Alert>
       )}
 
@@ -922,7 +836,7 @@ const ChartCustomizationPanel: React.FC<ChartConfigPanelProps> = ({
 
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
         <Chip label={`Type: ${chartType}`} size="small" />
-        <Chip label={`Library: ${configuration?.library || 'echarts'}`} size="small" />
+        <Chip label={`Library: ${safeConfiguration?.library || 'echarts'}`} size="small" />
         {dataColumns.length > 0 && (
           <Chip label={`${dataColumns.length} fields available`} size="small" />
         )}
