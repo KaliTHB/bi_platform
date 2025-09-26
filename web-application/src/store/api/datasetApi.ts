@@ -1,159 +1,212 @@
-// bi_platform\web-application\src\store\api\datasetsApi.ts
-// RTK Query API for dataset operations
-
+// web-application/src/store/api/datasetApi.ts - UPDATED COMPLETE VERSION
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
-import { RootState } from '../store';
+import type { RootState } from '../index';
 
-// =============================================================================
-// TYPES AND INTERFACES
-// =============================================================================
+// ==================== TYPE DEFINITIONS ====================
 
-export interface Dataset {
+// Backend Response Structure (what your API actually returns)
+interface BackendApiResponse<T> {
+  success: boolean;
+  message?: string;
+  data: T;
+  errors?: Array<{
+    code: string;
+    message: string;
+  }>;
+}
+
+// Dataset interfaces
+interface Dataset {
   id: string;
   name: string;
-  display_name?: string;
+  display_name: string;
   description?: string;
-  type: 'virtual' | 'physical' | 'table' | 'query' | 'source' | 'transformation';
-  schema: string;
-  connection: string;
-  owner: {
+  type: 'source' | 'virtual' | 'sql' | 'transformation' | 'table';
+  workspace_id: string;
+  owner?: {
     id: string;
-    name: string;
-    avatar?: string;
+    name: string | null;
+    email: string | null;
   };
-  row_count?: number;
-  last_updated?: string;
   created_at: string;
   updated_at: string;
+  row_count?: number;
   is_active: boolean;
-  workspace_id: string;
-  tags?: string[];
+  schema_json?: any;
 }
 
-export interface ColumnDefinition {
+// Column interface for dataset schema
+interface DatasetColumn {
   name: string;
-  display_name?: string;
-  data_type: string;
+  type: string;
   nullable?: boolean;
-  unique?: boolean;
   description?: string;
-  is_primary_key?: boolean;
-  default_value?: any;
-  sample_values?: string[];
-  unique_count?: number;
-  null_count?: number;
 }
 
-export interface DatasetColumnsResponse {
-  columns: ColumnDefinition[];
-  total_count: number;
-  dataset_info: {
-    id: string;
-    name: string;
-    row_count?: number;
-    last_analyzed?: string;
-  };
-}
-
-export interface DatasetPreviewResponse {
-  data: Record<string, any>[];
-  columns: ColumnDefinition[];
-  total_count: number;
-  has_more: boolean;
-  query_time: number;
-  preview_info: {
-    limit: number;
-    offset: number;
-    sample_type: 'random' | 'sequential';
-  };
-}
-
-export interface DatasetListResponse {
+// Specific response types that match your backend
+interface GetDatasetsData {
   datasets: Dataset[];
-  total_count: number;
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    total_pages: number;
+    has_next: boolean;
+    has_previous: boolean;
+  };
+}
+
+// Frontend Expected Structure (for RTK Query cache normalization)
+interface GetDatasetsResponse {
+  datasets: Dataset[];
+  total: number;
   page: number;
   limit: number;
-  has_more: boolean;
+  pages: number;
+  has_next: boolean;
+  has_previous: boolean;
 }
 
-export interface DatasetFilters {
-  search?: string;
-  type?: string[];
-  workspace_id?: string;
-  owner_id?: string;
-  tags?: string[];
-  created_after?: string;
-  updated_after?: string;
-}
-
-export interface DatasetListParams {
+// Query parameters interface
+interface GetDatasetsParams {
+  workspaceId: string;
   page?: number;
   limit?: number;
-  sort_by?: 'name' | 'created_at' | 'updated_at' | 'row_count';
-  sort_order?: 'asc' | 'desc';
-  filters?: DatasetFilters;
+  search?: string;
+  type?: string;
+  sortBy?: string;
+  sortDirection?: 'asc' | 'desc';
+  includeSchema?: boolean;
+  createdBy?: string;
+  datasourceId?: string;
 }
 
-export interface DatasetPreviewParams {
+// Dataset preview response
+interface DatasetPreviewResponse {
+  data: any[];
+  columns: DatasetColumn[];
+  total_rows: number;
+  preview_rows: number;
+  truncated: boolean;
+}
+
+// Dataset columns response
+interface DatasetColumnsResponse {
+  columns: DatasetColumn[];
+  total_columns: number;
+  schema_updated_at: string;
+}
+
+// Dataset query request parameters
+interface DatasetQueryRequest {
+  filters?: Array<{
+    column: string;
+    operator: 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'not_in' | 'like' | 'not_like';
+    value: any;
+  }>;
+  columns?: string[];
   limit?: number;
   offset?: number;
-  sample_type?: 'random' | 'sequential';
-  columns?: string[]; // Specific columns to fetch
+  sort_by?: string;
+  sort_direction?: 'asc' | 'desc';
+  include_metadata?: boolean;
 }
 
-// =============================================================================
-// RTK QUERY API DEFINITION
-// =============================================================================
+// Dataset query response
+interface DatasetQueryResponse {
+  data: any[];
+  columns: DatasetColumn[];
+  metadata: {
+    row_count: number;
+    total_rows: number;
+    execution_time_ms: number;
+    cache_hit: boolean;
+    query_hash: string;
+    generated_sql?: string;
+  };
+  cached: boolean;
+}
 
-export const datasetsApi = createApi({
-  reducerPath: 'datasetsApi',
+// Dataset stats interface
+interface DatasetStats {
+  row_count: number;
+  column_count: number;
+  size_bytes: number;
+  size_formatted: string;
+  last_updated: string;
+  last_accessed?: string;
+}
+
+// ==================== API DEFINITION ====================
+
+export const datasetApi = createApi({
+  reducerPath: 'datasetApi',
   baseQuery: fetchBaseQuery({
-    baseUrl: '/api',
+    baseUrl: '/api/datasets',
     prepareHeaders: (headers, { getState }) => {
-      // Add authentication token if available
-      const state = getState() as RootState;
-      const token = state.auth?.token;
-      
+      // Add auth token if available
+      const token = (getState() as RootState).auth.token;
       if (token) {
-        headers.set('Authorization', `Bearer ${token}`);
+        headers.set('authorization', `Bearer ${token}`);
       }
-      
-      headers.set('Content-Type', 'application/json');
       return headers;
     },
   }),
-  tagTypes: ['Dataset', 'DatasetColumns', 'DatasetPreview'],
+  tagTypes: ['Dataset', 'DatasetData', 'DatasetPreview', 'DatasetSchema', 'DatasetStats'],
   endpoints: (builder) => ({
-    
-    // ==========================================================================
-    // GET DATASET LIST
-    // ==========================================================================
-    getDatasets: builder.query<DatasetListResponse, DatasetListParams | void>({
-      query: (params = {}) => {
+
+    // ==================== EXISTING ENDPOINTS ====================
+
+    // Get all datasets with filtering and pagination
+    getDatasets: builder.query<GetDatasetsResponse, GetDatasetsParams>({
+      query: ({ 
+        workspaceId, 
+        page = 1, 
+        limit = 20, 
+        search, 
+        type, 
+        sortBy, 
+        sortDirection,
+        includeSchema = false,
+        createdBy,
+        datasourceId 
+      }) => {
         const searchParams = new URLSearchParams();
         
-        // Add pagination parameters
-        if (params.page) searchParams.append('page', params.page.toString());
-        if (params.limit) searchParams.append('limit', params.limit.toString());
-        if (params.sort_by) searchParams.append('sort_by', params.sort_by);
-        if (params.sort_order) searchParams.append('sort_order', params.sort_order);
+        searchParams.append('workspace_id', workspaceId);
+        searchParams.append('page', page.toString());
+        searchParams.append('limit', limit.toString());
         
-        // Add filter parameters
-        if (params.filters) {
-          const { filters } = params;
-          if (filters.search) searchParams.append('search', filters.search);
-          if (filters.type) filters.type.forEach(t => searchParams.append('type', t));
-          if (filters.workspace_id) searchParams.append('workspace_id', filters.workspace_id);
-          if (filters.owner_id) searchParams.append('owner_id', filters.owner_id);
-          if (filters.tags) filters.tags.forEach(tag => searchParams.append('tags', tag));
-          if (filters.created_after) searchParams.append('created_after', filters.created_after);
-          if (filters.updated_after) searchParams.append('updated_after', filters.updated_after);
+        if (search) searchParams.append('search', search);
+        if (type) searchParams.append('type', type);
+        if (sortBy) searchParams.append('sort_by', sortBy);
+        if (sortDirection) searchParams.append('sort_direction', sortDirection);
+        if (includeSchema) searchParams.append('include_schema', 'true');
+        if (createdBy) searchParams.append('created_by', createdBy);
+        if (datasourceId) searchParams.append('datasource_id', datasourceId);
+        
+        const queryString = searchParams.toString();
+        return `?${queryString}`;
+      },
+      transformResponse: (response: BackendApiResponse<GetDatasetsData>): GetDatasetsResponse => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to fetch datasets');
         }
+
+        const { datasets, pagination } = response.data;
         
-        return `/datasets?${searchParams.toString()}`;
+        return {
+          datasets,
+          total: pagination.total,
+          page: pagination.page,
+          limit: pagination.limit,
+          pages: pagination.total_pages,
+          has_next: pagination.has_next,
+          has_previous: pagination.has_previous
+        };
       },
       providesTags: (result) =>
-        result
+        result?.datasets
           ? [
               ...result.datasets.map(({ id }) => ({ type: 'Dataset' as const, id })),
               { type: 'Dataset', id: 'LIST' },
@@ -161,208 +214,316 @@ export const datasetsApi = createApi({
           : [{ type: 'Dataset', id: 'LIST' }],
     }),
 
-    // ==========================================================================
-    // GET SINGLE DATASET
-    // ==========================================================================
-    getDataset: builder.query<Dataset, string>({
-      query: (datasetId) => `/datasets/${datasetId}`,
-      providesTags: (result, error, datasetId) => [
-        { type: 'Dataset', id: datasetId }
-      ],
-    }),
-
-    // ==========================================================================
-    // GET DATASET COLUMNS
-    // ==========================================================================
-    getDatasetColumns: builder.query<DatasetColumnsResponse, string>({
-      query: (datasetId) => `/datasets/${datasetId}/columns`,
-      providesTags: (result, error, datasetId) => [
-        { type: 'DatasetColumns', id: datasetId }
-      ],
-    }),
-
-    // ==========================================================================
-    // GET DATASET PREVIEW
-    // ==========================================================================
-    getDatasetPreview: builder.query<DatasetPreviewResponse, {
-      datasetId: string;
-      params?: DatasetPreviewParams;
-    }>({
-      query: ({ datasetId, params = {} }) => {
-        const searchParams = new URLSearchParams();
-        
-        // Add preview parameters
-        if (params.limit) searchParams.append('limit', params.limit.toString());
-        if (params.offset) searchParams.append('offset', params.offset.toString());
-        if (params.sample_type) searchParams.append('sample_type', params.sample_type);
-        if (params.columns) {
-          params.columns.forEach(col => searchParams.append('columns', col));
+    // Get single dataset by ID
+    getDatasetById: builder.query<Dataset, { id: string; includeSchema?: boolean }>({
+      query: ({ id, includeSchema = false }) => 
+        `/${id}?include_schema=${includeSchema}`,
+      transformResponse: (response: BackendApiResponse<Dataset>): Dataset => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to fetch dataset');
         }
-        
-        return `/datasets/${datasetId}/preview?${searchParams.toString()}`;
+        return response.data;
       },
-      providesTags: (result, error, { datasetId }) => [
-        { type: 'DatasetPreview', id: datasetId }
-      ],
+      providesTags: (result, error, { id }) => [{ type: 'Dataset', id }],
     }),
 
-    // ==========================================================================
-    // EXECUTE CUSTOM DATASET QUERY
-    // ==========================================================================
-    executeDatasetQuery: builder.mutation<DatasetPreviewResponse, {
-      datasetId: string;
-      query: string;
-      params?: {
-        limit?: number;
-        timeout?: number;
-      };
-    }>({
-      query: ({ datasetId, query, params = {} }) => ({
-        url: `/datasets/${datasetId}/query`,
-        method: 'POST',
-        body: {
-          query,
-          limit: params.limit || 1000,
-          timeout: params.timeout || 30000,
-        },
-      }),
-      invalidatesTags: (result, error, { datasetId }) => [
-        { type: 'DatasetPreview', id: datasetId }
-      ],
-    }),
-
-    // ==========================================================================
-    // GET DATASET SCHEMA INFO
-    // ==========================================================================
-    getDatasetSchema: builder.query<{
-      schema_info: {
-        tables: Array<{
-          name: string;
-          type: string;
-          row_count?: number;
-          columns: ColumnDefinition[];
-        }>;
-        relationships: Array<{
-          from_table: string;
-          from_column: string;
-          to_table: string;
-          to_column: string;
-          relationship_type: 'one-to-one' | 'one-to-many' | 'many-to-many';
-        }>;
-      };
-    }, string>({
-      query: (datasetId) => `/datasets/${datasetId}/schema`,
-      providesTags: (result, error, datasetId) => [
-        { type: 'Dataset', id: `${datasetId}-schema` }
-      ],
-    }),
-
-    // ==========================================================================
-    // REFRESH DATASET METADATA
-    // ==========================================================================
-    refreshDatasetMetadata: builder.mutation<{
-      success: boolean;
-      message: string;
-      updated_at: string;
-    }, string>({
-      query: (datasetId) => ({
-        url: `/datasets/${datasetId}/refresh`,
-        method: 'POST',
-      }),
-      invalidatesTags: (result, error, datasetId) => [
-        { type: 'Dataset', id: datasetId },
-        { type: 'DatasetColumns', id: datasetId },
-        { type: 'DatasetPreview', id: datasetId },
-      ],
-    }),
-
-    // ==========================================================================
-    // CREATE DATASET
-    // ==========================================================================
+    // Create new dataset
     createDataset: builder.mutation<Dataset, Partial<Dataset>>({
-      query: (newDataset) => ({
-        url: '/datasets',
+      query: (datasetData) => ({
+        url: '',
         method: 'POST',
-        body: newDataset,
+        body: datasetData,
       }),
+      transformResponse: (response: BackendApiResponse<Dataset>): Dataset => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to create dataset');
+        }
+        return response.data;
+      },
       invalidatesTags: [{ type: 'Dataset', id: 'LIST' }],
     }),
 
-    // ==========================================================================
-    // UPDATE DATASET
-    // ==========================================================================
-    updateDataset: builder.mutation<Dataset, {
-      datasetId: string;
-      updates: Partial<Dataset>;
-    }>({
-      query: ({ datasetId, updates }) => ({
-        url: `/datasets/${datasetId}`,
+    // Update existing dataset
+    updateDataset: builder.mutation<Dataset, { id: string; data: Partial<Dataset> }>({
+      query: ({ id, data }) => ({
+        url: `/${id}`,
         method: 'PUT',
-        body: updates,
+        body: data,
       }),
-      invalidatesTags: (result, error, { datasetId }) => [
-        { type: 'Dataset', id: datasetId },
+      transformResponse: (response: BackendApiResponse<Dataset>): Dataset => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to update dataset');
+        }
+        return response.data;
+      },
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'Dataset', id },
         { type: 'Dataset', id: 'LIST' },
       ],
     }),
 
-    // ==========================================================================
-    // DELETE DATASET
-    // ==========================================================================
-    deleteDataset: builder.mutation<{ success: boolean }, string>({
-      query: (datasetId) => ({
-        url: `/datasets/${datasetId}`,
+    // Delete dataset
+    deleteDataset: builder.mutation<{ message: string }, string>({
+      query: (id) => ({
+        url: `/${id}`,
         method: 'DELETE',
       }),
-      invalidatesTags: (result, error, datasetId) => [
-        { type: 'Dataset', id: datasetId },
+      transformResponse: (response: BackendApiResponse<any>) => {
+        if (!response.success) {
+          throw new Error(response.message || 'Failed to delete dataset');
+        }
+        return { message: response.message || 'Dataset deleted successfully' };
+      },
+      invalidatesTags: (result, error, id) => [
+        { type: 'Dataset', id },
         { type: 'Dataset', id: 'LIST' },
+      ],
+    }),
+
+    // Get dataset statistics
+    getDatasetStats: builder.query<DatasetStats, string>({
+      query: (id) => `/${id}/stats`,
+      transformResponse: (response: BackendApiResponse<DatasetStats>) => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to get dataset stats');
+        }
+        return response.data;
+      },
+      providesTags: (result, error, id) => [{ type: 'DatasetStats', id }],
+    }),
+
+    // ==================== NEW ENDPOINTS ====================
+
+    // GET /api/datasets/{id}/columns
+    getDatasetColumns: builder.query<DatasetColumnsResponse, { 
+      id: string; 
+      includeDescription?: boolean;
+    }>({
+      query: ({ id, includeDescription = false }) => {
+        const params = new URLSearchParams();
+        if (includeDescription) {
+          params.append('include_description', 'true');
+        }
+        
+        const queryString = params.toString();
+        return `/${id}/columns${queryString ? `?${queryString}` : ''}`;
+      },
+      transformResponse: (response: BackendApiResponse<DatasetColumnsResponse>): DatasetColumnsResponse => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to fetch dataset columns');
+        }
+        return response.data;
+      },
+      providesTags: (result, error, { id }) => [
+        { type: 'DatasetSchema', id },
+        { type: 'Dataset', id }
+      ],
+    }),
+
+    // GET /api/datasets/{id}/preview
+    getDatasetPreview: builder.query<DatasetPreviewResponse, { 
+      id: string; 
+      limit?: number;
+      columns?: string[];
+    }>({
+      query: ({ id, limit = 100, columns }) => {
+        const params = new URLSearchParams();
+        params.append('limit', limit.toString());
+        
+        if (columns && columns.length > 0) {
+          params.append('columns', columns.join(','));
+        }
+        
+        const queryString = params.toString();
+        return `/${id}/preview${queryString ? `?${queryString}` : ''}`;
+      },
+      transformResponse: (response: BackendApiResponse<DatasetPreviewResponse>): DatasetPreviewResponse => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to preview dataset');
+        }
+        return response.data;
+      },
+      providesTags: (result, error, { id }) => [
+        { type: 'DatasetPreview', id },
+        { type: 'DatasetData', id }
+      ],
+    }),
+
+    // POST /api/datasets/{id}/query - Mutation version
+    executeDatasetQuery: builder.mutation<DatasetQueryResponse, { 
+      id: string; 
+      queryOptions: DatasetQueryRequest;
+    }>({
+      query: ({ id, queryOptions }) => ({
+        url: `/${id}/query`,
+        method: 'POST',
+        body: queryOptions,
+      }),
+      transformResponse: (response: BackendApiResponse<DatasetQueryResponse>): DatasetQueryResponse => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to execute dataset query');
+        }
+        return response.data;
+      },
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'DatasetData', id },
+        { type: 'DatasetStats', id }
+      ],
+    }),
+
+    // POST /api/datasets/{id}/query - Query version (for polling/real-time)
+    queryDatasetWithOptions: builder.query<DatasetQueryResponse, { 
+      id: string; 
+      queryOptions: DatasetQueryRequest;
+    }>({
+      query: ({ id, queryOptions }) => ({
+        url: `/${id}/query`,
+        method: 'POST',
+        body: queryOptions,
+      }),
+      transformResponse: (response: BackendApiResponse<DatasetQueryResponse>): DatasetQueryResponse => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to execute dataset query');
+        }
+        return response.data;
+      },
+      providesTags: (result, error, { id }) => [
+        { type: 'DatasetData', id }
+      ],
+    }),
+
+    // ==================== LEGACY SUPPORT ====================
+    
+    // Legacy preview endpoint (keeping for backward compatibility)
+    previewDataset: builder.query<any, string>({
+      query: (id) => `/${id}/preview`,
+      transformResponse: (response: BackendApiResponse<any>) => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to preview dataset');
+        }
+        return response.data;
+      },
+      providesTags: (result, error, id) => [{ type: 'DatasetData', id }],
+    }),
+
+    // Legacy query endpoint (keeping for backward compatibility)
+    queryDataset: builder.query<any, { id: string; options?: any }>({
+      query: ({ id, options = {} }) => {
+        const searchParams = new URLSearchParams();
+        
+        if (options.limit) searchParams.append('limit', options.limit.toString());
+        if (options.offset) searchParams.append('offset', options.offset.toString());
+        if (options.includeMetadata) searchParams.append('include_metadata', 'true');
+        
+        const queryString = searchParams.toString();
+        return `/${id}/query${queryString ? `?${queryString}` : ''}`;
+      },
+      transformResponse: (response: BackendApiResponse<any>) => {
+        if (!response.success || !response.data) {
+          throw new Error(response.message || 'Failed to query dataset');
+        }
+        return response.data;
+      },
+      providesTags: (result, error, { id }) => [{ type: 'DatasetData', id }],
+    }),
+
+    // ==================== HELPER ENDPOINTS ====================
+
+    // Get dataset columns with preview data in one call
+    getDatasetSchemaAndPreview: builder.query<{
+      columns: DatasetColumnsResponse;
+      preview: DatasetPreviewResponse;
+    }, { 
+      id: string; 
+      previewLimit?: number;
+    }>({
+      queryFn: async ({ id, previewLimit = 50 }, api, extraOptions, baseQuery) => {
+        try {
+          // Execute both requests in parallel
+          const [columnsResult, previewResult] = await Promise.all([
+            baseQuery(`/${id}/columns`),
+            baseQuery(`/${id}/preview?limit=${previewLimit}`)
+          ]);
+
+          if (columnsResult.error) return { error: columnsResult.error };
+          if (previewResult.error) return { error: previewResult.error };
+
+          const columnsResponse = columnsResult.data as BackendApiResponse<DatasetColumnsResponse>;
+          const previewResponse = previewResult.data as BackendApiResponse<DatasetPreviewResponse>;
+
+          if (!columnsResponse.success || !previewResponse.success) {
+            return { 
+              error: { 
+                status: 'CUSTOM_ERROR', 
+                error: 'Failed to fetch schema and preview data' 
+              } 
+            };
+          }
+
+          return {
+            data: {
+              columns: columnsResponse.data,
+              preview: previewResponse.data
+            }
+          };
+        } catch (error) {
+          return { 
+            error: { 
+              status: 'CUSTOM_ERROR', 
+              error: `Failed to fetch schema and preview: ${error}` 
+            } 
+          };
+        }
+      },
+      providesTags: (result, error, { id }) => [
+        { type: 'DatasetSchema', id },
+        { type: 'DatasetPreview', id },
+        { type: 'DatasetData', id }
       ],
     }),
   }),
 });
 
-// =============================================================================
-// EXPORT HOOKS
-// =============================================================================
+// ==================== EXPORTED HOOKS ====================
 
 export const {
-  // Query hooks
+  // Main dataset CRUD operations
   useGetDatasetsQuery,
-  useGetDatasetQuery,
-  useGetDatasetColumnsQuery,
-  useGetDatasetPreviewQuery,
-  useGetDatasetSchemaQuery,
-  
-  // Lazy query hooks
-  useLazyGetDatasetColumnsQuery,
-  useLazyGetDatasetPreviewQuery,
-  useLazyGetDatasetSchemaQuery,
-  
-  // Mutation hooks
-  useExecuteDatasetQueryMutation,
-  useRefreshDatasetMetadataMutation,
+  useLazyGetDatasetsQuery,
+  useGetDatasetByIdQuery,
+  useLazyGetDatasetByIdQuery,
   useCreateDatasetMutation,
   useUpdateDatasetMutation,
   useDeleteDatasetMutation,
-} = datasetsApi;
+  
+  // Dataset statistics
+  useGetDatasetStatsQuery,
+  useLazyGetDatasetStatsQuery,
+  
+  // NEW: Columns endpoints
+  useGetDatasetColumnsQuery,
+  useLazyGetDatasetColumnsQuery,
+  
+  // NEW: Preview endpoints  
+  useGetDatasetPreviewQuery,
+  useLazyGetDatasetPreviewQuery,
+  
+  // NEW: Query endpoints
+  useExecuteDatasetQueryMutation,
+  useQueryDatasetWithOptionsQuery,
+  useLazyQueryDatasetWithOptionsQuery,
+  
+  // Combined endpoints
+  useGetDatasetSchemaAndPreviewQuery,
+  useLazyGetDatasetSchemaAndPreviewQuery,
+  
+  // Legacy endpoints (backward compatibility)
+  usePreviewDatasetQuery,
+  useLazyPreviewDatasetQuery,
+  useQueryDatasetQuery,
+  useLazyQueryDatasetQuery,
+} = datasetApi;
 
-// =============================================================================
-// SELECTORS
-// =============================================================================
+// ==================== EXPORT DEFAULT ====================
 
-// Select datasets by workspace
-export const selectDatasetsByWorkspace = (workspaceId: string) =>
-  datasetsApi.endpoints.getDatasets.select({ 
-    filters: { workspace_id: workspaceId } 
-  });
-
-// Select dataset columns
-export const selectDatasetColumns = (datasetId: string) =>
-  datasetsApi.endpoints.getDatasetColumns.select(datasetId);
-
-// Select dataset preview
-export const selectDatasetPreview = (datasetId: string, params?: DatasetPreviewParams) =>
-  datasetsApi.endpoints.getDatasetPreview.select({ datasetId, params });
-
-export default datasetsApi;
+export default datasetApi;
