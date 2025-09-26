@@ -271,7 +271,7 @@ export const EChartsBarChartConfig: ChartPluginConfig = {
   dataRequirements: {
     minColumns: 2,
     maxColumns: 100,
-    requiredFields: ['name', 'value'],
+    requiredFields: ['x-axis', 'y-axis'],
     optionalFields: ['category', 'series'],
     supportedTypes: ['string', 'number'],
     aggregationSupport: true,
