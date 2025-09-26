@@ -1,3 +1,6 @@
+// src/components/builder/ChartCustomizationPanel.tsx
+// ENHANCED VERSION - Uses Chart Factory and Plugin Configurations Dynamically
+
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box,
@@ -17,38 +20,68 @@ import {
   Alert,
   CircularProgress,
   Divider,
-  Chip
+  Chip,
+  Slider,
+  FormGroup,
+  IconButton,
+  Tooltip
 } from '@mui/material';
-import { ExpandMore, Refresh, Warning } from '@mui/icons-material';
+import { 
+  ExpandMore, 
+  Refresh, 
+  Warning, 
+  Info, 
+  Palette,
+  Settings,
+  BarChart,
+  PieChart as PieChartIcon,
+  ShowChart
+} from '@mui/icons-material';
+import { ChartRegistry } from '@/plugins/charts/registry/ChartRegistry';
+import { ChartFactoryService } from '@/services/ChartFactoryService';
+import { ConfigMappingService } from '@/plugins/charts/services/ConfigMappingService';
+import { ChartConfigHelper } from '@/plugins/charts/helpers/ChartConfigHelper';
+
+// ============================================================================
+// INTERFACES AND TYPES
+// ============================================================================
 
 interface ChartCustomizationPanelProps {
   chartType: string;
+  chartLibrary: string;
   configuration: any;
-  dataColumns: Array<{
+  dataColumns?: Array<{
     name: string;
     display_name?: string;
     data_type: string;
   }>;
   onChange: (config: any) => void;
   onReset?: () => void;
+  onPreview?: (config: any) => void;
 }
 
 interface ConfigSchemaProperty {
   type: string;
   title?: string;
+  description?: string;
   default?: any;
-  enum?: string[];
+  enum?: string[] | { label: string; value: any }[];
   minimum?: number;
   maximum?: number;
   required?: boolean;
   items?: any;
   properties?: any;
+  group?: string;
+  conditional?: {
+    field: string;
+    value: any;
+  };
 }
 
 interface ConfigSchema {
   type: string;
   properties: Record<string, ConfigSchemaProperty>;
-  required: string[];
+  required?: string[];
 }
 
 interface ValidationResult {
@@ -57,600 +90,775 @@ interface ValidationResult {
     field: string;
     message: string;
     code: string;
-  }>;
-  warnings: Array<{
-    field: string;
-    message: string;
-    code: string;
+    severity: 'error' | 'warning';
   }>;
 }
 
+interface ChartPlugin {
+  name: string;
+  displayName: string;
+  category: string;
+  library: string;
+  configSchema: ConfigSchema;
+  dataRequirements: {
+    minColumns: number;
+    maxColumns?: number;
+    requiredFields: string[];
+    optionalFields?: string[];
+    supportedTypes: string[];
+  };
+}
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
 export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
   chartType,
+  chartLibrary,
   configuration,
-  dataColumns,
+  dataColumns = [], // Default to empty array
   onChange,
-  onReset
+  onReset,
+  onPreview
 }) => {
   // ============================================================================
   // STATE MANAGEMENT
   // ============================================================================
-  const [chartSchema, setChartSchema] = useState<ConfigSchema | null>(null);
+  
+  const [chartPlugin, setChartPlugin] = useState<ChartPlugin | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [validation, setValidation] = useState<ValidationResult>({
     isValid: true,
-    errors: [],
-    warnings: []
+    errors: []
   });
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    general: true,
-    data: true,
-    axes: true,
-    styling: false,
-    animation: false
+    'data-mapping': true,
+    'appearance': true,
+    'behavior': false,
+    'advanced': false
   });
 
-  // Safe configuration with fallback
-  const safeConfiguration = useMemo(() => {
-    return configuration || createDefaultConfiguration(chartType);
-  }, [configuration, chartType]);
-
   // ============================================================================
-  // SCHEMA LOADING AND VALIDATION
+  // CHART PLUGIN LOADING AND CONFIGURATION
   // ============================================================================
-  
-  useEffect(() => {
-    loadChartSchema();
-  }, [chartType]);
 
-  useEffect(() => {
-    if (chartSchema && safeConfiguration) {
-      validateConfiguration();
-    }
-  }, [chartSchema, safeConfiguration]);
+  // Check if we have data columns available
+  const hasDataColumns = dataColumns && Array.isArray(dataColumns) && dataColumns.length > 0;
 
-  const loadChartSchema = async () => {
+  // Generate chart plugin key
+  const chartPluginKey = useMemo(() => {
+    return `${chartLibrary}-${chartType}`;
+  }, [chartLibrary, chartType]);
+
+  // Load chart plugin configuration
+  useEffect(() => {
+    loadChartPlugin();
+  }, [chartPluginKey]);
+
+  const loadChartPlugin = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
-      // Generate schema based on chart type
-      const schema = generateFallbackSchema(chartType);
-      setChartSchema(schema);
+      console.log(`🔍 Loading chart plugin: ${chartPluginKey}`);
+      
+      // Initialize ChartRegistry if not already done
+      await ChartRegistry.initialize();
+      
+      // Get plugin from registry
+      const plugin = ChartRegistry.getPlugin(chartPluginKey);
+      
+      if (plugin) {
+        console.log(`✅ Chart plugin loaded:`, plugin);
+        setChartPlugin({
+          name: plugin.name,
+          displayName: plugin.displayName,
+          category: plugin.category,
+          library: plugin.library,
+          configSchema: plugin.configSchema,
+          dataRequirements: plugin.dataRequirements
+        });
+      } else {
+        // Fallback: Create basic plugin configuration
+        console.warn(`⚠️ Plugin ${chartPluginKey} not found, creating fallback`);
+        const fallbackPlugin = createFallbackPlugin(chartType, chartLibrary);
+        setChartPlugin(fallbackPlugin);
+      }
+      
     } catch (err) {
-      console.error('Failed to load chart schema:', err);
-      setError(`Failed to load configuration schema: ${err instanceof Error ? err.message : 'Unknown error'}`);
-      setChartSchema(generateFallbackSchema(chartType));
+      console.error('❌ Failed to load chart plugin:', err);
+      setError(`Failed to load chart configuration: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      
+      // Create fallback plugin even on error
+      const fallbackPlugin = createFallbackPlugin(chartType, chartLibrary);
+      setChartPlugin(fallbackPlugin);
     } finally {
       setLoading(false);
     }
   };
 
+  // ============================================================================
+  // CONFIGURATION MANAGEMENT
+  // ============================================================================
+
+  // Safe configuration with dynamic defaults
+  const safeConfiguration = useMemo(() => {
+    if (configuration && Object.keys(configuration).length > 0) {
+      return configuration;
+    }
+
+    if (!chartPlugin) {
+      return {};
+    }
+
+    // Create default configuration from schema
+    return createDefaultConfigurationFromSchema(chartPlugin.configSchema, chartType);
+  }, [configuration, chartPlugin, chartType]);
+
+  // Validate configuration when it changes
+  useEffect(() => {
+    if (chartPlugin && safeConfiguration) {
+      validateConfiguration();
+    }
+  }, [chartPlugin, safeConfiguration]);
+
   const validateConfiguration = () => {
-    if (!chartSchema) return;
+    if (!chartPlugin) return;
 
-    const errors: Array<{ field: string; message: string; code: string }> = [];
-    const warnings: Array<{ field: string; message: string; code: string }> = [];
+    const errors: ValidationResult['errors'] = [];
 
-    // Validate required fields
-    chartSchema.required?.forEach(field => {
-      const value = getNestedValue(safeConfiguration, field);
-      if (value === undefined || value === null || value === '') {
-        errors.push({
-          field,
-          message: `${field} is required`,
-          code: 'REQUIRED_FIELD_MISSING'
+    try {
+      // Validate using ChartFactoryService if available
+      const factoryService = ChartFactoryService.getInstance();
+      
+      // Validate required fields from schema
+      if (chartPlugin.configSchema.required) {
+        chartPlugin.configSchema.required.forEach(field => {
+          const value = getNestedValue(safeConfiguration, field);
+          if (value === undefined || value === null || value === '') {
+            errors.push({
+              field,
+              message: `${chartPlugin.configSchema.properties[field]?.title || field} is required`,
+              code: 'REQUIRED_FIELD_MISSING',
+              severity: 'error'
+            });
+          }
         });
       }
+
+      // Validate data field assignments
+      validateDataFields(errors);
+
+      // Validate data type compatibility
+      validateDataTypes(errors);
+
+    } catch (err) {
+      console.error('Validation error:', err);
+      errors.push({
+        field: 'general',
+        message: 'Configuration validation failed',
+        code: 'VALIDATION_ERROR',
+        severity: 'warning'
+      });
+    }
+
+    setValidation({ 
+      isValid: errors.filter(e => e.severity === 'error').length === 0, 
+      errors 
     });
-
-    // Validate field assignments for axis fields
-    const xAxisField = safeConfiguration['xAxis.field'] || safeConfiguration.xAxis?.field || safeConfiguration.xField;
-    const yAxisField = safeConfiguration['yAxis.field'] || safeConfiguration.yAxis?.field || safeConfiguration.yField;
-
-    if (!xAxisField) {
-      errors.push({
-        field: 'xAxis.field',
-        message: 'X-Axis field is required',
-        code: 'AXIS_FIELD_MISSING'
-      });
-    }
-
-    if (!yAxisField) {
-      errors.push({
-        field: 'yAxis.field', 
-        message: 'Y-Axis field is required',
-        code: 'AXIS_FIELD_MISSING'
-      });
-    }
-
-    // Validate field types
-    if (xAxisField && !validateFieldType(xAxisField, ['string', 'varchar', 'text', 'date', 'datetime', 'timestamp'])) {
-      warnings.push({
-        field: 'xAxis.field',
-        message: 'X-Axis field should typically be categorical or date type',
-        code: 'FIELD_TYPE_WARNING'
-      });
-    }
-
-    if (yAxisField && !validateFieldType(yAxisField, ['number', 'integer', 'decimal', 'float', 'double', 'bigint'])) {
-      errors.push({
-        field: 'yAxis.field',
-        message: 'Y-Axis field must be numeric',
-        code: 'INVALID_FIELD_TYPE'
-      });
-    }
-
-    setValidation({ isValid: errors.length === 0, errors, warnings });
   };
 
-  const validateFieldType = (fieldName: string, allowedTypes: string[]): boolean => {
-    const field = dataColumns.find(col => col.name === fieldName);
-    return field ? allowedTypes.some(type => field.data_type.toLowerCase().includes(type.toLowerCase())) : false;
+  const validateDataFields = (errors: ValidationResult['errors']) => {
+    if (!chartPlugin) return;
+
+    const requiredFields = chartPlugin.dataRequirements.requiredFields || [];
+    
+    // Check if chart needs field mappings
+    if (needsFieldMapping(chartType)) {
+      const mappingFields = getRequiredMappingFields(chartType);
+      
+      mappingFields.forEach(field => {
+        const value = getFieldMapping(field);
+        if (!value) {
+          errors.push({
+            field,
+            message: `${field.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())} field is required`,
+            code: 'FIELD_MAPPING_MISSING',
+            severity: 'error'
+          });
+        }
+      });
+    }
+  };
+
+  const validateDataTypes = (errors: ValidationResult['errors']) => {
+    if (!chartPlugin || !dataColumns || !Array.isArray(dataColumns)) return;
+
+    // Get field mappings and validate their data types
+    const mappings = getFieldMappings();
+    
+    Object.entries(mappings).forEach(([mappingType, fieldName]) => {
+      if (fieldName && typeof fieldName === 'string') {
+        const column = dataColumns.find(col => col.name === fieldName);
+        if (column) {
+          const isValidType = validateFieldType(
+            column.data_type, 
+            getExpectedDataTypes(mappingType)
+          );
+          
+          if (!isValidType) {
+            errors.push({
+              field: mappingType,
+              message: `${fieldName} (${column.data_type}) may not be suitable for ${mappingType}`,
+              code: 'FIELD_TYPE_WARNING',
+              severity: 'warning'
+            });
+          }
+        }
+      }
+    });
   };
 
   // ============================================================================
-  // CONFIGURATION HANDLERS
+  // EVENT HANDLERS
   // ============================================================================
 
   const handleConfigChange = useCallback((path: string, value: any) => {
-    if (!safeConfiguration || !onChange) return;
+    if (!onChange) return;
 
     try {
-      console.log('Config change:', path, value);
-      const pathParts = path.split('.');
+      console.log(`🔧 Config change: ${path} =`, value);
+      
       const newConfig = { ...safeConfiguration };
+      setNestedValue(newConfig, path, value);
       
-      // Handle nested path configuration
-      let current: any = newConfig;
-      for (let i = 0; i < pathParts.length - 1; i++) {
-        if (!current[pathParts[i]]) {
-          current[pathParts[i]] = {};
+      // If this is a field mapping, update the fieldAssignments object too
+      if (isFieldMappingPath(path)) {
+        if (!newConfig.fieldAssignments) {
+          newConfig.fieldAssignments = {};
         }
-        current = current[pathParts[i]];
+        newConfig.fieldAssignments[path] = value;
       }
       
-      current[pathParts[pathParts.length - 1]] = value;
-      
-      // Also set the dot-notation path for compatibility
-      newConfig[path] = value;
-      
-      // Update field assignments for axis fields
-      if (path.includes('.field') || path.includes('Field')) {
-        newConfig.fieldAssignments = {
-          ...newConfig.fieldAssignments,
-          [path]: value
-        };
-        
-        // Also update the simplified field mapping for compatibility
-        if (path === 'xAxis.field' || path === 'xField') {
-          newConfig.xField = value;
-          newConfig['xAxis.field'] = value;
-          if (!newConfig.xAxis) newConfig.xAxis = {};
-          newConfig.xAxis.field = value;
-        } else if (path === 'yAxis.field' || path === 'yField') {
-          newConfig.yField = value;
-          newConfig['yAxis.field'] = value;
-          if (!newConfig.yAxis) newConfig.yAxis = {};
-          newConfig.yAxis.field = value;
-        }
-      }
-      
-      console.log('New config:', newConfig);
       onChange(newConfig);
+      
+      // Trigger preview if available
+      if (onPreview) {
+        onPreview(newConfig);
+      }
+      
     } catch (error) {
       console.error('Error in handleConfigChange:', error);
     }
-  }, [safeConfiguration, onChange]);
-
-  const handleFieldChange = useCallback((field: string, value: string) => {
-    if (!safeConfiguration || !onChange) return;
-
-    try {
-      console.log('Field change:', field, value);
-      const newConfig = {
-        ...safeConfiguration,
-        [field]: value,
-        fieldAssignments: {
-          ...(safeConfiguration.fieldAssignments || {}),
-          [field]: value
-        }
-      };
-      
-      // Handle nested field assignments and ensure all formats are synchronized
-      if (field === 'xAxis.field' || field === 'xField') {
-        newConfig.xField = value;
-        newConfig['xAxis.field'] = value;
-        if (!newConfig.xAxis) newConfig.xAxis = {};
-        newConfig.xAxis.field = value;
-        newConfig.fieldAssignments['xAxis.field'] = value;
-        newConfig.fieldAssignments['xField'] = value;
-      } else if (field === 'yAxis.field' || field === 'yField') {
-        newConfig.yField = value;
-        newConfig['yAxis.field'] = value;
-        if (!newConfig.yAxis) newConfig.yAxis = {};
-        newConfig.yAxis.field = value;
-        newConfig.fieldAssignments['yAxis.field'] = value;
-        newConfig.fieldAssignments['yField'] = value;
-      } else if (field === 'nameField') {
-        newConfig.nameField = value;
-        newConfig.fieldAssignments.nameField = value;
-      } else if (field === 'valueField') {
-        newConfig.valueField = value;
-        newConfig.fieldAssignments.valueField = value;
-      }
-      
-      console.log('New field config:', newConfig);
-      onChange(newConfig);
-    } catch (error) {
-      console.error('Error in handleFieldChange:', error);
-    }
-  }, [safeConfiguration, onChange]);
+  }, [safeConfiguration, onChange, onPreview]);
 
   const handleReset = useCallback(() => {
     try {
       if (onReset) {
-        console.log('Resetting configuration');
         onReset();
-      } else if (onChange) {
-        onChange(createDefaultConfiguration(chartType));
+      } else if (onChange && chartPlugin) {
+        const defaultConfig = createDefaultConfigurationFromSchema(
+          chartPlugin.configSchema, 
+          chartType
+        );
+        onChange(defaultConfig);
       }
     } catch (error) {
       console.error('Error in handleReset:', error);
     }
-  }, [onReset, onChange, chartType]);
+  }, [onReset, onChange, chartPlugin, chartType]);
+
+  const toggleSection = (section: string) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
+  };
 
   // ============================================================================
-  // FIELD OPTIONS
+  // FIELD OPTIONS AND MAPPINGS
   // ============================================================================
 
   const fieldOptions = useMemo(() => {
+    if (!dataColumns || !Array.isArray(dataColumns)) {
+      return [];
+    }
+    
     return dataColumns.map(col => ({
       value: col.name,
       label: col.display_name || col.name,
-      type: col.data_type
+      type: col.data_type,
+      isNumeric: isNumericType(col.data_type),
+      isCategorical: isCategoricalType(col.data_type),
+      isDate: isDateType(col.data_type)
     }));
   }, [dataColumns]);
 
-  const numericFieldOptions = useMemo(() => {
-    return fieldOptions.filter(f => 
-      ['number', 'integer', 'decimal', 'float', 'double', 'bigint'].some(type => 
-        f.type.toLowerCase().includes(type)
-      )
+  const getFieldOptionsForMapping = (mappingType: string) => {
+    const expectedTypes = getExpectedDataTypes(mappingType);
+    
+    return fieldOptions.filter(option => 
+      expectedTypes.some(type => {
+        switch (type) {
+          case 'numeric': return option.isNumeric;
+          case 'categorical': return option.isCategorical;
+          case 'date': return option.isDate;
+          default: return true;
+        }
+      })
     );
-  }, [fieldOptions]);
-
-  const categoricalFieldOptions = useMemo(() => {
-    return fieldOptions.filter(f => 
-      ['string', 'varchar', 'text', 'date', 'datetime', 'timestamp'].some(type => 
-        f.type.toLowerCase().includes(type)
-      )
-    );
-  }, [fieldOptions]);
+  };
 
   // ============================================================================
   // FORM FIELD RENDERERS
   // ============================================================================
 
-  const renderFieldSelector = (key: string, property: ConfigSchemaProperty, currentValue: any) => {
-    const isYAxis = key.includes('yAxis') || key.includes('yField') || key.includes('value');
-    const isPieChart = chartType.toLowerCase() === 'pie' || chartType.toLowerCase() === 'doughnut';
-    
-    let options = fieldOptions;
-    if (isYAxis || (isPieChart && key.includes('value'))) {
-      options = numericFieldOptions;
-    } else if (key.includes('Field') || key.includes('field') || (isPieChart && key.includes('name'))) {
-      if (isYAxis) {
-        options = numericFieldOptions;
-      } else {
-        options = categoricalFieldOptions.length > 0 ? categoricalFieldOptions : fieldOptions;
+  const renderFormField = (key: string, property: ConfigSchemaProperty, currentValue: any) => {
+    // Check conditional rendering
+    if (property.conditional) {
+      const conditionValue = getNestedValue(safeConfiguration, property.conditional.field);
+      if (conditionValue !== property.conditional.value) {
+        return null;
       }
     }
 
+    switch (property.type) {
+      case 'field-selector':
+        return renderFieldSelector(key, property, currentValue);
+      case 'string':
+        return renderStringField(key, property, currentValue);
+      case 'number':
+        return renderNumberField(key, property, currentValue);
+      case 'boolean':
+        return renderBooleanField(key, property, currentValue);
+      case 'color':
+        return renderColorField(key, property, currentValue);
+      case 'select':
+      case 'enum':
+        return renderSelectField(key, property, currentValue);
+      case 'range':
+        return renderRangeField(key, property, currentValue);
+      case 'array':
+        return renderArrayField(key, property, currentValue);
+      default:
+        return renderGenericField(key, property, currentValue);
+    }
+  };
+
+  const renderFieldSelector = (key: string, property: ConfigSchemaProperty, currentValue: any) => {
+    const mappingType = key.includes('Field') ? key : 'any';
+    const options = getFieldOptionsForMapping(mappingType);
+    
+    // Show warning if no data columns available
+    if (!dataColumns || !Array.isArray(dataColumns) || dataColumns.length === 0) {
+      return (
+        <Box key={key}>
+          <Typography variant="body2" color="textSecondary" gutterBottom>
+            {property.title || key}
+          </Typography>
+          <Alert severity="warning" sx={{ mt: 1 }}>
+            No data columns available. Please select a dataset first.
+          </Alert>
+        </Box>
+      );
+    }
+    
     return (
-      <FormControl fullWidth key={key} error={validation.errors.some(e => e.field === key)}>
-        <InputLabel>{property.title || property.label || key}</InputLabel>
+      <FormControl fullWidth size="small" key={key}>
+        <InputLabel>{property.title || key}</InputLabel>
         <Select
           value={currentValue || ''}
-          onChange={(e) => handleFieldChange(key, e.target.value as string)}
-          label={property.title || property.label || key}
+          label={property.title || key}
+          onChange={(e) => handleConfigChange(key, e.target.value)}
         >
           <MenuItem value="">
-            <em>Select a field</em>
+            <em>Select field...</em>
           </MenuItem>
           {options.map(option => (
             <MenuItem key={option.value} value={option.value}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography>{option.label}</Typography>
-                <Chip size="small" label={option.type} variant="outlined" />
+              <Box display="flex" justifyContent="space-between" width="100%">
+                <span>{option.label}</span>
+                <Chip 
+                  label={option.type} 
+                  size="small" 
+                  variant="outlined"
+                  color={option.isNumeric ? 'primary' : option.isCategorical ? 'secondary' : 'default'}
+                  sx={{ ml: 1, fontSize: '0.7rem', height: '20px' }}
+                />
               </Box>
             </MenuItem>
           ))}
         </Select>
-        {validation.errors.find(e => e.field === key) && (
-          <Typography variant="caption" color="error" sx={{ mt: 0.5 }}>
-            {validation.errors.find(e => e.field === key)?.message}
-          </Typography>
-        )}
-        {options.length === 0 && (
-          <Typography variant="caption" color="warning" sx={{ mt: 0.5 }}>
-            No compatible fields available
+        {property.description && (
+          <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5 }}>
+            {property.description}
           </Typography>
         )}
       </FormControl>
     );
   };
 
-  const renderFormField = (key: string, property: ConfigSchemaProperty, value: any) => {
-    try {
-      const currentValue = value !== undefined ? value : property.default;
-      const hasError = validation.errors.some(e => e.field === key);
+  const renderStringField = (key: string, property: ConfigSchemaProperty, currentValue: any) => (
+    <TextField
+      key={key}
+      fullWidth
+      size="small"
+      label={property.title || key}
+      value={currentValue || property.default || ''}
+      onChange={(e) => handleConfigChange(key, e.target.value)}
+      helperText={property.description}
+      multiline={property.title?.toLowerCase().includes('description') || key.toLowerCase().includes('description')}
+      rows={property.title?.toLowerCase().includes('description') ? 3 : 1}
+    />
+  );
 
-      // Handle field-selector type or fields containing 'field' or 'Field'
-      if (property.type === 'field-selector' || key.toLowerCase().includes('field') || 
-          key.includes('Field') || key === 'nameField' || key === 'valueField') {
-        return renderFieldSelector(key, property, currentValue);
+  const renderNumberField = (key: string, property: ConfigSchemaProperty, currentValue: any) => (
+    <TextField
+      key={key}
+      fullWidth
+      size="small"
+      type="number"
+      label={property.title || key}
+      value={currentValue ?? property.default ?? 0}
+      inputProps={{
+        min: property.minimum,
+        max: property.maximum,
+      }}
+      onChange={(e) => handleConfigChange(key, Number(e.target.value))}
+      helperText={property.description}
+    />
+  );
+
+  const renderBooleanField = (key: string, property: ConfigSchemaProperty, currentValue: any) => (
+    <FormControlLabel
+      key={key}
+      control={
+        <Switch
+          checked={currentValue ?? property.default ?? false}
+          onChange={(e) => handleConfigChange(key, e.target.checked)}
+        />
       }
+      label={
+        <Box>
+          <Typography variant="body2">{property.title || key}</Typography>
+          {property.description && (
+            <Typography variant="caption" color="textSecondary">
+              {property.description}
+            </Typography>
+          )}
+        </Box>
+      }
+    />
+  );
 
-      switch (property.type) {
-        case 'string':
-          if (property.enum) {
-            return (
-              <FormControl fullWidth key={key} error={hasError}>
-                <InputLabel>{property.title || key}</InputLabel>
-                <Select
-                  value={currentValue || ''}
-                  onChange={(e) => handleConfigChange(key, e.target.value)}
-                  label={property.title || key}
-                >
-                  {property.enum.map(option => (
-                    <MenuItem key={option} value={option}>
-                      {option}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            );
-          }
+  const renderColorField = (key: string, property: ConfigSchemaProperty, currentValue: any) => (
+    <Box key={key}>
+      <Typography variant="body2" gutterBottom>
+        {property.title || key}
+      </Typography>
+      <Box display="flex" alignItems="center" gap={1}>
+        <input
+          type="color"
+          value={currentValue || property.default || '#1976d2'}
+          onChange={(e) => handleConfigChange(key, e.target.value)}
+          style={{ width: 40, height: 32, border: 'none', borderRadius: 4 }}
+        />
+        <TextField
+          size="small"
+          value={currentValue || property.default || '#1976d2'}
+          onChange={(e) => handleConfigChange(key, e.target.value)}
+          sx={{ flex: 1 }}
+        />
+      </Box>
+      {property.description && (
+        <Typography variant="caption" color="textSecondary">
+          {property.description}
+        </Typography>
+      )}
+    </Box>
+  );
+
+  const renderSelectField = (key: string, property: ConfigSchemaProperty, currentValue: any) => (
+    <FormControl fullWidth size="small" key={key}>
+      <InputLabel>{property.title || key}</InputLabel>
+      <Select
+        value={currentValue || property.default || ''}
+        label={property.title || key}
+        onChange={(e) => handleConfigChange(key, e.target.value)}
+      >
+        {(property.enum || []).map((option, index) => {
+          const optionValue = typeof option === 'object' ? option.value : option;
+          const optionLabel = typeof option === 'object' ? option.label : option;
           
           return (
-            <TextField
-              key={key}
-              fullWidth
-              label={property.title || key}
-              value={currentValue || ''}
-              onChange={(e) => handleConfigChange(key, e.target.value)}
-              error={hasError}
-              helperText={hasError ? validation.errors.find(e => e.field === key)?.message : ''}
-            />
+            <MenuItem key={index} value={optionValue}>
+              {optionLabel}
+            </MenuItem>
           );
+        })}
+      </Select>
+      {property.description && (
+        <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5 }}>
+          {property.description}
+        </Typography>
+      )}
+    </FormControl>
+  );
 
-        case 'number':
-          return (
-            <TextField
-              key={key}
-              fullWidth
-              type="number"
-              label={property.title || key}
-              value={currentValue !== undefined ? currentValue : ''}
-              onChange={(e) => handleConfigChange(key, Number(e.target.value))}
-              inputProps={{
-                min: property.minimum,
-                max: property.maximum
-              }}
-              error={hasError}
-              helperText={hasError ? validation.errors.find(e => e.field === key)?.message : ''}
-            />
-          );
+  const renderRangeField = (key: string, property: ConfigSchemaProperty, currentValue: any) => (
+    <Box key={key}>
+      <Typography variant="body2" gutterBottom>
+        {property.title || key}: {currentValue ?? property.default ?? 0}
+      </Typography>
+      <Slider
+        value={currentValue ?? property.default ?? 0}
+        onChange={(_, value) => handleConfigChange(key, value)}
+        min={property.minimum || 0}
+        max={property.maximum || 100}
+        step={1}
+        valueLabelDisplay="auto"
+      />
+      {property.description && (
+        <Typography variant="caption" color="textSecondary">
+          {property.description}
+        </Typography>
+      )}
+    </Box>
+  );
 
-        case 'boolean':
-          return (
-            <FormControlLabel
-              key={key}
-              control={
-                <Switch
-                  checked={Boolean(currentValue)}
-                  onChange={(e) => handleConfigChange(key, e.target.checked)}
-                />
-              }
-              label={property.title || key}
-            />
-          );
+  const renderArrayField = (key: string, property: ConfigSchemaProperty, currentValue: any) => (
+    <TextField
+      key={key}
+      fullWidth
+      size="small"
+      label={property.title || key}
+      value={Array.isArray(currentValue) ? currentValue.join(', ') : currentValue || ''}
+      onChange={(e) => {
+        const arrayValue = e.target.value.split(',').map(v => v.trim()).filter(v => v);
+        handleConfigChange(key, arrayValue);
+      }}
+      helperText={property.description || 'Enter comma-separated values'}
+      multiline
+    />
+  );
 
-        case 'color':
-          return (
-            <TextField
-              key={key}
-              fullWidth
-              type="color"
-              label={property.title || key}
-              value={currentValue || '#000000'}
-              onChange={(e) => handleConfigChange(key, e.target.value)}
-              error={hasError}
-            />
-          );
+  const renderGenericField = (key: string, property: ConfigSchemaProperty, currentValue: any) => (
+    <TextField
+      key={key}
+      fullWidth
+      size="small"
+      label={property.title || key}
+      value={typeof currentValue === 'object' ? JSON.stringify(currentValue) : (currentValue || '')}
+      onChange={(e) => {
+        try {
+          const parsed = JSON.parse(e.target.value);
+          handleConfigChange(key, parsed);
+        } catch {
+          handleConfigChange(key, e.target.value);
+        }
+      }}
+      multiline={typeof currentValue === 'object'}
+      rows={typeof currentValue === 'object' ? 3 : 1}
+      helperText={property.description}
+    />
+  );
 
-        default:
-          return (
-            <TextField
-              key={key}
-              fullWidth
-              label={property.title || key}
-              value={typeof currentValue === 'object' ? JSON.stringify(currentValue) : (currentValue || '')}
-              onChange={(e) => {
-                try {
-                  const parsed = JSON.parse(e.target.value);
-                  handleConfigChange(key, parsed);
-                } catch {
-                  handleConfigChange(key, e.target.value);
-                }
-              }}
-              error={hasError}
-              multiline={typeof currentValue === 'object'}
-              rows={typeof currentValue === 'object' ? 3 : 1}
-            />
-          );
-      }
-    } catch (error) {
-      console.error('Error rendering form field:', key, error);
-      return null;
+  // ============================================================================
+  // CONFIGURATION SECTION BUILDERS
+  // ============================================================================
+
+  const buildConfigurationSections = () => {
+    if (!chartPlugin?.configSchema?.properties) {
+      return {};
     }
+
+    const sections: Record<string, ConfigSchemaProperty[]> = {
+      'data-mapping': [],
+      'appearance': [],
+      'behavior': [],
+      'advanced': []
+    };
+
+    Object.entries(chartPlugin.configSchema.properties).forEach(([key, property]) => {
+      const sectionKey = getSectionForProperty(key, property);
+      sections[sectionKey].push({ ...property, key } as ConfigSchemaProperty & { key: string });
+    });
+
+    return sections;
+  };
+
+  const getSectionForProperty = (key: string, property: ConfigSchemaProperty): string => {
+    // Use explicit group if provided
+    if (property.group) {
+      return property.group;
+    }
+
+    // Categorize by key patterns
+    if (key.includes('Field') || key.includes('field') || key === 'xField' || key === 'yField') {
+      return 'data-mapping';
+    }
+    
+    if (key.includes('color') || key.includes('Color') || key === 'colors' || key.includes('style')) {
+      return 'appearance';
+    }
+    
+    if (key.includes('animation') || key.includes('interaction') || key.includes('zoom')) {
+      return 'behavior';
+    }
+    
+    if (key.includes('title') || key.includes('legend') || key.includes('show')) {
+      return 'appearance';
+    }
+    
+    return 'advanced';
   };
 
   // ============================================================================
-  // SCHEMA GENERATION
+  // UTILITY FUNCTIONS
   // ============================================================================
 
-  const generateFallbackSchema = (type: string): ConfigSchema => {
-    const baseSchema: ConfigSchema = {
-      type: 'object',
-      properties: {
-        title: {
-          type: 'string',
-          title: 'Chart Title',
-          default: `${type.charAt(0).toUpperCase() + type.slice(1)} Chart`
-        }
-      },
-      required: []
-    };
+  // Helper functions for configuration management
+  const getNestedValue = (obj: any, path: string) => {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+  };
 
-    // Add chart-specific properties based on type
-    switch (type?.toLowerCase()) {
+  const setNestedValue = (obj: any, path: string, value: any) => {
+    const keys = path.split('.');
+    const lastKey = keys.pop();
+    if (!lastKey) return obj;
+    
+    const target = keys.reduce((current, key) => {
+      if (current[key] === undefined) {
+        current[key] = {};
+      }
+      return current[key];
+    }, obj);
+    
+    target[lastKey] = value;
+    return obj;
+  };
+
+  const needsFieldMapping = (type: string): boolean => {
+    const mappingCharts = ['bar', 'line', 'scatter', 'area', 'column'];
+    return mappingCharts.includes(type.toLowerCase());
+  };
+
+  const getRequiredMappingFields = (type: string): string[] => {
+    switch (type.toLowerCase()) {
       case 'bar':
-      case 'column':
       case 'line':
-        baseSchema.properties = {
-          ...baseSchema.properties,
-          'xAxis.field': {
-            type: 'field-selector',
-            title: 'X-Axis Field',
-            required: true
-          },
-          'yAxis.field': {
-            type: 'field-selector',
-            title: 'Y-Axis Field',
-            required: true
-          },
-          'xAxis.label': {
-            type: 'string',
-            title: 'X-Axis Label',
-            default: ''
-          },
-          'yAxis.label': {
-            type: 'string',
-            title: 'Y-Axis Label',
-            default: ''
-          },
-          showGrid: {
-            type: 'boolean',
-            title: 'Show Grid',
-            default: true
-          },
-          showLegend: {
-            type: 'boolean',
-            title: 'Show Legend',
-            default: true
-          }
-        };
-        baseSchema.required = ['xAxis.field', 'yAxis.field'];
-        break;
-
+      case 'scatter':
+      case 'area':
+      case 'column':
+        return ['xField', 'yField'];
       case 'pie':
       case 'doughnut':
-        baseSchema.properties = {
-          ...baseSchema.properties,
-          nameField: {
-            type: 'field-selector',
-            title: 'Name Field',
-            required: true
-          },
-          valueField: {
-            type: 'field-selector',
-            title: 'Value Field',
-            required: true
-          },
-          innerRadius: {
-            type: 'number',
-            title: 'Inner Radius (%)',
-            minimum: 0,
-            maximum: 80,
-            default: type === 'doughnut' ? 40 : 0
-          },
-          showLabels: {
-            type: 'boolean',
-            title: 'Show Labels',
-            default: true
-          }
-        };
-        baseSchema.required = ['nameField', 'valueField'];
-        break;
-
+        return ['nameField', 'valueField'];
       default:
-        baseSchema.properties = {
-          ...baseSchema.properties,
-          'xAxis.field': {
-            type: 'field-selector',
-            title: 'X-Axis Field',
-            required: true
-          },
-          'yAxis.field': {
-            type: 'field-selector',
-            title: 'Y-Axis Field',
-            required: true
-          }
-        };
-        baseSchema.required = ['xAxis.field', 'yAxis.field'];
-        break;
+        return [];
     }
-
-    // Add common styling options
-    baseSchema.properties = {
-      ...baseSchema.properties,
-      colors: {
-        type: 'array',
-        title: 'Color Palette',
-        default: ['#1976d2', '#dc004e', '#388e3c', '#f57c00']
-      },
-      animation: {
-        type: 'boolean',
-        title: 'Enable Animation',
-        default: true
-      }
-    };
-
-    return baseSchema;
   };
 
-  const createDefaultConfiguration = (type: string) => {
-    const config = {
-      chartType: type,
-      title: `${type.charAt(0).toUpperCase() + type.slice(1)} Chart`,
-      fieldAssignments: {},
-      colors: ['#1976d2', '#dc004e', '#388e3c', '#f57c00'],
-      animation: true,
-      showLegend: true
+  const getFieldMapping = (field: string): string | null => {
+    return safeConfiguration[field] || 
+           safeConfiguration.fieldAssignments?.[field] || 
+           null;
+  };
+
+  const getFieldMappings = (): Record<string, string> => {
+    const mappings: Record<string, string> = {};
+    const fields = getRequiredMappingFields(chartType);
+    
+    fields.forEach(field => {
+      const value = getFieldMapping(field);
+      if (value) {
+        mappings[field] = value;
+      }
+    });
+    
+    return mappings;
+  };
+
+  const isFieldMappingPath = (path: string): boolean => {
+    return path.includes('Field') || path.includes('field');
+  };
+
+  const getExpectedDataTypes = (mappingType: string): string[] => {
+    switch (mappingType.toLowerCase()) {
+      case 'xfield':
+      case 'namefield':
+        return ['categorical', 'date'];
+      case 'yfield':
+      case 'valuefield':
+      case 'sizefield':
+        return ['numeric'];
+      default:
+        return ['categorical', 'numeric', 'date'];
+    }
+  };
+
+  const isNumericType = (dataType: string): boolean => {
+    return ['number', 'integer', 'decimal', 'float', 'double', 'bigint'].some(type => 
+      dataType.toLowerCase().includes(type)
+    );
+  };
+
+  const isCategoricalType = (dataType: string): boolean => {
+    return ['string', 'varchar', 'text', 'char'].some(type => 
+      dataType.toLowerCase().includes(type)
+    );
+  };
+
+  const isDateType = (dataType: string): boolean => {
+    return ['date', 'datetime', 'timestamp', 'time'].some(type => 
+      dataType.toLowerCase().includes(type)
+    );
+  };
+
+  const validateFieldType = (dataType: string, expectedTypes: string[]): boolean => {
+    return expectedTypes.some(type => {
+      switch (type) {
+        case 'numeric': return isNumericType(dataType);
+        case 'categorical': return isCategoricalType(dataType);
+        case 'date': return isDateType(dataType);
+        default: return true;
+      }
+    });
+  };
+
+  // ============================================================================
+  // FALLBACK AND DEFAULT CONFIGURATIONS
+  // ============================================================================
+
+  const createFallbackPlugin = (chartType: string, chartLibrary: string): ChartPlugin => {
+    return {
+      name: `${chartLibrary}-${chartType}`,
+      displayName: `${chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart`,
+      category: 'basic',
+      library: chartLibrary,
+      configSchema: ChartConfigHelper.createDefaultConfigSchema(chartType),
+      dataRequirements: {
+        minColumns: 1,
+        maxColumns: 10,
+        requiredFields: [],
+        supportedTypes: ['string', 'number']
+      }
+    };
+  };
+
+  const createDefaultConfigurationFromSchema = (schema: ConfigSchema, chartType: string) => {
+    const config: Record<string, any> = {
+      chartType,
+      fieldAssignments: {}
     };
 
-    // Add type-specific defaults
-    if (['bar', 'column', 'line'].includes(type.toLowerCase())) {
-      Object.assign(config, {
-        'xAxis.field': '',
-        'yAxis.field': '',
-        'xAxis.label': '',
-        'yAxis.label': '',
-        xAxis: { field: '', label: '' },
-        yAxis: { field: '', label: '' },
-        xField: '',
-        yField: '',
-        showGrid: true
-      });
-    } else if (['pie', 'doughnut'].includes(type.toLowerCase())) {
-      Object.assign(config, {
-        nameField: '',
-        valueField: '',
-        innerRadius: type === 'doughnut' ? 40 : 0,
-        showLabels: true
+    if (schema.properties) {
+      Object.entries(schema.properties).forEach(([key, property]) => {
+        if (property.default !== undefined) {
+          config[key] = property.default;
+        }
       });
     }
 
@@ -658,196 +866,207 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
   };
 
   // ============================================================================
-  // UTILITY FUNCTIONS
-  // ============================================================================
-
-  const getNestedValue = (obj: any, path: string) => {
-    return path.split('.').reduce((current, key) => current?.[key], obj);
-  };
-
-  const groupPropertiesByGroup = (properties: Record<string, ConfigSchemaProperty>) => {
-    const groups: Record<string, Array<[string, ConfigSchemaProperty]>> = {
-      general: [],
-      data: [],
-      axes: [],
-      styling: [],
-      animation: [],
-      other: []
-    };
-
-    Object.entries(properties).forEach(([key, prop]) => {
-      let group = 'other';
-      
-      if (key.includes('title') || key.includes('Title')) group = 'general';
-      else if (key.includes('field') || key.includes('Field')) group = 'data';
-      else if (key.includes('axis') || key.includes('Axis') || key.includes('label') || key.includes('Label')) group = 'axes';
-      else if (key.includes('color') || key.includes('Color') || key.includes('show') || key.includes('Show') || key.includes('radius')) group = 'styling';
-      else if (key.includes('animation') || key.includes('Animation')) group = 'animation';
-      
-      groups[group].push([key, prop]);
-    });
-
-    return groups;
-  };
-
-  // ============================================================================
-  // RENDER
+  // RENDER COMPONENT
   // ============================================================================
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-        <CircularProgress />
-      </Box>
+      <Paper sx={{ p: 3, textAlign: 'center', height: '100%' }}>
+        <CircularProgress size={32} />
+        <Typography variant="body1" sx={{ mt: 2 }}>
+          Loading {chartType} configuration...
+        </Typography>
+      </Paper>
     );
   }
 
-  if (error) {
+  if (error && !chartPlugin) {
     return (
-      <Alert severity="error" sx={{ m: 2 }}>
-        {error}
-        <Button onClick={loadChartSchema} sx={{ ml: 2 }}>
+      <Paper sx={{ p: 3, height: '100%' }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+        <Button variant="outlined" onClick={loadChartPlugin} startIcon={<Refresh />}>
           Retry
         </Button>
-      </Alert>
+      </Paper>
     );
   }
 
-  if (!chartSchema) {
-    return (
-      <Alert severity="warning" sx={{ m: 2 }}>
-        No configuration schema available for this chart type.
-      </Alert>
-    );
-  }
-
-  const propertyGroups = groupPropertiesByGroup(chartSchema.properties);
+  const configSections = buildConfigurationSections();
 
   return (
-    <Box sx={{ p: 2 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h6">Chart Configuration</Typography>
-        <Button startIcon={<Refresh />} onClick={handleReset} size="small">
-          Reset
-        </Button>
+    <Paper sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center">
+          <Box display="flex" alignItems="center" gap={1}>
+            {getChartIcon(chartType)}
+            <Box>
+              <Typography variant="h6">
+                {chartPlugin?.displayName || `${chartType} Chart`}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                {chartPlugin?.library} • {chartPlugin?.category}
+              </Typography>
+            </Box>
+          </Box>
+          
+          <Box display="flex" gap={1}>
+            {onPreview && (
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<ShowChart />}
+                onClick={() => onPreview(safeConfiguration)}
+              >
+                Preview
+              </Button>
+            )}
+            <Button
+              size="small"
+              startIcon={<Refresh />}
+              onClick={handleReset}
+            >
+              Reset
+            </Button>
+          </Box>
+        </Box>
+        
+        {/* Data Columns Warning */}
+        {!hasDataColumns && (
+          <Alert severity="info" sx={{ mt: 2 }}>
+            <Typography variant="body2" fontWeight="bold">
+              No data columns available
+            </Typography>
+            <Typography variant="body2">
+              Please select a dataset to configure field mappings and see chart-specific options.
+            </Typography>
+          </Alert>
+        )}
+        
+        {/* Validation Status */}
+        {validation.errors.length > 0 && (
+          <Alert 
+            severity={validation.isValid ? "warning" : "error"} 
+            sx={{ mt: 2 }}
+          >
+            <Typography variant="body2" fontWeight="bold">
+              {validation.errors.filter(e => e.severity === 'error').length} error(s), {' '}
+              {validation.errors.filter(e => e.severity === 'warning').length} warning(s)
+            </Typography>
+            <Box component="ul" sx={{ mt: 1, pl: 2, mb: 0 }}>
+              {validation.errors.slice(0, 3).map((error, index) => (
+                <li key={index}>
+                  <Typography variant="body2">
+                    {error.message}
+                  </Typography>
+                </li>
+              ))}
+              {validation.errors.length > 3 && (
+                <li>
+                  <Typography variant="body2" color="textSecondary">
+                    ... and {validation.errors.length - 3} more
+                  </Typography>
+                </li>
+              )}
+            </Box>
+          </Alert>
+        )}
       </Box>
 
-      {/* Field Assignment Quick Section */}
-      <Paper sx={{ p: 2, mb: 2, bgcolor: 'primary.light', color: 'primary.contrastText' }}>
-        <Typography variant="subtitle2" gutterBottom>
-          Required Field Assignments
-        </Typography>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {chartSchema.required?.map(fieldKey => {
-            const property = chartSchema.properties[fieldKey];
-            const value = getNestedValue(safeConfiguration, fieldKey) ?? safeConfiguration[fieldKey];
-            return renderFieldSelector(fieldKey, property, value);
-          })}
-        </Box>
-      </Paper>
-
-      {/* Validation Summary */}
-      {!validation.isValid && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          <Typography variant="subtitle2">Configuration Issues:</Typography>
-          <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
-            {validation.errors.map((error, index) => (
-              <li key={index}>{error.message}</li>
-            ))}
-          </ul>
-        </Alert>
-      )}
-
-      {validation.warnings.length > 0 && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          <Typography variant="subtitle2">Warnings:</Typography>
-          <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
-            {validation.warnings.map((warning, index) => (
-              <li key={index}>{warning.message}</li>
-            ))}
-          </ul>
-        </Alert>
-      )}
-
-      {/* Configuration Sections */}
-      {Object.entries(propertyGroups).map(([groupName, properties]) => {
-        if (properties.length === 0 || groupName === 'data') return null; // Skip data group since it's shown above
-
-        return (
-          <Accordion
-            key={groupName}
-            expanded={expandedSections[groupName] ?? false}
-            onChange={(_, expanded) => 
-              setExpandedSections(prev => ({ ...prev, [groupName]: expanded }))
-            }
-          >
-            <AccordionSummary expandIcon={<ExpandMore />}>
-              <Typography variant="subtitle1" sx={{ textTransform: 'capitalize' }}>
-                {groupName}
-              </Typography>
-              {validation.errors.some(e => 
-                properties.some(([key]) => e.field === key)
-              ) && (
-                <Warning color="error" sx={{ ml: 1 }} />
-              )}
-            </AccordionSummary>
-            <AccordionDetails>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {properties.map(([key, property]) => {
-                  const value = getNestedValue(safeConfiguration, key) ?? safeConfiguration[key];
-                  return renderFormField(key, property, value);
-                })}
-              </Box>
-            </AccordionDetails>
-          </Accordion>
-        );
-      })}
-
-      {/* Auto-Assignment Helper */}
-      {!validation.isValid && dataColumns.length > 0 && (
-        <Paper sx={{ p: 2, mt: 2, bgcolor: 'info.light' }}>
-          <Typography variant="subtitle2" gutterBottom>
-            Quick Setup
-          </Typography>
-          <Button
-            variant="contained"
-            size="small"
-            onClick={() => {
-              const stringFields = dataColumns.filter(col => 
-                ['string', 'varchar', 'text'].some(type => col.data_type.toLowerCase().includes(type))
-              );
-              const numericFields = dataColumns.filter(col => 
-                ['number', 'integer', 'decimal', 'float', 'double'].some(type => col.data_type.toLowerCase().includes(type))
-              );
-
-              const newConfig = { ...safeConfiguration };
-              
-              if (['bar', 'column', 'line'].includes(chartType.toLowerCase())) {
-                if (stringFields.length > 0 && !newConfig['xAxis.field']) {
-                  handleFieldChange('xAxis.field', stringFields[0].name);
-                }
-                if (numericFields.length > 0 && !newConfig['yAxis.field']) {
-                  handleFieldChange('yAxis.field', numericFields[0].name);
-                }
-              } else if (['pie', 'doughnut'].includes(chartType.toLowerCase())) {
-                if (stringFields.length > 0 && !newConfig.nameField) {
-                  handleFieldChange('nameField', stringFields[0].name);
-                }
-                if (numericFields.length > 0 && !newConfig.valueField) {
-                  handleFieldChange('valueField', numericFields[0].name);
-                }
-              }
-            }}
-          >
-            Auto-Assign Fields
-          </Button>
-          <Typography variant="caption" display="block" sx={{ mt: 1 }}>
-            Automatically assigns compatible fields based on data types
-          </Typography>
-        </Paper>
-      )}
-    </Box>
+      {/* Configuration Form */}
+      <Box sx={{ flex: 1, overflow: 'auto' }}>
+        {Object.entries(configSections).map(([sectionKey, properties]) => {
+          if (properties.length === 0) return null;
+          
+          return (
+            <Accordion 
+              key={sectionKey}
+              expanded={expandedSections[sectionKey]}
+              onChange={() => toggleSection(sectionKey)}
+            >
+              <AccordionSummary expandIcon={<ExpandMore />}>
+                <Box display="flex" alignItems="center" gap={1}>
+                  {getSectionIcon(sectionKey)}
+                  <Typography variant="subtitle1">
+                    {getSectionTitle(sectionKey)}
+                  </Typography>
+                  <Chip 
+                    label={properties.length} 
+                    size="small" 
+                    variant="outlined" 
+                  />
+                </Box>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Box display="flex" flexDirection="column" gap={2}>
+                  {properties.map((property: any) => {
+                    const currentValue = getNestedValue(safeConfiguration, property.key);
+                    return (
+                      <Box key={property.key}>
+                        {renderFormField(property.key, property, currentValue)}
+                      </Box>
+                    );
+                  })}
+                </Box>
+              </AccordionDetails>
+            </Accordion>
+          );
+        })}
+      </Box>
+    </Paper>
   );
+};
+
+// ============================================================================
+// HELPER FUNCTIONS FOR ICONS AND TITLES
+// ============================================================================
+
+const getChartIcon = (chartType: string) => {
+  switch (chartType.toLowerCase()) {
+    case 'bar':
+    case 'column':
+      return <BarChart color="primary" />;
+    case 'pie':
+    case 'doughnut':
+      return <PieChartIcon color="primary" />;
+    case 'line':
+    case 'area':
+      return <ShowChart color="primary" />;
+    default:
+      return <BarChart color="primary" />;
+  }
+};
+
+const getSectionIcon = (sectionKey: string) => {
+  switch (sectionKey) {
+    case 'data-mapping':
+      return <BarChart fontSize="small" />;
+    case 'appearance':
+      return <Palette fontSize="small" />;
+    case 'behavior':
+      return <Settings fontSize="small" />;
+    case 'advanced':
+      return <Settings fontSize="small" />;
+    default:
+      return <Info fontSize="small" />;
+  }
+};
+
+const getSectionTitle = (sectionKey: string): string => {
+  switch (sectionKey) {
+    case 'data-mapping':
+      return 'Data Mapping';
+    case 'appearance':
+      return 'Appearance';
+    case 'behavior':
+      return 'Behavior';
+    case 'advanced':
+      return 'Advanced';
+    default:
+      return sectionKey.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase());
+  }
 };
 
 export default ChartCustomizationPanel;
