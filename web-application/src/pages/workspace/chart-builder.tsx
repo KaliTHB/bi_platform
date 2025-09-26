@@ -1,90 +1,63 @@
-// web-application/src/pages/workspace/chart-builder.tsx
-// CORRECTED VERSION WITH ALL TYPE ERRORS FIXED
+// bi_platform\web-application\src\pages\workspace\chart-builder.tsx
+// FIXED VERSION - Proper data flow for dataset columns
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/router';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   Box,
   Typography,
-  Paper,
   Button,
-  Grid,
+  Paper,
+  Tabs,
+  Tab,
+  IconButton,
+  Chip,
   Card,
   CardContent,
-  IconButton,
-  Tooltip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
+  Alert,
+  Divider,
+  Grid,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  Chip,
-  Divider,
-  Drawer,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  Tabs,
-  Tab,
-  Switch,
-  FormControlLabel,
-  Alert
+  CircularProgress,
+  LinearProgress
 } from '@mui/material';
 import {
-  ArrowBack as BackIcon,
-  Save as SaveIcon,
-  Preview as PreviewIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Dns as DatasetIcon,
-  Delete as DeleteIcon,
-  DragIndicator as DragIcon,
-  FullscreenExit as ResizeIcon,
-  Visibility as ViewIcon,
-  Settings as SettingsIcon,
+  Storage as DatasetIcon,
   BarChart as ChartIcon,
-  TextFields as TextIcon,
-  Image as ImageIcon,
-  TableChart as TableIcon,
-  FilterList as FilterIcon,
-  Palette as ThemeIcon
+  Edit as EditIcon,
+  Settings as CustomizeIcon,
+  Code as QueryIcon,
+  Save as SaveIcon,
+  Visibility as PreviewIcon,
+  Timeline as TrendingIcon,
+  Refresh as RefreshIcon,
+  Download as DownloadIcon,
+  Fullscreen as FullscreenIcon
 } from '@mui/icons-material';
+import { useRouter } from 'next/router';
 import { useAuth } from '@/hooks/useAuth';
 import { usePermissions } from '@/hooks/usePermissions';
-import { PermissionGate } from '@/components/shared/PermissionGate';
-import NavbarOnlyLayout from '@/components/layout/NavbarOnlyLayout';
+import  NavbarOnlyLayout  from '@/components/layout/NavbarOnlyLayout';
 
-// Fixed: Import correct types from the proper files
-import { 
-  ChartConfiguration,
-  ChartDimensions,
-  ChartTheme,
-  ChartType as ChartTypeEnum,
-  DEFAULT_CHART_CONFIG 
-} from '@/types/chart.types';
-import { Dataset, ColumnDefinition } from '@/types/dataset.types';
-
-// Import the new components (these need to exist or be stubbed)
+// Import the components we need
 import DatasetSelector from '@/components/builder/DatasetSelector';
 import AdvancedChartSelector from '@/components/builder/ChartSelector';
 import TimeRangeConfigurator from '@/components/builder/TimeRangeConfigurator';
 import ChartCustomizationPanel from '@/components/builder/ChartCustomizationPanel';
 import SQLQueryEditor from '@/components/builder/SQLQueryEditor';
+import {ChartContainer} from '@/components/dashboard/ChartContainer';
 
 // =============================================================================
-// FIXED TYPES AND INTERFACES
+// TYPES AND INTERFACES - FIXED
 // =============================================================================
 
 interface Dataset {
   id: string;
   name: string;
   display_name?: string;
-  type: 'virtual' | 'physical';
+  type: 'virtual' | 'physical' | 'table' | 'query';
   schema: string;
   connection: string;
   owner: {
@@ -92,6 +65,20 @@ interface Dataset {
     name: string;
     avatar?: string;
   };
+  // ADDED: Column information
+  columns?: ColumnDefinition[];
+  row_count?: number;
+  last_updated?: string;
+}
+
+// ADDED: Column definition interface
+interface ColumnDefinition {
+  name: string;
+  display_name?: string;
+  data_type: string;
+  nullable?: boolean;
+  unique?: boolean;
+  description?: string;
 }
 
 interface ChartType {
@@ -101,6 +88,7 @@ interface ChartType {
   icon: React.ReactNode;
   category: string;
   tags: string[];
+  library: string;
 }
 
 interface TimeRange {
@@ -111,8 +99,8 @@ interface TimeRange {
     anchor: 'now' | 'start_of_day' | 'start_of_week' | 'start_of_month';
   };
   specific?: {
-    start: Date;
-    end: Date;
+    start: Date | null;
+    end: Date | null;
   };
 }
 
@@ -120,9 +108,9 @@ interface ChartCustomization {
   percentageThreshold: number;
   showLegend: boolean;
   legendPosition: 'top' | 'bottom' | 'left' | 'right';
-  labelType: 'category_name' | 'value' | 'both';
-  numberFormat: 'adaptive' | 'integer' | 'decimal' | 'percentage';
-  dateFormat: 'adaptive' | 'iso' | 'locale';
+  labelType: 'category_name' | 'value' | 'percentage' | 'category_and_value';
+  numberFormat: 'adaptive' | 'fixed' | 'percent' | 'currency';
+  dateFormat: 'adaptive' | 'smart_date' | 'custom';
   colorScheme: 'default' | 'custom';
   customColors: string[];
   opacity: number;
@@ -139,34 +127,11 @@ interface ChartCustomization {
   enableCrosshair: boolean;
 }
 
-// FIXED: Added the missing Widget interface
-interface Widget {
-  id: string;
-  type: 'chart' | 'text' | 'image' | 'table' | 'metric' | 'filter';
-  title: string;
-  position: {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-  };
-  config: {
-    chart_id?: string;
-    content?: string;
-    image_url?: string;
-    table_query?: string;
-    metric_value?: number;
-    metric_label?: string;
-    filter_field?: string;
-  };
-}
-
-// FIXED: Extended ChartConfiguration to include layout properties
-interface ExtendedChartConfiguration extends ChartConfiguration {
+// FIXED: Extended chart configuration with proper data flow
+interface ExtendedChartConfiguration {
   name: string;
-  title?: string;
   dataset?: Dataset;
-  chartType?: ChartType;
+  chartType?: ChartType | string;
   timeRange?: TimeRange;
   customization: ChartCustomization;
   customQuery?: string;
@@ -179,18 +144,24 @@ interface ExtendedChartConfiguration extends ChartConfiguration {
     metric: string;
     aggregation: 'sum' | 'count' | 'avg' | 'min' | 'max';
   }[];
-  // FIXED: Added layout property
-  layout?: {
+  library: string;
+  fieldAssignments: Record<string, any>;
+  aggregations: Record<string, any>;
+  customConfig: Record<string, any>;
+  layout: {
     columns?: number;
     gap?: number;
     padding?: number;
   };
-  // FIXED: Added theme property
-  theme?: {
+  theme: {
     primary_color?: string;
     background_color?: string;
     text_color?: string;
   };
+  // ADDED: Data management
+  dataColumns: ColumnDefinition[];
+  chartData: any[] | null;
+  loadingData: boolean;
 }
 
 interface TabPanelProps {
@@ -237,7 +208,7 @@ const defaultCustomization: ChartCustomization = {
 };
 
 // =============================================================================
-// MAIN COMPONENT
+// MAIN COMPONENT - FIXED DATA FLOW
 // =============================================================================
 
 const ChartBuilderPage: React.FC = () => {
@@ -245,23 +216,18 @@ const ChartBuilderPage: React.FC = () => {
   const { workspace } = useAuth();
   const { hasPermission } = usePermissions();
 
-  // FIXED: Proper state definitions
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [widgetDialogOpen, setWidgetDialogOpen] = useState(false);
-  const [previewMode, setPreviewMode] = useState(false);
+  // UI State
   const [tabValue, setTabValue] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [widgets, setWidgets] = useState<Widget[]>([]);
-  const [selectedWidget, setSelectedWidget] = useState<Widget | null>(null);
 
   // Dialog states
   const [showDatasetSelector, setShowDatasetSelector] = useState(false);
   const [showChartSelector, setShowChartSelector] = useState(false);
   const [showTimeRangeDialog, setShowTimeRangeDialog] = useState(false);
   
-  // FIXED: Chart configuration state with proper typing
+  // FIXED: Chart configuration state with proper data management
   const [chartConfig, setChartConfig] = useState<ExtendedChartConfiguration>({
-    name: 'Vaccine Candidates per Phase',
+    name: 'New Chart',
     customization: defaultCustomization,
     dimensions: {},
     metrics: [{ metric: 'COUNT(*)', aggregation: 'count' }],
@@ -270,243 +236,318 @@ const ChartBuilderPage: React.FC = () => {
     fieldAssignments: {},
     aggregations: {},
     customConfig: {},
-    // FIXED: Added layout with default values
     layout: {
       columns: 12,
       gap: 16,
       padding: 16
     },
-    // FIXED: Added theme with default values
     theme: {
       primary_color: '#1976d2',
       background_color: '#ffffff',
       text_color: '#333333'
-    }
+    },
+    // ADDED: Data management state
+    dataColumns: [],
+    chartData: null,
+    loadingData: false
   });
 
-  // UI state
-  const [activeTab, setActiveTab] = useState(0);
-  const [isAltered, setIsAltered] = useState(true);
+  const [isAltered, setIsAltered] = useState(false);
 
   // =============================================================================
-  // EVENT HANDLERS - FIXED IMPLEMENTATIONS
+  // DATA FETCHING FUNCTIONS - NEW
   // =============================================================================
 
-  // Handle dataset selection
-  const handleDatasetSelect = (dataset: Dataset) => {
+  // ADDED: Function to fetch dataset columns and preview data
+  const fetchDatasetInfo = useCallback(async (datasetId: string) => {
+    try {
+      setChartConfig(prev => ({ ...prev, loadingData: true }));
+
+      console.log(`🔍 Fetching data for dataset: ${datasetId}`);
+
+      // Fetch dataset columns
+      const columnsResponse = await fetch(`/api/datasets/${datasetId}/columns`);
+      if (!columnsResponse.ok) {
+        throw new Error('Failed to fetch dataset columns');
+      }
+      const columnsData = await columnsResponse.json();
+
+      // Fetch dataset preview data (optional)
+      const previewResponse = await fetch(`/api/datasets/${datasetId}/preview?limit=100`);
+      let previewData = null;
+      if (previewResponse.ok) {
+        const preview = await previewResponse.json();
+        previewData = preview.data;
+      }
+
+      // Update chart config with fetched data
+      setChartConfig(prev => ({
+        ...prev,
+        dataColumns: columnsData.columns || [],
+        chartData: previewData,
+        loadingData: false
+      }));
+
+      console.log('✅ Dataset info loaded successfully:', {
+        columns: columnsData.columns?.length || 0,
+        previewRows: previewData?.length || 0
+      });
+
+    } catch (error) {
+      console.error('❌ Error fetching dataset info:', error);
+      setChartConfig(prev => ({ 
+        ...prev, 
+        loadingData: false,
+        dataColumns: [],
+        chartData: null
+      }));
+      
+      // You might want to show an error toast here
+      alert('Failed to load dataset information. Please try again.');
+    }
+  }, []);
+
+  // =============================================================================
+  // EVENT HANDLERS - FIXED WITH DATA LOADING
+  // =============================================================================
+
+  // FIXED: Handle dataset selection with data loading
+  const handleDatasetSelect = useCallback(async (dataset: Dataset) => {
+    console.log('📊 Dataset selected:', dataset);
+    
     setChartConfig(prev => ({
       ...prev,
-      dataset
+      dataset,
+      // Reset data-related fields when dataset changes
+      dataColumns: [],
+      chartData: null,
+      fieldAssignments: {},
+      customQuery: undefined
     }));
+    
     setIsAltered(true);
-  };
+    setShowDatasetSelector(false);
+
+    // ADDED: Automatically fetch dataset columns and data
+    if (dataset.id) {
+      await fetchDatasetInfo(dataset.id);
+    }
+  }, [fetchDatasetInfo]);
 
   // Handle chart type selection
-  const handleChartTypeSelect = (chartType: ChartType) => {
+  const handleChartTypeSelect = useCallback((chartType: ChartType) => {
+    console.log('🎯 Chart type selected:', chartType);
+    
     setChartConfig(prev => ({
       ...prev,
-      chartType
+      chartType,
+      library: chartType.library || 'echarts',
+      // Reset field assignments when chart type changes
+      fieldAssignments: {}
     }));
+    
     setIsAltered(true);
-  };
+    setShowChartSelector(false);
+  }, []);
 
   // Handle time range changes
-  const handleTimeRangeChange = (timeRange: TimeRange) => {
+  const handleTimeRangeChange = useCallback((timeRange: TimeRange) => {
     setChartConfig(prev => ({
       ...prev,
       timeRange
     }));
     setIsAltered(true);
-  };
+    setShowTimeRangeDialog(false);
+  }, []);
 
   // Handle customization changes
-  const handleCustomizationChange = (customization: ChartCustomization) => {
+  const handleCustomizationChange = useCallback((customization: ChartCustomization) => {
     setChartConfig(prev => ({
       ...prev,
       customization
     }));
     setIsAltered(true);
-  };
+  }, []);
+
+  // ADDED: Handle configuration changes from ChartCustomizationPanel
+  const handleConfigurationChange = useCallback((config: any) => {
+    console.log('🔧 Configuration changed:', config);
+    
+    setChartConfig(prev => ({
+      ...prev,
+      customConfig: config,
+      fieldAssignments: { ...prev.fieldAssignments, ...config.fieldAssignments }
+    }));
+    setIsAltered(true);
+  }, []);
+
+  // ADDED: Handle chart export
+  const handleExportChart = useCallback(() => {
+    // Logic to export chart as image or PDF
+    console.log('🖼️ Exporting chart...');
+    // You can implement actual export functionality here
+  }, []);
+
+  // ADDED: Handle fullscreen toggle
+  const handleFullscreenChart = useCallback(() => {
+    console.log('🔍 Toggling fullscreen...');
+    // You can implement fullscreen functionality here
+  }, []);
+
+  // ADDED: Handle chart save
+  const handleSaveChart = useCallback(async () => {
+    if (!chartConfig.dataset || !chartConfig.chartType) {
+      alert('Please select both dataset and chart type before saving.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const chartData = {
+        name: chartConfig.name,
+        type: typeof chartConfig.chartType === 'string' ? chartConfig.chartType : chartConfig.chartType.id,
+        library: chartConfig.library,
+        dataset_id: chartConfig.dataset.id,
+        configuration: chartConfig.customConfig,
+        field_assignments: chartConfig.fieldAssignments,
+        customization: chartConfig.customization,
+        time_range: chartConfig.timeRange,
+        custom_query: chartConfig.customQuery,
+        workspace_id: workspace?.id
+      };
+
+      const response = await fetch('/api/charts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(chartData)
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save chart');
+      }
+
+      const savedChart = await response.json();
+      console.log('✅ Chart saved successfully:', savedChart);
+      
+      // Navigate to charts list or show success message
+      router.push('/workspace/charts');
+      
+    } catch (error) {
+      console.error('❌ Error saving chart:', error);
+      alert('Failed to save chart. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }, [chartConfig, workspace?.id, router]);
 
   // Handle query changes
-  const handleQueryChange = (customQuery: string) => {
+  const handleQueryChange = useCallback((customQuery: string) => {
     setChartConfig(prev => ({
       ...prev,
       customQuery
     }));
     setIsAltered(true);
-  };
+  }, []);
 
-  // FIXED: renderWidget function implementation
-  const renderWidget = (widget: Widget) => (
-    <Grid item xs={widget.position.w} key={widget.id}>
-      <Card 
-        variant="outlined"
-        sx={{ 
-          height: widget.position.h * 50, // Approximate height calculation
-          position: 'relative',
-          '&:hover': { 
-            borderColor: 'primary.main',
-            '& .widget-actions': { opacity: 1 }
-          }
-        }}
-      >
-        {/* Widget Header */}
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 8,
-            right: 8,
-            opacity: 0,
-            transition: 'opacity 0.2s',
-            zIndex: 1
-          }}
-          className="widget-actions"
-        >
-          <IconButton size="small" onClick={() => setSelectedWidget(widget)}>
-            <EditIcon fontSize="small" />
-          </IconButton>
-          <IconButton 
-            size="small" 
-            onClick={() => setWidgets(prev => prev.filter(w => w.id !== widget.id))}
-          >
-            <DeleteIcon fontSize="small" />
-          </IconButton>
-        </Box>
+  // ADDED: Handle manual data refresh
+  const handleRefreshData = useCallback(async () => {
+    if (chartConfig.dataset?.id) {
+      await fetchDatasetInfo(chartConfig.dataset.id);
+    }
+  }, [chartConfig.dataset?.id, fetchDatasetInfo]);
 
-        <CardContent sx={{ height: '100%', p: 1 }}>
-          {/* Widget Title */}
-          <Box sx={{ height: 40, display: 'flex', alignItems: 'center' }}>
-            <Typography variant="subtitle2" noWrap>
-              {widget.title}
-            </Typography>
-          </Box>
+  // =============================================================================
+  // PREVIEW COMPONENTS - ENHANCED WITH ACTUAL CHART RENDERING
+  // =============================================================================
 
-          {/* Widget Content */}
-          {widget.type === 'chart' && (
-            <Box
-              sx={{
-                height: 'calc(100% - 40px)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                border: '2px dashed',
-                borderColor: 'divider',
-                borderRadius: 1
-              }}
-            >
-              <Box textAlign="center">
-                <ChartIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-                <Typography variant="body2" color="textSecondary">
-                  Chart Preview
-                </Typography>
-              </Box>
-            </Box>
-          )}
-
-          {widget.type === 'text' && (
-            <Box sx={{ height: 'calc(100% - 40px)', overflow: 'auto' }}>
-              <Typography variant="body2">
-                {widget.config.content || 'Add your text content here...'}
-              </Typography>
-            </Box>
-          )}
-
-          {widget.type === 'metric' && (
-            <Box
-              sx={{
-                height: 'calc(100% - 40px)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-            >
-              <Typography variant="h2" color="primary" gutterBottom>
-                {widget.config.metric_value || '0'}
-              </Typography>
-              <Typography variant="body2" color="textSecondary">
-                {widget.config.metric_label || 'Metric Label'}
-              </Typography>
-            </Box>
-          )}
-
-          {widget.type === 'table' && (
-            <Box
-              sx={{
-                height: 'calc(100% - 40px)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                border: '2px dashed',
-                borderColor: 'divider',
-                borderRadius: 1
-              }}
-            >
-              <Box textAlign="center">
-                <TableIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-                <Typography variant="body2" color="textSecondary">
-                  Data Table Preview
-                </Typography>
-              </Box>
-            </Box>
-          )}
-        </CardContent>
-      </Card>
-    </Grid>
-  );
-
-  // FIXED: Mock chart preview component
-  const ChartPreview: React.FC = () => (
-    <Box sx={{ 
-      height: '100%', 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      backgroundColor: 'grey.50',
-      borderRadius: 1,
-      border: 1,
-      borderColor: 'divider'
-    }}>
-      {chartConfig.chartType ? (
-        <Box sx={{ textAlign: 'center' }}>
-          <ChartIcon sx={{ fontSize: 64, color: 'primary.main' }} />
-          <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>
-            {typeof chartConfig.chartType === 'string' ? 
-              chartConfig.chartType : 
-              chartConfig.chartType.name || 'Chart'
-            } Preview
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Chart visualization would render here
+  const ChartPreview = () => {
+    // Loading state
+    if (chartConfig.loadingData) {
+      return (
+        <Box sx={{ textAlign: 'center', p: 4 }}>
+          <CircularProgress />
+          <Typography variant="h6" sx={{ mt: 2 }}>
+            Loading dataset...
           </Typography>
         </Box>
-      ) : (
-        <Box sx={{ textAlign: 'center' }}>
+      );
+    }
+
+    // Check if we have everything needed for chart rendering
+    if (!chartConfig.dataset) {
+      return (
+        <Box sx={{ textAlign: 'center', p: 4 }}>
           <ChartIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
           <Typography variant="h6" color="text.secondary">
-            Select a chart type to preview
+            Select a Dataset
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Choose a dataset to start building your chart
           </Typography>
         </Box>
-      )}
-    </Box>
-  );
+      );
+    }
 
-   const breadcrumbs = [
+    if (!chartConfig.chartType) {
+      return (
+        <Box sx={{ textAlign: 'center', p: 4 }}>
+          <ChartIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+          <Typography variant="h6" color="text.secondary">
+            Select a Chart Type
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Choose how you want to visualize your data
+          </Typography>
+        </Box>
+      );
+    }
+
+    // Render the actual chart using ChartContainer
+    return (
+      <ChartContainer
+        chartType={typeof chartConfig.chartType === 'string' ? chartConfig.chartType : chartConfig.chartType.id || 'bar'}
+        chartLibrary={chartConfig.library}
+        configuration={{
+          ...chartConfig.customConfig,
+          ...chartConfig.customization,
+          title: chartConfig.name,
+          showLegend: chartConfig.customization.showLegend,
+          primaryColor: chartConfig.theme.primary_color,
+          xAxisTitle: chartConfig.customization.xAxisTitle,
+          yAxisTitle: chartConfig.customization.yAxisTitle
+        }}
+        data={chartConfig.chartData}
+        dataColumns={chartConfig.dataColumns}
+        width="100%"
+        height="100%"
+        loading={chartConfig.loadingData}
+        onRefresh={handleRefreshData}
+        onExport={handleExportChart}
+        onFullscreen={handleFullscreenChart}
+        onConfigure={() => setTabValue(2)} // Switch to customize tab
+        onDataPointClick={(data) => {
+          console.log('📊 Chart data point clicked:', data);
+        }}
+      />
+    );
+  };
+
+  const breadcrumbs = [
     { label: 'Workspace', href: `/workspace/overview` },
     { label: 'Charts', href: `/workspace/charts` },
     { label: 'Chart Builder' }
   ];
 
-
   // =============================================================================
-  // RENDER
+  // RENDER - FIXED WITH PROPER PROPS
   // =============================================================================
 
   return (
     <NavbarOnlyLayout
       title="Chart Builder"
-      subtitle="Create interactive charts with chart Factory"
+      subtitle="Create interactive charts with Chart Factory"
       breadcrumbs={breadcrumbs}
     >
       <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -514,11 +555,22 @@ const ChartBuilderPage: React.FC = () => {
           {/* Left Panel - Configuration */}
           <Box sx={{ width: 350, borderRight: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
             {/* Tabs */}
-            <Tabs value={tabValue} variant="scrollable" aria-label="scrollable tabs example" scrollButtons="auto" onChange={(_, newValue) => setTabValue(newValue)}>
+            <Tabs 
+              value={tabValue} 
+              variant="scrollable" 
+              aria-label="chart builder tabs" 
+              scrollButtons="auto" 
+              onChange={(_, newValue) => setTabValue(newValue)}
+            >
               <Tab label="Data" />
               <Tab label="Query" />
               <Tab label="Customize" />
             </Tabs>
+
+            {/* FIXED: Data Loading Progress */}
+            {chartConfig.loadingData && (
+              <LinearProgress />
+            )}
 
             <TabPanel value={tabValue} index={0}>
               {/* Dataset Selection */}
@@ -526,6 +578,16 @@ const ChartBuilderPage: React.FC = () => {
                 <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <DatasetIcon />
                   Dataset
+                  {chartConfig.dataset && (
+                    <IconButton 
+                      size="small" 
+                      onClick={handleRefreshData}
+                      disabled={chartConfig.loadingData}
+                      title="Refresh dataset"
+                    >
+                      <RefreshIcon />
+                    </IconButton>
+                  )}
                 </Typography>
                 
                 <Card 
@@ -542,6 +604,15 @@ const ChartBuilderPage: React.FC = () => {
                         <Typography variant="body2" color="text.secondary">
                           {chartConfig.dataset.type} • {chartConfig.dataset.schema}
                         </Typography>
+                        {/* ADDED: Column count display */}
+                        {chartConfig.dataColumns.length > 0 && (
+                          <Chip 
+                            label={`${chartConfig.dataColumns.length} columns`}
+                            size="small" 
+                            color="success"
+                            sx={{ mt: 1 }}
+                          />
+                        )}
                       </Box>
                     ) : (
                       <Typography variant="body2" color="text.secondary">
@@ -584,114 +655,118 @@ const ChartBuilderPage: React.FC = () => {
                     <Typography variant="body2" color="text.secondary">
                       {chartConfig.timeRange?.type === 'relative' ? 
                         `Last ${chartConfig.timeRange.relative?.value} ${chartConfig.timeRange.relative?.unit}` :
-                        chartConfig.timeRange?.type === 'specific' ? 
-                        `Custom time range applied` : 
-                        'No time filter'
+                        chartConfig.timeRange?.type === 'specific' ?
+                        'Custom date range' :
+                        'No time filter (recommended)'
                       }
                     </Typography>
                   </CardContent>
-                  </Card>
-                </Paper>
-            </TabPanel>
-
-            <TabPanel value={tabValue} index={1}>
-              {/* Query Builder would go here */}
-              <Paper sx={{ m: 2, p: 2 }}>
-                <Typography variant="subtitle1" sx={{ mb: 2 }}>Query</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Query builder interface would be implemented here
-                </Typography>
+                </Card>
               </Paper>
             </TabPanel>
 
+            <TabPanel value={tabValue} index={1}>
+              {/* SQL Query Editor */}
+              <Box sx={{ height: '100%', p: 2 }}>
+                <SQLQueryEditor
+                  value={chartConfig.customQuery || ''}
+                  onChange={handleQueryChange}
+                  dataset={chartConfig.dataset}
+                />
+              </Box>
+            </TabPanel>
+
             <TabPanel value={tabValue} index={2}>
-              <Box sx={{ display: 'flex', height: '100%' }}>
-                {/* Customization Panel */}
-                <Box sx={{ width: '100%', borderRight: 1, borderColor: 'divider', overflow: 'auto' }}>
-                  <ChartCustomizationPanel
-                    chartType={typeof chartConfig.chartType === 'string' ? 
-                      chartConfig.chartType : 
-                      chartConfig.chartType?.id || 'bar'
-                    }
-                    customization={chartConfig.customization}
-                    onChange={handleCustomizationChange}
-                  />
-                </Box>
-              </Box>       
+              {/* FIXED: Chart Customization Panel with proper props */}
+              <Box sx={{ height: '100%', overflow: 'auto' }}>
+                <ChartCustomizationPanel
+                  chartType={typeof chartConfig.chartType === 'string' ? chartConfig.chartType : chartConfig.chartType?.id || 'bar'}
+                  chartLibrary={chartConfig.library}
+                  configuration={chartConfig.customConfig}
+                  dataColumns={chartConfig.dataColumns} // ✅ FIXED: Pass the actual data columns
+                  onChange={handleConfigurationChange}
+                  onReset={() => {
+                    setChartConfig(prev => ({
+                      ...prev,
+                      customConfig: {},
+                      fieldAssignments: {}
+                    }));
+                  }}
+                  onPreview={(config) => {
+                    console.log('👀 Preview configuration:', config);
+                  }}
+                />
+              </Box>
             </TabPanel>
           </Box>
 
-          {/* Main Canvas */}
-          <Box sx={{ flexGrow: 1, p: 3, overflow: 'auto' }}>
-            <Paper
-              variant="outlined"
-              sx={{
-                minHeight: '100%',
-                // FIXED: Safe access to layout.padding with default fallback
-                p: (chartConfig.layout?.padding || 16) / 8,
-                // FIXED: Safe access to theme.background_color with default fallback
-                backgroundColor: chartConfig.theme?.background_color || '#ffffff'
-              }}
-            >
-              {widgets.length === 0 ? (
-                <Box
-                  sx={{
-                    height: 400,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    border: '2px dashed',
-                    borderColor: 'divider',
-                    borderRadius: 2,
-                    flexDirection: 'column',
-                    gap: 2
-                  }}
-                >
-                  <ChartIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
-                  <Typography variant="h5" color="textSecondary" gutterBottom>
-                    {chartConfig.title || chartConfig.name || 'Your Chart'}
-                  </Typography>
-                  <Typography variant="body1" color="textSecondary">
-                    {previewMode 
-                      ? 'No widgets added yet'
-                      : 'Add widgets from the sidebar to start building your Chart'
-                    }
-                  </Typography>
+          {/* Right Panel - Chart Preview */}
+          <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+            {/* Preview Header */}
+            <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="h6">Chart Preview</Typography>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button
+                    variant="outlined"
+                    startIcon={<PreviewIcon />}
+                    disabled={!chartConfig.dataset || !chartConfig.chartType || chartConfig.loadingData}
+                    onClick={() => {
+                      console.log('👀 Preview button clicked - chart should render automatically');
+                    }}
+                  >
+                    Preview
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    startIcon={<DownloadIcon />}
+                    disabled={!chartConfig.dataset || !chartConfig.chartType || chartConfig.loadingData}
+                    onClick={handleExportChart}
+                  >
+                    Export
+                  </Button>
+                  <Button
+                    variant="contained"
+                    startIcon={<SaveIcon />}
+                    loading={saving}
+                    onClick={handleSaveChart}
+                    disabled={!isAltered || !chartConfig.dataset || !chartConfig.chartType || saving}
+                  >
+                    {saving ? 'Saving...' : 'Save Chart'}
+                  </Button>
                 </Box>
-              ) : (
-                <Grid container spacing={(chartConfig.layout?.gap || 16) / 8}>
-                  {widgets.map(renderWidget)}
-                </Grid>
-              )}
-            </Paper>
+              </Box>
+            </Box>
+
+            {/* Chart Preview Area - FIXED with actual chart rendering */}
+            <Box sx={{ flexGrow: 1, p: 3, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <ChartPreview />
+            </Box>
           </Box>
         </Box>
-
-        {/* Dialogs */}
-        <DatasetSelector
-          open={showDatasetSelector}
-          onClose={() => setShowDatasetSelector(false)}
-          onSelect={handleDatasetSelect}
-          selectedDatasetId={chartConfig.dataset?.id}
-        />
-
-        <AdvancedChartSelector
-          open={showChartSelector}
-          onClose={() => setShowChartSelector(false)}
-          onSelect={handleChartTypeSelect}
-          selectedChartId={typeof chartConfig.chartType === 'string' ? 
-            chartConfig.chartType : 
-            chartConfig.chartType?.id
-          }
-        />
-
-        <TimeRangeConfigurator
-          open={showTimeRangeDialog}
-          onClose={() => setShowTimeRangeDialog(false)}
-          onApply={handleTimeRangeChange}
-          initialRange={chartConfig.timeRange}
-        />
       </Box>
+
+      {/* Dialogs */}
+      <DatasetSelector
+        open={showDatasetSelector}
+        onClose={() => setShowDatasetSelector(false)}
+        onSelect={handleDatasetSelect}
+        selectedDatasetId={chartConfig.dataset?.id}
+      />
+
+      <AdvancedChartSelector
+        open={showChartSelector}
+        onClose={() => setShowChartSelector(false)}
+        onSelect={handleChartTypeSelect}
+        selectedChartId={typeof chartConfig.chartType === 'string' ? chartConfig.chartType : chartConfig.chartType?.id}
+      />
+
+      <TimeRangeConfigurator
+        open={showTimeRangeDialog}
+        onClose={() => setShowTimeRangeDialog(false)}
+        onApply={handleTimeRangeChange}
+        initialRange={chartConfig.timeRange}
+      />
     </NavbarOnlyLayout>
   );
 };
