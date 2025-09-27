@@ -473,7 +473,6 @@ private async populateRelationalSchemaFromCurrentDB(tableName: string, datasourc
         numeric_scale
       FROM information_schema.columns 
       WHERE table_name = $1 
-        AND table_schema = CURRENT_SCHEMA()
       ORDER BY ordinal_position
     `;
     
