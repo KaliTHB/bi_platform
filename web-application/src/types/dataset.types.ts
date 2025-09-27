@@ -4,7 +4,6 @@ export type DatasetType =
   | 'table' | 'query' | 'transformation'    // Database values
   | 'sql' | 'calculated' | 'imported';  // App-specific values
 
-
 // Main Dataset interface using database types
 export interface Dataset {
   id: string;
@@ -40,6 +39,7 @@ export interface Dataset {
   status: 'active' | 'inactive' | 'draft' | 'error';
   owner_id: string;
 }
+
 
 export interface DatasetSchema {
   columns: ColumnDefinition[];

@@ -43,26 +43,10 @@ import {
 // RTK Query imports
 import { useGetDatasetsQuery } from '@/store/api/datasetApi';
 import { RootState } from '@/store';
+import {Dataset} from '@/types/dataset.types';
 
 // Types to match backend response
-interface Dataset {
-  id: string;
-  name: string;
-  display_name: string;
-  description?: string;
-  type: 'source' | 'virtual' | 'sql' | 'table' | 'query' | 'transformation' | 'calculated' | 'imported';
-  workspace_id: string;
-  owner?: {
-    id: string;
-    name: string | null;
-    email: string | null;
-  };
-  created_at: string;
-  updated_at: string;
-  row_count?: number;
-  is_active: boolean;
-  schema_json?: any;
-}
+
 
 interface DatasetSelectorProps {
   open: boolean;
