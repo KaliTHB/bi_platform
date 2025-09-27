@@ -1,5 +1,5 @@
 // src/components/builder/ChartCustomizationPanel.tsx
-// FIXED VERSION - With Correct Export and Import Patterns
+// COMPLETE UPDATED VERSION WITH Y-AXIS DROPDOWN FIX
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -31,26 +31,32 @@ import {
   ShowChart
 } from '@mui/icons-material';
 
-import {getExpectedDataTypes} from '@/utils/dataTypeUtils'
+import { getExpectedDataTypes } from '@/utils/dataTypeUtils';
+
 // ============================================================================
 // FALLBACK UTILITY FUNCTIONS
 // ============================================================================
 
 const isNumericType = (type: string): boolean => {
-  const numericTypes = ['number', 'integer', 'float', 'decimal', 'bigint', 'double'];
-  return numericTypes.includes(type?.toLowerCase());
+  if (!type || typeof type !== 'string') return false;
+  const lowerType = type.toLowerCase();
+  const numericTypes = ['number', 'integer', 'int', 'float', 'decimal', 'bigint', 'double', 'numeric', 'real'];
+  return numericTypes.some(numType => lowerType.includes(numType));
 };
 
 const isCategoricalType = (type: string): boolean => {
+  if (!type || typeof type !== 'string') return false;
+  const lowerType = type.toLowerCase();
   const categoricalTypes = ['string', 'text', 'varchar', 'char', 'category'];
-  return categoricalTypes.includes(type?.toLowerCase());
+  return categoricalTypes.some(catType => lowerType.includes(catType));
 };
 
 const isDateType = (type: string): boolean => {
+  if (!type || typeof type !== 'string') return false;
+  const lowerType = type.toLowerCase();
   const dateTypes = ['date', 'datetime', 'timestamp', 'time'];
-  return dateTypes.includes(type?.toLowerCase());
+  return dateTypes.some(dateType => lowerType.includes(dateType));
 };
-
 
 const createDefaultConfigSchema = (chartType: string) => ({
   type: 'object',
@@ -62,13 +68,13 @@ const createDefaultConfigSchema = (chartType: string) => ({
       description: 'The title of the chart'
     },
     xField: {
-      type: 'select',
+      type: 'field-selector',
       title: 'X-Axis Field',
       description: 'Select the field for X-axis',
       required: true
     },
     yField: {
-      type: 'select',
+      type: 'field-selector',
       title: 'Y-Axis Field', 
       description: 'Select the field for Y-axis',
       required: true
@@ -131,11 +137,12 @@ interface ChartCustomizationPanelProps {
 }
 
 interface ConfigSchemaProperty {
-  type: 'string' | 'number' | 'boolean' | 'select' | 'multiselect' | 'array' | 'object' | 'color' | 'select' | 'range' | 'enum';
+  type: 'string' | 'number' | 'boolean' | 'select' | 'multiselect' | 'array' | 'object' | 'color' | 'field-selector' | 'range' | 'enum';
   title?: string;
   description?: string;
   default?: any;
   enum?: string[] | { label: string; value: any }[];
+  options?: string[] | { label: string; value: any }[];
   minimum?: number;
   maximum?: number;
   required?: boolean;
@@ -206,89 +213,137 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
   });
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     'data-mapping': true,
-    'appearance': true,
+    'appearance': false,
     'behavior': false,
     'advanced': false
   });
 
-  // Handle both configuration and customization props
-  const activeConfiguration = configuration || customization || {};
+  // Use the configuration from props, with fallback to customization
+  const safeConfiguration = useMemo(() => {
+    return configuration || customization || {};
+  }, [configuration, customization]);
 
-  console.log('🔍 ChartCustomizationPanel Debug:', {
-    chartType,
-    chartLibrary,
-    dataColumns: dataColumns?.length || 'undefined/empty',
-    dataColumnsActual: dataColumns,
-    configuration: activeConfiguration
-  });
+  const hasDataColumns = dataColumns && dataColumns.length > 0;
+
+  // ============================================================================
+  // FIELD OPTIONS AND MAPPING
+  // ============================================================================
+
+  const fieldOptions = useMemo(() => {
+    if (!hasDataColumns) {
+      console.warn('⚠️ No data columns available for field options');
+      return [];
+    }
+
+    return dataColumns.map(col => ({
+      label: col.display_name || col.name,
+      value: col.name,
+      type: col.data_type,
+      isNumeric: isNumericType(col.data_type),
+      isCategorical: isCategoricalType(col.data_type),
+      isDate: isDateType(col.data_type)
+    }));
+  }, [dataColumns, hasDataColumns]);
+
+  const getFieldOptionsForMapping = useCallback((mappingType: string) => {
+    const expectedTypes = getExpectedDataTypes(mappingType);
+    
+    console.log('🔍 Field Options Mapping Debug:', {
+      mappingType,
+      expectedTypes,
+      availableFields: fieldOptions.length,
+      fieldOptions: fieldOptions.map(f => ({ 
+        name: f.value, 
+        type: f.type, 
+        isNumeric: f.isNumeric,
+        isCategorical: f.isCategorical,
+        isDate: f.isDate
+      }))
+    });
+    
+    const filteredOptions = fieldOptions.filter(option => 
+      expectedTypes.some(type => {
+        switch (type.toLowerCase()) {
+          case 'numeric': 
+          case 'number':
+            return option.isNumeric;
+          case 'categorical': 
+          case 'string':
+            return option.isCategorical;
+          case 'date': 
+          case 'datetime':
+            return option.isDate;
+          case 'boolean':
+          case 'bool':
+            return option.type?.toLowerCase().includes('bool');
+          case 'any':
+          default:
+            return true; // Allow all types for 'any' or unknown types
+        }
+      })
+    );
+    
+    console.log('🔍 Filtered Options Result:', {
+      mappingType,
+      expectedTypes,
+      originalCount: fieldOptions.length,
+      filteredCount: filteredOptions.length,
+      filteredOptions: filteredOptions.map(f => ({ 
+        name: f.value, 
+        type: f.type,
+        isNumeric: f.isNumeric,
+        isCategorical: f.isCategorical,
+        isDate: f.isDate
+      }))
+    });
+    
+    return filteredOptions;
+  }, [fieldOptions]);
 
   // ============================================================================
   // CHART PLUGIN LOADING
   // ============================================================================
 
-  const hasDataColumns = dataColumns && Array.isArray(dataColumns) && dataColumns.length > 0;
-  const chartPluginKey = useMemo(() => `${chartType}`, [chartType]);
-  
   useEffect(() => {
-    loadChartPlugin();
-  }, [chartPluginKey]);
+    const loadChartPlugin = async () => {
+      setLoading(true);
+      setError(null);
 
-  const loadChartPlugin = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      console.log(`🔍 Loading chart plugin for: ${chartType}`);
-      
-      // Try to get plugin from registry (with fallback)
-      let plugin: ChartPlugin;
-      
       try {
-        // Try to import the registry dynamically
-        const { ChartRegistry } = await import('@/plugins/charts/registry/ChartRegistry');
-        plugin = await ChartRegistry.getPlugin(chartType, chartLibrary);
-      } catch (registryError) {
-        console.warn('⚠️ Chart registry not available, using fallback plugin');
-        plugin = null;
+        // Try to load from ChartRegistry first
+        let plugin: ChartPlugin | null = null;
+        
+        try {
+          // Dynamically import ChartRegistry if available
+          const ChartRegistry = await import('@/plugins/charts/registry/ChartRegistry');
+          await ChartRegistry.default.initialize();
+          plugin = ChartRegistry.default.getPlugin(`${chartLibrary}-${chartType}`);
+          console.log('🔌 Loaded plugin from registry:', plugin?.name);
+        } catch (registryError) {
+          console.warn('⚠️ Could not load from ChartRegistry:', registryError);
+        }
+
+        // If no plugin found, create fallback
+        if (!plugin) {
+          console.log('🔧 Creating fallback plugin for:', `${chartLibrary}-${chartType}`);
+          plugin = createFallbackPlugin(chartType, chartLibrary);
+        }
+
+        setChartPlugin(plugin);
+      } catch (err) {
+        console.error('❌ Failed to load chart plugin:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load chart configuration');
+        // Still create a fallback plugin
+        setChartPlugin(createFallbackPlugin(chartType, chartLibrary));
+      } finally {
+        setLoading(false);
       }
-      
-      if (!plugin) {
-        plugin = createFallbackPlugin(chartType, chartLibrary);
-        console.warn(`⚠️ Using fallback plugin for ${chartType}`);
-      }
-      
-      console.log('📋 Loaded chart plugin:', {
-        name: plugin.name,
-        library: plugin.library,
-        schemaProperties: Object.keys(plugin.configSchema?.properties || {}),
-        totalProperties: Object.keys(plugin.configSchema?.properties || {}).length
-      });
-      
-      setChartPlugin(plugin);
-    } catch (err) {
-      console.error('❌ Failed to load chart plugin:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load chart configuration');
-    } finally {
-      setLoading(false);
+    };
+
+    if (chartType) {
+      loadChartPlugin();
     }
-  };
-
-  // ============================================================================
-  // CONFIGURATION MANAGEMENT
-  // ============================================================================
-
-  const safeConfiguration = useMemo(() => {
-    return activeConfiguration || {};
-  }, [activeConfiguration]);
-
-  const handleConfigChange = useCallback((key: string, value: any) => {
-    console.log(`🔧 Config change: ${key} = ${value}`);
-    
-    const newConfig = { ...safeConfiguration };
-    setNestedValue(newConfig, key, value);
-    
-    onChange(newConfig);
-  }, [safeConfiguration, onChange]);
+  }, [chartType, chartLibrary]);
 
   // ============================================================================
   // UTILITY FUNCTIONS
@@ -330,69 +385,19 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
     };
   };
 
-  // ============================================================================
-  // FIELD OPTIONS AND MAPPING
-  // ============================================================================
-
-  const fieldOptions = useMemo(() => {
-    if (!hasDataColumns) {
-      console.warn('⚠️ No data columns available for field options');
-      return [];
-    }
-
-    return dataColumns.map(col => ({
-      label: col.display_name || col.name,
-      value: col.name,
-      type: col.data_type,
-      isNumeric: isNumericType(col.data_type),
-      isCategorical: isCategoricalType(col.data_type),
-      isDate: isDateType(col.data_type)
-    }));
-  }, [dataColumns, hasDataColumns]);
-
-  const getFieldOptionsForMapping = (mappingType: string) => {
-  const expectedTypes = getExpectedDataTypes(mappingType);
-  
-  console.log('🔍 Field Options Mapping Debug:', {
-    mappingType,
-    expectedTypes,
-    availableFields: fieldOptions.length,
-    fieldOptions: fieldOptions.map(f => ({ name: f.value, type: f.type, isNumeric: f.isNumeric }))
-  });
-  
-  const filteredOptions = fieldOptions.filter(option => 
-    expectedTypes.some(type => {
-      switch (type) {
-        case 'numeric': 
-          return option.isNumeric;
-        case 'categorical': 
-          return option.isCategorical;
-        case 'date':  // ← THIS WAS THE MISSING PART!
-          return option.isDate;
-        default:
-          return true; // Allow all types if not specified
-      }
-    })
-  );
-  
-  console.log('🔍 Filtered Options Result:', {
-    mappingType,
-    originalCount: fieldOptions.length,
-    filteredCount: filteredOptions.length,
-    filteredOptions: filteredOptions.map(f => ({ name: f.value, type: f.type }))
-  });
-  
-  return filteredOptions;
-};
-
-  // ============================================================================
-  // HELPER FUNCTIONS FOR PROPERTY GROUPING
-  // ============================================================================
+  const handleConfigChange = useCallback((key: string, value: any) => {
+    console.log(`🔄 Config change: ${key} = ${value}`);
+    
+    const newConfig = { ...safeConfiguration };
+    setNestedValue(newConfig, key, value);
+    
+    onChange(newConfig);
+  }, [safeConfiguration, onChange]);
 
   const determinePropertyGroup = (key: string, property: ConfigSchemaProperty): 'data-mapping' | 'appearance' | 'behavior' | 'advanced' => {
     // Data mapping fields
     if (
-      property.type === 'select' ||
+      property.type === 'field-selector' ||
       key.includes('Field') || 
       key.includes('field') ||
       key.includes('axis') ||
@@ -456,31 +461,64 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
       }
     }
 
-    // Log what we're rendering
+    // Enhanced logging for debugging
     console.log(`🎨 Rendering field ${key}:`, {
       type: property.type,
       title: property.title,
       currentValue,
-      hasDefault: property.default !== undefined
+      hasDefault: property.default !== undefined,
+      isFieldSelector: property.type === 'field-selector'
     });
 
-    // Force select rendering for axis fields
+    // CRITICAL FIX: Enhanced field selector detection
     const shouldRenderAsFieldSelector = 
-      property.type === 'select' ||
-      key === 'xField' || key === 'yField' ||
-      key === 'x-axis' || key === 'y-axis' ||
-      key.includes('Field') && (key.includes('x') || key.includes('y') || key.includes('X') || key.includes('Y')) ||
-      key.includes('yAxis') || key.includes('Y-Axis') || key.includes('y_axis') ||
-      key === 'valueField' || key === 'value' ||
-      property.title?.toLowerCase().includes('y-axis') ||
-      property.title?.toLowerCase().includes('x-axis') ||
-      property.title?.toLowerCase().includes('value');
+      // PRIMARY: Check for explicit field-selector type
+      property.type === 'field-selector' ||
+      
+      // SECONDARY: Legacy patterns and naming conventions
+      (property.type === 'select' && (
+        key === 'xField' || key === 'yField' ||
+        key === 'x-axis' || key === 'y-axis' ||
+        key.includes('Field') && (key.includes('x') || key.includes('y') || key.includes('X') || key.includes('Y')) ||
+        key.includes('xAxis') || key.includes('yAxis') ||
+        key.includes('X-Axis') || key.includes('Y-Axis') || 
+        key.includes('x_axis') || key.includes('y_axis') ||
+        key === 'valueField' || key === 'value' ||
+        key === 'categoryField' || key === 'category' ||
+        key === 'nameField' || key === 'seriesField' ||
+        key.includes('.field') || // For nested patterns like 'xAxis.field', 'yAxis.field'
+        property.title?.toLowerCase().includes('field') ||
+        property.title?.toLowerCase().includes('y-axis') ||
+        property.title?.toLowerCase().includes('x-axis') ||
+        property.title?.toLowerCase().includes('value')
+      ));
+
+    // DEBUG: Log the decision making
+    console.log(`🔍 Field Selector Detection for ${key}:`, {
+      shouldRenderAsFieldSelector,
+      reasons: {
+        isFieldSelectorType: property.type === 'field-selector',
+        isSelectType: property.type === 'select',
+        keyMatches: {
+          exactMatch: ['xField', 'yField', 'x-axis', 'y-axis'].includes(key),
+          containsField: key.includes('Field'),
+          containsAxis: key.includes('Axis') || key.includes('axis'),
+          dotField: key.includes('.field'),
+          valueField: key === 'valueField' || key === 'value'
+        },
+        titleMatches: {
+          hasField: property.title?.toLowerCase().includes('field'),
+          hasAxis: property.title?.toLowerCase().includes('axis'),
+          hasValue: property.title?.toLowerCase().includes('value')
+        }
+      }
+    });
 
     if (shouldRenderAsFieldSelector) {
       return renderFieldSelector(key, property, currentValue);
     }
 
-    // Render based on property type
+    // Render based on property type for non-field-selector fields
     switch (property.type) {
       case 'string':
         return renderStringField(key, property, currentValue);
@@ -492,11 +530,16 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
         return renderColorField(key, property, currentValue);
       case 'select':
       case 'enum':
+        // Regular select field (not for field selection)
         return renderSelectField(key, property, currentValue);
       case 'range':
         return renderRangeField(key, property, currentValue);
       case 'array':
         return renderArrayField(key, property, currentValue);
+      case 'field-selector':
+        // This should have been caught above, but just in case
+        console.warn(`⚠️ field-selector type not caught by shouldRenderAsFieldSelector for ${key}`);
+        return renderFieldSelector(key, property, currentValue);
       default:
         console.log(`⚠️ Unknown field type for ${key}: ${property.type}, rendering as generic`);
         return renderGenericField(key, property, currentValue);
@@ -504,9 +547,10 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
   };
 
   const renderFieldSelector = (key: string, property: ConfigSchemaProperty, currentValue: any) => {
+    // Enhanced mapping type detection
     let mappingType = 'any';
     
-    if (key === 'xField' || key === 'x-axis' || key.includes('xAxis') || key.includes('X-Axis') || key.includes('x_axis')) {
+    if (key === 'xField' || key === 'x-axis' || key.includes('xAxis') || key.includes('X-Axis') || key.includes('x_axis') || key === 'xAxis.field') {
       mappingType = 'x-axis';
     } else if (
       key === 'yField' || 
@@ -515,12 +559,30 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
       key.includes('Y-Axis') || 
       key.includes('y_axis') ||
       key === 'valueField' ||
-      key === 'value'
+      key === 'value' ||
+      key === 'yAxis.field' ||
+      property.title?.toLowerCase().includes('y-axis') ||
+      property.title?.toLowerCase().includes('value')
     ) {
       mappingType = 'y-axis';
+    } else if (key === 'seriesField' || key === 'series' || key.includes('series')) {
+      mappingType = 'series';
+    } else if (key === 'categoryField' || key === 'category' || key === 'nameField') {
+      mappingType = 'category';
     }
         
     const options = getFieldOptionsForMapping(mappingType);
+    
+    console.log('🔍 FIELD SELECTOR RENDER DEBUG:', {
+      key,
+      propertyTitle: property.title,
+      mappingType,
+      currentValue,
+      optionsCount: options.length,
+      hasDataColumns: !!dataColumns && dataColumns.length > 0,
+      dataColumnsCount: dataColumns?.length || 0,
+      options: options.map(o => ({ label: o.label, value: o.value, type: o.type, isNumeric: o.isNumeric }))
+    });
     
     if (!dataColumns || !Array.isArray(dataColumns) || dataColumns.length === 0) {
       return (
@@ -530,6 +592,22 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
           </Typography>
           <Alert severity="warning" sx={{ mt: 1 }}>
             No data columns available. Please select a dataset first.
+          </Alert>
+        </Box>
+      );
+    }
+    
+    if (options.length === 0) {
+      const expectedTypes = getExpectedDataTypes(mappingType);
+      return (
+        <Box key={key}>
+          <Typography variant="body2" color="textSecondary" gutterBottom>
+            {property.title || key}
+          </Typography>
+          <Alert severity="warning" sx={{ mt: 1 }}>
+            No suitable fields available for {mappingType}.<br/>
+            Expected types: {expectedTypes.join(', ')}<br/>
+            Available fields: {fieldOptions.map(f => `${f.label} (${f.type})`).join(', ')}
           </Alert>
         </Box>
       );
@@ -658,11 +736,12 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
         label={property.title || key}
         onChange={(e) => handleConfigChange(key, e.target.value)}
       >
-        {(property.enum || []).map((option, index) => {
+        {(property.enum || property.options || []).map((option, index) => {
           const optionValue = typeof option === 'object' ? option.value : option;
           const optionLabel = typeof option === 'object' ? option.label : option;
+          
           return (
-            <MenuItem key={index} value={optionValue}>
+            <MenuItem key={optionValue || index} value={optionValue}>
               {optionLabel}
             </MenuItem>
           );
@@ -679,15 +758,13 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
   const renderRangeField = (key: string, property: ConfigSchemaProperty, currentValue: any) => (
     <Box key={key}>
       <Typography variant="body2" gutterBottom>
-        {property.title || key}: {currentValue || property.default || property.minimum || 0}
+        {property.title || key}: {currentValue ?? property.default ?? property.minimum ?? 0}
       </Typography>
       <Slider
-        value={currentValue || property.default || property.minimum || 0}
+        value={currentValue ?? property.default ?? property.minimum ?? 0}
+        min={property.minimum ?? 0}
+        max={property.maximum ?? 100}
         onChange={(_, value) => handleConfigChange(key, value)}
-        min={property.minimum || 0}
-        max={property.maximum || 100}
-        step={1}
-        marks
         valueLabelDisplay="auto"
       />
       {property.description && (
@@ -826,9 +903,7 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
             </AccordionSummary>
             <AccordionDetails>
               <Box display="flex" flexDirection="column" gap={2}>
-                {propertyGroups['data-mapping'].map(({ key, component }) => (
-                  <Box key={key}>{component}</Box>
-                ))}
+                {propertyGroups['data-mapping'].map(({ component }) => component)}
               </Box>
             </AccordionDetails>
           </Accordion>
@@ -849,9 +924,7 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
             </AccordionSummary>
             <AccordionDetails>
               <Box display="flex" flexDirection="column" gap={2}>
-                {propertyGroups['appearance'].map(({ key, component }) => (
-                  <Box key={key}>{component}</Box>
-                ))}
+                {propertyGroups['appearance'].map(({ component }) => component)}
               </Box>
             </AccordionDetails>
           </Accordion>
@@ -872,9 +945,7 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
             </AccordionSummary>
             <AccordionDetails>
               <Box display="flex" flexDirection="column" gap={2}>
-                {propertyGroups['behavior'].map(({ key, component }) => (
-                  <Box key={key}>{component}</Box>
-                ))}
+                {propertyGroups['behavior'].map(({ component }) => component)}
               </Box>
             </AccordionDetails>
           </Accordion>
@@ -895,41 +966,79 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
             </AccordionSummary>
             <AccordionDetails>
               <Box display="flex" flexDirection="column" gap={2}>
-                {propertyGroups['advanced'].map(({ key, component }) => (
-                  <Box key={key}>{component}</Box>
-                ))}
+                {propertyGroups['advanced'].map(({ component }) => component)}
               </Box>
             </AccordionDetails>
           </Accordion>
-        )}
-
-        {/* Debug info if no properties */}
-        {Object.values(propertyGroups).every(group => group.length === 0) && (
-          <Alert severity="warning" sx={{ mt: 2 }}>
-            <Typography variant="body2" gutterBottom>
-              No configuration properties were rendered.
-            </Typography>
-            <Typography variant="caption" color="textSecondary">
-              Debug info: Schema has {Object.keys(allProperties).length} properties
-            </Typography>
-          </Alert>
         )}
       </Box>
     );
   };
 
   // ============================================================================
-  // MAIN RENDER
+  // DEBUGGING EFFECTS
+  // ============================================================================
+
+  // Debug chart plugin loading
+  useEffect(() => {
+    if (chartPlugin?.configSchema) {
+      console.group('🔍 CHART PLUGIN DEBUG');
+      console.log('Plugin loaded:', chartPlugin.name);
+      console.log('Config schema:', chartPlugin.configSchema);
+      console.log('Properties:', Object.keys(chartPlugin.configSchema.properties || {}));
+      
+      // Find field-selector properties
+      const fieldSelectors = Object.entries(chartPlugin.configSchema.properties || {})
+        .filter(([key, property]) => property.type === 'field-selector')
+        .map(([key, property]) => ({ key, property }));
+      console.log('Field selectors found:', fieldSelectors);
+      
+      // Find Y-axis related properties
+      const yAxisProperties = Object.entries(chartPlugin.configSchema.properties || {})
+        .filter(([key, property]) => {
+          const isYAxisKey = key.includes('y') || key.includes('Y') || key.includes('value') || key.includes('Value');
+          const isYAxisTitle = property.title?.toLowerCase().includes('y-axis') || 
+                              property.title?.toLowerCase().includes('value');
+          return isYAxisKey || isYAxisTitle;
+        })
+        .map(([key, property]) => ({ key, property }));
+      console.log('Y-Axis properties found:', yAxisProperties);
+      console.groupEnd();
+    }
+  }, [chartPlugin]);
+
+  // Debug data columns
+  useEffect(() => {
+    if (dataColumns && dataColumns.length > 0) {
+      console.group('🔍 DATA COLUMNS DEBUG');
+      console.log('Data columns count:', dataColumns.length);
+      console.log('Columns details:', dataColumns.map(col => ({
+        name: col.name,
+        type: col.data_type,
+        isNumeric: isNumericType(col.data_type),
+        isCategorical: isCategoricalType(col.data_type),
+        isDate: isDateType(col.data_type)
+      })));
+      
+      // Test Y-axis filtering
+      const yAxisTypes = getExpectedDataTypes('y-axis');
+      const numericFields = dataColumns.filter(col => isNumericType(col.data_type));
+      console.log('Y-axis expected types:', yAxisTypes);
+      console.log('Numeric fields available:', numericFields);
+      console.groupEnd();
+    }
+  }, [dataColumns]);
+
+  // ============================================================================
+  // RENDER
   // ============================================================================
 
   if (loading) {
     return (
       <Paper sx={{ p: 3 }}>
-        <Box display="flex" alignItems="center" justifyContent="center" minHeight={200}>
-          <CircularProgress />
-          <Typography variant="body2" sx={{ ml: 2 }}>
-            Loading chart configuration...
-          </Typography>
+        <Box display="flex" alignItems="center" gap={2}>
+          <CircularProgress size={24} />
+          <Typography>Loading chart configuration...</Typography>
         </Box>
       </Paper>
     );
@@ -939,11 +1048,13 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
     return (
       <Paper sx={{ p: 3 }}>
         <Alert severity="error" sx={{ mb: 2 }}>
-          <Typography variant="body2">{error}</Typography>
+          {error}
         </Alert>
-        <Button variant="outlined" startIcon={<Refresh />} onClick={loadChartPlugin}>
-          Retry
-        </Button>
+        {onReset && (
+          <Button onClick={onReset} variant="outlined" startIcon={<Refresh />}>
+            Try Again
+          </Button>
+        )}
       </Paper>
     );
   }
@@ -951,59 +1062,62 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
   return (
     <Paper sx={{ p: 3 }}>
       {/* Header */}
-      <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-        <Typography variant="h6" component="h2">
-          Chart Configuration
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Typography variant="h6">
+          {chartPlugin?.displayName || 'Chart Configuration'}
         </Typography>
         <Box display="flex" gap={1}>
-          {onReset && (
-            <Button variant="outlined" size="small" onClick={onReset}>
-              Reset
+          {onPreview && (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => onPreview(safeConfiguration)}
+            >
+              Preview
             </Button>
           )}
-          {onPreview && (
-            <Button variant="contained" size="small" onClick={() => onPreview(safeConfiguration)}>
-              Preview
+          {onReset && (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={onReset}
+              startIcon={<Refresh />}
+            >
+              Reset
             </Button>
           )}
         </Box>
       </Box>
 
-      {/* Chart Plugin Info */}
-      {chartPlugin && (
-        <Box mb={2}>
-          <Typography variant="body2" color="textSecondary">
-            {chartPlugin.displayName} ({chartPlugin.library})
-          </Typography>
-        </Box>
-      )}
-
       {/* Validation Errors */}
-      {!validation.isValid && (
+      {validation.errors.length > 0 && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          <Typography variant="body2" gutterBottom>
-            Configuration validation failed:
+          <Typography variant="subtitle2" gutterBottom>
+            Configuration Errors:
           </Typography>
-          <ul>
-            {validation.errors.map((error, index) => (
-              <li key={index}>{error.message}</li>
-            ))}
-          </ul>
+          {validation.errors.map((error, index) => (
+            <Typography key={index} variant="body2">
+              • {error.message}
+            </Typography>
+          ))}
         </Alert>
       )}
 
       {/* Configuration Sections */}
       {renderConfigurationSections()}
+
+      {/* Debug Info (in development) */}
+      {process.env.NODE_ENV === 'development' && (
+        <Box mt={3} p={2} bgcolor="grey.100" borderRadius={1}>
+          <Typography variant="caption" color="textSecondary">
+            Debug: Chart Type: {chartType}, Library: {chartLibrary}, 
+            Data Columns: {dataColumns?.length || 0},
+            Config Keys: {Object.keys(safeConfiguration).length}
+          </Typography>
+        </Box>
+      )}
     </Paper>
   );
 };
 
-// ============================================================================
-// EXPORTS - THIS IS CRITICAL
-// ============================================================================
-
-// Default export
 export default ChartCustomizationPanel;
-
-// Named export (for compatibility)
-export { ChartCustomizationPanel };

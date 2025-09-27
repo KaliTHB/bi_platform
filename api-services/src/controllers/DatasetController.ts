@@ -681,27 +681,40 @@ private formatDisplayName(columnName: string): string {
 /**
  * Map database data type to standardized data type
  */
+/**
+ * Map database data type to standardized data type - ENHANCED VERSION
+ */
 private mapDataType(dbDataType: string, datasourceType: string): string {
-  const lowerType = dbDataType.toLowerCase();
+  if (!dbDataType) return 'string';
+  
+  const lowerType = dbDataType.toLowerCase().trim();
+  
+  console.log(`🔍 Mapping data type: "${dbDataType}" (${lowerType}) for datasource: ${datasourceType}`);
   
   // PostgreSQL mappings
   if (datasourceType === 'postgres' || datasourceType === 'postgresql') {
-    if (['integer', 'int', 'int4', 'smallint', 'int2', 'bigint', 'int8'].includes(lowerType)) {
+    if (['integer', 'int', 'int4', 'smallint', 'int2', 'bigint', 'int8', 'serial', 'bigserial', 'smallserial'].includes(lowerType)) {
+      console.log(`✅ Mapped ${dbDataType} -> integer`);
       return 'integer';
     }
-    if (['numeric', 'decimal', 'real', 'double precision', 'float4', 'float8'].includes(lowerType)) {
+    if (['numeric', 'decimal', 'real', 'double precision', 'float4', 'float8', 'float', 'double'].includes(lowerType)) {
+      console.log(`✅ Mapped ${dbDataType} -> number`);
       return 'number';
     }
     if (['boolean', 'bool'].includes(lowerType)) {
+      console.log(`✅ Mapped ${dbDataType} -> boolean`);
       return 'boolean';
     }
-    if (['date', 'timestamp', 'timestamptz', 'time', 'timetz'].includes(lowerType)) {
+    if (['date', 'timestamp', 'timestamptz', 'time', 'timetz', 'datetime'].includes(lowerType)) {
+      console.log(`✅ Mapped ${dbDataType} -> datetime`);
       return 'datetime';
     }
-    if (['text', 'varchar', 'character', 'char', 'uuid'].includes(lowerType)) {
+    if (['text', 'varchar', 'character', 'char', 'uuid', 'character varying'].includes(lowerType)) {
+      console.log(`✅ Mapped ${dbDataType} -> string`);
       return 'string';
     }
     if (['json', 'jsonb'].includes(lowerType)) {
+      console.log(`✅ Mapped ${dbDataType} -> json`);
       return 'json';
     }
   }
@@ -709,45 +722,58 @@ private mapDataType(dbDataType: string, datasourceType: string): string {
   // MySQL/MariaDB mappings
   if (datasourceType === 'mysql' || datasourceType === 'mariadb') {
     if (['tinyint', 'smallint', 'mediumint', 'int', 'integer', 'bigint'].includes(lowerType)) {
+      console.log(`✅ Mapped ${dbDataType} -> integer`);
       return 'integer';
     }
     if (['decimal', 'numeric', 'float', 'double', 'real'].includes(lowerType)) {
+      console.log(`✅ Mapped ${dbDataType} -> number`);
       return 'number';
     }
     if (['bit', 'boolean', 'bool'].includes(lowerType)) {
+      console.log(`✅ Mapped ${dbDataType} -> boolean`);
       return 'boolean';
     }
     if (['date', 'datetime', 'timestamp', 'time', 'year'].includes(lowerType)) {
+      console.log(`✅ Mapped ${dbDataType} -> datetime`);
       return 'datetime';
     }
     if (['char', 'varchar', 'text', 'tinytext', 'mediumtext', 'longtext'].includes(lowerType)) {
+      console.log(`✅ Mapped ${dbDataType} -> string`);
       return 'string';
     }
     if (['json'].includes(lowerType)) {
+      console.log(`✅ Mapped ${dbDataType} -> json`);
       return 'json';
     }
   }
   
-  // Default fallbacks based on common patterns
+  // Enhanced fallback patterns (this is key for catching edge cases)
   if (lowerType.includes('int') || lowerType.includes('serial')) {
+    console.log(`✅ Fallback mapped ${dbDataType} -> integer (contains 'int')`);
     return 'integer';
   }
-  if (lowerType.includes('float') || lowerType.includes('double') || lowerType.includes('decimal') || lowerType.includes('numeric')) {
+  if (lowerType.includes('float') || lowerType.includes('double') || lowerType.includes('decimal') || lowerType.includes('numeric') || lowerType.includes('real')) {
+    console.log(`✅ Fallback mapped ${dbDataType} -> number (contains numeric keywords)`);
     return 'number';
   }
   if (lowerType.includes('bool')) {
+    console.log(`✅ Fallback mapped ${dbDataType} -> boolean (contains 'bool')`);
     return 'boolean';
   }
-  if (lowerType.includes('date') || lowerType.includes('time')) {
+  if (lowerType.includes('date') || lowerType.includes('time') || lowerType.includes('timestamp')) {
+    console.log(`✅ Fallback mapped ${dbDataType} -> datetime (contains date/time keywords)`);
     return 'datetime';
   }
   if (lowerType.includes('json')) {
+    console.log(`✅ Fallback mapped ${dbDataType} -> json (contains 'json')`);
     return 'json';
   }
   
   // Default to string for unknown types
+  console.log(`⚠️ Unknown type ${dbDataType} -> defaulting to string`);
   return 'string';
 }
+
 
 /**
  * Get format string based on data type
