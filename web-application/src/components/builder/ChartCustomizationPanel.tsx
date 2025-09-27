@@ -389,8 +389,8 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
   }
 
   return dataColumns.map(col => ({
-    label: col.column_name,
-    value: col.column_name,
+    label: col.display_name,
+    value: col.name,
     type: col.data_type,
     isNumeric: isNumericType(col.data_type),
     isCategorical: isCategoricalType(col.data_type),

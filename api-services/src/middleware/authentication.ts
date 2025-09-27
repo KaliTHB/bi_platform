@@ -216,14 +216,76 @@ export const optionalAuthenticate = async (
 };
 
 /**
+ * Get JWT expiration time based on environment
+ */
+const getJwtExpirationTime = (): string => {
+  const nodeEnv = process.env.NODE_ENV || 'development';
+  
+  // Development: Long-lived tokens for convenience
+  if (nodeEnv === 'development') {
+    return process.env.JWT_EXPIRES_IN || '24h'; // 24 hours default
+  }
+  
+  // Staging: Medium-lived tokens
+  if (nodeEnv === 'staging') {
+    return process.env.JWT_EXPIRES_IN || '2h'; // 2 hours default
+  }
+  
+  // Production: Short-lived tokens for security
+  return process.env.JWT_EXPIRES_IN || '15m'; // 15 minutes default
+};
+
+/**
  * Helper function to generate JWT tokens
  */
+/**
+ * Enhanced token generation with environment-aware expiration
+ */
 export const generateToken = (payload: Omit<JWTPayload, 'iat' | 'exp'>): string => {
+  const expiresIn = getJwtExpirationTime();
+  
+  console.log(`🔑 Generating JWT token with expiration: ${expiresIn} (env: ${process.env.NODE_ENV})`);
+  
   return jwt.sign(
     payload,
     process.env.JWT_SECRET || 'your-jwt-secret',
     { 
-      expiresIn: process.env.JWT_EXPIRES_IN || '24h',
+      expiresIn,
+      issuer: 'bi-platform-api'
+    }
+  );
+};
+
+
+/**
+ * Get refresh token expiration based on environment  
+ */
+const getRefreshTokenExpirationTime = (): string => {
+  const nodeEnv = process.env.NODE_ENV || 'development';
+  
+  if (nodeEnv === 'development') {
+    return process.env.REFRESH_TOKEN_EXPIRES_IN || '30d'; // 30 days
+  }
+  
+  if (nodeEnv === 'staging') {
+    return process.env.REFRESH_TOKEN_EXPIRES_IN || '14d'; // 14 days
+  }
+  
+  // Production
+  return process.env.REFRESH_TOKEN_EXPIRES_IN || '7d'; // 7 days
+};
+
+/**
+ * Generate refresh token with environment-aware expiration
+ */
+export const generateRefreshToken = (payload: Omit<JWTPayload, 'iat' | 'exp'>): string => {
+  const expiresIn = getRefreshTokenExpirationTime();
+  
+  return jwt.sign(
+    { ...payload, type: 'refresh' },
+    process.env.JWT_SECRET || 'your-jwt-secret',
+    { 
+      expiresIn,
       issuer: 'bi-platform-api'
     }
   );

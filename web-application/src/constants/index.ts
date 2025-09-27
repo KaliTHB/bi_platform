@@ -41,6 +41,25 @@ export const API_CONFIG = {
   TIMEOUT: 30000, // 30 seconds
   RETRY_ATTEMPTS: 3,
   RETRY_DELAY: 1000, // 1 second
+
+  // Token refresh configuration
+  TOKEN_REFRESH: {
+    // Development: Less aggressive refresh
+    REFRESH_THRESHOLD_MS: process.env.NODE_ENV === 'development' 
+      ? 30 * 60 * 1000  // 30 minutes before expiry
+      : 5 * 60 * 1000,  // 5 minutes before expiry (production)
+      
+    // Automatic refresh check interval
+    CHECK_INTERVAL_MS: process.env.NODE_ENV === 'development'
+      ? 10 * 60 * 1000  // Check every 10 minutes in dev
+      : 1 * 60 * 1000,  // Check every minute in production
+      
+    // Max retry attempts for refresh
+    MAX_REFRESH_RETRIES: 3,
+    
+    // Grace period after refresh failure
+    GRACE_PERIOD_MS: 2 * 60 * 1000, // 2 minutes
+  },
   
   // Request headers
   DEFAULT_HEADERS: {
