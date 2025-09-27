@@ -668,6 +668,185 @@ private isSupportedDatasourceType(datasourceType: string): boolean {
   return this.isRelationalDatabase(datasourceType);
 }
 
+/**
+ * Format display name from column name
+ */
+private formatDisplayName(columnName: string): string {
+  return columnName
+    .replace(/_/g, ' ')
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^\w/, c => c.toUpperCase())
+    .trim();
+}
+
+/**
+ * Map database data type to standardized data type
+ */
+private mapDataType(dbDataType: string, datasourceType: string): string {
+  const lowerType = dbDataType.toLowerCase();
+  
+  // PostgreSQL mappings
+  if (datasourceType === 'postgres' || datasourceType === 'postgresql') {
+    if (['integer', 'int', 'int4', 'smallint', 'int2', 'bigint', 'int8'].includes(lowerType)) {
+      return 'integer';
+    }
+    if (['numeric', 'decimal', 'real', 'double precision', 'float4', 'float8'].includes(lowerType)) {
+      return 'number';
+    }
+    if (['boolean', 'bool'].includes(lowerType)) {
+      return 'boolean';
+    }
+    if (['date', 'timestamp', 'timestamptz', 'time', 'timetz'].includes(lowerType)) {
+      return 'datetime';
+    }
+    if (['text', 'varchar', 'character', 'char', 'uuid'].includes(lowerType)) {
+      return 'string';
+    }
+    if (['json', 'jsonb'].includes(lowerType)) {
+      return 'json';
+    }
+  }
+  
+  // MySQL/MariaDB mappings
+  if (datasourceType === 'mysql' || datasourceType === 'mariadb') {
+    if (['tinyint', 'smallint', 'mediumint', 'int', 'integer', 'bigint'].includes(lowerType)) {
+      return 'integer';
+    }
+    if (['decimal', 'numeric', 'float', 'double', 'real'].includes(lowerType)) {
+      return 'number';
+    }
+    if (['bit', 'boolean', 'bool'].includes(lowerType)) {
+      return 'boolean';
+    }
+    if (['date', 'datetime', 'timestamp', 'time', 'year'].includes(lowerType)) {
+      return 'datetime';
+    }
+    if (['char', 'varchar', 'text', 'tinytext', 'mediumtext', 'longtext'].includes(lowerType)) {
+      return 'string';
+    }
+    if (['json'].includes(lowerType)) {
+      return 'json';
+    }
+  }
+  
+  // Default fallbacks based on common patterns
+  if (lowerType.includes('int') || lowerType.includes('serial')) {
+    return 'integer';
+  }
+  if (lowerType.includes('float') || lowerType.includes('double') || lowerType.includes('decimal') || lowerType.includes('numeric')) {
+    return 'number';
+  }
+  if (lowerType.includes('bool')) {
+    return 'boolean';
+  }
+  if (lowerType.includes('date') || lowerType.includes('time')) {
+    return 'datetime';
+  }
+  if (lowerType.includes('json')) {
+    return 'json';
+  }
+  
+  // Default to string for unknown types
+  return 'string';
+}
+
+/**
+ * Get format string based on data type
+ */
+private getFormatString(dataType: string): string | null {
+  const lowerType = dataType.toLowerCase();
+  
+  if (lowerType.includes('date')) {
+    return 'YYYY-MM-DD';
+  }
+  if (lowerType.includes('datetime') || lowerType.includes('timestamp')) {
+    return 'YYYY-MM-DD HH:mm:ss';
+  }
+  if (lowerType.includes('time') && !lowerType.includes('datetime')) {
+    return 'HH:mm:ss';
+  }
+  if (lowerType.includes('decimal') || lowerType.includes('numeric')) {
+    return '#,##0.00';
+  }
+  if (lowerType.includes('float') || lowerType.includes('double') || lowerType.includes('real')) {
+    return '#,##0.##';
+  }
+  if (lowerType.includes('int') || lowerType.includes('serial')) {
+    return '#,##0';
+  }
+  if (lowerType.includes('percent')) {
+    return '0.00%';
+  }
+  if (lowerType.includes('currency') || lowerType.includes('money')) {
+    return '$#,##0.00';
+  }
+  
+  return null;
+}
+
+/**
+ * Get column width based on data type
+ */
+private getColumnWidth(dataType: string): number {
+  const lowerType = dataType.toLowerCase();
+  
+  if (lowerType.includes('bool')) {
+    return 80;
+  }
+  if (lowerType.includes('date') && !lowerType.includes('datetime')) {
+    return 120;
+  }
+  if (lowerType.includes('datetime') || lowerType.includes('timestamp')) {
+    return 180;
+  }
+  if (lowerType.includes('time') && !lowerType.includes('datetime')) {
+    return 100;
+  }
+  if (lowerType.includes('int') || lowerType.includes('serial')) {
+    return 100;
+  }
+  if (lowerType.includes('decimal') || lowerType.includes('numeric') || lowerType.includes('float') || lowerType.includes('double')) {
+    return 120;
+  }
+  if (lowerType.includes('uuid')) {
+    return 250;
+  }
+  if (lowerType.includes('text') || lowerType.includes('longtext')) {
+    return 200;
+  }
+  if (lowerType.includes('json')) {
+    return 180;
+  }
+  
+  // Default width for strings and unknown types
+  return 150;
+}
+
+/**
+ * Get aggregation type based on data type
+ */
+private getAggregationType(dataType: string): string {
+  const lowerType = dataType.toLowerCase();
+  
+  if (lowerType.includes('int') || lowerType.includes('serial') || 
+      lowerType.includes('decimal') || lowerType.includes('numeric') || 
+      lowerType.includes('float') || lowerType.includes('double') || 
+      lowerType.includes('real') || lowerType.includes('money')) {
+    return 'sum';
+  }
+  
+  if (lowerType.includes('bool')) {
+    return 'count';
+  }
+  
+  if (lowerType.includes('date') || lowerType.includes('time')) {
+    return 'none';
+  }
+  
+  // Default for strings and other types
+  return 'count';
+}
+
 private shouldPopulateSchema(schemaJson: any): boolean {
   if (!schemaJson) return true;
   if (typeof schemaJson === 'object' && Object.keys(schemaJson).length === 0) return true;
