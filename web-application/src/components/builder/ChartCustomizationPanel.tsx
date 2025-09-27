@@ -383,19 +383,20 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
   // ============================================================================
 
   const fieldOptions = useMemo(() => {
-    if (!dataColumns || !Array.isArray(dataColumns)) {
-      return [];
-    }
-    
-    return dataColumns.map(col => ({
-      value: col.name,
-      label: col.display_name || col.name,
-      type: col.data_type,
-      isNumeric: isNumericType(col.data_type),
-      isCategorical: isCategoricalType(col.data_type),
-      isDate: isDateType(col.data_type)
-    }));
-  }, [dataColumns]);
+  if (!dataColumns || !Array.isArray(dataColumns)) {
+    console.warn('No dataColumns available for field options');
+    return [];
+  }
+
+  return dataColumns.map(col => ({
+    label: col.column_name,
+    value: col.column_name,
+    type: col.data_type,
+    isNumeric: isNumericType(col.data_type),
+    isCategorical: isCategoricalType(col.data_type),
+    isDate: isDateType(col.data_type)
+  }));
+}, [dataColumns]);
 
   const getFieldOptionsForMapping = (mappingType: string) => {
     const expectedTypes = getExpectedDataTypes(mappingType);
@@ -417,89 +418,110 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
   // ============================================================================
 
   const renderFormField = (key: string, property: ConfigSchemaProperty, currentValue: any) => {
-    // Check conditional rendering
-    if (property.conditional) {
-      const conditionValue = getNestedValue(safeConfiguration, property.conditional.field);
-      if (conditionValue !== property.conditional.value) {
-        return null;
+      // Check conditional rendering
+      if (property.conditional) {
+        const conditionValue = getNestedValue(safeConfiguration, property.conditional.field);
+        if (conditionValue !== property.conditional.value) {
+          return null;
+        }
       }
-    }
 
-    switch (property.type) {
-      case 'field-selector':
+      // Force field-selector rendering for axis fields even if type is not explicitly set
+      const shouldRenderAsFieldSelector = 
+        property.type === 'field-selector' ||
+        key === 'xField' || key === 'yField' ||
+        key === 'x-axis' || key === 'y-axis' ||
+        key.includes('Field') && (key.includes('x') || key.includes('y') || key.includes('X') || key.includes('Y'));
+
+      if (shouldRenderAsFieldSelector) {
         return renderFieldSelector(key, property, currentValue);
-      case 'string':
-        return renderStringField(key, property, currentValue);
-      case 'number':
-        return renderNumberField(key, property, currentValue);
-      case 'boolean':
-        return renderBooleanField(key, property, currentValue);
-      case 'color':
-        return renderColorField(key, property, currentValue);
-      case 'select':
-      case 'enum':
-        return renderSelectField(key, property, currentValue);
-      case 'range':
-        return renderRangeField(key, property, currentValue);
-      case 'array':
-        return renderArrayField(key, property, currentValue);
-      default:
-        return renderGenericField(key, property, currentValue);
-    }
-  };
+      }
 
+      switch (property.type) {
+        case 'string':
+          return renderStringField(key, property, currentValue);
+        case 'number':
+          return renderNumberField(key, property, currentValue);
+        case 'boolean':
+          return renderBooleanField(key, property, currentValue);
+        case 'color':
+          return renderColorField(key, property, currentValue);
+        case 'select':
+        case 'enum':
+          return renderSelectField(key, property, currentValue);
+        case 'range':
+          return renderRangeField(key, property, currentValue);
+        case 'array':
+          return renderArrayField(key, property, currentValue);
+        default:
+          return renderGenericField(key, property, currentValue);
+      }
+    };
+  
+  
   const renderFieldSelector = (key: string, property: ConfigSchemaProperty, currentValue: any) => {
-    const mappingType = key.includes('Field') ? key : 'any';
-    const options = getFieldOptionsForMapping(mappingType);
-    
-    // Show warning if no data columns available
-    if (!dataColumns || !Array.isArray(dataColumns) || dataColumns.length === 0) {
-      return (
-        <Box key={key}>
-          <Typography variant="body2" color="textSecondary" gutterBottom>
-            {property.title || key}
-          </Typography>
-          <Alert severity="warning" sx={{ mt: 1 }}>
-            No data columns available. Please select a dataset first.
-          </Alert>
-        </Box>
-      );
-    }
-    
+  // Improve mapping type detection for axis fields
+  let mappingType = 'any';
+  
+  // Enhanced detection for axis fields
+  if (key === 'xField' || key === 'x-axis' || key.includes('xAxis') || key.includes('X-Axis')) {
+    mappingType = 'x-axis';
+  } else if (key === 'yField' || key === 'y-axis' || key.includes('yAxis') || key.includes('Y-Axis')) {
+    mappingType = 'y-axis';
+  } else if (key.includes('Field') || property.type === 'field-selector') {
+    mappingType = key;
+  }
+  
+  const options = getFieldOptionsForMapping(mappingType);
+  
+  // Show warning if no data columns available
+  if (!dataColumns || !Array.isArray(dataColumns) || dataColumns.length === 0) {
     return (
-      <FormControl fullWidth size="small" key={key}>
-        <InputLabel>{property.title || key}</InputLabel>
-        <Select
-          value={currentValue || ''}
-          label={property.title || key}
-          onChange={(e) => handleConfigChange(key, e.target.value)}
-        >
-          <MenuItem value="">
-            <em>Select field...</em>
-          </MenuItem>
-          {options.map(option => (
-            <MenuItem key={option.value} value={option.value}>
-              <Box display="flex" justifyContent="space-between" width="100%">
-                <span>{option.label}</span>
-                <Chip 
-                  label={option.type} 
-                  size="small" 
-                  variant="outlined"
-                  color={option.isNumeric ? 'primary' : option.isCategorical ? 'secondary' : 'default'}
-                  sx={{ ml: 1, fontSize: '0.7rem', height: '20px' }}
-                />
-              </Box>
-            </MenuItem>
-          ))}
-        </Select>
-        {property.description && (
-          <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5 }}>
-            {property.description}
-          </Typography>
-        )}
-      </FormControl>
+      <Box key={key}>
+        <Typography variant="body2" color="textSecondary" gutterBottom>
+          {property.title || key}
+        </Typography>
+        <Alert severity="warning" sx={{ mt: 1 }}>
+          No data columns available. Please select a dataset first.
+        </Alert>
+      </Box>
     );
-  };
+  }
+  
+  return (
+    <FormControl fullWidth size="small" key={key}>
+      <InputLabel>{property.title || key}</InputLabel>
+      <Select
+        value={currentValue || ''}
+        label={property.title || key}
+        onChange={(e) => handleConfigChange(key, e.target.value)}
+      >
+        <MenuItem value="">
+          <em>Select field...</em>
+        </MenuItem>
+        {options.map(option => (
+          <MenuItem key={option.value} value={option.value}>
+            <Box display="flex" justifyContent="space-between" width="100%">
+              <span>{option.label}</span>
+              <Chip 
+                label={option.type} 
+                size="small" 
+                variant="outlined"
+                color={option.isNumeric ? 'primary' : option.isCategorical ? 'secondary' : 'default'}
+                sx={{ ml: 1, fontSize: '0.7rem', height: '20px' }}
+              />
+            </Box>
+          </MenuItem>
+        ))}
+      </Select>
+      {property.description && (
+        <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5 }}>
+          {property.description}
+        </Typography>
+      )}
+    </FormControl>
+  );
+};
 
   const renderStringField = (key: string, property: ConfigSchemaProperty, currentValue: any) => (
     <TextField
@@ -787,18 +809,33 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
   };
 
   const getExpectedDataTypes = (mappingType: string): string[] => {
-    switch (mappingType.toLowerCase()) {
-      case 'xfield':
-      case 'namefield':
-        return ['categorical', 'date'];
-      case 'yfield':
-      case 'valuefield':
-      case 'sizefield':
-        return ['numeric'];
-      default:
-        return ['categorical', 'numeric', 'date'];
-    }
-  };
+      switch (mappingType.toLowerCase()) {
+        case 'x-axis':
+        case 'xfield':
+        case 'category':
+          return ['categorical', 'date', 'string'];
+        
+        case 'y-axis': 
+        case 'yfield':
+        case 'value':
+        case 'measure':
+          return ['numeric'];
+          
+        case 'size':
+        case 'radius':
+          return ['numeric'];
+          
+        case 'color':
+          return ['categorical', 'numeric'];
+          
+        case 'date':
+        case 'time':
+          return ['date'];
+          
+        default:
+          return ['categorical', 'numeric', 'date']; // Allow all types by default
+      }
+    };
 
   const isNumericType = (dataType: string): boolean => {
     return ['number', 'integer', 'decimal', 'float', 'double', 'bigint'].some(type => 

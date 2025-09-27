@@ -361,6 +361,15 @@ const ChartBuilderPage: React.FC = () => {
   return [];
 }, [datasetSchemaResponse]);
 
+
+ const chartCustomizationDataColumns = useMemo(() => {
+  return dataColumns.map(col => ({
+    name: col.name,
+    display_name: col.display_name,
+    data_type: col.data_type
+  }));
+}, [dataColumns]);
+
   const [tabValue, setTabValue] = useState(0);
   const [showDatasetSelector, setShowDatasetSelector] = useState(false);
   const [showChartSelector, setShowChartSelector] = useState(false);
@@ -1507,7 +1516,7 @@ const ChartBuilderPage: React.FC = () => {
                           chartLibrary={chartConfig.library || ''} 
                           configuration={chartConfig.customization}
                           onChange={handleCustomizationChange}
-                          dataColumns={dataColumns}
+                          dataColumns={chartCustomizationDataColumns}
                         />
                       )}
                     </Box>
