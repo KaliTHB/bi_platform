@@ -372,21 +372,9 @@ export const datasetApi = createApi({
       }
     };
     
-    // ✅ CORRECT: Parses schema_json safely
-    if (response.data.schema_json) {
-      try {
-        const parsedSchema = JSON.parse(response.data.schema_json);
-        schema.columns = parsedSchema.columns || [{'nmae':'kali'}];
-        schema.fields = parsedSchema.fields || [];
-      } catch (error) {
-        console.warn('Failed to parse schema_json:', error);
-        schema.columns = [];
-      }
-    }
-    
     return {
       success: true,
-      schema: schema,
+      schema: response.data.schema_json,
       message: 'Schema retrieved successfully'
     };
   },

@@ -37,6 +37,15 @@ import {
   PieChart as PieChartIcon,
   ShowChart
 } from '@mui/icons-material';
+
+import { 
+  isNumericType, 
+  isCategoricalType, 
+  isDateType, 
+  getExpectedDataTypes,
+  validateFieldType 
+} from '@/utils/dataTypeUtils';
+
 import { ChartRegistry } from '@/plugins/charts/registry/ChartRegistry';
 import { ChartFactoryService } from '@/services/ChartFactoryService';
 import { ConfigMappingService } from '@/plugins/charts/services/ConfigMappingService';
