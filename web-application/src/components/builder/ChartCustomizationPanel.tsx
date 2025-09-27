@@ -150,8 +150,8 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
 
   // Generate chart plugin key
   const chartPluginKey = useMemo(() => {
-    return `${chartLibrary}-${chartType}`;
-  }, [chartLibrary, chartType]);
+    return `${chartType}`;
+  }, [chartType]);
 
   // Load chart plugin configuration
   useEffect(() => {
