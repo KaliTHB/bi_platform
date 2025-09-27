@@ -446,7 +446,7 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
 
       // Force field-selector rendering for axis fields even if type is not explicitly set
       const shouldRenderAsFieldSelector = 
-        property.type === 'field-selector' ||
+        property.type === 'selector' ||
         key === 'xField' || key === 'yField' ||
         key === 'x-axis' || key === 'y-axis' ||
         key.includes('Field') && (key.includes('x') || key.includes('y') || key.includes('X') || key.includes('Y'));
