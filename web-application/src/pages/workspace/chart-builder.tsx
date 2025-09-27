@@ -342,6 +342,7 @@ const ChartBuilderPage: React.FC = () => {
     }
   );
 
+
   // Extract data columns from dataset schema
   const dataColumns: ColumnDefinition[] = useMemo(() => {
   if (!datasetSchemaResponse?.success || !datasetSchemaResponse.schema) {
@@ -363,6 +364,13 @@ const ChartBuilderPage: React.FC = () => {
 
 
  const chartCustomizationDataColumns = useMemo(() => {
+  console.log('🚀 Chart Builder Debug - Before rendering ChartCustomizationPanel:', {
+    dataColumns: dataColumns?.length || 'undefined/empty',
+    dataColumnsActual: dataColumns,
+    selectedDataset: chartConfig.dataset?.id,
+    chartType: chartConfig.chartType,
+    library: chartConfig.library
+  });
   return dataColumns.map(col => ({
     name: col.name,
     display_name: col.display_name,
@@ -495,6 +503,7 @@ const ChartBuilderPage: React.FC = () => {
   }, [workflowState, chartConfig.chartType]);
 
   const isPreviewDisabled = !workflowState.configurationComplete || workflowState.previewLoading;
+
 
   // Load existing chart data when editing (RTK Query integration)
   useEffect(() => {

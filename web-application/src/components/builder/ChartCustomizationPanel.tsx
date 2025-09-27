@@ -141,6 +141,15 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
     'advanced': false
   });
 
+  // ADD THIS DEBUG LOG HERE - at the very start of the component
+  console.log('🔍 ChartCustomizationPanel Debug:', {
+    chartType,
+    chartLibrary,
+    dataColumns: dataColumns?.length || 'undefined/empty',
+    dataColumnsActual: dataColumns,
+    configuration
+  });
+
   // ============================================================================
   // CHART PLUGIN LOADING AND CONFIGURATION
   // ============================================================================
