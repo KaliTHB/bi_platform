@@ -38,7 +38,7 @@ interface ConfigSchema {
 }
 
 interface SchemaProperty {
-  type: 'string' | 'number' | 'boolean' | 'select';
+  type: 'string' | 'number' | 'boolean' | 'select' | 'multiselect' | 'array' | 'object';
   title?: string;
   description?: string;
   default?: any;

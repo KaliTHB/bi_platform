@@ -232,13 +232,13 @@ export const EChartsBarChartConfig: ChartPluginConfig = {
         default: 'Bar Chart'
       },
       xField: {
-        type: 'string',
+        type: 'select',
         title: 'X-Axis Field',
         description: 'Field name for categories (x-axis)',
         required: true
       },
       yField: {
-        type: 'string', 
+        type: 'select', 
         title: 'Y-Axis Field',
         description: 'Field name for values (y-axis)',
         required: true

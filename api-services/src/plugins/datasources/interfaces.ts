@@ -120,7 +120,7 @@ export interface ConfigurationSchema {
 }
 
 export interface SchemaProperty {
-  type: string;
+  type: 'string' | 'number' | 'boolean' | 'select' | 'multiselect' | 'array' | 'object';
   title: string;
   description?: string;
   default?: any;

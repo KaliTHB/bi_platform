@@ -71,7 +71,7 @@ interface ChartCustomizationPanelProps {
 }
 
 interface ConfigSchemaProperty {
-  type: string;
+  type: 'string' | 'number' | 'boolean' | 'select' | 'multiselect' | 'array' | 'object';
   title?: string;
   description?: string;
   default?: any;
@@ -450,6 +450,11 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
         key === 'xField' || key === 'yField' ||
         key === 'x-axis' || key === 'y-axis' ||
         key.includes('Field') && (key.includes('x') || key.includes('y') || key.includes('X') || key.includes('Y'));
+        // Add more comprehensive y-axis detection
+        key.includes('yAxis') || key.includes('Y-Axis') || key.includes('y_axis') ||
+        key === 'valueField' || key === 'value' || // Common aliases for y-axis
+        property.title?.toLowerCase().includes('y-axis') ||
+        property.title?.toLowerCase().includes('value');
 
       if (shouldRenderAsFieldSelector) {
         return renderFieldSelector(key, property, currentValue);
@@ -482,14 +487,20 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
   let mappingType = 'any';
   
   // Enhanced detection for axis fields
-  if (key === 'xField' || key === 'x-axis' || key.includes('xAxis') || key.includes('X-Axis')) {
-    mappingType = 'x-axis';
-  } else if (key === 'yField' || key === 'y-axis' || key.includes('yAxis') || key.includes('Y-Axis')) {
-    mappingType = 'y-axis';
-  } else if (key.includes('Field') || property.type === 'field-selector') {
-    mappingType = key;
-  }
-  
+  if (key === 'xField' || key === 'x-axis' || key.includes('xAxis') || key.includes('X-Axis') || key.includes('x_axis')) {
+      mappingType = 'x-axis';
+    } else if (
+      key === 'yField' || 
+      key === 'y-axis' || 
+      key.includes('yAxis') || 
+      key.includes('Y-Axis') || 
+      key.includes('y_axis') ||
+      key === 'valueField' ||
+      key === 'value'
+    ) {
+      mappingType = 'y-axis';
+    }
+      
   const options = getFieldOptionsForMapping(mappingType);
   
   // Show warning if no data columns available

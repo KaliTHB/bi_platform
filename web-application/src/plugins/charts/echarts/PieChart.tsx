@@ -215,13 +215,13 @@ export const EChartsPieChartConfig: ChartPluginConfig = {
         default: 'Pie Chart'
       },
       labelField: {
-        type: 'string',
+        type: 'select',
         title: 'Label Field',
         description: 'Field name for segment labels',
         required: true
       },
       valueField: {
-        type: 'string',
+        type: 'select',
         title: 'Value Field',
         description: 'Field name for segment values',
         required: true
