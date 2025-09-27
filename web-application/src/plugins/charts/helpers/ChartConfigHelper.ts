@@ -370,7 +370,7 @@ export class ChartConfigHelper {
         return [];
       case 'object':
         return {};
-      case 'field-selector':
+      case 'select':
         return '';
       case 'color':
         return '#1976d2';
@@ -534,7 +534,7 @@ export class ChartConfigHelper {
           /^rgb\(\d+,\s*\d+,\s*\d+\)$/i.test(value) ||
           /^[a-z]+$/i.test(value)
         );
-      case 'field-selector':
+      case 'select':
         return typeof value === 'string';
       default:
         return true; // Unknown types pass validation
@@ -549,7 +549,7 @@ export class ChartConfigHelper {
 
     if (schema.properties) {
       Object.entries(schema.properties).forEach(([key, property]: [string, any]) => {
-        if (property.type === 'field-selector' || key.includes('Field') || key.includes('field')) {
+        if (property.type === 'select' || key.includes('Field') || key.includes('field')) {
           assignments[key] = '';
         }
       });

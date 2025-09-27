@@ -1,5 +1,5 @@
 // src/components/builder/ChartCustomizationPanel.tsx
-// ENHANCED VERSION - Uses Chart Factory and Plugin Configurations Dynamically
+// FIXED VERSION - With Correct Export and Import Patterns
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -19,38 +19,108 @@ import {
   AccordionDetails,
   Alert,
   CircularProgress,
-  Divider,
   Chip,
-  Slider,
-  FormGroup,
-  IconButton,
-  Tooltip
+  Slider
 } from '@mui/material';
 import { 
   ExpandMore, 
   Refresh, 
-  Warning, 
-  Info, 
   Palette,
   Settings,
   BarChart,
-  PieChart as PieChartIcon,
   ShowChart
 } from '@mui/icons-material';
 
-import { 
-  isNumericType, 
-  isCategoricalType, 
-  isDateType, 
-  getExpectedDataTypes,
-  validateFieldType 
-} from '@/utils/dataTypeUtils';
+// ============================================================================
+// FALLBACK UTILITY FUNCTIONS
+// ============================================================================
 
-import { ChartRegistry } from '@/plugins/charts/registry/ChartRegistry';
-import { ChartFactoryService } from '@/services/ChartFactoryService';
-import { ConfigMappingService } from '@/plugins/charts/services/ConfigMappingService';
-import { ChartConfigHelper } from '@/plugins/charts/helpers/ChartConfigHelper';
+const isNumericType = (type: string): boolean => {
+  const numericTypes = ['number', 'integer', 'float', 'decimal', 'bigint', 'double'];
+  return numericTypes.includes(type?.toLowerCase());
+};
 
+const isCategoricalType = (type: string): boolean => {
+  const categoricalTypes = ['string', 'text', 'varchar', 'char', 'category'];
+  return categoricalTypes.includes(type?.toLowerCase());
+};
+
+const isDateType = (type: string): boolean => {
+  const dateTypes = ['date', 'datetime', 'timestamp', 'time'];
+  return dateTypes.includes(type?.toLowerCase());
+};
+
+const getExpectedDataTypes = (mappingType: string): string[] => {
+  switch (mappingType) {
+    case 'x-axis':
+      return ['categorical', 'date', 'numeric'];
+    case 'y-axis':
+      return ['numeric'];
+    case 'category':
+      return ['categorical'];
+    case 'value':
+      return ['numeric'];
+    default:
+      return ['categorical', 'numeric', 'date'];
+  }
+};
+
+const createDefaultConfigSchema = (chartType: string) => ({
+  type: 'object',
+  properties: {
+    title: {
+      type: 'string',
+      title: 'Chart Title',
+      default: `${chartType} Chart`,
+      description: 'The title of the chart'
+    },
+    xField: {
+      type: 'select',
+      title: 'X-Axis Field',
+      description: 'Select the field for X-axis',
+      required: true
+    },
+    yField: {
+      type: 'select',
+      title: 'Y-Axis Field', 
+      description: 'Select the field for Y-axis',
+      required: true
+    },
+    showLegend: {
+      type: 'boolean',
+      title: 'Show Legend',
+      default: true,
+      description: 'Show or hide the chart legend'
+    },
+    color: {
+      type: 'color',
+      title: 'Color',
+      default: '#1976d2',
+      description: 'Primary color for the chart'
+    },
+    animation: {
+      type: 'boolean',
+      title: 'Enable Animation',
+      default: true,
+      description: 'Enable chart animations'
+    },
+    showGrid: {
+      type: 'boolean',
+      title: 'Show Grid',
+      default: true,
+      description: 'Show or hide grid lines'
+    },
+    opacity: {
+      type: 'range',
+      title: 'Opacity',
+      default: 80,
+      minimum: 0,
+      maximum: 100,
+      description: 'Chart opacity percentage'
+    }
+  },
+  required: ['xField', 'yField']
+});
 
 // ============================================================================
 // INTERFACES AND TYPES
@@ -58,8 +128,8 @@ import { ChartConfigHelper } from '@/plugins/charts/helpers/ChartConfigHelper';
 
 interface ChartCustomizationPanelProps {
   chartType: string;
-  chartLibrary: string;
-  configuration: any;
+  chartLibrary?: string;
+  configuration?: any;
   dataColumns?: Array<{
     name: string;
     display_name?: string;
@@ -68,10 +138,13 @@ interface ChartCustomizationPanelProps {
   onChange: (config: any) => void;
   onReset?: () => void;
   onPreview?: (config: any) => void;
+  
+  // Alternative prop names that might be used in different contexts
+  customization?: any;
 }
 
 interface ConfigSchemaProperty {
-  type: 'string' | 'number' | 'boolean' | 'select' | 'multiselect' | 'array' | 'object';
+  type: 'string' | 'number' | 'boolean' | 'select' | 'multiselect' | 'array' | 'object' | 'color' | 'select' | 'range' | 'enum';
   title?: string;
   description?: string;
   default?: any;
@@ -123,11 +196,12 @@ interface ChartPlugin {
 // MAIN COMPONENT
 // ============================================================================
 
-export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
+const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
   chartType,
-  chartLibrary,
+  chartLibrary = 'echarts',
   configuration,
-  dataColumns = [], // Default to empty array
+  customization, // Alternative prop name
+  dataColumns = [],
   onChange,
   onReset,
   onPreview
@@ -150,28 +224,24 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
     'advanced': false
   });
 
-  // ADD THIS DEBUG LOG HERE - at the very start of the component
+  // Handle both configuration and customization props
+  const activeConfiguration = configuration || customization || {};
+
   console.log('🔍 ChartCustomizationPanel Debug:', {
     chartType,
     chartLibrary,
     dataColumns: dataColumns?.length || 'undefined/empty',
     dataColumnsActual: dataColumns,
-    configuration
+    configuration: activeConfiguration
   });
 
   // ============================================================================
-  // CHART PLUGIN LOADING AND CONFIGURATION
+  // CHART PLUGIN LOADING
   // ============================================================================
 
-  // Check if we have data columns available
   const hasDataColumns = dataColumns && Array.isArray(dataColumns) && dataColumns.length > 0;
-
-  // Generate chart plugin key
-  const chartPluginKey = useMemo(() => {
-    return `${chartType}`;
-  }, [chartType]);
-
-  // Load chart plugin configuration
+  const chartPluginKey = useMemo(() => `${chartType}`, [chartType]);
+  
   useEffect(() => {
     loadChartPlugin();
   }, [chartPluginKey]);
@@ -181,38 +251,36 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
     setError(null);
 
     try {
-      console.log(`🔍 Loading chart plugin: ${chartPluginKey}`);
+      console.log(`🔍 Loading chart plugin for: ${chartType}`);
       
-      // Initialize ChartRegistry if not already done
-      await ChartRegistry.initialize();
+      // Try to get plugin from registry (with fallback)
+      let plugin: ChartPlugin;
       
-      // Get plugin from registry
-      const plugin = ChartRegistry.getPlugin(chartPluginKey);
-      
-      if (plugin) {
-        console.log(`✅ Chart plugin loaded:`, plugin);
-        setChartPlugin({
-          name: plugin.name,
-          displayName: plugin.displayName,
-          category: plugin.category,
-          library: plugin.library,
-          configSchema: plugin.configSchema,
-          dataRequirements: plugin.dataRequirements
-        });
-      } else {
-        // Fallback: Create basic plugin configuration
-        console.warn(`⚠️ Plugin ${chartPluginKey} not found, creating fallback`);
-        const fallbackPlugin = createFallbackPlugin(chartType, chartLibrary);
-        setChartPlugin(fallbackPlugin);
+      try {
+        // Try to import the registry dynamically
+        const { ChartRegistry } = await import('@/plugins/charts/registry/ChartRegistry');
+        plugin = await ChartRegistry.getPlugin(chartType, chartLibrary);
+      } catch (registryError) {
+        console.warn('⚠️ Chart registry not available, using fallback plugin');
+        plugin = null;
       }
       
+      if (!plugin) {
+        plugin = createFallbackPlugin(chartType, chartLibrary);
+        console.warn(`⚠️ Using fallback plugin for ${chartType}`);
+      }
+      
+      console.log('📋 Loaded chart plugin:', {
+        name: plugin.name,
+        library: plugin.library,
+        schemaProperties: Object.keys(plugin.configSchema?.properties || {}),
+        totalProperties: Object.keys(plugin.configSchema?.properties || {}).length
+      });
+      
+      setChartPlugin(plugin);
     } catch (err) {
       console.error('❌ Failed to load chart plugin:', err);
-      setError(`Failed to load chart configuration: ${err instanceof Error ? err.message : 'Unknown error'}`);
-      
-      // Create fallback plugin even on error
-      const fallbackPlugin = createFallbackPlugin(chartType, chartLibrary);
-      setChartPlugin(fallbackPlugin);
+      setError(err instanceof Error ? err.message : 'Failed to load chart configuration');
     } finally {
       setLoading(false);
     }
@@ -222,199 +290,78 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
   // CONFIGURATION MANAGEMENT
   // ============================================================================
 
-  // Safe configuration with dynamic defaults
   const safeConfiguration = useMemo(() => {
-    if (configuration && Object.keys(configuration).length > 0) {
-      return configuration;
-    }
+    return activeConfiguration || {};
+  }, [activeConfiguration]);
 
-    if (!chartPlugin) {
-      return {};
-    }
-
-    // Create default configuration from schema
-    return ChartConfigHelper.createDefaultConfigurationFromSchema(chartPlugin.configSchema, chartType);
-  }, [configuration, chartPlugin, chartType]);
-
-  // Validate configuration when it changes
-  useEffect(() => {
-    if (chartPlugin && safeConfiguration) {
-      validateConfiguration();
-    }
-  }, [chartPlugin, safeConfiguration]);
-
-  const validateConfiguration = () => {
-    if (!chartPlugin) return;
-
-    const errors: ValidationResult['errors'] = [];
-
-    try {
-      // Validate using ChartFactoryService if available
-      const factoryService = ChartFactoryService.getInstance();
-      
-      // Validate required fields from schema
-      if (chartPlugin.configSchema.required) {
-        chartPlugin.configSchema.required.forEach(field => {
-          const value = getNestedValue(safeConfiguration, field);
-          if (value === undefined || value === null || value === '') {
-            errors.push({
-              field,
-              message: `${chartPlugin.configSchema.properties[field]?.title || field} is required`,
-              code: 'REQUIRED_FIELD_MISSING',
-              severity: 'error'
-            });
-          }
-        });
-      }
-
-      // Validate data field assignments
-      validateDataFields(errors);
-
-      // Validate data type compatibility
-      validateDataTypes(errors);
-
-    } catch (err) {
-      console.error('Validation error:', err);
-      errors.push({
-        field: 'general',
-        message: 'Configuration validation failed',
-        code: 'VALIDATION_ERROR',
-        severity: 'warning'
-      });
-    }
-
-    setValidation({ 
-      isValid: errors.filter(e => e.severity === 'error').length === 0, 
-      errors 
-    });
-  };
-
-  const validateDataFields = (errors: ValidationResult['errors']) => {
-    if (!chartPlugin) return;
-
-    const requiredFields = chartPlugin.dataRequirements.requiredFields || [];
+  const handleConfigChange = useCallback((key: string, value: any) => {
+    console.log(`🔧 Config change: ${key} = ${value}`);
     
-    // Check if chart needs field mappings
-    if (needsFieldMapping(chartType)) {
-      const mappingFields = getRequiredMappingFields(chartType);
-      
-      mappingFields.forEach(field => {
-        const value = getFieldMapping(field);
-        if (!value) {
-          errors.push({
-            field,
-            message: `${field.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())} field is required`,
-            code: 'FIELD_MAPPING_MISSING',
-            severity: 'error'
-          });
-        }
-      });
-    }
-  };
-
-  const validateDataTypes = (errors: ValidationResult['errors']) => {
-    if (!chartPlugin || !dataColumns || !Array.isArray(dataColumns)) return;
-
-    // Get field mappings and validate their data types
-    const mappings = getFieldMappings();
+    const newConfig = { ...safeConfiguration };
+    setNestedValue(newConfig, key, value);
     
-    Object.entries(mappings).forEach(([mappingType, fieldName]) => {
-      if (fieldName && typeof fieldName === 'string') {
-        const column = dataColumns.find(col => col.name === fieldName);
-        if (column) {
-          const isValidType = validateFieldType(
-            column.data_type, 
-            getExpectedDataTypes(mappingType)
-          );
-          
-          if (!isValidType) {
-            errors.push({
-              field: mappingType,
-              message: `${fieldName} (${column.data_type}) may not be suitable for ${mappingType}`,
-              code: 'FIELD_TYPE_WARNING',
-              severity: 'warning'
-            });
-          }
-        }
+    onChange(newConfig);
+  }, [safeConfiguration, onChange]);
+
+  // ============================================================================
+  // UTILITY FUNCTIONS
+  // ============================================================================
+
+  const getNestedValue = (obj: any, path: string): any => {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+  };
+
+  const setNestedValue = (obj: any, path: string, value: any) => {
+    const keys = path.split('.');
+    const lastKey = keys.pop();
+    if (!lastKey) return obj;
+    
+    const target = keys.reduce((current, key) => {
+      if (current[key] === undefined) {
+        current[key] = {};
       }
-    });
+      return current[key];
+    }, obj);
+    
+    target[lastKey] = value;
+    return obj;
+  };
+
+  const createFallbackPlugin = (chartType: string, chartLibrary: string): ChartPlugin => {
+    return {
+      name: `${chartLibrary}-${chartType}`,
+      displayName: `${chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart`,
+      category: 'basic',
+      library: chartLibrary,
+      configSchema: createDefaultConfigSchema(chartType),
+      dataRequirements: {
+        minColumns: 1,
+        maxColumns: 10,
+        requiredFields: [],
+        supportedTypes: ['string', 'number']
+      }
+    };
   };
 
   // ============================================================================
-  // EVENT HANDLERS
-  // ============================================================================
-
-  const handleConfigChange = useCallback((path: string, value: any) => {
-    if (!onChange) return;
-
-    try {
-      console.log(`🔧 Config change: ${path} =`, value);
-      
-      const newConfig = { ...safeConfiguration };
-      setNestedValue(newConfig, path, value);
-      
-      // If this is a field mapping, update the fieldAssignments object too
-      if (isFieldMappingPath(path)) {
-        if (!newConfig.fieldAssignments) {
-          newConfig.fieldAssignments = {};
-        }
-        newConfig.fieldAssignments[path] = value;
-      }
-      
-      onChange(newConfig);
-      
-      // Trigger preview if available
-      if (onPreview) {
-        onPreview(newConfig);
-      }
-      
-    } catch (error) {
-      console.error('Error in handleConfigChange:', error);
-    }
-  }, [safeConfiguration, onChange, onPreview]);
-
-  const handleReset = useCallback(() => {
-    try {
-      if (onReset) {
-        onReset();
-      } else if (onChange && chartPlugin) {
-        const defaultConfig = createDefaultConfigurationFromSchema(
-          chartPlugin.configSchema, 
-          chartType
-        );
-        onChange(defaultConfig);
-      }
-    } catch (error) {
-      console.error('Error in handleReset:', error);
-    }
-  }, [onReset, onChange, chartPlugin, chartType]);
-
-  const toggleSection = (section: string) => {
-    setExpandedSections(prev => ({
-      ...prev,
-      [section]: !prev[section]
-    }));
-  };
-
-  // ============================================================================
-  // FIELD OPTIONS AND MAPPINGS
+  // FIELD OPTIONS AND MAPPING
   // ============================================================================
 
   const fieldOptions = useMemo(() => {
-  if (!dataColumns || !Array.isArray(dataColumns)) {
-    console.warn('No dataColumns available for field options');
-    return [];
-  }
+    if (!hasDataColumns) {
+      console.warn('⚠️ No data columns available for field options');
+      return [];
+    }
 
-  return dataColumns.map(col => ({
-    label: col.display_name,
-    value: col.name,
-    type: col.data_type,
-    isNumeric: isNumericType(col.data_type),
-    isCategorical: isCategoricalType(col.data_type),
-    isDate: isDateType(col.data_type)
-  }));
-}, [dataColumns]);
+    return dataColumns.map(col => ({
+      label: col.display_name || col.name,
+      value: col.name,
+      type: col.data_type,
+      isNumeric: isNumericType(col.data_type),
+      isCategorical: isCategoricalType(col.data_type),
+      isDate: isDateType(col.data_type)
+    }));
+  }, [dataColumns, hasDataColumns]);
 
   const getFieldOptionsForMapping = (mappingType: string) => {
     const expectedTypes = getExpectedDataTypes(mappingType);
@@ -432,62 +379,127 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
   };
 
   // ============================================================================
+  // HELPER FUNCTIONS FOR PROPERTY GROUPING
+  // ============================================================================
+
+  const determinePropertyGroup = (key: string, property: ConfigSchemaProperty): 'data-mapping' | 'appearance' | 'behavior' | 'advanced' => {
+    // Data mapping fields
+    if (
+      property.type === 'select' ||
+      key.includes('Field') || 
+      key.includes('field') ||
+      key.includes('axis') ||
+      key.includes('Axis') ||
+      key === 'xField' || key === 'yField' ||
+      key === 'categoryField' || key === 'valueField' ||
+      key === 'seriesField'
+    ) {
+      return 'data-mapping';
+    }
+
+    // Appearance fields
+    if (
+      property.type === 'color' ||
+      key.includes('color') || key.includes('Color') ||
+      key.includes('style') || key.includes('Style') ||
+      key.includes('theme') || key.includes('Theme') ||
+      key.includes('font') || key.includes('Font') ||
+      key === 'title' || key === 'showLegend' || key === 'showGrid' ||
+      key.includes('width') || key.includes('height') ||
+      key.includes('size') || key.includes('Size')
+    ) {
+      return 'appearance';
+    }
+
+    // Behavior fields
+    if (
+      property.type === 'boolean' ||
+      key.includes('show') || key.includes('Show') ||
+      key.includes('enable') || key.includes('Enable') ||
+      key.includes('animation') || key.includes('Animation') ||
+      key.includes('interaction') || key.includes('Interaction') ||
+      key === 'responsive' || key === 'smooth' ||
+      key.includes('hover') || key.includes('click')
+    ) {
+      return 'behavior';
+    }
+
+    // Everything else goes to advanced
+    return 'advanced';
+  };
+
+  const handleSectionToggle = (section: string, isExpanded: boolean) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: isExpanded
+    }));
+  };
+
+  // ============================================================================
   // FORM FIELD RENDERERS
   // ============================================================================
 
   const renderFormField = (key: string, property: ConfigSchemaProperty, currentValue: any) => {
-      // Check conditional rendering
-      if (property.conditional) {
-        const conditionValue = getNestedValue(safeConfiguration, property.conditional.field);
-        if (conditionValue !== property.conditional.value) {
-          return null;
-        }
+    // ONLY hide fields if there's a conditional that fails
+    if (property.conditional) {
+      const conditionValue = getNestedValue(safeConfiguration, property.conditional.field);
+      if (conditionValue !== property.conditional.value) {
+        console.log(`🚫 Hiding ${key} due to conditional: ${property.conditional.field} = ${conditionValue} !== ${property.conditional.value}`);
+        return null;
       }
+    }
 
-      // Force field-selector rendering for axis fields even if type is not explicitly set
-      const shouldRenderAsFieldSelector = 
-        property.type === 'selector' ||
-        key === 'xField' || key === 'yField' ||
-        key === 'x-axis' || key === 'y-axis' ||
-        key.includes('Field') && (key.includes('x') || key.includes('y') || key.includes('X') || key.includes('Y'));
-        // Add more comprehensive y-axis detection
-        key.includes('yAxis') || key.includes('Y-Axis') || key.includes('y_axis') ||
-        key === 'valueField' || key === 'value' || // Common aliases for y-axis
-        property.title?.toLowerCase().includes('y-axis') ||
-        property.title?.toLowerCase().includes('value');
+    // Log what we're rendering
+    console.log(`🎨 Rendering field ${key}:`, {
+      type: property.type,
+      title: property.title,
+      currentValue,
+      hasDefault: property.default !== undefined
+    });
 
-      if (shouldRenderAsFieldSelector) {
-        return renderFieldSelector(key, property, currentValue);
-      }
+    // Force select rendering for axis fields
+    const shouldRenderAsFieldSelector = 
+      property.type === 'select' ||
+      key === 'xField' || key === 'yField' ||
+      key === 'x-axis' || key === 'y-axis' ||
+      key.includes('Field') && (key.includes('x') || key.includes('y') || key.includes('X') || key.includes('Y')) ||
+      key.includes('yAxis') || key.includes('Y-Axis') || key.includes('y_axis') ||
+      key === 'valueField' || key === 'value' ||
+      property.title?.toLowerCase().includes('y-axis') ||
+      property.title?.toLowerCase().includes('x-axis') ||
+      property.title?.toLowerCase().includes('value');
 
-      switch (property.type) {
-        case 'string':
-          return renderStringField(key, property, currentValue);
-        case 'number':
-          return renderNumberField(key, property, currentValue);
-        case 'boolean':
-          return renderBooleanField(key, property, currentValue);
-        case 'color':
-          return renderColorField(key, property, currentValue);
-        case 'select':
-        case 'enum':
-          return renderSelectField(key, property, currentValue);
-        case 'range':
-          return renderRangeField(key, property, currentValue);
-        case 'array':
-          return renderArrayField(key, property, currentValue);
-        default:
-          return renderGenericField(key, property, currentValue);
-      }
-    };
-  
-  
+    if (shouldRenderAsFieldSelector) {
+      return renderFieldSelector(key, property, currentValue);
+    }
+
+    // Render based on property type
+    switch (property.type) {
+      case 'string':
+        return renderStringField(key, property, currentValue);
+      case 'number':
+        return renderNumberField(key, property, currentValue);
+      case 'boolean':
+        return renderBooleanField(key, property, currentValue);
+      case 'color':
+        return renderColorField(key, property, currentValue);
+      case 'select':
+      case 'enum':
+        return renderSelectField(key, property, currentValue);
+      case 'range':
+        return renderRangeField(key, property, currentValue);
+      case 'array':
+        return renderArrayField(key, property, currentValue);
+      default:
+        console.log(`⚠️ Unknown field type for ${key}: ${property.type}, rendering as generic`);
+        return renderGenericField(key, property, currentValue);
+    }
+  };
+
   const renderFieldSelector = (key: string, property: ConfigSchemaProperty, currentValue: any) => {
-  // Improve mapping type detection for axis fields
-  let mappingType = 'any';
-  
-  // Enhanced detection for axis fields
-  if (key === 'xField' || key === 'x-axis' || key.includes('xAxis') || key.includes('X-Axis') || key.includes('x_axis')) {
+    let mappingType = 'any';
+    
+    if (key === 'xField' || key === 'x-axis' || key.includes('xAxis') || key.includes('X-Axis') || key.includes('x_axis')) {
       mappingType = 'x-axis';
     } else if (
       key === 'yField' || 
@@ -500,57 +512,56 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
     ) {
       mappingType = 'y-axis';
     }
-      
-  const options = getFieldOptionsForMapping(mappingType);
-  
-  // Show warning if no data columns available
-  if (!dataColumns || !Array.isArray(dataColumns) || dataColumns.length === 0) {
+        
+    const options = getFieldOptionsForMapping(mappingType);
+    
+    if (!dataColumns || !Array.isArray(dataColumns) || dataColumns.length === 0) {
+      return (
+        <Box key={key}>
+          <Typography variant="body2" color="textSecondary" gutterBottom>
+            {property.title || key}
+          </Typography>
+          <Alert severity="warning" sx={{ mt: 1 }}>
+            No data columns available. Please select a dataset first.
+          </Alert>
+        </Box>
+      );
+    }
+    
     return (
-      <Box key={key}>
-        <Typography variant="body2" color="textSecondary" gutterBottom>
-          {property.title || key}
-        </Typography>
-        <Alert severity="warning" sx={{ mt: 1 }}>
-          No data columns available. Please select a dataset first.
-        </Alert>
-      </Box>
-    );
-  }
-  
-  return (
-    <FormControl fullWidth size="small" key={key}>
-      <InputLabel>{property.title || key}</InputLabel>
-      <Select
-        value={currentValue || ''}
-        label={property.title || key}
-        onChange={(e) => handleConfigChange(key, e.target.value)}
-      >
-        <MenuItem value="">
-          <em>Select field...</em>
-        </MenuItem>
-        {options.map(option => (
-          <MenuItem key={option.value} value={option.value}>
-            <Box display="flex" justifyContent="space-between" width="100%">
-              <span>{option.label}</span>
-              <Chip 
-                label={option.type} 
-                size="small" 
-                variant="outlined"
-                color={option.isNumeric ? 'primary' : option.isCategorical ? 'secondary' : 'default'}
-                sx={{ ml: 1, fontSize: '0.7rem', height: '20px' }}
-              />
-            </Box>
+      <FormControl fullWidth size="small" key={key}>
+        <InputLabel>{property.title || key}</InputLabel>
+        <Select
+          value={currentValue || ''}
+          label={property.title || key}
+          onChange={(e) => handleConfigChange(key, e.target.value)}
+        >
+          <MenuItem value="">
+            <em>Select field...</em>
           </MenuItem>
-        ))}
-      </Select>
-      {property.description && (
-        <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5 }}>
-          {property.description}
-        </Typography>
-      )}
-    </FormControl>
-  );
-};
+          {options.map(option => (
+            <MenuItem key={option.value} value={option.value}>
+              <Box display="flex" justifyContent="space-between" width="100%">
+                <span>{option.label}</span>
+                <Chip 
+                  label={option.type} 
+                  size="small" 
+                  variant="outlined"
+                  color={option.isNumeric ? 'primary' : option.isCategorical ? 'secondary' : 'default'}
+                  sx={{ ml: 1, fontSize: '0.7rem', height: '20px' }}
+                />
+              </Box>
+            </MenuItem>
+          ))}
+        </Select>
+        {property.description && (
+          <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5 }}>
+            {property.description}
+          </Typography>
+        )}
+      </FormControl>
+    );
+  };
 
   const renderStringField = (key: string, property: ConfigSchemaProperty, currentValue: any) => (
     <TextField
@@ -643,7 +654,6 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
         {(property.enum || []).map((option, index) => {
           const optionValue = typeof option === 'object' ? option.value : option;
           const optionLabel = typeof option === 'object' ? option.label : option;
-          
           return (
             <MenuItem key={index} value={optionValue}>
               {optionLabel}
@@ -662,14 +672,15 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
   const renderRangeField = (key: string, property: ConfigSchemaProperty, currentValue: any) => (
     <Box key={key}>
       <Typography variant="body2" gutterBottom>
-        {property.title || key}: {currentValue ?? property.default ?? 0}
+        {property.title || key}: {currentValue || property.default || property.minimum || 0}
       </Typography>
       <Slider
-        value={currentValue ?? property.default ?? 0}
+        value={currentValue || property.default || property.minimum || 0}
         onChange={(_, value) => handleConfigChange(key, value)}
         min={property.minimum || 0}
         max={property.maximum || 100}
         step={1}
+        marks
         valueLabelDisplay="auto"
       />
       {property.description && (
@@ -680,402 +691,312 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
     </Box>
   );
 
-  const renderArrayField = (key: string, property: ConfigSchemaProperty, currentValue: any) => (
-    <TextField
-      key={key}
-      fullWidth
-      size="small"
-      label={property.title || key}
-      value={Array.isArray(currentValue) ? currentValue.join(', ') : currentValue || ''}
-      onChange={(e) => {
-        const arrayValue = e.target.value.split(',').map(v => v.trim()).filter(v => v);
-        handleConfigChange(key, arrayValue);
-      }}
-      helperText={property.description || 'Enter comma-separated values'}
-      multiline
-    />
-  );
+  const renderArrayField = (key: string, property: ConfigSchemaProperty, currentValue: any) => {
+    const arrayValue = Array.isArray(currentValue) ? currentValue : (property.default || []);
+    
+    return (
+      <Box key={key}>
+        <Typography variant="body2" gutterBottom>
+          {property.title || key}
+        </Typography>
+        <TextField
+          fullWidth
+          size="small"
+          multiline
+          rows={3}
+          value={arrayValue.join(', ')}
+          onChange={(e) => {
+            const newArray = e.target.value.split(',').map(item => item.trim()).filter(item => item);
+            handleConfigChange(key, newArray);
+          }}
+          helperText={property.description || 'Enter values separated by commas'}
+          placeholder="value1, value2, value3"
+        />
+      </Box>
+    );
+  };
 
-  const renderGenericField = (key: string, property: ConfigSchemaProperty, currentValue: any) => (
-    <TextField
-      key={key}
-      fullWidth
-      size="small"
-      label={property.title || key}
-      value={typeof currentValue === 'object' ? JSON.stringify(currentValue) : (currentValue || '')}
-      onChange={(e) => {
-        try {
-          const parsed = JSON.parse(e.target.value);
-          handleConfigChange(key, parsed);
-        } catch {
-          handleConfigChange(key, e.target.value);
-        }
-      }}
-      multiline={typeof currentValue === 'object'}
-      rows={typeof currentValue === 'object' ? 3 : 1}
-      helperText={property.description}
-    />
-  );
+  const renderGenericField = (key: string, property: ConfigSchemaProperty, currentValue: any) => {
+    console.log(`🔧 Rendering generic field for ${key}`);
+    
+    return (
+      <TextField
+        key={key}
+        fullWidth
+        size="small"
+        label={property.title || key}
+        value={currentValue || property.default || ''}
+        onChange={(e) => handleConfigChange(key, e.target.value)}
+        helperText={property.description || `Generic field (${property.type})`}
+      />
+    );
+  };
 
   // ============================================================================
-  // CONFIGURATION SECTION BUILDERS
+  // CONFIGURATION RENDERING - PROCESS ALL PROPERTIES
   // ============================================================================
 
-  const buildConfigurationSections = () => {
+  const renderConfigurationSections = () => {
     if (!chartPlugin?.configSchema?.properties) {
-      return {};
+      return (
+        <Alert severity="info" sx={{ mt: 2 }}>
+          No configuration options available for this chart type.
+        </Alert>
+      );
     }
 
-    const sections: Record<string, ConfigSchemaProperty[]> = {
-      'data-mapping': [],
-      'appearance': [],
-      'behavior': [],
-      'advanced': []
-    };
-
-    Object.entries(chartPlugin.configSchema.properties).forEach(([key, property]) => {
-      const sectionKey = getSectionForProperty(key, property);
-      sections[sectionKey].push({ ...property, key } as ConfigSchemaProperty & { key: string });
+    // **CRITICAL FIX**: Process ALL properties from schema
+    const allProperties = chartPlugin.configSchema.properties || {};
+    const requiredFields = chartPlugin.configSchema.required || [];
+    
+    console.log('🔍 Processing All Properties:', {
+      totalProperties: Object.keys(allProperties).length,
+      allPropertyKeys: Object.keys(allProperties),
+      requiredFields: requiredFields,
+      currentConfiguration: safeConfiguration
     });
 
-    return sections;
-  };
-
-  const getSectionForProperty = (key: string, property: ConfigSchemaProperty): string => {
-    // Use explicit group if provided
-    if (property.group) {
-      return property.group;
-    }
-
-    // Categorize by key patterns
-    if (key.includes('Field') || key.includes('field') || key === 'xField' || key === 'yField') {
-      return 'data-mapping';
-    }
-    
-    if (key.includes('color') || key.includes('Color') || key === 'colors' || key.includes('style')) {
-      return 'appearance';
-    }
-    
-    if (key.includes('animation') || key.includes('interaction') || key.includes('zoom')) {
-      return 'behavior';
-    }
-    
-    if (key.includes('title') || key.includes('legend') || key.includes('show')) {
-      return 'appearance';
-    }
-    
-    return 'advanced';
-  };
-
-  // ============================================================================
-  // UTILITY FUNCTIONS
-  // ============================================================================
-
-  // Helper functions for configuration management
-  const getNestedValue = (obj: any, path: string) => {
-    return path.split('.').reduce((current, key) => current?.[key], obj);
-  };
-
-  const setNestedValue = (obj: any, path: string, value: any) => {
-    const keys = path.split('.');
-    const lastKey = keys.pop();
-    if (!lastKey) return obj;
-    
-    const target = keys.reduce((current, key) => {
-      if (current[key] === undefined) {
-        current[key] = {};
-      }
-      return current[key];
-    }, obj);
-    
-    target[lastKey] = value;
-    return obj;
-  };
-
-  const needsFieldMapping = (type: string): boolean => {
-    const mappingCharts = ['bar', 'line', 'scatter', 'area', 'column'];
-    return mappingCharts.includes(type.toLowerCase());
-  };
-
-  const getRequiredMappingFields = (type: string): string[] => {
-    switch (type.toLowerCase()) {
-      case 'bar':
-      case 'line':
-      case 'scatter':
-      case 'area':
-      case 'column':
-        return ['xField', 'yField'];
-      case 'pie':
-      case 'doughnut':
-        return ['nameField', 'valueField'];
-      default:
-        return [];
-    }
-  };
-
-  const getFieldMapping = (field: string): string | null => {
-    return safeConfiguration[field] || 
-           safeConfiguration.fieldAssignments?.[field] || 
-           null;
-  };
-
-  const getFieldMappings = (): Record<string, string> => {
-    const mappings: Record<string, string> = {};
-    const fields = getRequiredMappingFields(chartType);
-    
-    fields.forEach(field => {
-      const value = getFieldMapping(field);
-      if (value) {
-        mappings[field] = value;
-      }
-    });
-    
-    return mappings;
-  };
-
-  const isFieldMappingPath = (path: string): boolean => {
-    return path.includes('Field') || path.includes('field');
-  };
-
-  // ============================================================================
-  // FALLBACK AND DEFAULT CONFIGURATIONS
-  // ============================================================================
-
-  const createFallbackPlugin = (chartType: string, chartLibrary: string): ChartPlugin => {
-    return {
-      name: `${chartLibrary}-${chartType}`,
-      displayName: `${chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart`,
-      category: 'basic',
-      library: chartLibrary,
-      configSchema: ChartConfigHelper.createDefaultConfigSchema(chartType),
-      dataRequirements: {
-        minColumns: 1,
-        maxColumns: 10,
-        requiredFields: [],
-        supportedTypes: ['string', 'number']
-      }
-    };
-  };
-
-  const createDefaultConfigurationFromSchema = (schema: ConfigSchema, chartType: string) => {
-    const config: Record<string, any> = {
-      chartType,
-      fieldAssignments: {}
+    // Group properties by category
+    const propertyGroups = {
+      'data-mapping': [] as Array<{ key: string; property: ConfigSchemaProperty; component: React.ReactNode }>,
+      'appearance': [] as Array<{ key: string; property: ConfigSchemaProperty; component: React.ReactNode }>,
+      'behavior': [] as Array<{ key: string; property: ConfigSchemaProperty; component: React.ReactNode }>,
+      'advanced': [] as Array<{ key: string; property: ConfigSchemaProperty; component: React.ReactNode }>
     };
 
-    if (schema.properties) {
-      Object.entries(schema.properties).forEach(([key, property]) => {
-        if (property.default !== undefined) {
-          config[key] = property.default;
-        }
+    // **PROCESS ALL PROPERTIES** - This is the key fix
+    Object.entries(allProperties).forEach(([key, property]) => {
+      console.log(`🔍 Processing property: ${key}`, {
+        type: property.type,
+        title: property.title,
+        required: requiredFields.includes(key),
+        hasConditional: !!property.conditional,
+        currentValue: getNestedValue(safeConfiguration, key)
       });
-    }
 
-    return config;
+      const currentValue = getNestedValue(safeConfiguration, key);
+      const fieldComponent = renderFormField(key, property, currentValue);
+      
+      if (fieldComponent === null) {
+        console.log(`⏭️ Skipping property ${key} due to conditional logic`);
+        return;
+      }
+
+      const group = determinePropertyGroup(key, property);
+      
+      propertyGroups[group].push({
+        key,
+        property,
+        component: fieldComponent
+      });
+
+      console.log(`✅ Added property ${key} to ${group} group`);
+    });
+
+    // Log summary
+    console.log('📊 Property Processing Summary:', {
+      'data-mapping': propertyGroups['data-mapping'].length,
+      'appearance': propertyGroups['appearance'].length,
+      'behavior': propertyGroups['behavior'].length,
+      'advanced': propertyGroups['advanced'].length,
+      total: Object.values(propertyGroups).reduce((sum, group) => sum + group.length, 0)
+    });
+
+    return (
+      <Box sx={{ mt: 2 }}>
+        {/* Data Mapping Section */}
+        {propertyGroups['data-mapping'].length > 0 && (
+          <Accordion 
+            expanded={expandedSections['data-mapping']} 
+            onChange={(_, isExpanded) => handleSectionToggle('data-mapping', isExpanded)}
+          >
+            <AccordionSummary expandIcon={<ExpandMore />}>
+              <Box display="flex" alignItems="center" gap={1}>
+                <BarChart fontSize="small" />
+                <Typography variant="h6">Data Mapping</Typography>
+                <Chip size="small" label={propertyGroups['data-mapping'].length} />
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Box display="flex" flexDirection="column" gap={2}>
+                {propertyGroups['data-mapping'].map(({ key, component }) => (
+                  <Box key={key}>{component}</Box>
+                ))}
+              </Box>
+            </AccordionDetails>
+          </Accordion>
+        )}
+
+        {/* Appearance Section */}
+        {propertyGroups['appearance'].length > 0 && (
+          <Accordion 
+            expanded={expandedSections['appearance']} 
+            onChange={(_, isExpanded) => handleSectionToggle('appearance', isExpanded)}
+          >
+            <AccordionSummary expandIcon={<ExpandMore />}>
+              <Box display="flex" alignItems="center" gap={1}>
+                <Palette fontSize="small" />
+                <Typography variant="h6">Appearance</Typography>
+                <Chip size="small" label={propertyGroups['appearance'].length} />
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Box display="flex" flexDirection="column" gap={2}>
+                {propertyGroups['appearance'].map(({ key, component }) => (
+                  <Box key={key}>{component}</Box>
+                ))}
+              </Box>
+            </AccordionDetails>
+          </Accordion>
+        )}
+
+        {/* Behavior Section */}
+        {propertyGroups['behavior'].length > 0 && (
+          <Accordion 
+            expanded={expandedSections['behavior']} 
+            onChange={(_, isExpanded) => handleSectionToggle('behavior', isExpanded)}
+          >
+            <AccordionSummary expandIcon={<ExpandMore />}>
+              <Box display="flex" alignItems="center" gap={1}>
+                <Settings fontSize="small" />
+                <Typography variant="h6">Behavior</Typography>
+                <Chip size="small" label={propertyGroups['behavior'].length} />
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Box display="flex" flexDirection="column" gap={2}>
+                {propertyGroups['behavior'].map(({ key, component }) => (
+                  <Box key={key}>{component}</Box>
+                ))}
+              </Box>
+            </AccordionDetails>
+          </Accordion>
+        )}
+
+        {/* Advanced Section */}
+        {propertyGroups['advanced'].length > 0 && (
+          <Accordion 
+            expanded={expandedSections['advanced']} 
+            onChange={(_, isExpanded) => handleSectionToggle('advanced', isExpanded)}
+          >
+            <AccordionSummary expandIcon={<ExpandMore />}>
+              <Box display="flex" alignItems="center" gap={1}>
+                <ShowChart fontSize="small" />
+                <Typography variant="h6">Advanced</Typography>
+                <Chip size="small" label={propertyGroups['advanced'].length} />
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Box display="flex" flexDirection="column" gap={2}>
+                {propertyGroups['advanced'].map(({ key, component }) => (
+                  <Box key={key}>{component}</Box>
+                ))}
+              </Box>
+            </AccordionDetails>
+          </Accordion>
+        )}
+
+        {/* Debug info if no properties */}
+        {Object.values(propertyGroups).every(group => group.length === 0) && (
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            <Typography variant="body2" gutterBottom>
+              No configuration properties were rendered.
+            </Typography>
+            <Typography variant="caption" color="textSecondary">
+              Debug info: Schema has {Object.keys(allProperties).length} properties
+            </Typography>
+          </Alert>
+        )}
+      </Box>
+    );
   };
 
   // ============================================================================
-  // RENDER COMPONENT
+  // MAIN RENDER
   // ============================================================================
 
   if (loading) {
     return (
-      <Paper sx={{ p: 3, textAlign: 'center', height: '100%' }}>
-        <CircularProgress size={32} />
-        <Typography variant="body1" sx={{ mt: 2 }}>
-          Loading {chartType} configuration...
-        </Typography>
+      <Paper sx={{ p: 3 }}>
+        <Box display="flex" alignItems="center" justifyContent="center" minHeight={200}>
+          <CircularProgress />
+          <Typography variant="body2" sx={{ ml: 2 }}>
+            Loading chart configuration...
+          </Typography>
+        </Box>
       </Paper>
     );
   }
 
-  if (error && !chartPlugin) {
+  if (error) {
     return (
-      <Paper sx={{ p: 3, height: '100%' }}>
+      <Paper sx={{ p: 3 }}>
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          <Typography variant="body2">{error}</Typography>
         </Alert>
-        <Button variant="outlined" onClick={loadChartPlugin} startIcon={<Refresh />}>
+        <Button variant="outlined" startIcon={<Refresh />} onClick={loadChartPlugin}>
           Retry
         </Button>
       </Paper>
     );
   }
 
-  const configSections = buildConfigurationSections();
-
   return (
-    <Paper sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Paper sx={{ p: 3 }}>
       {/* Header */}
-      <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-        <Box display="flex" justifyContent="space-between" alignItems="center">
-          <Box display="flex" alignItems="center" gap={1}>
-            {getChartIcon(chartType)}
-            <Box>
-              <Typography variant="h6">
-                {chartPlugin?.displayName || `${chartType} Chart`}
-              </Typography>
-              <Typography variant="caption" color="textSecondary">
-                {chartPlugin?.library} • {chartPlugin?.category}
-              </Typography>
-            </Box>
-          </Box>
-          
-          <Box display="flex" gap={1}>
-            {onPreview && (
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<ShowChart />}
-                onClick={() => onPreview(safeConfiguration)}
-              >
-                Preview
-              </Button>
-            )}
-            <Button
-              size="small"
-              startIcon={<Refresh />}
-              onClick={handleReset}
-            >
+      <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+        <Typography variant="h6" component="h2">
+          Chart Configuration
+        </Typography>
+        <Box display="flex" gap={1}>
+          {onReset && (
+            <Button variant="outlined" size="small" onClick={onReset}>
               Reset
             </Button>
-          </Box>
+          )}
+          {onPreview && (
+            <Button variant="contained" size="small" onClick={() => onPreview(safeConfiguration)}>
+              Preview
+            </Button>
+          )}
         </Box>
-        
-        {/* Data Columns Warning */}
-        {!hasDataColumns && (
-          <Alert severity="info" sx={{ mt: 2 }}>
-            <Typography variant="body2" fontWeight="bold">
-              No data columns available
-            </Typography>
-            <Typography variant="body2">
-              Please select a dataset to configure field mappings and see chart-specific options.
-            </Typography>
-          </Alert>
-        )}
-        
-        {/* Validation Status */}
-        {validation.errors.length > 0 && (
-          <Alert 
-            severity={validation.isValid ? "warning" : "error"} 
-            sx={{ mt: 2 }}
-          >
-            <Typography variant="body2" fontWeight="bold">
-              {validation.errors.filter(e => e.severity === 'error').length} error(s), {' '}
-              {validation.errors.filter(e => e.severity === 'warning').length} warning(s)
-            </Typography>
-            <Box component="ul" sx={{ mt: 1, pl: 2, mb: 0 }}>
-              {validation.errors.slice(0, 3).map((error, index) => (
-                <li key={index}>
-                  <Typography variant="body2">
-                    {error.message}
-                  </Typography>
-                </li>
-              ))}
-              {validation.errors.length > 3 && (
-                <li>
-                  <Typography variant="body2" color="textSecondary">
-                    ... and {validation.errors.length - 3} more
-                  </Typography>
-                </li>
-              )}
-            </Box>
-          </Alert>
-        )}
       </Box>
 
-      {/* Configuration Form */}
-      <Box sx={{ flex: 1, overflow: 'auto' }}>
-        {Object.entries(configSections).map(([sectionKey, properties]) => {
-          if (properties.length === 0) return null;
-          
-          return (
-            <Accordion 
-              key={sectionKey}
-              expanded={expandedSections[sectionKey]}
-              onChange={() => toggleSection(sectionKey)}
-            >
-              <AccordionSummary expandIcon={<ExpandMore />}>
-                <Box display="flex" alignItems="center" gap={1}>
-                  {getSectionIcon(sectionKey)}
-                  <Typography variant="subtitle1">
-                    {getSectionTitle(sectionKey)}
-                  </Typography>
-                  <Chip 
-                    label={properties.length} 
-                    size="small" 
-                    variant="outlined" 
-                  />
-                </Box>
-              </AccordionSummary>
-              <AccordionDetails>
-                <Box display="flex" flexDirection="column" gap={2}>
-                  {properties.map((property: any) => {
-                    const currentValue = getNestedValue(safeConfiguration, property.key);
-                    return (
-                      <Box key={property.key}>
-                        {renderFormField(property.key, property, currentValue)}
-                      </Box>
-                    );
-                  })}
-                </Box>
-              </AccordionDetails>
-            </Accordion>
-          );
-        })}
-      </Box>
+      {/* Chart Plugin Info */}
+      {chartPlugin && (
+        <Box mb={2}>
+          <Typography variant="body2" color="textSecondary">
+            {chartPlugin.displayName} ({chartPlugin.library})
+          </Typography>
+        </Box>
+      )}
+
+      {/* Validation Errors */}
+      {!validation.isValid && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          <Typography variant="body2" gutterBottom>
+            Configuration validation failed:
+          </Typography>
+          <ul>
+            {validation.errors.map((error, index) => (
+              <li key={index}>{error.message}</li>
+            ))}
+          </ul>
+        </Alert>
+      )}
+
+      {/* Configuration Sections */}
+      {renderConfigurationSections()}
     </Paper>
   );
 };
 
 // ============================================================================
-// HELPER FUNCTIONS FOR ICONS AND TITLES
+// EXPORTS - THIS IS CRITICAL
 // ============================================================================
 
-const getChartIcon = (chartType: string) => {
-  switch (chartType.toLowerCase()) {
-    case 'bar':
-    case 'column':
-      return <BarChart color="primary" />;
-    case 'pie':
-    case 'doughnut':
-      return <PieChartIcon color="primary" />;
-    case 'line':
-    case 'area':
-      return <ShowChart color="primary" />;
-    default:
-      return <BarChart color="primary" />;
-  }
-};
-
-const getSectionIcon = (sectionKey: string) => {
-  switch (sectionKey) {
-    case 'data-mapping':
-      return <BarChart fontSize="small" />;
-    case 'appearance':
-      return <Palette fontSize="small" />;
-    case 'behavior':
-      return <Settings fontSize="small" />;
-    case 'advanced':
-      return <Settings fontSize="small" />;
-    default:
-      return <Info fontSize="small" />;
-  }
-};
-
-const getSectionTitle = (sectionKey: string): string => {
-  switch (sectionKey) {
-    case 'data-mapping':
-      return 'Data Mapping';
-    case 'appearance':
-      return 'Appearance';
-    case 'behavior':
-      return 'Behavior';
-    case 'advanced':
-      return 'Advanced';
-    default:
-      return sectionKey.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase());
-  }
-};
-
+// Default export
 export default ChartCustomizationPanel;
+
+// Named export (for compatibility)
+export { ChartCustomizationPanel };

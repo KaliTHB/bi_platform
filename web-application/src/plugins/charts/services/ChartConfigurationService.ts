@@ -39,7 +39,6 @@ export interface ConfigurationField {
 }
 
 export type FieldType = 
-  | 'field-selector' 
   | 'string' 
   | 'number' 
   | 'boolean' 
@@ -242,21 +241,21 @@ export class ChartConfigurationService {
           fields: [
             {
               key: 'xField',
-              type: 'field-selector',
+              type: 'select',
               title: 'Category Field (X-Axis)',
               description: 'Field to use for categories',
               required: true
             },
             {
               key: 'yField',
-              type: 'field-selector',
+              type: 'select',
               title: 'Value Field (Y-Axis)',
               description: 'Field to use for values',
               required: true
             },
             {
               key: 'seriesField',
-              type: 'field-selector',
+              type: 'select',
               title: 'Series Field',
               description: 'Optional field for multiple series'
             }
@@ -365,14 +364,14 @@ export class ChartConfigurationService {
           fields: [
             {
               key: 'nameField',
-              type: 'field-selector',
+              type: 'select',
               title: 'Label Field',
               description: 'Field to use for slice labels',
               required: true
             },
             {
               key: 'valueField',
-              type: 'field-selector',
+              type: 'select',
               title: 'Value Field',
               description: 'Field to use for slice values',
               required: true
@@ -483,19 +482,19 @@ export class ChartConfigurationService {
           fields: [
             {
               key: 'xField',
-              type: 'field-selector',
+              type: 'select',
               title: 'X-Axis Field',
               required: true
             },
             {
               key: 'yField',
-              type: 'field-selector',
+              type: 'select',
               title: 'Y-Axis Field',
               required: true
             },
             {
               key: 'seriesField',
-              type: 'field-selector',
+              type: 'select',
               title: 'Series Field',
               description: 'Optional field for multiple lines'
             }
@@ -688,7 +687,7 @@ export class ChartConfigurationService {
       'number': 'number',
       'integer': 'number',
       'boolean': 'boolean',
-      'field-selector': 'field-selector',
+      'select': 'select',
       'color': 'color',
       'array': 'array',
       'object': 'object'
