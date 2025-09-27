@@ -372,7 +372,7 @@ async getDatasetWithAllDatasources(datasetId: string): Promise<any> {
           json_build_object(
             'id', ds.id,
             'name', ds.name,
-            'plugin_name', ds.plugin_name,
+            'plugin_name', ds.type,
             'connection_config', ds.connection_config
           )
         ) FILTER (WHERE ds.id IS NOT NULL),
