@@ -223,607 +223,457 @@ export class DatasetController {
    * GET /api/datasets/:id?include_schema=true
    */
   async getDataset(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { include_schema = false } = req.query;
+  try {
+    const { id } = req.params;
+    const { include_schema = false } = req.query;
 
-      logger.info(`📊 Getting dataset ${id}, include_schema: ${include_schema}`);
+    logger.info(`📊 Getting dataset ${id}, include_schema: ${include_schema}`);
 
-      // Get dataset with datasource information
-      const query = `
-        SELECT 
-          d.*,
-          u.username as owner_name,
-          u.email as owner_email,
-          ds.id as datasource_id,
-          ds.name as datasource_name,
-          ds.plugin_name as datasource_type,
-          ds.connection_config
-        FROM datasets d
-        LEFT JOIN users u ON d.created_by = u.id
-        LEFT JOIN datasources ds ON d.datasource_id = ds.id
-        WHERE d.id = $1 AND d.is_active = true
-      `;
+    // 🔧 FIXED: Handle datasource_ids as UUID array
+    // Option 1: Get first datasource from the array
+    const query = `
+      SELECT 
+        d.*,
+        u.username as owner_name,
+        u.email as owner_email,
+        ds.id as datasource_id,
+        ds.name as datasource_name,
+        ds.type as datasource_type,
+        ds.connection_config
+      FROM datasets d
+      LEFT JOIN users u ON d.created_by = u.id
+      LEFT JOIN datasources ds ON ds.id = ANY(d.datasource_ids)
+      WHERE d.id = $1 AND d.is_active = true
+      LIMIT 1
+    `;
 
-      const result = await db.query(query, [id]);
+    const result = await db.query(query, [id]);
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: 'Dataset not found',
-          errors: [{ code: 'DATASET_NOT_FOUND', message: `Dataset with ID ${id} not found` }]
-        });
-      }
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Dataset not found',
+        errors: [{ code: 'DATASET_NOT_FOUND', message: `Dataset with ID ${id} not found` }]
+      });
+    }
 
-      const dataset = result.rows[0];
-      let schemaJson = dataset.schema_json;
+    const dataset = result.rows[0];
+    let schemaJson = dataset.schema_json;
 
-      // 🔥 LIVE DATA SCHEMA POPULATION - Only if schema is missing
-      if (include_schema === 'true') {
-        logger.info(`🔍 Schema requested for dataset ${id} (${dataset.name})`);
+    // 🔥 ENHANCED SCHEMA POPULATION with datasource context
+    if (include_schema === 'true') {
+      logger.info(`🔍 Schema requested for dataset ${id} (${dataset.name})`);
+      
+      if (this.shouldPopulateSchema(schemaJson)) {
+        logger.info(`📋 Populating schema on-demand for dataset ${id}...`);
         
-        if (this.shouldPopulateSchema(schemaJson)) {
-          logger.info(`📋 Attempting to populate schema from live data for dataset ${id}...`);
-          
-          try {
-            // Validate dataset has required information
-            const validationResult = this.validateDatasetForSchemaPopulation(dataset);
-            if (!validationResult.valid) {
-              return res.status(400).json({
-                success: false,
-                message: 'Cannot populate schema - dataset configuration invalid',
-                errors: validationResult.errors
-              });
-            }
-
-            const populatedSchema = await this.populateLiveSchema(dataset);
-            
-            if (populatedSchema && populatedSchema.columns.length > 0) {
-              // Update the database with populated schema
-              const updateQuery = `
-                UPDATE datasets 
-                SET schema_json = $1, updated_at = NOW()
-                WHERE id = $2
-              `;
-              
-              await db.query(updateQuery, [JSON.stringify(populatedSchema), id]);
-              schemaJson = populatedSchema;
-              
-              logger.info(`✅ Schema populated successfully from live data for dataset ${id}`, {
-                columns: populatedSchema.columns.length,
-                method: populatedSchema.table_info?.population_method,
-                datasourceType: dataset.datasource_type
-              });
-            } else {
-              // No schema could be populated - return error
-              return res.status(422).json({
-                success: false,
-                message: 'Cannot populate schema - no live data found',
-                errors: [{ 
-                  code: 'NO_SCHEMA_DATA', 
-                  message: `Table '${dataset.name}' does not exist or has no columns in the connected datasource` 
-                }]
-              });
-            }
-          } catch (error) {
-            logger.error(`❌ Error populating schema for dataset ${id}:`, error);
-            
-            // Return specific error based on the type of failure
-            if (error.message.includes('does not exist') || error.message.includes('relation') || error.message.includes('table')) {
-              return res.status(404).json({
-                success: false,
-                message: 'Table or view not found in datasource',
-                errors: [{ 
-                  code: 'TABLE_NOT_FOUND', 
-                  message: `Table '${dataset.name}' does not exist in the connected datasource` 
-                }]
-              });
-            }
-            
-            if (error.message.includes('permission') || error.message.includes('access')) {
-              return res.status(403).json({
-                success: false,
-                message: 'Access denied to datasource',
-                errors: [{ 
-                  code: 'ACCESS_DENIED', 
-                  message: `No permission to access table '${dataset.name}' in the datasource` 
-                }]
-              });
-            }
-            
-            if (error.message.includes('connection') || error.message.includes('timeout')) {
-              return res.status(503).json({
-                success: false,
-                message: 'Datasource connection failed',
-                errors: [{ 
-                  code: 'CONNECTION_FAILED', 
-                  message: 'Could not connect to the datasource to retrieve schema' 
-                }]
-              });
-            }
-            
-            // Generic error
-            return res.status(500).json({
+        try {
+          // Validate dataset has required information
+          const validationResult = this.validateDatasetForSchemaPopulation(dataset);
+          if (!validationResult.valid) {
+            return res.status(400).json({
               success: false,
-              message: 'Failed to populate schema from datasource',
+              message: 'Cannot populate schema - dataset configuration invalid',
+              errors: validationResult.errors
+            });
+          }
+
+          // Determine the best approach for schema population
+          const populatedSchema = await this.populateSchemaWithDatasourceContext(dataset);
+          
+          if (populatedSchema && populatedSchema.columns.length > 0) {
+            // Update the database with populated schema
+            const updateQuery = `
+              UPDATE datasets 
+              SET schema_json = $1, updated_at = NOW()
+              WHERE id = $2
+            `;
+            
+            await db.query(updateQuery, [JSON.stringify(populatedSchema), id]);
+            schemaJson = populatedSchema;
+            
+            logger.info(`✅ Schema populated successfully for dataset ${id}`, {
+              columns: populatedSchema.columns.length,
+              method: populatedSchema.table_info?.population_method,
+              datasourceType: dataset.datasource_type
+            });
+          } else {
+            // No schema could be populated - return error
+            return res.status(422).json({
+              success: false,
+              message: 'Cannot populate schema - no data found',
               errors: [{ 
-                code: 'SCHEMA_POPULATION_FAILED', 
-                message: error.message 
+                code: 'NO_SCHEMA_DATA', 
+                message: `Table '${dataset.name}' does not exist or has no columns` 
               }]
             });
           }
-        } else {
-          logger.info(`📋 Schema already exists for dataset ${id}, using cached version`);
+        } catch (error) {
+          logger.error(`❌ Error populating schema for dataset ${id}:`, error);
+          
+          // Return specific error based on the type of failure
+          return this.handleSchemaPopulationError(error, dataset.name);
         }
+      } else {
+        logger.info(`📋 Schema already exists for dataset ${id}, using cached version`);
       }
-
-      // Return successful response
-      res.json({
-        success: true,
-        data: {
-          id: dataset.id,
-          name: dataset.name,
-          display_name: dataset.display_name,
-          description: dataset.description,
-          type: dataset.type,
-          workspace_id: dataset.workspace_id,
-          datasource_id: dataset.datasource_id,
-          owner: {
-            id: dataset.created_by,
-            name: dataset.owner_name,
-            email: dataset.owner_email
-          },
-          created_at: dataset.created_at,
-          updated_at: dataset.updated_at,
-          row_count: dataset.row_count,
-          is_active: dataset.is_active,
-          schema_json: include_schema === 'true' ? schemaJson : undefined
-        }
-      });
-
-    } catch (error: any) {
-      logger.error('❌ DatasetController: Error getting dataset:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to get dataset',
-        errors: [{ code: 'INTERNAL_ERROR', message: error.message }]
-      });
-    }
-  }
-
-  /**
-   * 🔥 VALIDATE DATASET FOR SCHEMA POPULATION
-   */
-  private validateDatasetForSchemaPopulation(dataset: any): { valid: boolean; errors: any[] } {
-    const errors = [];
-
-    // Check if dataset has a name/table
-    if (!dataset.name || dataset.name.trim() === '') {
-      errors.push({
-        code: 'MISSING_TABLE_NAME',
-        message: 'Dataset must have a table name to populate schema'
-      });
     }
 
-    // Check if dataset has datasource connection
-    if (!dataset.datasource_id) {
-      errors.push({
-        code: 'MISSING_DATASOURCE',
-        message: 'Dataset must be connected to a datasource to populate schema'
-      });
-    }
-
-    // Check if datasource type is supported
-    if (dataset.datasource_type && !this.isSupportedDatasourceType(dataset.datasource_type)) {
-      errors.push({
-        code: 'UNSUPPORTED_DATASOURCE',
-        message: `Datasource type '${dataset.datasource_type}' is not supported for automatic schema population`
-      });
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors
-    };
-  }
-
-  /**
-   * 🔥 LIVE SCHEMA POPULATION - Only from real data sources
-   */
-  private async populateLiveSchema(dataset: any): Promise<any | null> {
-    const datasourceType = dataset.datasource_type?.toLowerCase() || 'unknown';
-    const tableName = dataset.name;
-
-    logger.info(`🔍 Populating live schema for ${tableName} on ${datasourceType} datasource`);
-
-    // Only support relational databases for now - they have reliable schema introspection
-    if (this.isRelationalDatabase(datasourceType)) {
-      return await this.populateLiveRelationalSchema(tableName, datasourceType);
-    }
-
-    // For non-relational databases, throw error - no mock data
-    throw new Error(`Schema population for ${datasourceType} databases is not yet supported. Only relational databases (PostgreSQL, MySQL, etc.) are currently supported.`);
-  }
-
-  /**
-   * 🔥 LIVE RELATIONAL DATABASE SCHEMA POPULATION - Real data only
-   */
-  private async populateLiveRelationalSchema(tableName: string, datasourceType: string): Promise<any | null> {
-    logger.info(`📋 Populating live relational schema for ${tableName} (${datasourceType})`);
-
-    // Strategy 1: Try information_schema (most reliable)
-    try {
-      const schema = await this.getSchemaFromInformationSchema(tableName, datasourceType);
-      if (schema) {
-        logger.info(`✅ Successfully got schema from information_schema for ${tableName}`);
-        return schema;
+    // Return successful response
+    res.json({
+      success: true,
+      data: {
+        id: dataset.id,
+        name: dataset.name,
+        display_name: dataset.display_name,
+        description: dataset.description,
+        type: dataset.type,
+        workspace_id: dataset.workspace_id,
+        datasource_ids: dataset.datasource_ids, // Array of UUIDs
+        datasource_info: dataset.datasource_id ? {
+          id: dataset.datasource_id,
+          name: dataset.datasource_name,
+          type: dataset.datasource_type
+        } : null,
+        owner: {
+          id: dataset.created_by,
+          name: dataset.owner_name,
+          email: dataset.owner_email
+        },
+        created_at: dataset.created_at,
+        updated_at: dataset.updated_at,
+        row_count: dataset.row_count,
+        is_active: dataset.is_active,
+        schema_json: include_schema === 'true' ? schemaJson : undefined
       }
-    } catch (error) {
-      logger.warn(`⚠️ information_schema query failed for ${tableName}:`, error);
-    }
+    });
 
-    // Strategy 2: Try direct table query (fallback)
-    try {
-      const schema = await this.getSchemaFromDirectQuery(tableName, datasourceType);
-      if (schema) {
-        logger.info(`✅ Successfully got schema from direct query for ${tableName}`);
-        return schema;
-      }
-    } catch (error) {
-      logger.warn(`⚠️ Direct query failed for ${tableName}:`, error);
-      // Re-throw the error since this is our last attempt
-      throw error;
-    }
+  } catch (error: any) {
+    logger.error('❌ DatasetController: Error getting dataset:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get dataset',
+      errors: [{ code: 'INTERNAL_ERROR', message: error.message }]
+    });
+  }
+}
 
-    // If we reach here, no live data was found
-    throw new Error(`Table '${tableName}' does not exist or is not accessible in the datasource`);
+/**
+ * 🔥 ALTERNATIVE: Get dataset with ALL datasources (if you need multiple)
+ */
+async getDatasetWithAllDatasources(datasetId: string): Promise<any> {
+  const query = `
+    SELECT 
+      d.*,
+      u.username as owner_name,
+      u.email as owner_email,
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'id', ds.id,
+            'name', ds.name,
+            'plugin_name', ds.plugin_name,
+            'connection_config', ds.connection_config
+          )
+        ) FILTER (WHERE ds.id IS NOT NULL),
+        '[]'::json
+      ) as datasources
+    FROM datasets d
+    LEFT JOIN users u ON d.created_by = u.id
+    LEFT JOIN datasources ds ON ds.id = ANY(d.datasource_ids)
+    WHERE d.id = $1 AND d.is_active = true
+    GROUP BY d.id, u.username, u.email
+  `;
+
+  const result = await db.query(query, [datasetId]);
+  return result.rows[0] || null;
+}
+
+/**
+ * 🔥 VALIDATE DATASET FOR SCHEMA POPULATION
+ */
+private validateDatasetForSchemaPopulation(dataset: any): { valid: boolean; errors: any[] } {
+  const errors = [];
+
+  // Check if dataset has a name/table
+  if (!dataset.name || dataset.name.trim() === '') {
+    errors.push({
+      code: 'MISSING_TABLE_NAME',
+      message: 'Dataset must have a table name to populate schema'
+    });
   }
 
-  /**
-   * 🔥 GET SCHEMA FROM INFORMATION_SCHEMA - Live data only
-   */
-  private async getSchemaFromInformationSchema(tableName: string, datasourceType: string): Promise<any | null> {
-    logger.info(`🔍 Querying information_schema for table: ${tableName}`);
+  // Check if dataset has datasource_ids array
+  if (!dataset.datasource_ids || !Array.isArray(dataset.datasource_ids) || dataset.datasource_ids.length === 0) {
+    errors.push({
+      code: 'MISSING_DATASOURCES',
+      message: 'Dataset must be connected to at least one datasource to populate schema'
+    });
+  }
+
+  // Check if we found a valid datasource in the join
+  if (!dataset.datasource_id) {
+    errors.push({
+      code: 'DATASOURCE_NOT_FOUND',
+      message: 'None of the connected datasources were found or are active'
+    });
+  }
+
+  // Check if datasource type is supported
+  if (dataset.datasource_type && !this.isSupportedDatasourceType(dataset.datasource_type)) {
+    errors.push({
+      code: 'UNSUPPORTED_DATASOURCE',
+      message: `Datasource type '${dataset.datasource_type}' is not supported for automatic schema population`
+    });
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+/**
+ * 🔥 POPULATE SCHEMA WITH DATASOURCE CONTEXT
+ */
+private async populateSchemaWithDatasourceContext(dataset: any): Promise<any | null> {
+  const datasourceType = dataset.datasource_type?.toLowerCase() || 'unknown';
+  const tableName = dataset.name;
+  const connectionConfig = dataset.connection_config || {};
+
+  logger.info(`🔍 Populating schema for ${tableName} using ${datasourceType} datasource`);
+
+  // For now, we'll use the current database connection
+  // In the future, you could use the connection_config to connect to external datasources
+  if (this.isRelationalDatabase(datasourceType)) {
+    return await this.populateRelationalSchemaFromCurrentDB(tableName, datasourceType);
+  }
+
+  // For non-relational databases, return error for now
+  throw new Error(`Schema population for ${datasourceType} databases is not yet implemented. Only relational databases are currently supported.`);
+}
+
+/**
+ * 🔥 POPULATE RELATIONAL SCHEMA FROM CURRENT DATABASE
+ */
+private async populateRelationalSchemaFromCurrentDB(tableName: string, datasourceType: string): Promise<any | null> {
+  logger.info(`📋 Populating relational schema for ${tableName} (${datasourceType})`);
+
+  // Strategy 1: Try information_schema
+  try {
+    const schemaQuery = `
+      SELECT 
+        column_name,
+        data_type,
+        is_nullable,
+        column_default,
+        ordinal_position,
+        character_maximum_length,
+        numeric_precision,
+        numeric_scale
+      FROM information_schema.columns 
+      WHERE table_name = $1 
+        AND table_schema = CURRENT_SCHEMA()
+      ORDER BY ordinal_position
+    `;
     
-    const schemaQuery = this.getInformationSchemaQuery(datasourceType);
     const schemaResult = await db.query(schemaQuery, [tableName]);
     
-    if (!schemaResult.rows || schemaResult.rows.length === 0) {
-      logger.info(`📋 No columns found in information_schema for table: ${tableName}`);
-      return null;
+    if (schemaResult.rows && schemaResult.rows.length > 0) {
+      logger.info(`📋 Found ${schemaResult.rows.length} columns from information_schema`);
+      
+      const columns = schemaResult.rows.map((col, index) => ({
+        name: col.column_name,
+        display_name: this.formatDisplayName(col.column_name),
+        data_type: this.mapDataType(col.data_type, datasourceType),
+        is_nullable: col.is_nullable === 'YES',
+        description: null,
+        format_string: this.getFormatString(col.data_type),
+        is_calculated: false,
+        calculation_expression: null,
+        sort_order: col.ordinal_position || (index + 1),
+        is_visible: true,
+        column_width: this.getColumnWidth(col.data_type),
+        aggregation_type: this.getAggregationType(col.data_type),
+        max_length: col.character_maximum_length,
+        precision: col.numeric_precision,
+        scale: col.numeric_scale
+      }));
+
+      // Get primary keys
+      const primaryKeys = await this.getPrimaryKeysFromCurrentDB(tableName);
+
+      return {
+        columns,
+        primary_keys: primaryKeys,
+        indexes: [],
+        relationships: [],
+        table_info: {
+          name: tableName,
+          type: 'table',
+          column_count: columns.length,
+          datasource_type: datasourceType,
+          populated_at: new Date().toISOString(),
+          population_method: 'information_schema'
+        }
+      };
     }
-
-    logger.info(`📋 Found ${schemaResult.rows.length} columns in information_schema for ${tableName}`);
-
-    const columns = schemaResult.rows.map((col, index) => ({
-      name: col.column_name,
-      display_name: this.formatDisplayName(col.column_name),
-      data_type: this.mapDataType(col.data_type, datasourceType),
-      is_nullable: col.is_nullable === 'YES' || col.is_nullable === 1,
-      description: null, // No mock descriptions
-      format_string: this.getFormatString(col.data_type),
-      is_calculated: false,
-      calculation_expression: null,
-      sort_order: col.ordinal_position || (index + 1),
-      is_visible: true,
-      column_width: this.getColumnWidth(col.data_type),
-      aggregation_type: this.getAggregationType(col.data_type)
-    }));
-
-    // Get primary keys from live data
-    const primaryKeys = await this.getLivePrimaryKeys(tableName, datasourceType);
-
-    return {
-      columns,
-      primary_keys: primaryKeys,
-      indexes: [], // Could be populated from live data if needed
-      relationships: [], // Could be populated from live data if needed
-      table_info: {
-        name: tableName,
-        type: 'table',
-        column_count: columns.length,
-        datasource_type: datasourceType,
-        populated_at: new Date().toISOString(),
-        population_method: 'information_schema_live'
-      }
-    };
+  } catch (error) {
+    logger.warn(`⚠️ information_schema query failed for ${tableName}:`, error);
   }
 
-  /**
-   * 🔥 GET SCHEMA FROM DIRECT QUERY - Live data only
-   */
-  private async getSchemaFromDirectQuery(tableName: string, datasourceType: string): Promise<any | null> {
-    logger.info(`🔍 Attempting direct query for table: ${tableName}`);
+  // Strategy 2: Try direct table query as fallback
+  try {
+    logger.info(`🔍 Trying direct query for table: ${tableName}`);
     
-    const limitQuery = this.getLimitQuery(datasourceType);
-    const tableQuery = `SELECT * FROM ${tableName} ${limitQuery}`;
-    
+    const tableQuery = `SELECT * FROM ${tableName} LIMIT 0`;
     const result = await db.query(tableQuery);
     
-    if (!result.fields || result.fields.length === 0) {
-      logger.info(`📋 No fields found from direct query of table: ${tableName}`);
-      return null;
+    if (result.fields && result.fields.length > 0) {
+      logger.info(`📋 Found ${result.fields.length} fields from direct query`);
+      
+      const columns = result.fields.map((field, index) => ({
+        name: field.name,
+        display_name: this.formatDisplayName(field.name),
+        data_type: this.mapDataTypeFromOID(field.dataTypeID, datasourceType),
+        is_nullable: true,
+        description: null,
+        format_string: this.getFormatStringFromOID(field.dataTypeID),
+        is_calculated: false,
+        calculation_expression: null,
+        sort_order: index + 1,
+        is_visible: true,
+        column_width: this.getColumnWidthFromOID(field.dataTypeID),
+        aggregation_type: this.getAggregationTypeFromOID(field.dataTypeID)
+      }));
+
+      return {
+        columns,
+        primary_keys: [],
+        indexes: [],
+        relationships: [],
+        table_info: {
+          name: tableName,
+          type: 'table',
+          column_count: columns.length,
+          datasource_type: datasourceType,
+          populated_at: new Date().toISOString(),
+          population_method: 'direct_query'
+        }
+      };
     }
+  } catch (error) {
+    logger.error(`❌ Direct query failed for ${tableName}:`, error);
+    throw error;
+  }
 
-    logger.info(`📋 Found ${result.fields.length} fields from direct query of ${tableName}`);
+  return null;
+}
 
-    const columns = result.fields.map((field, index) => ({
-      name: field.name,
-      display_name: this.formatDisplayName(field.name),
-      data_type: this.mapDataTypeFromOID(field.dataTypeID, datasourceType),
-      is_nullable: true, // Unknown from direct query
-      description: null, // No mock descriptions
-      format_string: this.getFormatStringFromOID(field.dataTypeID),
-      is_calculated: false,
-      calculation_expression: null,
-      sort_order: index + 1,
-      is_visible: true,
-      column_width: this.getColumnWidthFromOID(field.dataTypeID),
-      aggregation_type: this.getAggregationTypeFromOID(field.dataTypeID)
-    }));
+/**
+ * 🔥 GET PRIMARY KEYS FROM CURRENT DATABASE
+ */
+private async getPrimaryKeysFromCurrentDB(tableName: string): Promise<string[]> {
+  try {
+    const pkQuery = `
+      SELECT kcu.column_name
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu 
+        ON tc.constraint_name = kcu.constraint_name
+        AND tc.table_schema = kcu.table_schema
+      WHERE tc.table_name = $1 
+        AND tc.constraint_type = 'PRIMARY KEY'
+        AND tc.table_schema = CURRENT_SCHEMA()
+      ORDER BY kcu.ordinal_position
+    `;
+    
+    const result = await db.query(pkQuery, [tableName]);
+    return result.rows.map(row => row.column_name);
+  } catch (error) {
+    logger.warn(`⚠️ Could not get primary keys for ${tableName}:`, error);
+    return [];
+  }
+}
 
+/**
+ * 🔥 HANDLE SCHEMA POPULATION ERRORS
+ */
+private handleSchemaPopulationError(error: any, tableName: string): any {
+  if (error.message.includes('does not exist') || error.message.includes('relation')) {
     return {
-      columns,
-      primary_keys: [], // Unknown from direct query
-      indexes: [],
-      relationships: [],
-      table_info: {
-        name: tableName,
-        type: 'table',
-        column_count: columns.length,
-        datasource_type: datasourceType,
-        populated_at: new Date().toISOString(),
-        population_method: 'direct_query_live'
+      status: 404,
+      response: {
+        success: false,
+        message: 'Table not found in datasource',
+        errors: [{ 
+          code: 'TABLE_NOT_FOUND', 
+          message: `Table '${tableName}' does not exist in the connected datasource` 
+        }]
       }
     };
   }
-
-  /**
-   * 🔥 GET LIVE PRIMARY KEYS - Real data only
-   */
-  private async getLivePrimaryKeys(tableName: string, datasourceType: string): Promise<string[]> {
-    try {
-      const pkQuery = this.getPrimaryKeyQuery(datasourceType);
-      const result = await db.query(pkQuery, [tableName]);
-      return result.rows.map(row => row.column_name);
-    } catch (error) {
-      logger.warn(`⚠️ Could not get primary keys for ${tableName}:`, error);
-      return []; // Return empty array instead of mock data
-    }
-  }
-
-  // 🔥 DATABASE TYPE DETECTION
-  private isRelationalDatabase(datasourceType: string): boolean {
-    const relationalTypes = [
-      'postgres', 'postgresql', 'mysql', 'mariadb', 'mssql', 'sqlserver', 
-      'oracle', 'sqlite', 'db2', 'sybase', 'firebird'
-    ];
-    return relationalTypes.includes(datasourceType);
-  }
-
-  private isSupportedDatasourceType(datasourceType: string): boolean {
-    // Currently only support relational databases for live schema population
-    return this.isRelationalDatabase(datasourceType);
-  }
-
-  // 🔥 DATABASE-SPECIFIC QUERIES
-  private getInformationSchemaQuery(datasourceType: string): string {
-    switch (datasourceType) {
-      case 'postgres':
-      case 'postgresql':
-        return `
-          SELECT column_name, data_type, is_nullable, column_default, ordinal_position
-          FROM information_schema.columns 
-          WHERE table_name = $1 AND table_schema = CURRENT_SCHEMA()
-          ORDER BY ordinal_position
-        `;
-      
-      case 'mysql':
-      case 'mariadb':
-        return `
-          SELECT column_name, data_type, is_nullable, column_default, ordinal_position
-          FROM information_schema.columns 
-          WHERE table_name = ? AND table_schema = DATABASE()
-          ORDER BY ordinal_position
-        `;
-      
-      case 'mssql':
-      case 'sqlserver':
-        return `
-          SELECT column_name, data_type, is_nullable, column_default, ordinal_position
-          FROM information_schema.columns 
-          WHERE table_name = @tableName AND table_schema = SCHEMA_NAME()
-          ORDER BY ordinal_position
-        `;
-      
-      case 'oracle':
-        return `
-          SELECT column_name, data_type, 
-                 CASE WHEN nullable = 'Y' THEN 'YES' ELSE 'NO' END as is_nullable,
-                 data_default as column_default, 
-                 column_id as ordinal_position
-          FROM all_tab_columns 
-          WHERE table_name = UPPER(:1) AND owner = USER
-          ORDER BY column_id
-        `;
-      
-      case 'sqlite':
-        return `PRAGMA table_info(${tableName})`; // Note: SQLite uses different syntax
-      
-      default:
-        return `
-          SELECT column_name, data_type, is_nullable, column_default, ordinal_position
-          FROM information_schema.columns 
-          WHERE table_name = $1
-          ORDER BY ordinal_position
-        `;
-    }
-  }
-
-  private getLimitQuery(datasourceType: string): string {
-    switch (datasourceType) {
-      case 'mssql':
-      case 'sqlserver':
-        return ''; // SQL Server uses TOP in SELECT clause
-      case 'oracle':
-        return 'WHERE ROWNUM = 0';
-      default:
-        return 'LIMIT 0';
-    }
-  }
-
-  private getPrimaryKeyQuery(datasourceType: string): string {
-    switch (datasourceType) {
-      case 'postgres':
-      case 'postgresql':
-        return `
-          SELECT kcu.column_name
-          FROM information_schema.table_constraints tc
-          JOIN information_schema.key_column_usage kcu 
-            ON tc.constraint_name = kcu.constraint_name
-            AND tc.table_schema = kcu.table_schema
-          WHERE tc.table_name = $1 
-            AND tc.constraint_type = 'PRIMARY KEY'
-            AND tc.table_schema = CURRENT_SCHEMA()
-          ORDER BY kcu.ordinal_position
-        `;
-      
-      case 'mysql':
-      case 'mariadb':
-        return `
-          SELECT kcu.column_name
-          FROM information_schema.table_constraints tc
-          JOIN information_schema.key_column_usage kcu 
-            ON tc.constraint_name = kcu.constraint_name
-            AND tc.table_schema = kcu.table_schema
-          WHERE tc.table_name = ? 
-            AND tc.constraint_type = 'PRIMARY KEY'
-            AND tc.table_schema = DATABASE()
-          ORDER BY kcu.ordinal_position
-        `;
-      
-      case 'mssql':
-      case 'sqlserver':
-        return `
-          SELECT kcu.column_name
-          FROM information_schema.table_constraints tc
-          JOIN information_schema.key_column_usage kcu 
-            ON tc.constraint_name = kcu.constraint_name
-            AND tc.table_schema = kcu.table_schema
-          WHERE tc.table_name = @tableName 
-            AND tc.constraint_type = 'PRIMARY KEY'
-            AND tc.table_schema = SCHEMA_NAME()
-          ORDER BY kcu.ordinal_position
-        `;
-      
-      case 'oracle':
-        return `
-          SELECT cols.column_name
-          FROM all_constraints cons, all_cons_columns cols
-          WHERE cons.constraint_type = 'P'
-            AND cons.constraint_name = cols.constraint_name
-            AND cons.owner = cols.owner
-            AND cols.table_name = UPPER(:1)
-            AND cons.owner = USER
-          ORDER BY cols.position
-        `;
-      
-      default:
-        return `
-          SELECT kcu.column_name
-          FROM information_schema.table_constraints tc
-          JOIN information_schema.key_column_usage kcu 
-            ON tc.constraint_name = kcu.constraint_name
-          WHERE tc.table_name = $1 AND tc.constraint_type = 'PRIMARY KEY'
-          ORDER BY kcu.ordinal_position
-        `;
-    }
-  }
-
-  // 🔥 UTILITY METHODS - No mock data
-  private shouldPopulateSchema(schemaJson: any): boolean {
-    if (!schemaJson) return true;
-    if (typeof schemaJson === 'object' && Object.keys(schemaJson).length === 0) return true;
-    if (!schemaJson.columns || !Array.isArray(schemaJson.columns) || schemaJson.columns.length === 0) return true;
-    return false;
-  }
-
-  private formatDisplayName(columnName: string): string {
-    return columnName
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-  }
-
-  private mapDataType(sqlDataType: string, datasourceType: string): string {
-    const normalizedType = sqlDataType.toLowerCase();
-    
-    if (/int|integer|bigint|smallint|tinyint|serial|bigserial|number/.test(normalizedType)) return 'integer';
-    if (/decimal|numeric|money|float|real|double|currency/.test(normalizedType)) return 'decimal';
-    if (/varchar|char|text|string|nvarchar|nchar|clob|longtext/.test(normalizedType)) return 'string';
-    if (/^date$/.test(normalizedType)) return 'date';
-    if (/time|timestamp|datetime/.test(normalizedType)) return 'datetime';
-    if (/bool|boolean|bit/.test(normalizedType)) return 'boolean';
-    if (/json|jsonb|object|document/.test(normalizedType)) return 'object';
-    if (/array|\[\]/.test(normalizedType)) return 'array';
-    
-    return 'string';
-  }
-
-  private mapDataTypeFromOID(oid: number, datasourceType: string): string {
-    const oidMap: Record<number, string> = {
-      20: 'integer', 21: 'integer', 23: 'integer', 25: 'string', 1043: 'string',
-      1082: 'date', 1184: 'datetime', 1700: 'decimal', 16: 'boolean', 700: 'float', 701: 'float'
+  
+  if (error.message.includes('permission') || error.message.includes('access')) {
+    return {
+      status: 403,
+      response: {
+        success: false,
+        message: 'Access denied to datasource',
+        errors: [{ 
+          code: 'ACCESS_DENIED', 
+          message: `No permission to access table '${tableName}' in the datasource` 
+        }]
+      }
     };
-    return oidMap[oid] || 'string';
   }
-
-  private getFormatString(dataType: string): string | null {
-    const normalizedType = dataType.toLowerCase();
-    if (/decimal|numeric|money|float|real|double/.test(normalizedType)) return '#,##0.00';
-    if (/^date$/.test(normalizedType)) return 'YYYY-MM-DD';
-    if (/timestamp|datetime/.test(normalizedType)) return 'YYYY-MM-DD HH:mm:ss';
-    return null;
-  }
-
-  private getFormatStringFromOID(oid: number): string | null {
-    const formatMap: Record<number, string> = {
-      1700: '#,##0.00', 700: '#,##0.00', 701: '#,##0.00',
-      1082: 'YYYY-MM-DD', 1184: 'YYYY-MM-DD HH:mm:ss'
+  
+  if (error.message.includes('connection') || error.message.includes('timeout')) {
+    return {
+      status: 503,
+      response: {
+        success: false,
+        message: 'Datasource connection failed',
+        errors: [{ 
+          code: 'CONNECTION_FAILED', 
+          message: 'Could not connect to the datasource to retrieve schema' 
+        }]
+      }
     };
-    return formatMap[oid] || null;
   }
+  
+  // Generic error
+  return {
+    status: 500,
+    response: {
+      success: false,
+      message: 'Failed to populate schema from datasource',
+      errors: [{ 
+        code: 'SCHEMA_POPULATION_FAILED', 
+        message: error.message 
+      }]
+    }
+  };
+}
 
-  private getColumnWidth(dataType: string): number {
-    const normalizedType = dataType.toLowerCase();
-    if (/int|integer|smallint|tinyint/.test(normalizedType)) return 80;
-    if (/bigint|bigserial/.test(normalizedType)) return 100;
-    if (/decimal|numeric|money|float|real|double/.test(normalizedType)) return 120;
-    if (/bool|boolean|bit/.test(normalizedType)) return 60;
-    if (/^date$/.test(normalizedType)) return 100;
-    if (/timestamp|datetime/.test(normalizedType)) return 150;
-    if (/text|clob|longtext/.test(normalizedType)) return 200;
-    return 150;
-  }
+// 🔥 HELPER METHODS
+private isRelationalDatabase(datasourceType: string): boolean {
+  const relationalTypes = [
+    'postgres', 'postgresql', 'mysql', 'mariadb', 'mssql', 'sqlserver', 
+    'oracle', 'sqlite', 'db2', 'sybase', 'firebird'
+  ];
+  return relationalTypes.includes(datasourceType);
+}
 
-  private getColumnWidthFromOID(oid: number): number {
-    const widthMap: Record<number, number> = {
-      20: 100, 21: 80, 23: 80, 25: 200, 1043: 150, 1082: 100, 
-      1184: 150, 1700: 120, 16: 60, 700: 120, 701: 120
-    };
-    return widthMap[oid] || 150;
-  }
+private isSupportedDatasourceType(datasourceType: string): boolean {
+  return this.isRelationalDatabase(datasourceType);
+}
 
-  private getAggregationType(dataType: string): string {
-    const normalizedType = dataType.toLowerCase();
-    const numericTypes = /int|integer|decimal|numeric|money|float|real|double|bigint|smallint|tinyint|serial|bigserial|number/;
-    return numericTypes.test(normalizedType) ? 'sum' : 'none';
-  }
-
-  private getAggregationTypeFromOID(oid: number): string {
-    const numericOIDs = [20, 21, 23, 1700, 700, 701];
-    return numericOIDs.includes(oid) ? 'sum' : 'none';
-  }
+private shouldPopulateSchema(schemaJson: any): boolean {
+  if (!schemaJson) return true;
+  if (typeof schemaJson === 'object' && Object.keys(schemaJson).length === 0) return true;
+  if (!schemaJson.columns || !Array.isArray(schemaJson.columns) || schemaJson.columns.length === 0) return true;
+  return false;
+}
 
   /**
    * POST /api/datasets
