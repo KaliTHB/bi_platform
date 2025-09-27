@@ -211,3 +211,13 @@ export function extractQueryDataFromResponse(response: DatasetQueryResponse): an
   
   return response.data;
 }
+
+export interface BackendApiResponse<T> {
+  success: boolean;
+  message?: string;
+  data: T;
+  errors?: Array<{
+    code: string;
+    message: string;
+  }>;
+}

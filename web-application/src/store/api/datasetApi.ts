@@ -360,7 +360,7 @@ export const datasetApi = createApi({
     if (!response.success || !response.data) {
       throw new Error(response.message || 'Failed to fetch dataset schema');
     }
-    
+    console.log('schema_json',response)
     // Extract schema from the dataset response
     let schema = {
       columns: [],
@@ -376,7 +376,7 @@ export const datasetApi = createApi({
     if (response.data.schema_json) {
       try {
         const parsedSchema = JSON.parse(response.data.schema_json);
-        schema.columns = parsedSchema.columns || [];
+        schema.columns = parsedSchema.columns || [{'nmae':'kali'}];
         schema.fields = parsedSchema.fields || [];
       } catch (error) {
         console.warn('Failed to parse schema_json:', error);

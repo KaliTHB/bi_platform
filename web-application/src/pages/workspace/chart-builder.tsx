@@ -339,6 +339,7 @@ const ChartBuilderPage: React.FC = () => {
   console.log('📊 Schema Query Conditions:', {
     shouldFetchSchema,
     datasetId,
+    datasetSchemaResponse,
     chartConfigDataset: chartConfig?.dataset,
     timestamp: new Date().toISOString()
   });
