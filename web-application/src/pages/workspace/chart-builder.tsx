@@ -106,8 +106,10 @@ import {
   ChartType as ChartTypeEnum,
   DEFAULT_CHART_CONFIG,
   Chart,
+  ChartType,
   ChartInteractionEvent,
-  ChartError 
+  ChartError,
+  Widget
 } from '@/types/chart.types';
 import { Dataset, ColumnDefinition } from '@/types/dataset.types';
 
@@ -115,28 +117,6 @@ import { Dataset, ColumnDefinition } from '@/types/dataset.types';
 // TYPES AND INTERFACES - ALL EXISTING TYPES + WORKFLOW STATE
 // =============================================================================
 
-interface ChartType {
-  id: string;
-  name: string;
-  description: string;
-  icon: React.ReactNode;
-  category: string;
-  tags: string[];
-  requiredFields?: string[]; // NEW: For workflow validation
-}
-
-interface TimeRange {
-  type: 'relative' | 'specific' | 'no-filter';
-  relative?: {
-    value: number;
-    unit: 'minutes' | 'hours' | 'days' | 'weeks' | 'months' | 'years';
-    anchor: 'now' | 'start_of_day' | 'start_of_week' | 'start_of_month';
-  };
-  specific?: {
-    start: Date;
-    end: Date;
-  };
-}
 
 interface ChartCustomization {
   percentageThreshold: number;
@@ -170,27 +150,6 @@ interface WorkflowState {
   configurationComplete: boolean;
   previewMode: boolean;
   previewLoading: boolean;
-}
-
-interface Widget {
-  id: string;
-  type: 'chart' | 'text' | 'image' | 'table' | 'metric' | 'filter';
-  title: string;
-  position: {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-  };
-  config: {
-    chart_id?: string;
-    content?: string;
-    image_url?: string;
-    table_query?: string;
-    metric_value?: number;
-    metric_label?: string;
-    filter_field?: string;
-  };
 }
 
 interface ExtendedChartConfiguration {

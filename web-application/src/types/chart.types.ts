@@ -59,6 +59,18 @@ export interface ChartConfig {
   [key: string]: any; // For chart-library-specific configs
 }
 
+interface TimeRange {
+  type: 'relative' | 'specific' | 'no-filter';
+  relative?: {
+    value: number;
+    unit: 'minutes' | 'hours' | 'days' | 'weeks' | 'months' | 'years';
+    anchor: 'now' | 'start_of_day' | 'start_of_week' | 'start_of_month';
+  };
+  specific?: {
+    start: Date;
+    end: Date;
+  };
+}
 
 export interface ChartLegend {
   show: boolean;
@@ -101,7 +113,8 @@ export interface ChartConfiguration {
   // Data processing
   sorting?: SortConfiguration;
   chartType: string;
-  library: string;
+  timeRange?: TimeRange;
+  chartLibrary?: string; 
   fieldAssignments: FieldAssignments;
   aggregations: AggregationConfig;
   filters?: FilterConfig;
@@ -1252,6 +1265,17 @@ export interface FieldInfo {
   tableName?: string;
 }
 
+export interface ChartType {
+  id: string;
+  name: string;
+  description: string;
+  icon: React.ReactNode;
+  category: string;
+  tags: string[];
+  requiredFields?: string[]; // NEW: For workflow validation
+  library?: string;  // ✅ ADD: Library information
+
+}
 export interface ChartTypeInfo {
   id: string;
   name: string;
@@ -1622,4 +1646,26 @@ export interface GetChartResponse {
     updated_at: string;
   };
   message?: string;
+}
+
+
+export interface Widget {
+  id: string;
+  type: 'chart' | 'text' | 'image' | 'table' | 'metric' | 'filter';
+  title: string;
+  position: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  };
+  config: {
+    chart_id?: string;
+    content?: string;
+    image_url?: string;
+    table_query?: string;
+    metric_value?: number;
+    metric_label?: string;
+    filter_field?: string;
+  };
 }
