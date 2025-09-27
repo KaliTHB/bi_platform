@@ -336,38 +336,64 @@ export const datasetApi = createApi({
 
     // ✅ THE FUNCTION YOU REQUESTED - GET DATASET SCHEMA
     getDatasetSchema: builder.query<
-      {
-        success: boolean;
-        schema: {
-          columns?: DatasetColumn[];
-          fields?: DatasetColumn[];
-          table_info?: {
-            name: string;
-            type: string;
-            row_count?: number;
-            size_bytes?: number;
-          };
-        };
-        message?: string;
-      },
-      string
-    >({
-      query: (datasetId) => `/${datasetId}/schema`,
-      transformResponse: (response: BackendApiResponse<DatasetSchemaResponse>) => {
-        if (!response.success || !response.data) {
-          throw new Error(response.message || 'Failed to fetch dataset schema');
-        }
-        return {
-          success: response.success,
-          schema: response.data.schema,
-          message: response.message
-        };
-      },
-      providesTags: (result, error, datasetId) => [
-        { type: 'DatasetSchema', id: datasetId },
-        { type: 'Dataset', id: datasetId },
-      ],
-    }),
+  {
+    success: boolean;
+    schema: {
+      columns?: DatasetColumn[];
+      fields?: DatasetColumn[];
+      table_info?: {
+        name: string;
+        type: string;
+        row_count?: number;
+        size_bytes?: number;
+      };
+    };
+    message?: string;
+  },
+  string
+>({
+  query: (datasetId) => `/${datasetId}?include_schema=true`,
+  transformResponse: (response: BackendApiResponse<Dataset>) => {
+    if (!response.success || !response.data) {
+      throw new Error(response.message || 'Failed to fetch dataset schema');
+    }
+    
+    // Extract schema from the dataset response
+    let schema = {
+      columns: [],
+      fields: [],
+      table_info: {
+        name: response.data.name,
+        type: response.data.type,
+        row_count: response.data.row_count || 0
+      }
+    };
+    
+    // Parse schema_json if available
+    if (response.data.schema_json) {
+      try {
+        const parsedSchema = JSON.parse(response.data.schema_json);
+        schema.columns = parsedSchema.columns || [];
+        schema.fields = parsedSchema.fields || [];
+      } catch (error) {
+        console.warn('Failed to parse schema_json:', error);
+        // Provide default columns
+        schema.columns = [];
+      }
+    }
+    
+    return {
+      success: true,
+      schema: schema,
+      message: 'Schema retrieved successfully'
+    };
+  },
+  providesTags: (result, error, datasetId) => [
+    { type: 'DatasetSchema', id: datasetId },
+    { type: 'Dataset', id: datasetId },
+  ],
+}),
+
 
     // GET /api/datasets/{id}/columns
     getDatasetColumns: builder.query<DatasetColumnsResponse, { 
