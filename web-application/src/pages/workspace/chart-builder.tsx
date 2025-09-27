@@ -346,6 +346,15 @@ const ChartBuilderPage: React.FC = () => {
   // RTK Query for dataset schema/columns - FIXED with complete null safety
   const shouldFetchSchema = Boolean(chartConfig?.dataset?.id);
   const datasetId = chartConfig?.dataset?.id;
+
+  console.group('🔍 Chart Builder - RTK Query Debug Info');
+  console.log('📊 Schema Query Conditions:', {
+    shouldFetchSchema,
+    datasetId,
+    chartConfigDataset: chartConfig?.dataset,
+    timestamp: new Date().toISOString()
+  });
+  console.groupEnd();
   
   const {
     data: datasetSchemaResponse,
