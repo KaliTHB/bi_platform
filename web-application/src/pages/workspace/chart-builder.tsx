@@ -1544,16 +1544,15 @@ const ChartBuilderPage: React.FC = () => {
                             Unable to load dataset schema. Some customization options may be limited.
                           </Alert>
                           <ChartCustomizationPanel
-  chartType={typeof chartConfig.chartType === 'string' ? 
-    chartConfig.chartType : 
-    chartConfig.chartType?.id || 'bar'
-  }
-  chartLibrary={chartConfig.library || 'echarts'} // ← ADD THIS LINE
-  configuration={chartConfig.customization} // ← Also note: should be 'configuration', not 'customization'
-  onChange={handleCustomizationChange}
-  dataset={chartConfig.dataset}
-  dataColumns={dataColumns}
-/>
+                              chartType={typeof chartConfig.chartType === 'string' ? 
+                                chartConfig.chartType : 
+                                chartConfig.chartType?.id || 'bar'
+                              }
+                              chartLibrary={chartConfig.library || 'echarts'} // ← ADD THIS LINE
+                              configuration={chartConfig.customization} // ← Also note: should be 'configuration', not 'customization'
+                              onChange={handleCustomizationChange}
+                              dataColumns={dataColumns}
+                            />
                         </Box>
                       ) : (
                         <ChartCustomizationPanel
@@ -1561,7 +1560,7 @@ const ChartBuilderPage: React.FC = () => {
                             chartConfig.chartType : 
                             chartConfig.chartType?.id || 'bar'
                           }
-                          customization={chartConfig.customization}
+                          configuration={chartConfig.customization}
                           onChange={handleCustomizationChange}
                           dataset={chartConfig.dataset}
                           dataColumns={dataColumns}
