@@ -318,10 +318,24 @@ const ChartBuilderPage: React.FC = () => {
 );
 
   // RTK Query for dataset schema/columns - FIXED with complete null safety
-  const shouldFetchSchema = Boolean(chartConfig?.dataset?.id);
   const datasetId = chartConfig?.dataset?.id;
+  // ✅ CORRECT: Proper conditional fetching
+  const shouldFetchSchema = Boolean(chartConfig?.dataset?.id);
+  
+  const {
+  data: datasetSchemaResponse,
+  isLoading: schemaLoading,
+  error: schemaError,
+  refetch
+} = useGetDatasetSchemaQuery(
+  datasetId || 'skip',
+  { 
+    skip: !shouldFetchSchema,
+    refetchOnMountOrArgChange: true 
+  }
+);
 
-  console.group('🔍 Chart Builder - RTK Query Debug Info');
+ console.group('🔍 Chart Builder - RTK Query Debug Info');
   console.log('📊 Schema Query Conditions:', {
     shouldFetchSchema,
     datasetId,
@@ -329,48 +343,49 @@ const ChartBuilderPage: React.FC = () => {
     timestamp: new Date().toISOString()
   });
   console.groupEnd();
-  
-  const {
-    data: datasetSchemaResponse,
-    isLoading: schemaLoading,
-    error: schemaError
-  } = useGetDatasetSchemaQuery(
-    datasetId || 'skip',
-    { 
-      skip: !shouldFetchSchema,
-      refetchOnMountOrArgChange: true 
-    }
-  );
 
-
-  // Extract data columns from dataset schema
-  const dataColumns: ColumnDefinition[] = useMemo(() => {
+// ✅ CORRECT: Safe data extraction
+const dataColumns: ColumnDefinition[] = useMemo(() => {
   if (!datasetSchemaResponse?.success || !datasetSchemaResponse.schema) {
     return [];
   }
 
   const schema = datasetSchemaResponse.schema;
   
-  if (Array.isArray(schema.columns)) {
+  if (Array.isArray(schema.columns) && schema.columns.length > 0) {
     return convertApiColumnsToColumnDefinitions(schema.columns);
   }
 
-  if (schema.fields && Array.isArray(schema.fields)) {
+  if (schema.fields && Array.isArray(schema.fields) && schema.fields.length > 0) {
     return convertApiColumnsToColumnDefinitions(schema.fields);
   }
 
   return [];
-}, [datasetSchemaResponse]);
+}, [datasetSchemaResponse])
+
+  // ADD THIS DEBUG BLOCK RIGHT HERE
+console.log('🔍 Schema Query Debug:', {
+  datasetId,
+  shouldFetchSchema,
+  schemaLoading,
+  schemaError,
+  datasetSchemaResponse,
+  responseStructure: datasetSchemaResponse ? Object.keys(datasetSchemaResponse) : 'no response'
+});
+
+// If you have datasetSchemaResponse, also log its structure
+if (datasetSchemaResponse) {
+  console.log('📋 Schema Response Details:', {
+    hasColumns: 'columns' in datasetSchemaResponse,
+    hasSchema: 'schema' in datasetSchemaResponse,
+    hasData: 'data' in datasetSchemaResponse,
+    allKeys: Object.keys(datasetSchemaResponse),
+    fullResponse: datasetSchemaResponse
+  });
+}
 
 
  const chartCustomizationDataColumns = useMemo(() => {
-  console.log('🚀 Chart Builder Debug - Before rendering ChartCustomizationPanel:', {
-    dataColumns: dataColumns?.length || 'undefined/empty',
-    dataColumnsActual: dataColumns,
-    selectedDataset: chartConfig.dataset?.id,
-    chartType: chartConfig.chartType,
-    library: chartConfig.library
-  });
   return dataColumns.map(col => ({
     name: col.name,
     display_name: col.display_name,

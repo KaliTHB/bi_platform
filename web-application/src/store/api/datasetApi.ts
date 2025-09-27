@@ -352,7 +352,10 @@ export const datasetApi = createApi({
   },
   string
 >({
+  // ✅ CORRECT: Uses proper endpoint with include_schema=true
   query: (datasetId) => `/${datasetId}?include_schema=true`,
+  
+  // ✅ CORRECT: Proper transform response function
   transformResponse: (response: BackendApiResponse<Dataset>) => {
     if (!response.success || !response.data) {
       throw new Error(response.message || 'Failed to fetch dataset schema');
@@ -369,7 +372,7 @@ export const datasetApi = createApi({
       }
     };
     
-    // Parse schema_json if available
+    // ✅ CORRECT: Parses schema_json safely
     if (response.data.schema_json) {
       try {
         const parsedSchema = JSON.parse(response.data.schema_json);
@@ -377,7 +380,6 @@ export const datasetApi = createApi({
         schema.fields = parsedSchema.fields || [];
       } catch (error) {
         console.warn('Failed to parse schema_json:', error);
-        // Provide default columns
         schema.columns = [];
       }
     }
@@ -388,11 +390,14 @@ export const datasetApi = createApi({
       message: 'Schema retrieved successfully'
     };
   },
+  
+  // ✅ CORRECT: Proper cache tags
   providesTags: (result, error, datasetId) => [
     { type: 'DatasetSchema', id: datasetId },
     { type: 'Dataset', id: datasetId },
   ],
 }),
+
 
 
     // GET /api/datasets/{id}/columns
