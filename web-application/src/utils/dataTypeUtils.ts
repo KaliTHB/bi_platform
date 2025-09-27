@@ -160,31 +160,28 @@ export const validateFieldType = (dataType: string, expectedTypes: string[]): bo
 /**
  * Get expected data types for a field mapping
  */
-export const getExpectedDataTypes = (mappingType: string): string[] => {
-  switch (mappingType.toLowerCase()) {
+const getExpectedDataTypes = (mappingType: string): string[] => {
+  switch (mappingType) {
     case 'x-axis':
-    case 'xfield':
+      return ['categorical', 'date', 'numeric'];
+    case 'y-axis':
+      return ['numeric']; // ← Y-axis should accept numeric fields
     case 'category':
       return ['categorical', 'date', 'string'];
-    
-    case 'y-axis': 
-    case 'yfield':
     case 'value':
+      return ['numeric'];
+    case 'series':
+      return ['categorical'];
+    case 'time':
+      return ['date'];
     case 'measure':
       return ['numeric'];
-      
     case 'size':
     case 'radius':
       return ['numeric'];
-      
     case 'color':
       return ['categorical', 'numeric'];
-      
-    case 'date':
-    case 'time':
-      return ['date'];
-      
     default:
-      return ['categorical', 'numeric', 'date']; // Allow all types by default
+      return ['categorical', 'numeric', 'date']; // Return all types for 'any'
   }
 };

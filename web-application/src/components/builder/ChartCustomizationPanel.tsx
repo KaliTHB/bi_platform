@@ -31,6 +31,7 @@ import {
   ShowChart
 } from '@mui/icons-material';
 
+import {getExpectedDataTypes} from '@/utils/dataTypeUtils'
 // ============================================================================
 // FALLBACK UTILITY FUNCTIONS
 // ============================================================================
@@ -50,20 +51,6 @@ const isDateType = (type: string): boolean => {
   return dateTypes.includes(type?.toLowerCase());
 };
 
-const getExpectedDataTypes = (mappingType: string): string[] => {
-  switch (mappingType) {
-    case 'x-axis':
-      return ['categorical', 'date', 'numeric'];
-    case 'y-axis':
-      return ['numeric'];
-    case 'category':
-      return ['categorical'];
-    case 'value':
-      return ['numeric'];
-    default:
-      return ['categorical', 'numeric', 'date'];
-  }
-};
 
 const createDefaultConfigSchema = (chartType: string) => ({
   type: 'object',
@@ -364,19 +351,39 @@ const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = ({
   }, [dataColumns, hasDataColumns]);
 
   const getFieldOptionsForMapping = (mappingType: string) => {
-    const expectedTypes = getExpectedDataTypes(mappingType);
-    
-    return fieldOptions.filter(option => 
-      expectedTypes.some(type => {
-        switch (type) {
-          case 'numeric': return option.isNumeric;
-          case 'categorical': return option.isCategorical;
-          case 'date': return option.isDate;
-          default: return true;
-        }
-      })
-    );
-  };
+  const expectedTypes = getExpectedDataTypes(mappingType);
+  
+  console.log('🔍 Field Options Mapping Debug:', {
+    mappingType,
+    expectedTypes,
+    availableFields: fieldOptions.length,
+    fieldOptions: fieldOptions.map(f => ({ name: f.value, type: f.type, isNumeric: f.isNumeric }))
+  });
+  
+  const filteredOptions = fieldOptions.filter(option => 
+    expectedTypes.some(type => {
+      switch (type) {
+        case 'numeric': 
+          return option.isNumeric;
+        case 'categorical': 
+          return option.isCategorical;
+        case 'date':  // ← THIS WAS THE MISSING PART!
+          return option.isDate;
+        default:
+          return true; // Allow all types if not specified
+      }
+    })
+  );
+  
+  console.log('🔍 Filtered Options Result:', {
+    mappingType,
+    originalCount: fieldOptions.length,
+    filteredCount: filteredOptions.length,
+    filteredOptions: filteredOptions.map(f => ({ name: f.value, type: f.type }))
+  });
+  
+  return filteredOptions;
+};
 
   // ============================================================================
   // HELPER FUNCTIONS FOR PROPERTY GROUPING
