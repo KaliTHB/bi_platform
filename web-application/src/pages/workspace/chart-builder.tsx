@@ -82,6 +82,7 @@ import {
 
 // Import dataset API for fetching column information
 import { useGetDatasetQuery, useGetDatasetSchemaQuery } from '@/store/api/datasetApi';
+import { convertApiColumnsToColumnDefinitions } from '@/utils/datasetUtils';
 
 import { useAuth } from '@/hooks/useAuth';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -253,6 +254,34 @@ const ChartBuilderPage: React.FC = () => {
   const { user, workspace } = useAuth();
   const { hasPermission } = usePermissions();
 
+  // Chart configuration state
+  const [chartConfig, setChartConfig] = useState<ExtendedChartConfiguration>({
+    name: 'New Chart',
+    customization: defaultCustomization,
+    dimensions: {},
+    metrics: [{ metric: 'COUNT(*)', aggregation: 'count' }],
+    chartType: undefined,
+    library: 'echarts',
+    fieldAssignments: {},
+    aggregations: {},
+    customConfig: {},
+    fieldMapping: {}, // NEW: Added for workflow
+    layout: {
+      columns: 12,
+      gap: 16,
+      padding: 16
+    },
+    theme: {
+      primary_color: '#1976d2',
+      background_color: '#ffffff',
+      text_color: '#333333'
+    }
+  });
+
+  const [activeTab, setActiveTab] = useState(0);
+  const [isAltered, setIsAltered] = useState(false);
+
+
   // Extract chart ID from URL for edit mode
   const chartId = router.query.chartId as string | undefined;
   const isEditMode = Boolean(chartId);
@@ -315,38 +344,22 @@ const ChartBuilderPage: React.FC = () => {
 
   // Extract data columns from dataset schema
   const dataColumns: ColumnDefinition[] = useMemo(() => {
-    if (!datasetSchemaResponse?.success || !datasetSchemaResponse.schema) {
-      return [];
-    }
-
-    const schema = datasetSchemaResponse.schema;
-    
-    if (Array.isArray(schema.columns)) {
-      return schema.columns.map((col: any) => ({
-        name: col.name || col.column_name,
-        type: col.type || col.data_type || 'string',
-        nullable: col.nullable !== false,
-        description: col.description || col.comment,
-        aggregatable: ['number', 'integer', 'float', 'decimal', 'bigint'].includes((col.type || '').toLowerCase()),
-        groupable: true,
-        filterable: true
-      }));
-    }
-
-    if (schema.fields && Array.isArray(schema.fields)) {
-      return schema.fields.map((field: any) => ({
-        name: field.name,
-        type: field.type || 'string',
-        nullable: field.nullable !== false,
-        description: field.description,
-        aggregatable: ['number', 'integer', 'float', 'decimal', 'bigint'].includes((field.type || '').toLowerCase()),
-        groupable: true,
-        filterable: true
-      }));
-    }
-
+  if (!datasetSchemaResponse?.success || !datasetSchemaResponse.schema) {
     return [];
-  }, [datasetSchemaResponse]);
+  }
+
+  const schema = datasetSchemaResponse.schema;
+  
+  if (Array.isArray(schema.columns)) {
+    return convertApiColumnsToColumnDefinitions(schema.columns);
+  }
+
+  if (schema.fields && Array.isArray(schema.fields)) {
+    return convertApiColumnsToColumnDefinitions(schema.fields);
+  }
+
+  return [];
+}, [datasetSchemaResponse]);
 
   const [tabValue, setTabValue] = useState(0);
   const [showDatasetSelector, setShowDatasetSelector] = useState(false);
@@ -382,33 +395,6 @@ const ChartBuilderPage: React.FC = () => {
     message: '',
     severity: 'info'
   });
-
-  // Chart configuration state
-  const [chartConfig, setChartConfig] = useState<ExtendedChartConfiguration>({
-    name: 'New Chart',
-    customization: defaultCustomization,
-    dimensions: {},
-    metrics: [{ metric: 'COUNT(*)', aggregation: 'count' }],
-    chartType: undefined,
-    library: 'echarts',
-    fieldAssignments: {},
-    aggregations: {},
-    customConfig: {},
-    fieldMapping: {}, // NEW: Added for workflow
-    layout: {
-      columns: 12,
-      gap: 16,
-      padding: 16
-    },
-    theme: {
-      primary_color: '#1976d2',
-      background_color: '#ffffff',
-      text_color: '#333333'
-    }
-  });
-
-  const [activeTab, setActiveTab] = useState(0);
-  const [isAltered, setIsAltered] = useState(false);
 
   // Create chart object for ChartContainer (when in edit mode)
   const chartForContainer: Chart | null = useMemo(() => {
