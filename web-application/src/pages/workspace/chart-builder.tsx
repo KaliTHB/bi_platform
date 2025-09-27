@@ -836,7 +836,6 @@ const ChartBuilderPage: React.FC = () => {
   const FieldMappingSection = () => {
     const chartTypeObj = typeof chartConfig.chartType === 'string' ? 
       null : chartConfig.chartType;
-    
     if (!chartTypeObj?.requiredFields || !chartConfig.dataset?.columns) {
       return null;
     }
@@ -1558,11 +1557,11 @@ const ChartBuilderPage: React.FC = () => {
                         <ChartCustomizationPanel
                           chartType={typeof chartConfig.chartType === 'string' ? 
                             chartConfig.chartType : 
-                            chartConfig.chartType?.id || 'bar'
+                            chartConfig.chartType?.id || ''
                           }
+                          chartLibrary={chartConfig.library || ''} 
                           configuration={chartConfig.customization}
                           onChange={handleCustomizationChange}
-                          dataset={chartConfig.dataset}
                           dataColumns={dataColumns}
                         />
                       )}
