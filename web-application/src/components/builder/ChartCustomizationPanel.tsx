@@ -826,64 +826,6 @@ export const ChartCustomizationPanel: React.FC<ChartCustomizationPanelProps> = (
     return path.includes('Field') || path.includes('field');
   };
 
-  const getExpectedDataTypes = (mappingType: string): string[] => {
-      switch (mappingType.toLowerCase()) {
-        case 'x-axis':
-        case 'xfield':
-        case 'category':
-          return ['categorical', 'date', 'string'];
-        
-        case 'y-axis': 
-        case 'yfield':
-        case 'value':
-        case 'measure':
-          return ['numeric'];
-          
-        case 'size':
-        case 'radius':
-          return ['numeric'];
-          
-        case 'color':
-          return ['categorical', 'numeric'];
-          
-        case 'date':
-        case 'time':
-          return ['date'];
-          
-        default:
-          return ['categorical', 'numeric', 'date']; // Allow all types by default
-      }
-    };
-
-  const isNumericType = (dataType: string): boolean => {
-    return ['number', 'integer', 'decimal', 'float', 'double', 'bigint'].some(type => 
-      dataType.toLowerCase().includes(type)
-    );
-  };
-
-  const isCategoricalType = (dataType: string): boolean => {
-    return ['string', 'varchar', 'text', 'char'].some(type => 
-      dataType.toLowerCase().includes(type)
-    );
-  };
-
-  const isDateType = (dataType: string): boolean => {
-    return ['date', 'datetime', 'timestamp', 'time'].some(type => 
-      dataType.toLowerCase().includes(type)
-    );
-  };
-
-  const validateFieldType = (dataType: string, expectedTypes: string[]): boolean => {
-    return expectedTypes.some(type => {
-      switch (type) {
-        case 'numeric': return isNumericType(dataType);
-        case 'categorical': return isCategoricalType(dataType);
-        case 'date': return isDateType(dataType);
-        default: return true;
-      }
-    });
-  };
-
   // ============================================================================
   // FALLBACK AND DEFAULT CONFIGURATIONS
   // ============================================================================
