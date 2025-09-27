@@ -1,5 +1,5 @@
 // web-application/src/pages/workspace/chart-builder.tsx
-// COMPLETE IMPLEMENTATION WITH RTK QUERY + CHARTCONTAINER COMPONENT INTEGRATION
+// COMPLETE IMPLEMENTATION WITH RTK QUERY + CHARTCONTAINER COMPONENT INTEGRATION + WORKFLOW STATES
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/router';
@@ -64,10 +64,12 @@ import {
   Error as ErrorIcon,
   CheckCircle as SuccessIcon,
   Timeline as MetricsIcon,
-  Fullscreen as FullscreenIcon
+  Fullscreen as FullscreenIcon,
+  Check as CheckIcon,
+  Warning as WarningIcon
 } from '@mui/icons-material';
 
-// ✅ RTK Query imports for all chart operations
+// RTK Query imports for all chart operations
 import { 
   useCreateChartMutation,
   useUpdateChartMutation,
@@ -78,7 +80,7 @@ import {
   useRefreshChartMutation
 } from '@/store/api/chartApi';
 
-// ✅ Import dataset API for fetching column information
+// Import dataset API for fetching column information
 import { useGetDatasetQuery, useGetDatasetSchemaQuery } from '@/store/api/datasetApi';
 
 import { useAuth } from '@/hooks/useAuth';
@@ -86,7 +88,7 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { PermissionGate } from '@/components/shared/PermissionGate';
 import NavbarOnlyLayout from '@/components/layout/NavbarOnlyLayout';
 
-// ✅ Import ChartContainer component with all its functionality
+// Import ChartContainer component with all its functionality
 import { ChartContainer } from '@/components/dashboard/ChartContainer';
 
 // Import builder components
@@ -110,7 +112,7 @@ import {
 import { Dataset, ColumnDefinition } from '@/types/dataset.types';
 
 // =============================================================================
-// TYPES AND INTERFACES - ALL EXISTING TYPES
+// TYPES AND INTERFACES - ALL EXISTING TYPES + WORKFLOW STATE
 // =============================================================================
 
 interface Dataset {
@@ -134,6 +136,7 @@ interface ChartType {
   icon: React.ReactNode;
   category: string;
   tags: string[];
+  requiredFields?: string[]; // NEW: For workflow validation
 }
 
 interface TimeRange {
@@ -172,6 +175,17 @@ interface ChartCustomization {
   enableCrosshair: boolean;
 }
 
+// NEW: Workflow State Interface
+interface WorkflowState {
+  step: 'initial' | 'configuration' | 'preview';
+  datasetSelected: boolean;
+  chartTypeSelected: boolean;
+  fieldsConfigured: boolean;
+  configurationComplete: boolean;
+  previewMode: boolean;
+  previewLoading: boolean;
+}
+
 interface Widget {
   id: string;
   type: 'chart' | 'text' | 'image' | 'table' | 'metric' | 'filter';
@@ -201,10 +215,13 @@ interface ExtendedChartConfiguration {
   
   // Builder-specific properties
   dataset?: Dataset;
-  chartType?: ChartType | string; // ✅ FIXED: Allow undefined
+  chartType?: ChartType | string;
   timeRange?: TimeRange;
   customization: ChartCustomization;
   customQuery?: string;
+  
+  // NEW: Field mapping for workflow
+  fieldMapping?: Record<string, string>;
   
   // Chart configuration properties
   dimensions: {
@@ -295,7 +312,7 @@ const ChartBuilderPage: React.FC = () => {
   const chartId = router.query.chartId as string | undefined;
   const isEditMode = Boolean(chartId);
 
-  // ✅ RTK Query hooks for all chart operations
+  // RTK Query hooks for all chart operations
   const [createChart, { 
     isLoading: createLoading, 
     error: createError,
@@ -326,7 +343,7 @@ const ChartBuilderPage: React.FC = () => {
     }
   );
 
-  // ✅ RTK Query for dataset schema/columns - FIXED with complete null safety
+  // RTK Query for dataset schema/columns - FIXED with complete null safety
   const shouldFetchSchema = Boolean(chartConfig?.dataset?.id);
   const datasetId = chartConfig?.dataset?.id;
   
@@ -335,20 +352,19 @@ const ChartBuilderPage: React.FC = () => {
     isLoading: schemaLoading,
     error: schemaError
   } = useGetDatasetSchemaQuery(
-    datasetId || 'skip', // Provide fallback value that won't cause issues
+    datasetId || 'skip',
     { 
-      skip: !shouldFetchSchema, // Skip when no dataset selected
+      skip: !shouldFetchSchema,
       refetchOnMountOrArgChange: true 
     }
   );
 
-  // ✅ Extract data columns from dataset schema
+  // Extract data columns from dataset schema
   const dataColumns: ColumnDefinition[] = useMemo(() => {
     if (!datasetSchemaResponse?.success || !datasetSchemaResponse.schema) {
       return [];
     }
 
-    // Convert schema to ColumnDefinition format
     const schema = datasetSchemaResponse.schema;
     
     if (Array.isArray(schema.columns)) {
@@ -357,14 +373,12 @@ const ChartBuilderPage: React.FC = () => {
         type: col.type || col.data_type || 'string',
         nullable: col.nullable !== false,
         description: col.description || col.comment,
-        // Additional properties for chart building
         aggregatable: ['number', 'integer', 'float', 'decimal', 'bigint'].includes((col.type || '').toLowerCase()),
         groupable: true,
         filterable: true
       }));
     }
 
-    // Fallback: try to extract from other schema formats
     if (schema.fields && Array.isArray(schema.fields)) {
       return schema.fields.map((field: any) => ({
         name: field.name,
@@ -379,6 +393,7 @@ const ChartBuilderPage: React.FC = () => {
 
     return [];
   }, [datasetSchemaResponse]);
+
   const [tabValue, setTabValue] = useState(0);
   const [showDatasetSelector, setShowDatasetSelector] = useState(false);
   const [showChartSelector, setShowChartSelector] = useState(false);
@@ -386,11 +401,22 @@ const ChartBuilderPage: React.FC = () => {
   const [previewMode, setPreviewMode] = useState(false);
   const [widgets, setWidgets] = useState<Widget[]>([]);
   
-  // ✅ ChartContainer specific state
+  // ChartContainer specific state
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
   const [showPerformanceMetrics, setShowPerformanceMetrics] = useState(true);
   const [globalFilters, setGlobalFilters] = useState<Record<string, any>>({});
+
+  // NEW: Workflow state - this is the key addition
+  const [workflowState, setWorkflowState] = useState<WorkflowState>({
+    step: 'initial',
+    datasetSelected: false,
+    chartTypeSelected: false,
+    fieldsConfigured: false,
+    configurationComplete: false,
+    previewMode: false,
+    previewLoading: false
+  });
 
   // Notification state
   const [notification, setNotification] = useState<{
@@ -409,11 +435,12 @@ const ChartBuilderPage: React.FC = () => {
     customization: defaultCustomization,
     dimensions: {},
     metrics: [{ metric: 'COUNT(*)', aggregation: 'count' }],
-    chartType: undefined, // ✅ FIXED: Default to undefined instead of 'bar'
+    chartType: undefined,
     library: 'echarts',
     fieldAssignments: {},
     aggregations: {},
     customConfig: {},
+    fieldMapping: {}, // NEW: Added for workflow
     layout: {
       columns: 12,
       gap: 16,
@@ -429,7 +456,7 @@ const ChartBuilderPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState(0);
   const [isAltered, setIsAltered] = useState(false);
 
-  // ✅ Create chart object for ChartContainer (when in edit mode)
+  // Create chart object for ChartContainer (when in edit mode)
   const chartForContainer: Chart | null = useMemo(() => {
     if (!isEditMode || !existingChartResponse?.success || !existingChartResponse.chart) {
       return null;
@@ -453,7 +480,74 @@ const ChartBuilderPage: React.FC = () => {
     };
   }, [existingChartResponse, isEditMode]);
 
-  // ✅ Load existing chart data when editing (RTK Query integration)
+  // =============================================================================
+  // NEW: WORKFLOW STATE MANAGEMENT
+  // =============================================================================
+
+  // Update workflow state when configuration changes
+  useEffect(() => {
+    const datasetSelected = !!chartConfig.dataset;
+    const chartTypeSelected = !!(typeof chartConfig.chartType === 'string' ? 
+      chartConfig.chartType : chartConfig.chartType?.id);
+    
+    // Check if required fields are configured
+    const chartTypeObj = typeof chartConfig.chartType === 'string' ? 
+      null : chartConfig.chartType;
+    const requiredFields = chartTypeObj?.requiredFields || [];
+    const fieldsConfigured = requiredFields.length === 0 || 
+      requiredFields.every(field => chartConfig.fieldMapping?.[field]);
+    
+    const configurationComplete = datasetSelected && chartTypeSelected && fieldsConfigured;
+    
+    // Determine current step
+    let step: WorkflowState['step'] = 'initial';
+    if (workflowState.previewMode) {
+      step = 'preview';
+    } else if (configurationComplete) {
+      step = 'configuration';
+    }
+
+    setWorkflowState(prev => ({
+      ...prev,
+      step,
+      datasetSelected,
+      chartTypeSelected,
+      fieldsConfigured,
+      configurationComplete
+    }));
+  }, [chartConfig, workflowState.previewMode]);
+
+  // Get workflow message and button state
+  const workflowMessage = useMemo(() => {
+    if (workflowState.step === 'preview') {
+      return 'Preview Mode - Live chart rendering';
+    }
+    
+    if (!workflowState.datasetSelected) {
+      return 'Select a dataset to get started';
+    }
+    
+    if (!workflowState.chartTypeSelected) {
+      return 'Select a chart type';
+    }
+    
+    if (!workflowState.fieldsConfigured) {
+      const chartTypeObj = typeof chartConfig.chartType === 'string' ? 
+        null : chartConfig.chartType;
+      const requiredFields = chartTypeObj?.requiredFields || [];
+      return `Configure required fields: ${requiredFields.join(', ')}`;
+    }
+    
+    if (workflowState.configurationComplete) {
+      return 'Configuration complete! Click Preview to see your chart';
+    }
+    
+    return 'Configure your chart';
+  }, [workflowState, chartConfig.chartType]);
+
+  const isPreviewDisabled = !workflowState.configurationComplete || workflowState.previewLoading;
+
+  // Load existing chart data when editing (RTK Query integration)
   useEffect(() => {
     if (isEditMode && existingChartResponse?.success && existingChartResponse.chart) {
       const chart = existingChartResponse.chart;
@@ -473,14 +567,15 @@ const ChartBuilderPage: React.FC = () => {
         },
         customization: chart.config_json?.customization || prev.customization,
         timeRange: chart.config_json?.timeRange,
-        customQuery: chart.config_json?.customQuery
+        customQuery: chart.config_json?.customQuery,
+        fieldMapping: chart.config_json?.fieldMapping || {} // NEW: Load field mapping
       }));
 
       setIsAltered(false);
     }
   }, [existingChartResponse, isEditMode]);
 
-  // ✅ Handle RTK Query success/error notifications
+  // Handle RTK Query success/error notifications
   useEffect(() => {
     if (createSuccess) {
       setNotification({
@@ -517,13 +612,14 @@ const ChartBuilderPage: React.FC = () => {
   }, [createError, updateError, isEditMode]);
 
   // =============================================================================
-  // EVENT HANDLERS - ALL EXISTING FUNCTIONALITY PRESERVED
+  // EVENT HANDLERS - ALL EXISTING FUNCTIONALITY + WORKFLOW ENHANCEMENTS
   // =============================================================================
 
   const handleDatasetSelect = (dataset: Dataset) => {
     setChartConfig(prev => ({
       ...prev,
-      dataset
+      dataset,
+      fieldMapping: {} // Reset field mapping when dataset changes
     }));
     setIsAltered(true);
   };
@@ -531,7 +627,20 @@ const ChartBuilderPage: React.FC = () => {
   const handleChartTypeSelect = (chartType: ChartType) => {
     setChartConfig(prev => ({
       ...prev,
-      chartType
+      chartType,
+      fieldMapping: {} // Reset field mapping when chart type changes
+    }));
+    setIsAltered(true);
+  };
+
+  // NEW: Field mapping handler
+  const handleFieldMappingChange = (field: string, value: string) => {
+    setChartConfig(prev => ({
+      ...prev,
+      fieldMapping: {
+        ...prev.fieldMapping,
+        [field]: value
+      }
     }));
     setIsAltered(true);
   };
@@ -560,7 +669,44 @@ const ChartBuilderPage: React.FC = () => {
     setIsAltered(true);
   };
 
-  // ✅ ChartContainer event handlers
+  // NEW: Preview handlers
+  const handlePreview = async () => {
+    setWorkflowState(prev => ({
+      ...prev,
+      previewMode: true,
+      previewLoading: true
+    }));
+    setPreviewMode(true);
+
+    // Simulate preview loading
+    setTimeout(() => {
+      setWorkflowState(prev => ({
+        ...prev,
+        previewLoading: false
+      }));
+    }, 1500);
+  };
+
+  const handleSaveAndPreview = async () => {
+    // Save first
+    await handleSaveChart();
+    
+    // Then preview if save was successful
+    if (!createError && !updateError) {
+      await handlePreview();
+    }
+  };
+
+  const handleExitPreview = () => {
+    setWorkflowState(prev => ({
+      ...prev,
+      previewMode: false,
+      previewLoading: false
+    }));
+    setPreviewMode(false);
+  };
+
+  // ChartContainer event handlers
   const handleChartRefreshComplete = useCallback((success: boolean) => {
     if (success) {
       setNotification({
@@ -579,7 +725,6 @@ const ChartBuilderPage: React.FC = () => {
 
   const handleChartInteraction = useCallback((event: ChartInteractionEvent) => {
     console.log('Chart interaction:', event);
-    // Handle chart interactions like clicks, hovers, etc.
     if (event.type === 'click') {
       setNotification({
         open: true,
@@ -589,12 +734,12 @@ const ChartBuilderPage: React.FC = () => {
     }
   }, []);
 
-  // ✅ Manual refresh trigger
+  // Manual refresh trigger
   const handleManualRefresh = useCallback(() => {
     setRefreshTrigger(prev => prev + 1);
   }, []);
 
-  // ✅ UPDATED: Save chart function with RTK Query
+  // Save chart function with RTK Query
   const handleSaveChart = async () => {
     if (!workspace?.id || !chartConfig.dataset) {
       setNotification({
@@ -606,7 +751,6 @@ const ChartBuilderPage: React.FC = () => {
     }
 
     try {
-      // Prepare chart data for API (same structure as before)
       const chartData: Partial<Chart> = {
         name: chartConfig.name,
         display_name: chartConfig.name,
@@ -625,22 +769,20 @@ const ChartBuilderPage: React.FC = () => {
           customConfig: chartConfig.customConfig,
           timeRange: chartConfig.timeRange,
           customQuery: chartConfig.customQuery,
-          customization: chartConfig.customization
+          customization: chartConfig.customization,
+          fieldMapping: chartConfig.fieldMapping // NEW: Save field mapping
         },
         is_active: true
       };
 
       if (isEditMode && chartId) {
-        // Update existing chart using RTK Query
         await updateChart({ 
           id: chartId, 
           data: chartData 
         }).unwrap();
       } else {
-        // Create new chart using RTK Query
         const result = await createChart(chartData).unwrap();
         
-        // If creation was successful and we have a new chart ID, navigate to edit mode
         if (result.success && result.chart?.id) {
           router.replace(`/workspace/${workspace.slug}/chart-builder?chartId=${result.chart.id}`);
         }
@@ -648,11 +790,10 @@ const ChartBuilderPage: React.FC = () => {
       
     } catch (error) {
       console.error('Failed to save chart:', error);
-      // Error handling is done in useEffect hooks above
     }
   };
 
-  // ✅ Export chart function using RTK Query
+  // Export chart function using RTK Query
   const handleExportChart = async (format: 'png' | 'svg' | 'pdf' | 'json' = 'png') => {
     if (!chartId) {
       setNotification({
@@ -675,7 +816,6 @@ const ChartBuilderPage: React.FC = () => {
       }).unwrap();
 
       if (result.success && result.export?.download_url) {
-        // Open download URL in new tab
         window.open(result.export.download_url, '_blank');
         
         setNotification({
@@ -692,6 +832,47 @@ const ChartBuilderPage: React.FC = () => {
         severity: 'error'
       });
     }
+  };
+
+  // =============================================================================
+  // NEW: FIELD MAPPING COMPONENT
+  // =============================================================================
+
+  const FieldMappingSection = () => {
+    const chartTypeObj = typeof chartConfig.chartType === 'string' ? 
+      null : chartConfig.chartType;
+    
+    if (!chartTypeObj?.requiredFields || !chartConfig.dataset?.columns) {
+      return null;
+    }
+
+    return (
+      <Paper sx={{ mx: 2, mb: 2, p: 2 }}>
+        <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <SettingsIcon />
+          Field Mapping
+          {workflowState.fieldsConfigured && (
+            <CheckIcon color="success" fontSize="small" />
+          )}
+        </Typography>
+        
+        {chartTypeObj.requiredFields.map((field) => (
+          <FormControl key={field} fullWidth sx={{ mb: 2 }}>
+            <InputLabel>{field}</InputLabel>
+            <Select
+              value={chartConfig.fieldMapping?.[field] || ''}
+              onChange={(e) => handleFieldMappingChange(field, e.target.value)}
+            >
+              {dataColumns.map((column) => (
+                <MenuItem key={column.name} value={column.name}>
+                  {column.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        ))}
+      </Paper>
+    );
   };
 
   // EXISTING widget functions - NO CHANGES
@@ -762,13 +943,77 @@ const ChartBuilderPage: React.FC = () => {
     );
   };
 
-  // ✅ ENHANCED ChartPreview component with ChartContainer integration
+  // ENHANCED ChartPreview component with ChartContainer integration + WORKFLOW STATES
   const ChartPreview = () => {
+    // NEW: Loading state for workflow
+    if (workflowState.previewLoading) {
+      return (
+        <Box sx={{ 
+          height: '100%', 
+          display: 'flex', 
+          flexDirection: 'column',
+          alignItems: 'center', 
+          justifyContent: 'center',
+          backgroundColor: 'grey.50',
+          borderRadius: 1,
+          border: 1,
+          borderColor: 'primary.main'
+        }}>
+          <LinearProgress sx={{ width: '60%', mb: 2 }} />
+          <Typography variant="h6" sx={{ mb: 1 }}>
+            Rendering Chart...
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Loading live data and generating visualization
+          </Typography>
+        </Box>
+      );
+    }
+
+    // NEW: Preview mode with exit option
+    if (workflowState.previewMode && workflowState.configurationComplete && !isEditMode) {
+      const chartTypeObj = typeof chartConfig.chartType === 'string' ? 
+        null : chartConfig.chartType;
+
+      return (
+        <Box sx={{ 
+          height: '100%', 
+          display: 'flex', 
+          flexDirection: 'column',
+          alignItems: 'center', 
+          justifyContent: 'center',
+          backgroundColor: 'grey.50',
+          borderRadius: 1,
+          border: 1,
+          borderColor: 'primary.main'
+        }}>
+          {chartTypeObj?.icon && (
+            <Box sx={{ fontSize: 64, color: 'primary.main', mb: 2 }}>
+              {chartTypeObj.icon}
+            </Box>
+          )}
+          <Typography variant="h6" sx={{ mb: 1, color: 'primary.main' }}>
+            {chartTypeObj?.name || chartConfig.chartType} Preview
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Live chart rendering with {chartConfig.dataset?.name}
+          </Typography>
+          <Button
+            variant="outlined"
+            onClick={handleExitPreview}
+            size="small"
+          >
+            Exit Preview
+          </Button>
+        </Box>
+      );
+    }
+
     // Only show ChartContainer with header when we have a SAVED chart in edit mode
     if (isEditMode && chartForContainer && chartId) {
       return (
         <Box sx={{ height: '100%', minHeight: 400, display: 'flex', flexDirection: 'column' }}>
-          {/* ✅ Chart Info Header - ONLY for saved charts */}
+          {/* Chart Info Header - ONLY for saved charts */}
           <Paper
             variant="outlined"
             sx={{
@@ -816,7 +1061,7 @@ const ChartBuilderPage: React.FC = () => {
             </Box>
           </Paper>
 
-          {/* ✅ ChartContainer - In separate container below header */}
+          {/* ChartContainer - In separate container below header */}
           <Paper
             variant="outlined"
             sx={{
@@ -827,6 +1072,7 @@ const ChartBuilderPage: React.FC = () => {
             }}
           >
             <ChartContainer
+              title= {chartConfig.name}
               chart={chartForContainer}
               refreshTrigger={refreshTrigger}
               onRefreshComplete={handleChartRefreshComplete}
@@ -987,7 +1233,6 @@ const ChartBuilderPage: React.FC = () => {
     );
   };
 
-  // EXISTING breadcrumbs - NO CHANGES
   const breadcrumbs = [
     { label: 'Workspace', href: `/workspace/overview` },
     { label: 'Charts', href: `/workspace/charts` },
@@ -1010,7 +1255,7 @@ const ChartBuilderPage: React.FC = () => {
   }
 
   // =============================================================================
-  // RENDER - WITH CHARTCONTAINER INTEGRATION
+  // RENDER - WITH WORKFLOW STATUS BAR + CHARTCONTAINER INTEGRATION
   // =============================================================================
 
   return (
@@ -1028,25 +1273,61 @@ const ChartBuilderPage: React.FC = () => {
           </Box>
         )}
 
-        <Box sx={{ display: 'flex', flexGrow: 1 }}>
-          {/* Left Panel - Configuration - NO CHANGES TO STRUCTURE */}
-          <Box sx={{ width: 350, borderRight: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
+        {/* NEW: Workflow Status Bar */}
+        <Box sx={{ 
+          p: 2, 
+          backgroundColor: 'background.paper',
+          borderBottom: 1,
+          borderColor: 'divider'
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             
-            {/* Header with Save Button - ENHANCED */}
-            <Box sx={{ 
-              p: 3, 
-              borderBottom: 1, 
-              borderColor: 'divider',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              backgroundColor: 'background.paper'
-            }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Typography variant="h6">
-                  {chartConfig.name}
-                </Typography>
-                {isAltered && (
+            {/* Left side - Status indicators */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Chip
+                icon={workflowState.datasetSelected ? <CheckIcon /> : <DatasetIcon />}
+                label="Dataset"
+                color={workflowState.datasetSelected ? 'success' : 'default'}
+                variant={workflowState.datasetSelected ? 'filled' : 'outlined'}
+                size="small"
+              />
+              <Chip
+                icon={workflowState.chartTypeSelected ? <CheckIcon /> : <ChartIcon />}
+                label="Chart Type"
+                color={workflowState.chartTypeSelected ? 'success' : 'default'}
+                variant={workflowState.chartTypeSelected ? 'filled' : 'outlined'}
+                size="small"
+              />
+              {(() => {
+                const chartTypeObj = typeof chartConfig.chartType === 'string' ? 
+                  null : chartConfig.chartType;
+                return chartTypeObj?.requiredFields && chartTypeObj.requiredFields.length > 0 && (
+                  <Chip
+                    icon={workflowState.fieldsConfigured ? <CheckIcon /> : <SettingsIcon />}
+                    label="Fields"
+                    color={workflowState.fieldsConfigured ? 'success' : 'default'}
+                    variant={workflowState.fieldsConfigured ? 'filled' : 'outlined'}
+                    size="small"
+                  />
+                );
+              })()}
+            </Box>
+
+            {/* Center - Workflow message */}
+            <Alert 
+              severity={
+                workflowState.step === 'preview' ? 'info' : 
+                workflowState.configurationComplete ? 'success' : 'warning'
+              }
+              variant="outlined"
+              sx={{ minWidth: 300 }}
+            >
+              {workflowMessage}
+            </Alert>
+
+            {/* Right side - Preview buttons */}
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              {isAltered && (
                   <Chip 
                     label="Unsaved" 
                     color="warning" 
@@ -1054,27 +1335,16 @@ const ChartBuilderPage: React.FC = () => {
                     variant="outlined"
                   />
                 )}
-              </Box>
-              
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button 
-                  variant="outlined" 
-                  startIcon={<PreviewIcon />}
-                  size="small"
-                  onClick={() => setPreviewMode(!previewMode)}
-                >
-                  Preview
-                </Button>
-                <Button 
-                  variant="contained" 
-                  startIcon={<SaveIcon />}
-                  onClick={handleSaveChart}
-                  disabled={createLoading || updateLoading || !chartConfig.dataset}
-                  size="small"
-                >
-                  {createLoading || updateLoading ? 'Saving...' : 'Save'}
-                </Button>
-                {isEditMode && chartId && (
+              <Button
+                variant="outlined"
+                startIcon={<PreviewIcon />}
+                onClick={handlePreview}
+                disabled={isPreviewDisabled}
+                size="small"
+              >
+                Preview Chart
+              </Button>
+              {isEditMode && chartId && (
                   <Button 
                     variant="outlined" 
                     size="small"
@@ -1084,9 +1354,23 @@ const ChartBuilderPage: React.FC = () => {
                     Export
                   </Button>
                 )}
-              </Box>
+              <Button
+                variant="contained"
+                startIcon={<SaveIcon />}
+                onClick={handleSaveAndPreview}
+                disabled={isPreviewDisabled}
+                size="small"
+              >
+                Save & Preview
+              </Button>
             </Box>
+          </Box>
+        </Box>
 
+        <Box sx={{ display: 'flex', flexGrow: 1 }}>
+          {/* Left Panel - Configuration - NO CHANGES TO STRUCTURE */}
+          <Box sx={{ width: 350, borderRight: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
+            
             {/* Tabs - NO CHANGES */}
             <Tabs 
               value={tabValue} 
@@ -1100,13 +1384,17 @@ const ChartBuilderPage: React.FC = () => {
               <Tab label="Customize" />
             </Tabs>
 
-            {/* Tab Panels - NO CHANGES TO STRUCTURE */}
+            {/* Tab Panels - ENHANCED WITH WORKFLOW */}
             <TabPanel value={tabValue} index={0}>
+              
               {/* Dataset Selection */}
               <Paper sx={{ m: 2, p: 2 }}>
                 <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <DatasetIcon />
                   Dataset
+                  {workflowState.datasetSelected && (
+                    <CheckIcon color="success" fontSize="small" />
+                  )}
                 </Typography>
                 
                 <Card 
@@ -1138,6 +1426,9 @@ const ChartBuilderPage: React.FC = () => {
                 <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <ChartIcon />
                   Visualization Type
+                  {workflowState.chartTypeSelected && (
+                    <CheckIcon color="success" fontSize="small" />
+                  )}
                 </Typography>
                 
                 <Card 
@@ -1169,6 +1460,9 @@ const ChartBuilderPage: React.FC = () => {
                 </Card>
               </Paper>
 
+              {/* NEW: Field Mapping - Only shows when needed */}
+              <FieldMappingSection />
+
               {/* Time Range */}
               <Paper sx={{ mx: 2, mb: 2, p: 2 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
@@ -1188,7 +1482,7 @@ const ChartBuilderPage: React.FC = () => {
                 </Typography>
               </Paper>
 
-              {/* ✅ Manual Refresh Control */}
+              {/* Manual Refresh Control */}
               {isEditMode && chartForContainer && (
                 <Paper sx={{ mx: 2, mb: 2, p: 2 }}>
                   <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1241,7 +1535,7 @@ const ChartBuilderPage: React.FC = () => {
                 <Box sx={{ width: '100%', borderRight: 1, borderColor: 'divider', overflow: 'auto' }}>
                   {chartConfig.dataset && chartConfig.chartType ? (
                     <Box>
-                      {/* ✅ Show loading state while fetching schema */}
+                      {/* Show loading state while fetching schema */}
                       {schemaLoading ? (
                         <Box sx={{ p: 3, textAlign: 'center' }}>
                           <CircularProgress size={24} />
@@ -1255,15 +1549,16 @@ const ChartBuilderPage: React.FC = () => {
                             Unable to load dataset schema. Some customization options may be limited.
                           </Alert>
                           <ChartCustomizationPanel
-                            chartType={typeof chartConfig.chartType === 'string' ? 
-                              chartConfig.chartType : 
-                              chartConfig.chartType?.id || 'bar'
-                            }
-                            customization={chartConfig.customization}
-                            onChange={handleCustomizationChange}
-                            dataset={chartConfig.dataset}
-                            dataColumns={[]} // Empty array when schema fails to load
-                          />
+  chartType={typeof chartConfig.chartType === 'string' ? 
+    chartConfig.chartType : 
+    chartConfig.chartType?.id || 'bar'
+  }
+  chartLibrary={chartConfig.library || 'echarts'} // ← ADD THIS LINE
+  configuration={chartConfig.customization} // ← Also note: should be 'configuration', not 'customization'
+  onChange={handleCustomizationChange}
+  dataset={chartConfig.dataset}
+  dataColumns={dataColumns}
+/>
                         </Box>
                       ) : (
                         <ChartCustomizationPanel
@@ -1274,7 +1569,7 @@ const ChartBuilderPage: React.FC = () => {
                           customization={chartConfig.customization}
                           onChange={handleCustomizationChange}
                           dataset={chartConfig.dataset}
-                          dataColumns={dataColumns} // ✅ COMPLETED: Pass actual data columns
+                          dataColumns={dataColumns}
                         />
                       )}
                     </Box>
@@ -1298,7 +1593,7 @@ const ChartBuilderPage: React.FC = () => {
                             variant="outlined" 
                             startIcon={<DatasetIcon />}
                             onClick={() => {
-                              setTabValue(0); // Switch to Data tab
+                              setTabValue(0);
                               setShowDatasetSelector(true);
                             }}
                           >
@@ -1311,7 +1606,7 @@ const ChartBuilderPage: React.FC = () => {
                             variant="outlined" 
                             startIcon={<ChartIcon />}
                             onClick={() => {
-                              setTabValue(0); // Switch to Data tab
+                              setTabValue(0);
                               setShowChartSelector(true);
                             }}
                           >
@@ -1326,7 +1621,7 @@ const ChartBuilderPage: React.FC = () => {
             </TabPanel>
           </Box>
 
-          {/* ✅ Main Canvas - NOW WITH CHARTCONTAINER INTEGRATION */}
+          {/* Main Canvas - WITH CHARTCONTAINER INTEGRATION + WORKFLOW STATES */}
           <Box sx={{ flexGrow: 1, p: 3, overflow: 'auto' }}>
             <Paper
               variant="outlined"
