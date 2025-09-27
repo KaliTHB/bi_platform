@@ -115,20 +115,6 @@ import { Dataset, ColumnDefinition } from '@/types/dataset.types';
 // TYPES AND INTERFACES - ALL EXISTING TYPES + WORKFLOW STATE
 // =============================================================================
 
-interface Dataset {
-  id: string;
-  name: string;
-  display_name?: string;
-  type: 'virtual' | 'physical';
-  schema: string;
-  connection: string;
-  owner: {
-    id: string;
-    name: string;
-    avatar?: string;
-  };
-}
-
 interface ChartType {
   id: string;
   name: string;
@@ -331,17 +317,17 @@ const ChartBuilderPage: React.FC = () => {
 
   // Load existing chart in edit mode
   const {
-    data: existingChartResponse,
-    isLoading: chartLoading,
-    error: chartError,
-    refetch: refetchChart
-  } = useGetChartQuery(
-    chartId!,
-    { 
-      skip: !chartId || !isEditMode,
-      refetchOnMountOrArgChange: true 
-    }
-  );
+  data: existingChartResponse,
+  isLoading: chartLoading,
+  error: chartError,
+  refetch: refetchChart
+} = useGetChartQuery(
+  chartId!,
+  { 
+    skip: !chartId || !isEditMode,
+    refetchOnMountOrArgChange: true 
+  }
+);
 
   // RTK Query for dataset schema/columns - FIXED with complete null safety
   const shouldFetchSchema = Boolean(chartConfig?.dataset?.id);

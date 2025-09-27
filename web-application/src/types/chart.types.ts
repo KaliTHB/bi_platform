@@ -1593,3 +1593,33 @@ export interface ChartValidationResult {
   errors: ValidationError[];
   warnings?: ValidationWarning[];
 }
+
+export interface GetChartResponse {
+  success: boolean;
+  chart: {
+    id: string;
+    workspace_id: string; // ✅ Make sure API returns this
+    name: string;
+    display_name: string;
+    description?: string;
+    chart_type: string;
+    chart_library: string;
+    dataset_ids: string[];
+    config_json: Record<string, any>;
+    is_active: boolean;
+    version: number; // ✅ Make sure API returns this
+    
+    // ✅ These should be provided with defaults if missing:
+    query_config?: QueryConfig;
+    visualization_config?: VisualizationConfig;
+    filters?: ChartFilter[];
+    tags?: string[];
+    is_public?: boolean;
+    
+    created_by: string;
+    updated_by?: string;
+    created_at: string;
+    updated_at: string;
+  };
+  message?: string;
+}

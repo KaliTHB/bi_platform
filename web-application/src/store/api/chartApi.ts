@@ -1,6 +1,6 @@
 // web-application/src/store/api/chartApi.ts - COMPLETE UPDATED VERSION
 import { baseApi } from './baseApi';
-import {ChartRefreshOptions, ChartExportOptions, ChartData, Chart } from '@/types/chart.types';
+import {ChartRefreshOptions, ChartExportOptions, ChartData, Chart, GetChartResponse } from '@/types/chart.types';
 
 
 
