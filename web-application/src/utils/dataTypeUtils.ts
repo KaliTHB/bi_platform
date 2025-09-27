@@ -157,31 +157,228 @@ export const validateFieldType = (dataType: string, expectedTypes: string[]): bo
   });
 };
 
+// ============================================================================
+// EXPECTED DATA TYPES FOR CHART MAPPINGS
+// ============================================================================
+
 /**
- * Get expected data types for a field mapping
+ * Returns the expected data types for different chart mapping types
+ * @param mappingType - The type of mapping (x-axis, y-axis, series, etc.)
+ * @returns Array of expected data types
  */
-const getExpectedDataTypes = (mappingType: string): string[] => {
-  switch (mappingType) {
-    case 'x-axis':
-      return ['categorical', 'date', 'numeric'];
-    case 'y-axis':
-      return ['numeric']; // ← Y-axis should accept numeric fields
-    case 'category':
-      return ['categorical', 'date', 'string'];
-    case 'value':
-      return ['numeric'];
-    case 'series':
-      return ['categorical'];
-    case 'time':
-      return ['date'];
-    case 'measure':
-      return ['numeric'];
-    case 'size':
-    case 'radius':
-      return ['numeric'];
-    case 'color':
-      return ['categorical', 'numeric'];
-    default:
-      return ['categorical', 'numeric', 'date']; // Return all types for 'any'
+export const getExpectedDataTypes = (mappingType: string): string[] => {
+  const mappingTypeMap: Record<string, string[]> = {
+    // X-Axis mappings - typically categorical or date
+    'x-axis': ['categorical', 'date'],
+    'xField': ['categorical', 'date'],
+    'x_axis': ['categorical', 'date'],
+    'xAxis': ['categorical', 'date'],
+    'X-Axis': ['categorical', 'date'],
+    'category': ['categorical', 'date'],
+    'dimension': ['categorical', 'date'],
+    
+    // Y-Axis mappings - typically numeric
+    'y-axis': ['numeric'],
+    'yField': ['numeric'],
+    'y_axis': ['numeric'],
+    'yAxis': ['numeric'],
+    'Y-Axis': ['numeric'],
+    'value': ['numeric'],
+    'valueField': ['numeric'],
+    'measure': ['numeric'],
+    'metric': ['numeric'],
+    
+    // Series mappings - typically categorical
+    'series': ['categorical'],
+    'color': ['categorical'],
+    'group': ['categorical'],
+    'legend': ['categorical'],
+    
+    // Size mappings - typically numeric
+    'size': ['numeric'],
+    'radius': ['numeric'],
+    'area': ['numeric'],
+    
+    // Date/Time mappings
+    'date': ['date'],
+    'time': ['date'],
+    'timestamp': ['date'],
+    
+    // Special mappings
+    'label': ['categorical', 'numeric'],
+    'tooltip': ['categorical', 'numeric', 'date'],
+    'filter': ['categorical', 'numeric', 'date', 'boolean'],
+    
+    // Geographic mappings
+    'latitude': ['numeric'],
+    'longitude': ['numeric'],
+    'location': ['categorical'],
+    'region': ['categorical'],
+    
+    // Default fallback
+    'any': ['categorical', 'numeric', 'date', 'boolean']
+  };
+
+  // Normalize the mapping type to lowercase for lookup
+  const normalizedType = mappingType.toLowerCase();
+  
+  // Check for exact match first
+  if (mappingTypeMap[normalizedType]) {
+    return mappingTypeMap[normalizedType];
   }
+  
+  // Check for partial matches
+  for (const [key, types] of Object.entries(mappingTypeMap)) {
+    if (normalizedType.includes(key.toLowerCase()) || key.toLowerCase().includes(normalizedType)) {
+      return types;
+    }
+  }
+  
+  // Default fallback - allow any type
+  return mappingTypeMap['any'];
+};
+
+// ============================================================================
+// DATA TYPE CONVERSION UTILITIES
+// ============================================================================
+
+export const convertDataType = (value: any, targetType: string): any => {
+  if (value == null) return null;
+  
+  switch (targetType.toLowerCase()) {
+    case 'number':
+    case 'numeric':
+    case 'integer':
+    case 'float':
+      return Number(value);
+    
+    case 'string':
+    case 'text':
+      return String(value);
+    
+    case 'boolean':
+    case 'bool':
+      if (typeof value === 'boolean') return value;
+      if (typeof value === 'string') {
+        return value.toLowerCase() === 'true' || value === '1';
+      }
+      return Boolean(value);
+    
+    case 'date':
+    case 'datetime':
+      return new Date(value);
+    
+    default:
+      return value;
+  }
+};
+
+export const inferDataType = (values: any[]): string => {
+  if (!values || values.length === 0) return 'string';
+  
+  // Filter out null/undefined values
+  const validValues = values.filter(v => v != null);
+  if (validValues.length === 0) return 'string';
+  
+  // Check if all values are numbers
+  if (validValues.every(v => !isNaN(Number(v)) && isFinite(Number(v)))) {
+    return 'number';
+  }
+  
+  // Check if all values are booleans
+  if (validValues.every(v => typeof v === 'boolean' || v === 'true' || v === 'false' || v === 0 || v === 1)) {
+    return 'boolean';
+  }
+  
+  // Check if all values are dates
+  if (validValues.every(v => !isNaN(Date.parse(v)))) {
+    return 'date';
+  }
+  
+  // Default to string
+  return 'string';
+};
+
+// ============================================================================
+// FIELD VALIDATION UTILITIES
+// ============================================================================
+
+export const validateFieldForMapping = (
+  fieldType: string, 
+  mappingType: string
+): { isValid: boolean; reason?: string } => {
+  const expectedTypes = getExpectedDataTypes(mappingType);
+  
+  let fieldCategory = 'unknown';
+  if (isNumericType(fieldType)) fieldCategory = 'numeric';
+  else if (isCategoricalType(fieldType)) fieldCategory = 'categorical';
+  else if (isDateType(fieldType)) fieldCategory = 'date';
+  else if (isBooleanType(fieldType)) fieldCategory = 'boolean';
+  
+  const isValid = expectedTypes.includes(fieldCategory);
+  
+  return {
+    isValid,
+    reason: isValid ? undefined : `Field type '${fieldType}' (${fieldCategory}) is not compatible with mapping '${mappingType}'. Expected: ${expectedTypes.join(', ')}`
+  };
+};
+
+// ============================================================================
+// CHART SPECIFIC UTILITIES
+// ============================================================================
+
+export const getRecommendedMappings = (chartType: string): Record<string, string[]> => {
+  const chartMappings: Record<string, Record<string, string[]>> = {
+    'bar': {
+      'x-axis': ['categorical'],
+      'y-axis': ['numeric'],
+      'series': ['categorical']
+    },
+    'line': {
+      'x-axis': ['date', 'categorical'],
+      'y-axis': ['numeric'],
+      'series': ['categorical']
+    },
+    'pie': {
+      'category': ['categorical'],
+      'value': ['numeric']
+    },
+    'scatter': {
+      'x-axis': ['numeric'],
+      'y-axis': ['numeric'],
+      'size': ['numeric'],
+      'color': ['categorical', 'numeric']
+    },
+    'area': {
+      'x-axis': ['date', 'categorical'],
+      'y-axis': ['numeric'],
+      'series': ['categorical']
+    },
+    'heatmap': {
+      'x-axis': ['categorical'],
+      'y-axis': ['categorical'],
+      'value': ['numeric']
+    }
+  };
+  
+  return chartMappings[chartType.toLowerCase()] || {
+    'x-axis': ['categorical', 'date'],
+    'y-axis': ['numeric']
+  };
+};
+
+// ============================================================================
+// EXPORT ALL FUNCTIONS
+// ============================================================================
+
+export default {
+  isNumericType,
+  isCategoricalType,
+  isDateType,
+  isBooleanType,
+  getExpectedDataTypes,
+  convertDataType,
+  inferDataType,
+  validateFieldForMapping,
+  getRecommendedMappings
 };
