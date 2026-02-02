@@ -1,0 +1,89 @@
+// File: web-application/src/constants/permissions.ts
+// Role-based access control constants
+
+export const USER_ROLES = {
+  SUPER_ADMIN: 'super_admin',
+  WORKSPACE_ADMIN: 'workspace_admin',
+  EDITOR: 'editor',
+  ANALYST: 'analyst',
+  VIEWER: 'viewer',
+} as const;
+
+export const PERMISSIONS = {
+  // Workspace permissions
+  WORKSPACE_CREATE: 'workspace:create',
+  WORKSPACE_READ: 'workspace:read',
+  WORKSPACE_UPDATE: 'workspace:update',
+  WORKSPACE_DELETE: 'workspace:delete',
+  WORKSPACE_INVITE: 'workspace:invite',
+  
+  // Dashboard permissions
+  DASHBOARD_CREATE: 'dashboard:create',
+  DASHBOARD_READ: 'dashboard:read',
+  DASHBOARD_UPDATE: 'dashboard:update',
+  DASHBOARD_DELETE: 'dashboard:delete',
+  DASHBOARD_SHARE: 'dashboard:share',
+  
+  // Data source permissions
+  DATASOURCE_CREATE: 'datasource:create',
+  DATASOURCE_READ: 'datasource:read',
+  DATASOURCE_UPDATE: 'datasource:update',
+  DATASOURCE_DELETE: 'datasource:delete',
+  DATASOURCE_TEST: 'datasource:test',
+  
+  // User management
+  USER_INVITE: 'user:invite',
+  USER_REMOVE: 'user:remove',
+  USER_ROLE_CHANGE: 'user:role_change',
+} as const;
+
+export const ROLE_PERMISSIONS = {
+  [USER_ROLES.SUPER_ADMIN]: [
+    // All permissions
+    ...Object.values(PERMISSIONS),
+  ],
+  
+  [USER_ROLES.WORKSPACE_ADMIN]: [
+    PERMISSIONS.WORKSPACE_READ,
+    PERMISSIONS.WORKSPACE_UPDATE,
+    PERMISSIONS.WORKSPACE_INVITE,
+    PERMISSIONS.DASHBOARD_CREATE,
+    PERMISSIONS.DASHBOARD_READ,
+    PERMISSIONS.DASHBOARD_UPDATE,
+    PERMISSIONS.DASHBOARD_DELETE,
+    PERMISSIONS.DASHBOARD_SHARE,
+    PERMISSIONS.DATASOURCE_CREATE,
+    PERMISSIONS.DATASOURCE_READ,
+    PERMISSIONS.DATASOURCE_UPDATE,
+    PERMISSIONS.DATASOURCE_DELETE,
+    PERMISSIONS.USER_INVITE,
+    PERMISSIONS.USER_REMOVE,
+    PERMISSIONS.USER_ROLE_CHANGE,
+  ],
+  
+  [USER_ROLES.EDITOR]: [
+    PERMISSIONS.WORKSPACE_READ,
+    PERMISSIONS.DASHBOARD_CREATE,
+    PERMISSIONS.DASHBOARD_READ,
+    PERMISSIONS.DASHBOARD_UPDATE,
+    PERMISSIONS.DASHBOARD_SHARE,
+    PERMISSIONS.DATASOURCE_CREATE,
+    PERMISSIONS.DATASOURCE_READ,
+    PERMISSIONS.DATASOURCE_UPDATE,
+    PERMISSIONS.DATASOURCE_TEST,
+  ],
+  
+  [USER_ROLES.ANALYST]: [
+    PERMISSIONS.WORKSPACE_READ,
+    PERMISSIONS.DASHBOARD_READ,
+    PERMISSIONS.DASHBOARD_SHARE,
+    PERMISSIONS.DATASOURCE_READ,
+    PERMISSIONS.DATASOURCE_TEST,
+  ],
+  
+  [USER_ROLES.VIEWER]: [
+    PERMISSIONS.WORKSPACE_READ,
+    PERMISSIONS.DASHBOARD_READ,
+    PERMISSIONS.DATASOURCE_READ,
+  ],
+} as const;

@@ -1,0 +1,95 @@
+// File: .github/workflows/ci.yml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web-application/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: ./web-application
+        run: npm ci
+      
+      - name: Run linting
+        working-directory: ./web-application
+        run: npm run lint
+      
+      - name: Run type checking
+        working-directory: ./web-application
+        run: npm run type-check
+      
+      - name: Run tests
+        working-directory: ./web-application
+        run: npm run test
+      
+      - name: Build application
+        working-directory: ./web-application
+        run: npm run build
+
+  test-backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          DB_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: api-services/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: ./api-services
+        run: npm ci
+      
+      - name: Run linting
+        working-directory: ./api-services
+        run: npm run lint
+      
+      - name: Run tests
+        working-directory: ./api-services
+        run: npm run test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test
+          REDIS_HOST: localhost
+      
+      - name: Build application
+        working-directory: ./api-services
+        run: npm run build

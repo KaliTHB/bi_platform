@@ -1,0 +1,14 @@
+{
+  "typescript.preferences.useLabelDetailsInCompletionEntries": true,
+  "typescript.preferences.includePackageJsonAutoImports": "off",
+  "typescript.tsc.autoDetect": "off",
+  "typescript.surveys.enabled": false,
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/**": true,
+    "**/tmp/**": true,
+    "**/.next/**": true,
+    "**/dist/**": true
+  }
+}
